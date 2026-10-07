@@ -139,9 +139,18 @@ frames). No session ran on 2026-10-05 or 2026-10-06.
    `net_check.cpp`, `docs/intro.md` section 12), so a PC in that state can
    start the game.
 
+10. **A crash at each exit of the game** (found 2026-10-07 in the event log
+    of Windows, not looked at yet). Each session of that morning ended with
+    two crash records at the time the game closed: the faulting modules are
+    `VirtualDesktop.LibOVRRT32_1.dll` (exception `0xc0000409`) and
+    `nvd3dum.dll_unloaded` (`0xc0000005`). The player sees nothing, because
+    the game is closing. Find the order in which the mod, the OpenXR
+    session and the Direct3D devices shut down, and whether the crash can
+    cut the last lines of the log or a write of the profile.
+
 Items 2, 3 and 7 are one package (the choice of a far target). Items 4 and
-6 are one package (the zoom of the God view). Items 1, 5 and 8 each need
-their own research.
+6 are one package (the zoom of the God view). Items 1, 5, 8 and 10 each
+need their own research.
 
 ## Headset test, 2026-10-04, evening
 
