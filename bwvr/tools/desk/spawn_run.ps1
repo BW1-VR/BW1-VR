@@ -5,7 +5,7 @@
 #   spawn_run.ps1 -Name sp3 -Dll <dll> -Choice keep -Seconds 110
 #   spawn_run.ps1 -Name x1 -Dll <dll> -Choice keep -Steps "shot@3000+1" -Set "teleport=0;god_spawn=0"
 #
-# -Choice chooses the row of the start dialog (a render of 2560 by 1440):
+# -Choice chooses the row of the start dialog:
 #   normal  "Start the game normally" (no click on a row, only OK)
 #   select  "Skip straight to the Creature select"
 #   skip    "Skip all of the Creature tutorial"
@@ -28,34 +28,23 @@ param(
     [int]$WaitMinutes = 45
 )
 $sp = Split-Path -Parent $MyInvocation.MyCommand.Path
-# The rows of the dialog are 44 pixels apart, which is 6 cm of the fake hand
-# at 100 cm. The first pose (yaw 8, pitch 1) points at a row, and the second
-# pose (yaw 8, pitch -6) points at OK.
-$rows = @{ select = '-16,2,100'; skip = '-16,-4,100'; keep = '-16,-10,100' }
-$ok = '-17,-13,100'
-# A RENDER OF 2880 BY 2880 (the agent "hand", 2026-10-04). The launcher set
-# the game to the size of the headset after a headset session. The dialog is
-# at the middle of the render, and the same hand point is 16 pixels more to
-# the left of it there: the pointer was at 1284 1507 and the box of the row
-# "Keep your old Creature" is from 1287 to 1307, so the click on the row
-# missed and the game started normally (run hn1, a picture in run hcal). The
-# rows need the hand 2 cm more to the right. The size is the game's own
-# setting, and the script only reads it.
-try {
-    $setup = Get-ItemProperty 'HKCU:\Software\Lionhead Studios Ltd\Black & White\BWSetup' -ErrorAction Stop
-    if ([int]$setup.ScreenW -eq 2880 -and [int]$setup.ScreenH -eq 2880) {
-        $rows = @{ select = '-14,2,100'; skip = '-14,-4,100'; keep = '-14,-10,100' }
-        "the game renders 2880 by 2880, so the rows of the dialog are at -14 cm"
-    }
-} catch { }
+# The points of the start dialog depend on the render size. dialog.ps1
+# measures a new size one time (one run of 45 s) and gives the points. The
+# first pose (yaw 8, pitch 1) points at a row, and the second pose (yaw 8,
+# pitch -6) points at OK.
+. (Join-Path $sp 'dialog.ps1')
+if (-not $script:DialogRowY.ContainsKey($Choice)) { "no choice named $Choice"; exit 7 }
+if (-not (Confirm-DialogCalibration -Dll $Dll)) {
+    'NOT RUN: the start dialog is not measured for this render size'
+    exit 9
+}
+$dp = Get-DialogPoints $Choice
 if ($Choice -eq 'normal') {
     $dialog = 'pose2@500+1 point@520+1 trigger@560+8'
-    $first = $ok
-} elseif ($rows.ContainsKey($Choice)) {
-    $dialog = 'point@400+1 trigger@440+8 pose2@500+1 point@520+1 trigger@560+8'
-    $first = "$($rows[$Choice]) $ok"
+    $first = $dp.Ok
 } else {
-    "no choice named $Choice"; exit 7
+    $dialog = 'point@400+1 trigger@440+8 pose2@500+1 point@520+1 trigger@560+8'
+    $first = "$($dp.Row) $($dp.Ok)"
 }
 $extra = @{
     play_mode = 4; fake_controller = 2; controller_hand = 1; intro_vr = 0

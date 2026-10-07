@@ -55,7 +55,8 @@ calls it. It keeps these rules, and a new script must keep them too:
 | --- | --- |
 | `desk_run.ps1`, `desk_test.ps1` | One run of a DLL with extra ini keys. The base of each other script |
 | `idle_seconds.ps1` | The time since the last input |
-| `game.ps1` | Gives the game folder (`local\game-path.txt`) |
+| `game.ps1` | Gives the game folder (`local\game-path.txt`), and stops a run on a game folder where the launcher never ran |
+| `dialog.ps1` | Measures the start dialog for a render size, and gives the dialog points |
 | `verify_build.ps1` | The three runs before a merge |
 | `aim_run.ps1`, `aim_queue.ps1` | The far fetch, the aim presets, the teleport |
 | `throw_queue.ps1` | Throws and landings |
@@ -67,9 +68,17 @@ The scripted controller is driven by ini keys: `fake_controller_script` (words
 such as `point@400+1`, `grip@3100+101`, `trigger@440+8`: the word, the frame
 at which it starts, and how many frames it lasts), `fake_controller_points`
 and the test keys of each area. `docs/controllers.md` and `docs/hand.md` list
-the words and the keys. The recipes depend on the render size of the game:
-the scripts read it and choose the points of the start dialog for 2880 by
-2880 or 2560 by 1440.
+the words and the keys.
+
+**The start dialog and the render size.** Each run of a new game must click
+the start dialog. The dialog has one size in pixels, and the scripted hand
+gets its places in whole cm, so the right places change with the render
+size (the launcher takes that size from the headset). `dialog.ps1` solves
+this: for a render size that it has not seen, it makes one run of 45 s in
+which the hand points at six places, reads the pixel of each from the log,
+and keeps the result in `local\dialog-calibration.json`. Each run script
+takes its dialog points from there. You do nothing for it. It happens one
+time for each new render size.
 
 The scripts came from one developer's working folder in October 2026.
 `verify_build.ps1` and the scripts that it calls are the maintained set. A

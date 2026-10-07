@@ -58,6 +58,21 @@ game folder. The mod itself started and reached the start dialog. The test
 settings were removed, and the scripts now stop with "NOT RUN" and say what
 to do (`Test-BwvrFirstStart` in `bwvr/tools/desk/game.ps1`).
 
+**The dialog points for each render size.** After the first start with the
+launcher, the new install rendered 2208 by 2208, a third size, and the
+clicks on the start dialog missed again (they were fixed numbers for 2560 by
+1440 and 2880 by 2880). `bwvr/tools/desk/dialog.ps1` now measures a render
+size that it has not seen with one run of 45 s (the hand points at six
+places, and the log gives the pixel of each) and keeps the result in
+`local\dialog-calibration.json`. At 2208 by 2208 one cm of the hand is 7.18
+pixels. Each run script takes its dialog points from there.
+
+With the measured points, `verify_build.ps1` passed on the new install at
+18:28 (runs aim2n6, tlandn6 and vcn6, 53 to 87 fps): the dialog closed in
+each run, the far fetch, the teleport 0.000 units off, a throw that landed,
+and the leash click on the Creature. The settings file and the profile of
+the owner were put back after each run.
+
 Open on the day of the move: the workflow `release.yml` has not run yet. The
 GitHub login of the terminal has no `workflow` scope, so a push that changes
 a file in `.github/workflows` needs `gh auth refresh -h github.com -s workflow`
@@ -102,6 +117,33 @@ His logs are saved as `buck-2026-10-07\` in the session scratchpad: 22
 files, with seven sessions of that morning. The long ones ended at 11:14
 (42578 frames, 120 lines about wood), 11:29 (67782 frames) and 11:44 (66904
 frames). No session ran on 2026-10-05 or 2026-10-06.
+
+### The top of the list (2026-10-07, 18:12, after a session on the new install)
+
+The owner played the build of `bfa6ecd` in the headset on the new install
+("it worked well") and put these five first:
+
+- **T1. A far grab of a tree leaves the "pit" behind.** A tree that is
+  pulled out of the ground has a model at its roots, the base with a hole
+  in it. While the tree has it, the tree can be planted again. It falls off
+  when the tree is thrown or dropped, and then the tree cannot be planted
+  again. A pull at a distance leaves that model behind.
+- **T2. A moving object still cannot be grabbed**, at a distance or with
+  the hand at it. His test: a tree that he dropped and that slides on the
+  ground takes no interaction at all.
+- **T3. One tree at a time from a forest.** The take of many trees is not in
+  the plain game, so the default goes back to one tree (`forest_take=0`).
+  Done on the same day: the code of the take stays, and `forest_take=1`
+  turns it on.
+- **T4. The hints must answer faster.** When the hand is over a thing, the
+  hint must change at once to what the player can do with that thing.
+- **T5. The hint of a tree must be true.** The card can say that the open
+  grip plants the tree, and then the tree falls to the ground. At times a
+  tree will not plant at all and falls over. He wants more feedback: the
+  player must see when a release plants the tree and when it does not.
+  This goes with T1.
+
+### The list of the session of the video
 
 1. **A soft lock in the quest of the sailors.** The sailors asked for wood,
    and he dropped a tree on their boat. After that the boat took no wood,

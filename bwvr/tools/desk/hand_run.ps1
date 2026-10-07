@@ -25,7 +25,16 @@ param(
 $sp = Split-Path -Parent $MyInvocation.MyCommand.Path
 # The start dialog at a render of 2560 by 1440.
 $dialog = 'point@400+1 trigger@440+8 pose2@500+1 point@520+1 trigger@560+8'
-$d1 = '-16,2,100'; $d2 = '-17,-13,100'
+# The two dialog points depend on the render size. dialog.ps1 measures a
+# new size one time and gives them. -Box is a place of the dialog at 2560 by
+# 1440 and is not corrected.
+. (Join-Path $sp 'dialog.ps1')
+if (-not (Confirm-DialogCalibration -Dll $Dll)) {
+    'NOT RUN: the start dialog is not measured for this render size'
+    exit 9
+}
+$dp = Get-DialogPoints 'select'
+$d1 = $dp.Row; $d2 = $dp.Ok
 $extra = @{
     play_mode = 4; fake_controller = 2; controller_hand = 1; intro_vr = 0
     fake_controller_yaw = 8; fake_controller_pitch = 1
