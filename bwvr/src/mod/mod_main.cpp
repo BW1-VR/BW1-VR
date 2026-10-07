@@ -185,6 +185,8 @@ void GdiWatchSetEnabled(bool on);
 void GpuBridgeSetEnabled(bool on);
 void Depth24SetWanted(bool on);
 void Depth24Install();
+// net_check.cpp: the game's check for an internet connection.
+void NetCheckInstall(bool own_answer);
 // near_plane.cpp: the near plane of the game camera.
 void NearPlaneSetOptions(int cm_24, int cm_16);
 void NearPlaneInstall();
@@ -376,6 +378,8 @@ int g_fake_mouse_y_pct[2] = {50, 70};
 float g_head_units_per_meter = 7.5f;
 // The near plane in the room, in play modes 0, 3 and 4 (near_plane.cpp).
 int g_near_plane_cm = 5;
+// The mod answers the game's check for an internet connection (net_check.cpp).
+bool g_net_check_own = true;
 int g_near_plane_cm_16 = 10;
 bool g_skip_prepare = false;
 bool g_filter_survey = false;
@@ -1482,6 +1486,12 @@ void EarlyHooks() {
   char path[MAX_PATH];
   lstrcpynA(path, g_dir, MAX_PATH);
   lstrcatA(path, "bwvr.ini");
+  // The game's check for an internet connection can wait forever when a
+  // service of Windows does not answer. The mod answers it by default. It
+  // goes in here, before each other thing, because it must work with vr
+  // turned off too.
+  g_net_check_own = GetPrivateProfileIntA("bwvr", "net_check", 0, path) == 0;
+  NetCheckInstall(g_net_check_own);
   // On by default: it is the tested path, and it falls back to the readback
   // on its own if the device cannot share a texture.
   const bool wanted =
@@ -1503,6 +1513,8 @@ void EarlyHooks() {
 void Startup() {
   ModLog("%s", ProxyBackendNote());
   ModLog("");
+  // A second try, if LHMultiplayerR.dll was not loaded at the first one.
+  NetCheckInstall(g_net_check_own);
 
   ReadSettings();
   // Headless measuring still needs the hooks, even with vr turned off.

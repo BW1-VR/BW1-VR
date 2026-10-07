@@ -572,3 +572,66 @@ each key and each mouse button, so the cause can be his own input [I].
 **Needs the headset:** a press of a real controller. The hands come from
 `XrScreen` there, and no desktop run has them. Also how early in the first
 logo screen the runtime gives input.
+
+## 12. The game stops after the logos: the check for an internet connection (2026-10-07)
+
+**What a player sees.** The logo screens end, the window keeps the last
+picture, and Windows shows the game as "not responding". Nothing more comes
+in `bwvr.log`. This is a fault of the plain game on a PC where one service of
+Windows does not answer. It is not a fault of the mod, but the mod can
+prevent it.
+
+**The cause [V].** `LHMultiplayerR.dll` has a function
+`LHCheckForInternetConnection`. The game calls it on its main thread when
+the logo screens are over. It loads `rasapi32.dll` with `LoadLibraryA`, gets
+`RasEnumConnectionsA` and `RasEnumDevicesA` with `GetProcAddress`, and calls
+them. They ask the Remote Access Connection Manager of Windows (the service
+`RasMan`) for the dial-up and VPN connections and for the modems. Each call
+is an RPC with no time limit.
+On 2026-10-07 the service of the owner's PC did not answer, and the stack of
+the main thread of a hung game was:
+
+```
+ntdll!NtAlpcSendWaitReceivePort
+RPCRT4!NdrClientCall2
+RASMAN!RasConnectionEnum
+rasapi32!RasEnumConnectionsA
+LHMultiplayerR!LHCheckForInternetConnection+0xb8
+```
+
+`rasdial.exe` of Windows waited in the same way, with no game. Each start of
+the game stopped there: in the headset, on the desktop, with the build of
+that day and with a build that ran two days before. The last lines of the log
+were the sound start of the game, so the sound looked like the cause. It was
+not.
+
+**What the mod does (`net_check.cpp`).** The game needs the answer only for
+its internet features of 2001 (the weather of the real world, its servers),
+and those have no server now. So the mod gives the answers itself: no
+connection and no modem. That is what Windows answers on a PC with no
+dial-up connection and no VPN. The mod writes its own function in the import
+slot of `GetProcAddress` of `LHMultiplayerR.dll`. The DLL asks for four
+names (`RasEnumConnections`, `RasEnumConnectionsA`, `RasEnumDevices`,
+`RasEnumDevicesA`), and for each it gets a function of the mod that gives 0
+entries. Each other name goes to the real `GetProcAddress`. The mod does
+this before the game starts (`EarlyHooks`), with `vr=0` too.
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `net_check` | 0 | 0: the mod answers "no connection" at once. 1: the call of the game goes to Windows, as in the plain game |
+
+**The log.** One line at the start says which way is on. The first time the
+game asks, two more lines say "the game asked Windows for its dial-up and
+VPN connections ... The mod answered: none" and the same for its modems.
+
+**Proof [R, runs ras1 and ras2, 2026-10-07].** Both runs were on the PC with
+the service that did not answer (`rasdial.exe` still waited). With an answer
+for the connections only (ras1), the game stopped again: the log had the
+first answer line and nothing after it, because the game asks for the modems
+next. With both answers (ras2), the game went on: the two answer lines, then
+the 3D device, the Lionhead logo, the start dialog and frames at 49 fps (444
+log lines in 60 s, where each start before had about 207).
+
+**To get a PC out of this state** without the mod: start Windows again, or
+start the service "Remote Access Connection Manager" again as an
+administrator.

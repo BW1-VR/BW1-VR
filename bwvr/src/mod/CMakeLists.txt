@@ -54,6 +54,7 @@ add_library(bwvr_mod SHARED
     world_grab.cpp
     tabletop.cpp
     near_plane.cpp
+    net_check.cpp
     gesture_air.cpp
     audio_listener.cpp
     audio_rolloff.cpp
