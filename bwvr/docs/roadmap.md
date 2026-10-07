@@ -37,9 +37,14 @@ Checked on the day of the move: a new clone builds and passes the 2748 math
 checks with no more steps, and `dev.ps1 install`, `status` and `uninstall`
 work on a test game folder (9 files in, the folder as before after it).
 
+`verify_build.ps1` passed from this repo at 16:30 (runs aim2n2, tlandn2 and
+vcn2, 40 to 54 fps): the far fetch, the teleport 0.000 units off, a throw
+that landed, and the leash click on the Creature, with the profile put back
+after each run. It could not pass before the fix of item 9 of the list
+below, because the game could not start on that PC.
+
 Open on the day of the move: the first build on GitHub has not run yet, so
-the workflow is not proven. `verify_build.ps1` did not pass that day, for the cause
-of item 9 of the list below (the game could not start on that PC). Collaborators of a private repo of a personal
+the two workflows are not proven. Collaborators of a private repo of a personal
 account all have write access, and GitHub does not protect `main` there on
 the free plan. An organization gives read access for testers.
 
