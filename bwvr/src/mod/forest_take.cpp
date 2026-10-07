@@ -168,7 +168,9 @@ void SayRule() {
 void ReadSettings() {
   if (g_settings.read) return;
   g_settings.read = true;
-  g_settings.on = IniKey("forest_take", 1) != 0;
+  // Off by default from 2026-10-07: the plain game gives one tree for each
+  // grip, and the owner wants that.
+  g_settings.on = IniKey("forest_take", 0) != 0;
   g_settings.wait_ms = Clamp(IniKey("forest_take_wait_ms", 600), 100, 5000);
   g_settings.step_ms = Clamp(IniKey("forest_take_ms", 400), 50, 5000);
   g_settings.reach_cm = Clamp(IniKey("forest_take_cm", 10), 1, 100);

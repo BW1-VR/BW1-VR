@@ -7685,7 +7685,7 @@ in `hand_direct.cpp`). Until 2026-10-04 the state 8 was not in that list.
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| `forest_take` | 1 | 1 lets the closed grip collect the trees of a forest in one bundle. 0 gives one tree for each grip, as in the plain game |
+| `forest_take` | 0 | 1 lets the closed grip collect the trees of a forest in one bundle. 0 gives one tree for each grip, as in the plain game. The default was 1 until 2026-10-07: the plain game has no take of many trees, and the owner wants its behavior |
 | `forest_take_wait_ms` | 600 | How long the grip stays closed on the first tree before the take starts (100 to 5000) |
 | `forest_take_ms` | 400 | The time from one tree to the next (50 to 5000) |
 | `forest_take_cm` | 10 | The reach of the take from the Hand's point to the body of a tree, in cm of the room (1 to 100) |

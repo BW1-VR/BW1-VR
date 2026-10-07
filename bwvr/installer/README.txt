@@ -216,9 +216,6 @@ how it points:
                       knocks on a house.
   Grip, forest        Put your Hand in a forest and keep the grip
                       closed. After a moment a tree is in your Hand.
-                      Keep the grip closed with more trees at your
-                      Hand: they go in one bundle of wood, tree after
-                      tree. Open the grip to stop.
   Grip, store         On the food or wood of a store, on a field or on
                       a fish farm: keep the grip closed to collect.
                       Open it to stop. The bundle stays in your Hand.
@@ -425,16 +422,14 @@ A forest is a far target too. Point at it, close the grip and pull:
 one tree comes to your Hand. You can also put your Hand in the forest
 and keep the grip closed. The game gives one tree for each press.
 
-The mod adds a take of many trees. Keep the grip closed on a tree,
-with a second tree 10 cm or less from the tip of your index finger.
-After a moment the two trees become one bundle of wood in your Hand.
-Then one more tree goes in at a time, while a tree is in reach. The
-card shows the amount of wood. After a pull from a distance, the
-trees in your aim go in. Open the grip to stop. The bundle stays in
-your Hand. Close and open the grip again to put the bundle down. To
-keep one whole tree, lift it away from the other trees in the first
-half second. Set forest_take=0 in bwvr.ini for one tree for each
-grip.
+The mod can also take many trees with one grip. This is off, because
+the plain game gives one tree for each grip. To turn it on, set
+forest_take=1 in bwvr.ini. Then keep the grip closed on a tree, with a
+second tree 10 cm or less from the tip of your index finger. After a
+moment the two trees become one bundle of wood in your Hand, and one
+more tree goes in at a time. The card shows the amount of wood. Open
+the grip to stop. The bundle stays in your Hand. Close and open the
+grip again to put the bundle down.
 
 A scroll is a far target too. Point at it and close the grip, with no
 pull. The scroll starts, as when you close the grip with the glow on
