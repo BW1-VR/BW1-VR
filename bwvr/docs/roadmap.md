@@ -43,8 +43,16 @@ that landed, and the leash click on the Creature, with the profile put back
 after each run. It could not pass before the fix of item 9 of the list
 below, because the game could not start on that PC.
 
-Open on the day of the move: the first build on GitHub has not run yet, so
-the two workflows are not proven. Collaborators of a private repo of a personal
+The repo was pushed at 17:35. The first build on GitHub failed: the ignore
+rule `build/` had kept `.github/actions/build/action.yml` out of the first
+commit. With the file in (`fce36ad`), the build passed in about two minutes:
+the repo check, the 32 bit build, the math tests, Inno Setup and the
+installer as an artifact of the run.
+
+Open on the day of the move: the workflow `release.yml` has not run yet. The
+GitHub login of the terminal has no `workflow` scope, so a push that changes
+a file in `.github/workflows` needs `gh auth refresh -h github.com -s workflow`
+first. Collaborators of a private repo of a personal
 account all have write access, and GitHub does not protect `main` there on
 the free plan. An organization gives read access for testers.
 
