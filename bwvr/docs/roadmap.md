@@ -49,6 +49,15 @@ commit. With the file in (`fce36ad`), the build passed in about two minutes:
 the repo check, the 32 bit build, the math tests, Inno Setup and the
 installer as an artifact of the run.
 
+**A new install needs one start with the launcher before a desktop run.**
+The owner moved the game to a new folder that day (a clean install, with
+the mod put in by `dev.ps1`). `verify_build.ps1` failed there: the game
+rendered 800 by 600 and had no `bwvr.ini`, because the launcher had never
+run, so no recipe fitted, and the first run left its test settings in the
+game folder. The mod itself started and reached the start dialog. The test
+settings were removed, and the scripts now stop with "NOT RUN" and say what
+to do (`Test-BwvrFirstStart` in `bwvr/tools/desk/game.ps1`).
+
 Open on the day of the move: the workflow `release.yml` has not run yet. The
 GitHub login of the terminal has no `workflow` scope, so a push that changes
 a file in `.github/workflows` needs `gh auth refresh -h github.com -s workflow`

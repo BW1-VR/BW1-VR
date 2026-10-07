@@ -46,6 +46,13 @@ if (Get-Process runblack -ErrorAction SilentlyContinue) {
 $game = Get-BwvrGame
 $ini = Join-Path $game 'bwvr.ini'
 $log = Join-Path $game 'bwvr.log'
+# A game folder in which the launcher of the mod has never run has no
+# settings file to keep and to put back, and the game has no display size.
+$why = Test-BwvrFirstStart $game
+if ($why) {
+    "NOT RUN: $why. Open 'Black & White VR Mod.exe' in the game folder one time, select 'Play in VR', then close the game."
+    exit 8
+}
 $sp = Split-Path -Parent $MyInvocation.MyCommand.Path
 $out = Join-Path $sp ("desk-" + $Name)
 New-Item -ItemType Directory -Force -Path $out | Out-Null

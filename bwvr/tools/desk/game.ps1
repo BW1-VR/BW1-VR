@@ -14,6 +14,22 @@ function Get-BwvrGame {
     return $game
 }
 
+# Empty when the mod was started with its launcher in the game folder at
+# least one time. Else the reason. The launcher writes bwvr.ini and gives the
+# game its display size (a value of the game in the registry, which a test
+# only reads). Before that the game renders 800 by 600 and has no settings
+# file, and no recipe of the scripted controller fits.
+function Test-BwvrFirstStart([string]$Game) {
+    if (-not (Test-Path -LiteralPath (Join-Path $Game 'bwvr.ini'))) {
+        return 'there is no bwvr.ini in the game folder'
+    }
+    $setup = Get-ItemProperty 'HKCU:\Software\Lionhead Studios Ltd\Black & White\BWSetup' -ErrorAction SilentlyContinue
+    if (-not $setup -or -not $setup.ScreenW -or [int]$setup.ScreenW -lt 1024) {
+        return 'the game has no display size from the launcher yet (it renders 800 by 600)'
+    }
+    return ''
+}
+
 # The mod DLL of the build of this repo.
 function Get-BwvrBuiltDll {
     $repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..')).Path

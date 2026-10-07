@@ -23,6 +23,11 @@ $sp = Split-Path -Parent $MyInvocation.MyCommand.Path
 . (Join-Path $sp 'game.ps1')
 if (-not $Dll) { $Dll = Get-BwvrBuiltDll }
 if (-not (Test-Path -LiteralPath $Dll)) { "no DLL at $Dll. Build first: .\dev.ps1 build"; exit 6 }
+$why = Test-BwvrFirstStart (Get-BwvrGame)
+if ($why) {
+    "NOT RUN: $why. Open 'Black & White VR Mod.exe' in the game folder one time, select 'Play in VR', then close the game."
+    exit 8
+}
 
 $aimSet = 'fake_controller_front=1;fake_controller_play_frame=2750;aim_test_touch=700;aim_test_keys=3260;aim_pitch_deg=-0.5;aim_yaw_deg=0.25'
 $aimSteps = 'point@2990+1 aimfar@3000+1 shot@3040+1 grip@3060+90 pull@3100+3 pull@3170+3 point@3200+1 a@3215+30 shot@3230+1'

@@ -4,8 +4,17 @@ These scripts play the game on the desktop with a scripted controller and
 read the log of the mod. No headset is needed. They are the regression test
 for each thing that needs the real game.
 
-Set the game folder first, one time: `.\dev.ps1 setup -Game "<folder>"` at
-the root of the repo.
+Two things first, one time:
+
+1. Set the game folder: `.\dev.ps1 setup -Game "<folder>"` at the root of the
+   repo, then `.\dev.ps1` to put the mod in it.
+2. Start the mod with its launcher: open `Black & White VR Mod.exe` in the
+   game folder, select "Play in VR", then close the game. The launcher
+   writes `bwvr.ini` and gives the game its display size. A new install
+   renders 800 by 600 with no settings file until then, and no recipe fits.
+   The scripts stop with "NOT RUN" and say this when it was not done. For
+   the run with the Creature, the profile of the game also needs a Creature
+   ("Keep your old Creature" in the start dialog).
 
 ## The check before a merge
 

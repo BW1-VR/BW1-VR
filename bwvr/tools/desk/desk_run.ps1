@@ -63,6 +63,11 @@ public static class IdleR {
         "NOT RUN: the PC was used $([int]$idle) s ago. A run needs $MinIdleMinutes minutes with no input."
         exit 3
     }
+    $why = Test-BwvrFirstStart $game
+    if ($why) {
+        "NOT RUN: $why. Open 'Black & White VR Mod.exe' in the game folder one time, select 'Play in VR', then close the game."
+        exit 8
+    }
     if (Get-Process runblack -ErrorAction SilentlyContinue) {
         "NOT RUN: the game is already running. It may be the player's own session."
         exit 4
