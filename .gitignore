@@ -5,8 +5,12 @@
 # Things of one machine: the game folder path, saved logs
 /local/
 
-# Art masters and exports that hold art of the game
+# Folders of one person at the root of the repo. They are never tracked:
+# art masters and exports that hold art of the game, downloaded tools
+# (Ghidra), and downloaded installers and patches of the game.
 /media/
+/tools/
+/Downloads/
 
 # Build output
 build/
