@@ -25,6 +25,10 @@ obj/
 *.dll
 *.exe
 
+# The GitHub action that builds the mod has "build" as the name of its
+# folder. It is source, not build output.
+!/.github/actions/build/
+
 # The third party binaries that the build and the installer need are in the
 # repo. See third_party/README.md.
 !/third_party/**/*.dll

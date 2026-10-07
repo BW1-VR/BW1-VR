@@ -1,0 +1,47 @@
+name: Build the mod
+description: >
+  Checks the repo, builds the mod (32 bit), runs the math tests and makes the
+  installer. It sets INSTALLER (the path of the installer), BUILD_ID (the
+  short commit) and MOD_VERSION for the steps after it.
+
+runs:
+  using: composite
+  steps:
+    - name: Check that the repo holds no file of the game
+      shell: powershell
+      run: |
+        & .\bwvr\tools\check_repo.ps1
+        exit $LASTEXITCODE
+
+    - name: Configure (32 bit)
+      shell: powershell
+      run: cmake -S bwvr -B bwvr/build -G "Visual Studio 17 2022" -A Win32
+
+    - name: Build
+      shell: powershell
+      run: cmake --build bwvr/build --config Release
+
+    - name: Math tests
+      shell: cmd
+      run: bwvr\build\test\controller_math\Release\bwvr_controller_math_test.exe
+
+    - name: Get Inno Setup
+      shell: powershell
+      run: |
+        if (-not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) {
+          choco install innosetup --yes --no-progress
+        }
+
+    - name: Make the installer
+      shell: powershell
+      run: |
+        & .\bwvr\tools\package.ps1 -SkipBuild
+        if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+        $id = (git rev-parse --short=7 HEAD)
+        $made = Get-ChildItem bwvr\out -Filter '*Setup.exe' | Select-Object -First 1
+        $version = ($made.BaseName -replace '^.* (\d+\.\d+\.\d+) Setup$', '$1')
+        $name = ($made.BaseName -replace ' Setup$', '') + " build $id Setup.exe"
+        Rename-Item -LiteralPath $made.FullName -NewName $name
+        "INSTALLER=bwvr/out/$name" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+        "BUILD_ID=$id" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+        "MOD_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
