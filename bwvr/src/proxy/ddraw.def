@@ -1,0 +1,25 @@
+; Export the real DirectDraw names, implemented by forwarding thunks.
+LIBRARY ddraw
+EXPORTS
+    AcquireDDThreadLock = Proxy_AcquireDDThreadLock
+    CompleteCreateSysmemSurface = Proxy_CompleteCreateSysmemSurface
+    D3DParseUnknownCommand = Proxy_D3DParseUnknownCommand
+    DDGetAttachedSurfaceLcl = Proxy_DDGetAttachedSurfaceLcl
+    DDInternalLock = Proxy_DDInternalLock
+    DDInternalUnlock = Proxy_DDInternalUnlock
+    DSoundHelp = Proxy_DSoundHelp
+    DirectDrawCreate = Proxy_DirectDrawCreate
+    DirectDrawCreateClipper = Proxy_DirectDrawCreateClipper
+    DirectDrawCreateEx = Proxy_DirectDrawCreateEx
+    DirectDrawEnumerateA = Proxy_DirectDrawEnumerateA
+    DirectDrawEnumerateExA = Proxy_DirectDrawEnumerateExA
+    DirectDrawEnumerateExW = Proxy_DirectDrawEnumerateExW
+    DirectDrawEnumerateW = Proxy_DirectDrawEnumerateW
+    DllCanUnloadNow = Proxy_DllCanUnloadNow PRIVATE
+    DllGetClassObject = Proxy_DllGetClassObject PRIVATE
+    GetDDSurfaceLocal = Proxy_GetDDSurfaceLocal
+    GetOLEThunkData = Proxy_GetOLEThunkData
+    GetSurfaceFromDC = Proxy_GetSurfaceFromDC
+    RegisterSpecialCase = Proxy_RegisterSpecialCase
+    ReleaseDDThreadLock = Proxy_ReleaseDDThreadLock
+    SetAppCompatData = Proxy_SetAppCompatData

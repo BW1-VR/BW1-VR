@@ -1,0 +1,20 @@
+name: Feedback or idea
+description: How something feels, or a thing that the mod should do
+labels: [feedback]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What do you think?
+      description: Say what you did in the game and how it felt. For an idea, say what you want to do with your hands and what the game should do then.
+    validations:
+      required: true
+  - type: input
+    id: build
+    attributes:
+      label: Build
+      description: The first line of bwvr.log in your game folder.
+  - type: input
+    id: headset
+    attributes:
+      label: Headset and how it connects

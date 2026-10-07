@@ -1,0 +1,51 @@
+name: Bug report
+description: Something in the mod does not work as it should
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for the test. One problem for each report, please.
+  - type: input
+    id: build
+    attributes:
+      label: Build
+      description: The first line of bwvr.log in your game folder, for example "Black & White VR Mod 1.1.0 (build abc1234)".
+    validations:
+      required: true
+  - type: input
+    id: headset
+    attributes:
+      label: Headset and how it connects
+      description: For example "Quest 3, Virtual Desktop (VDXR)" or "Index, SteamVR".
+    validations:
+      required: true
+  - type: input
+    id: pc
+    attributes:
+      label: CPU and GPU
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened. Say where in the game you were (the land, the quest).
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Drag bwvr.log and each bwvr-old-*.log of that day from your game folder into this field. A short video helps a lot.
+    validations:
+      required: true
+  - type: dropdown
+    id: again
+    attributes:
+      label: Does it happen again?
+      options:
+        - Each time
+        - Sometimes
+        - One time only
+        - I did not try again

@@ -1,0 +1,897 @@
+Black & White VR, Phase 0 probe
+2026-09-20 13:27:56
+
+host executable : C:\Black & White VR\Black & White Game\runblack.exe
+image base      : 0x00400000
+OpenD3D bytes   : 81 EC 9C 01 00 00
+
+  hook ok       LH3DRender::OpenD3D        at 0x0082CD80
+  hook ok       LH3DRender::FinishFrame    at 0x0082F460
+  hook ok       LH3DRender::DrawTriangle   at 0x0082F810
+  hook ok       DrawAndClip                at 0x0082A500
+  hook ok       DrawAndClip2D              at 0x0082A5B0
+
+--- LH3DRender::OpenD3D() entered ---
+--- OpenD3D returned 0 ---
+  hardware transform and lighting : YES
+  hardware rasterization          : YES
+  max vertex blend matrices       : 4
+  max active lights               : 4294967295
+  device GUID : 84E63DE0-46AA-11CF
+
+=== frame 1 ===
+  DrawTriangle   calls=0        verts=0
+  DrawAndClip    calls=0        verts=0
+  DrawAndClip2D  calls=0        verts=0
+  world2view   [   -0.707    -0.408    -0.577]
+               [    0.000     0.000     0.816]
+               [   -0.577     0.000     0.707]
+               [   -0.408    -0.577     0.000]  translation
+  view2proj    [    1.428     0.000     0.000]
+               [    0.000     0.000     1.904]
+               [    0.000     0.000     0.000]
+               [    0.000     1.000     1.000]  translation
+
+=== frame 2 ===
+  DrawTriangle   calls=0        verts=0
+  DrawAndClip    calls=0        verts=0
+  DrawAndClip2D  calls=0        verts=0
+  world2view   [   -0.707    -0.408    -0.577]
+               [    0.000     0.000     0.816]
+               [   -0.577     0.000     0.707]
+               [   -0.408    -0.577     0.000]  translation
+  view2proj    [    1.428     0.000     0.000]
+               [    0.000     0.000     1.904]
+               [    0.000     0.000     0.000]
+               [    0.000     1.000     1.000]  translation
+
+=== frame 3 ===
+  DrawTriangle   calls=0        verts=0
+  DrawAndClip    calls=0        verts=0
+  DrawAndClip2D  calls=6        verts=24
+  vertex formats seen:
+    DrawAndClip2D FVF 0x01C4  x6         XYZRHW (PRE-TRANSFORMED) +diffuse +specular tex=1
+  world2view   [   -0.707    -0.408    -0.577]
+               [    0.000     0.000     0.816]
+               [   -0.577     0.000     0.707]
+               [   -0.408    -0.577     0.000]  translation
+  view2proj    [    1.428     0.000     0.000]
+               [    0.000     0.000     1.904]
+               [    0.000     0.000     0.000]
+               [    0.000     1.000     1.000]  translation
+
+=== frame 30 ===
+  DrawTriangle   calls=0        verts=0
+  DrawAndClip    calls=0        verts=0
+  DrawAndClip2D  calls=168      verts=672
+  vertex formats seen:
+    DrawAndClip2D FVF 0x01C4  x168       XYZRHW (PRE-TRANSFORMED) +diffuse +specular tex=1
+  world2view   [   -0.707    -0.408    -0.577]
+               [    0.000     0.000     0.816]
+               [   -0.577     0.000     0.707]
+               [   -0.408    -0.577     0.000]  translation
+  view2proj    [    1.428     0.000     0.000]
+               [    0.000     0.000     1.904]
+               [    0.000     0.000     0.000]
+               [    0.000     1.000     1.000]  translation
+
+=== frame 120 ===
+  DrawTriangle   calls=0        verts=0
+  DrawAndClip    calls=0        verts=0
+  DrawAndClip2D  calls=708      verts=2832
+  vertex formats seen:
+    DrawAndClip2D FVF 0x01C4  x708       XYZRHW (PRE-TRANSFORMED) +diffuse +specular tex=1
+  world2view   [   -0.707    -0.408    -0.577]
+               [    0.000     0.000     0.816]
+               [   -0.577     0.000     0.707]
+               [   -0.408    -0.577     0.000]  translation
+  view2proj    [    1.428     0.000     0.000]
+               [    0.000     0.000     1.904]
+               [    0.000     0.000     0.000]
+               [    0.000     1.000     1.000]  translation
+
+=== frame 600 ===
+  DrawTriangle   calls=0        verts=0
+  DrawAndClip    calls=0        verts=0
+  DrawAndClip2D  calls=3588     verts=14352
+  vertex formats seen:
+    DrawAndClip2D FVF 0x01C4  x3588      XYZRHW (PRE-TRANSFORMED) +diffuse +specular tex=1
+  world2view   [   -0.707    -0.408    -0.577]
+               [    0.000     0.000     0.816]
+               [   -0.577     0.000     0.707]
+               [   -0.408    -0.577     0.000]  translation
+  view2proj    [    1.428     0.000     0.000]
+               [    0.000     0.000     1.904]
+               [    0.000     0.000     0.000]
+               [    0.000     1.000     1.000]  translation
+
+=== frame 1200 ===
+  DrawTriangle   calls=0        verts=0
+  DrawAndClip    calls=0        verts=0
+  DrawAndClip2D  calls=7188     verts=28752
+  vertex formats seen:
+    DrawAndClip2D FVF 0x01C4  x7188      XYZRHW (PRE-TRANSFORMED) +diffuse +specular tex=1
+  world2view   [   -0.707    -0.408    -0.577]
+               [    0.000     0.000     0.816]
+               [   -0.577     0.000     0.707]
+               [   -0.408    -0.577     0.000]  translation
+  view2proj    [    1.428     0.000     0.000]
+               [    0.000     0.000     1.904]
+               [    0.000     0.000     0.000]
+               [    0.000     1.000     1.000]  translation
+
+=== frame 1800 ===
+  DrawTriangle   calls=0        verts=0
+  DrawAndClip    calls=0        verts=0
+  DrawAndClip2D  calls=10788    verts=43152
+  vertex formats seen:
+    DrawAndClip2D FVF 0x01C4  x10788     XYZRHW (PRE-TRANSFORMED) +diffuse +specular tex=1
+  world2view   [   -0.707    -0.408    -0.577]
+               [    0.000     0.000     0.816]
+               [   -0.577     0.000     0.707]
+               [   -0.408    -0.577     0.000]  translation
+  view2proj    [    1.428     0.000     0.000]
+               [    0.000     0.000     1.904]
+               [    0.000     0.000     0.000]
+               [    0.000     1.000     1.000]  translation
+
+=== frame 2400 ===
+  DrawTriangle   calls=0        verts=0
+  DrawAndClip    calls=0        verts=0
+  DrawAndClip2D  calls=14388    verts=57552
+  vertex formats seen:
+    DrawAndClip2D FVF 0x01C4  x14388     XYZRHW (PRE-TRANSFORMED) +diffuse +specular tex=1
+  world2view   [   -0.707    -0.408    -0.577]
+               [    0.000     0.000     0.816]
+               [   -0.577     0.000     0.707]
+               [   -0.408    -0.577     0.000]  translation
+  view2proj    [    1.428     0.000     0.000]
+               [    0.000     0.000     1.904]
+               [    0.000     0.000     0.000]
+               [    0.000     1.000     1.000]  translation
+
+=== frame 3000 ===
+  DrawTriangle   calls=0        verts=0
+  DrawAndClip    calls=0        verts=0
+  DrawAndClip2D  calls=17988    verts=71952
+  vertex formats seen:
+    DrawAndClip2D FVF 0x01C4  x17988     XYZRHW (PRE-TRANSFORMED) +diffuse +specular tex=1
+  world2view   [   -0.707    -0.408    -0.577]
+               [    0.000     0.000     0.816]
+               [   -0.577     0.000     0.707]
+               [   -0.408    -0.577     0.000]  translation
+  view2proj    [    1.428     0.000     0.000]
+               [    0.000     0.000     1.904]
+               [    0.000     0.000     0.000]
+               [    0.000     1.000     1.000]  translation
+
+=== frame 3600 ===
+  DrawTriangle   calls=0        verts=0
+  DrawAndClip    calls=0        verts=0
+  DrawAndClip2D  calls=21576    verts=86304
+  vertex formats seen:
+    DrawAndClip2D FVF 0x01C4  x21576     XYZRHW (PRE-TRANSFORMED) +diffuse +specular tex=1
+  world2view   [   -0.707    -0.408    -0.577]
+               [    0.000     0.000     0.816]
+               [   -0.577     0.000     0.707]
+               [   -0.408    -0.577     0.000]  translation
+  view2proj    [    1.428     0.000     0.000]
+               [    0.000     0.000     1.904]
+               [    0.000     0.000     0.000]
+               [    0.000     1.000     1.000]  translation
+
+=== frame 4200 ===
+  DrawTriangle   calls=0        verts=0
+  DrawAndClip    calls=0        verts=0
+  DrawAndClip2D  calls=25176    verts=100704
+  vertex formats seen:
+    DrawAndClip2D FVF 0x01C4  x25176     XYZRHW (PRE-TRANSFORMED) +diffuse +specular tex=1
+  world2view   [   -0.707    -0.408    -0.577]
+               [    0.000     0.000     0.816]
+               [   -0.577     0.000     0.707]
+               [   -0.408    -0.577     0.000]  translation
+  view2proj    [    1.428     0.000     0.000]
+               [    0.000     0.000     1.904]
+               [    0.000     0.000     0.000]
+               [    0.000     1.000     1.000]  translation
+
+=== frame 4800 ===
+  DrawTriangle   calls=0        verts=0
+  DrawAndClip    calls=0        verts=0
+  DrawAndClip2D  calls=28776    verts=115104
+  vertex formats seen:
+    DrawAndClip2D FVF 0x01C4  x28776     XYZRHW (PRE-TRANSFORMED) +diffuse +specular tex=1
+  world2view   [   -0.707    -0.408    -0.577]
+               [    0.000     0.000     0.816]
+               [   -0.577     0.000     0.707]
+               [   -0.408    -0.577     0.000]  translation
+  view2proj    [    1.428     0.000     0.000]
+               [    0.000     0.000     1.904]
+               [    0.000     0.000     0.000]
+               [    0.000     1.000     1.000]  translation
+
+=== frame 5400 ===
+  DrawTriangle   calls=0        verts=0
+  DrawAndClip    calls=0        verts=0
+  DrawAndClip2D  calls=32376    verts=129504
+  vertex formats seen:
+    DrawAndClip2D FVF 0x01C4  x32376     XYZRHW (PRE-TRANSFORMED) +diffuse +specular tex=1
+  world2view   [   -0.707    -0.408    -0.577]
+               [    0.000     0.000     0.816]
+               [   -0.577     0.000     0.707]
+               [   -0.408    -0.577     0.000]  translation
+  view2proj    [    1.428     0.000     0.000]
+               [    0.000     0.000     1.904]
+               [    0.000     0.000     0.000]
+               [    0.000     1.000     1.000]  translation
+
+=== frame 6000 ===
+  DrawTriangle   calls=0        verts=0
+  DrawAndClip    calls=0        verts=0
+  DrawAndClip2D  calls=35976    verts=143904
+  vertex formats seen:
+    DrawAndClip2D FVF 0x01C4  x35976     XYZRHW (PRE-TRANSFORMED) +diffuse +specular tex=1
+  world2view   [   -0.707    -0.408    -0.577]
+               [    0.000     0.000     0.816]
+               [   -0.577     0.000     0.707]
+               [   -0.408    -0.577     0.000]  translation
+  view2proj    [    1.428     0.000     0.000]
+               [    0.000     0.000     1.904]
+               [    0.000     0.000     0.000]
+               [    0.000     1.000     1.000]  translation
+
+=== frame 6600 ===
+  DrawTriangle   calls=0        verts=0
+  DrawAndClip    calls=1864     verts=3728
+  DrawAndClip2D  calls=43292    verts=176896
+  vertex formats seen:
+    DrawAndClip2D FVF 0x01C4  x43292     XYZRHW (PRE-TRANSFORMED) +diffuse +specular tex=1
+    DrawAndClip   FVF 0x01C4  x1864      XYZRHW (PRE-TRANSFORMED) +diffuse +specular tex=1
+  world2view   [   -0.707    -0.408    -0.577]
+               [    0.000     0.000     0.816]
+               [   -0.577     0.000     0.707]
+               [   -0.408    -0.577     0.000]  translation
+  view2proj    [    1.428     0.000     0.000]
+               [    0.000     0.000     1.904]
+               [    0.000     0.000     0.000]
+               [    0.000     1.000     1.000]  translation
+
+=== frame 7200 ===
+  DrawTriangle   calls=10513    verts=64911
+  DrawAndClip    calls=6624     verts=13248
+  DrawAndClip2D  calls=58874    verts=248744
+  vertex formats seen:
+    DrawAndClip2D FVF 0x01C4  x58874     XYZRHW (PRE-TRANSFORMED) +diffuse +specular tex=1
+    DrawAndClip   FVF 0x01C4  x6624      XYZRHW (PRE-TRANSFORMED) +diffuse +specular tex=1
+  world2view   [   -0.586     0.536    -0.607]
+               [    0.000     0.000     0.750]
+               [    0.662     0.000     0.810]
+               [    0.388    -0.440     0.000]  translation
+  view2proj    [    1.428     0.000     0.000]
+               [    0.000     0.000     1.904]
+               [    0.000     0.000     0.000]
+               [    0.000     1.000     1.000]  translation
+
+=== frame 7800 ===
+  DrawTriangle   calls=1482876  verts=9227853
+  DrawAndClip    calls=6624     verts=13248
+  DrawAndClip2D  calls=58874    verts=248744
+  vertex formats seen:
+    DrawAndClip2D FVF 0x01C4  x58874     XYZRHW (PRE-TRANSFORMED) +diffuse +specular tex=1
+    DrawAndClip   FVF 0x01C4  x6624      XYZRHW (PRE-TRANSFORMED) +diffuse +specular tex=1
+  world2view   [   -0.756     0.431    -0.492]
+               [    0.000     0.000     0.752]
+               [    0.659     0.000     0.654]
+               [    0.499    -0.569     0.000]  translation
+  view2proj    [    1.428     0.000     0.000]
+               [    0.000     0.000     1.904]
+               [    0.000     0.000     0.000]
+               [    0.000     1.000     1.000]  translation
+
+=== frame 8400 ===
+  DrawTriangle   calls=2715523  verts=16958532
+  DrawAndClip    calls=6624     verts=13248
+  DrawAndClip2D  calls=58874    verts=248744
+  vertex formats seen:
+    DrawAndClip2D FVF 0x01C4  x58874     XYZRHW (PRE-TRANSFORMED) +diffuse +specular tex=1
+    DrawAndClip   FVF 0x01C4  x6624      XYZRHW (PRE-TRANSFORMED) +diffuse +specular tex=1
+  world2view   [   -0.934     0.220    -0.281]
+               [    0.000    -0.000     0.788]
+               [    0.616     0.000     0.357]
+               [    0.576    -0.736     0.000]  translation
+  view2proj    [    1.428     0.000     0.000]
+               [    0.000     0.000     1.904]
+               [    0.000     0.000     0.000]
+               [    0.000     1.000     1.000]  translation
+
+=== frame 9000 ===
+  DrawTriangle   calls=3782038  verts=23687061
+  DrawAndClip    calls=6624     verts=13248
+  DrawAndClip2D  calls=58874    verts=248744
+  vertex formats seen:
+    DrawAndClip2D FVF 0x01C4  x58874     XYZRHW (PRE-TRANSFORMED) +diffuse +specular tex=1
+    DrawAndClip   FVF 0x01C4  x6624      XYZRHW (PRE-TRANSFORMED) +diffuse +specular tex=1
+  world2view   [   -0.999    -0.025     0.048]
+               [    0.000     0.000     0.884]
+               [    0.468     0.000    -0.054]
+               [    0.467    -0.883     0.000]  translation
+  view2proj    [    1.428     0.000     0.000]
+               [    0.000     0.000     1.904]
+               [    0.000     0.000     0.000]
+               [    0.000     1.000     1.000]  translation
+
+=== frame 9600 ===
+  DrawTriangle   calls=4792750  verts=30075567
+  DrawAndClip    calls=6624     verts=13248
+  DrawAndClip2D  calls=58874    verts=248744
+  vertex formats seen:
+    DrawAndClip2D FVF 0x01C4  x58874     XYZRHW (PRE-TRANSFORMED) +diffuse +specular tex=1
+    DrawAndClip   FVF 0x01C4  x6624      XYZRHW (PRE-TRANSFORMED) +diffuse +specular tex=1
+  world2view   [   -0.917    -0.081     0.391]
+               [    0.000     0.000     0.979]
+               [    0.203     0.000    -0.399]
+               [    0.186    -0.898     0.000]  translation
+  view2proj    [    1.428     0.000     0.000]
+               [    0.000     0.000     1.904]
+               [    0.000     0.000     0.000]
+               [    0.000     1.000     1.000]  translation
+
+=== frame 10200 ===
+  DrawTriangle   calls=5784026  verts=36376470
+  DrawAndClip    calls=6624     verts=13248
+  DrawAndClip2D  calls=58874    verts=248744
+  vertex formats seen:
+    DrawAndClip2D FVF 0x01C4  x58874     XYZRHW (PRE-TRANSFORMED) +diffuse +specular tex=1
+    DrawAndClip   FVF 0x01C4  x6624      XYZRHW (PRE-TRANSFORMED) +diffuse +specular tex=1
+  world2view   [   -0.801     0.039     0.598]
+               [    0.000     0.000     0.998]
+               [   -0.065     0.000    -0.599]
+               [   -0.052    -0.799     0.000]  translation
+  view2proj    [    1.428     0.000     0.000]
+               [    0.000     0.000     1.904]
+               [    0.000     0.000     0.000]
+               [    0.000     1.000     1.000]  translation
+
+=== frame 10800 ===
+  DrawTriangle   calls=6551755  verts=41249772
+  DrawAndClip    calls=6624     verts=13248
+  DrawAndClip2D  calls=58874    verts=248744
+  vertex formats seen:
+    DrawAndClip2D FVF 0x01C4  x58874     XYZRHW (PRE-TRANSFORMED) +diffuse +specular tex=1
+    DrawAndClip   FVF 0x01C4  x6624      XYZRHW (PRE-TRANSFORMED) +diffuse +specular tex=1
+  world2view   [   -0.735     0.151     0.660]
+               [    0.000    -0.000     0.975]
+               [   -0.223     0.000    -0.678]
+               [   -0.164    -0.717     0.000]  translation
+  view2proj    [    1.428     0.000     0.000]
+               [    0.000     0.000     1.904]
+               [    0.000     0.000     0.000]
+               [    0.000     1.000     1.000]  translation
+
+=== frame 11400 ===
+  DrawTriangle   calls=6551755  verts=41249772
+  DrawAndClip    calls=6624     verts=13248
+  DrawAndClip2D  calls=58874    verts=248744
+  vertex formats seen:
+    DrawAndClip2D FVF 0x01C4  x58874     XYZRHW (PRE-TRANSFORMED) +diffuse +specular tex=1
+    DrawAndClip   FVF 0x01C4  x6624      XYZRHW (PRE-TRANSFORMED) +diffuse +specular tex=1
+  world2view   [   -0.735     0.151     0.660]
+               [    0.000    -0.000     0.975]
+               [   -0.223     0.000    -0.678]
+               [   -0.164    -0.717     0.000]  translation
+  view2proj    [    1.428     0.000     0.000]
+               [    0.000     0.000     1.904]
+               [    0.000     0.000     0.000]
+               [    0.000     1.000     1.000]  translation
+
+=== frame 12000 ===
+  DrawTriangle   calls=6639803  verts=51316227
+  DrawAndClip    calls=26827    verts=400694
+  DrawAndClip2D  calls=81481    verts=727820
+  vertex formats seen:
+    DrawAndClip2D FVF 0x01C4  x81481     XYZRHW (PRE-TRANSFORMED) +diffuse +specular tex=1
+    DrawAndClip   FVF 0x01C4  x26827     XYZRHW (PRE-TRANSFORMED) +diffuse +specular tex=1
+  world2view   [   -0.242     0.491     0.837]
+               [    0.000     0.000     0.862]
+               [   -0.506     0.000    -0.970]
+               [   -0.122    -0.208     0.000]  translation
+  view2proj    [    1.428     0.000     0.000]
+               [    0.000     0.000     1.904]
+               [    0.000     0.000     0.000]
+               [    0.000     1.000     1.000]  translation
+
+=== frame 12600 ===
+  DrawTriangle   calls=6749496  verts=64025586
+  DrawAndClip    calls=40752    verts=860544
+  DrawAndClip2D  calls=116911   verts=1182540
+  vertex formats seen:
+    DrawAndClip2D FVF 0x01C4  x116911    XYZRHW (PRE-TRANSFORMED) +diffuse +specular tex=1
+    DrawAndClip   FVF 0x01C4  x40752     XYZRHW (PRE-TRANSFORMED) +diffuse +specular tex=1
+  world2view   [   -0.242     0.491     0.837]
+               [    0.000    -0.000     0.862]
+               [   -0.506     0.000    -0.970]
+               [   -0.122    -0.208     0.000]  translation
+  view2proj    [    1.428     0.000     0.000]
+               [    0.000     0.000     1.904]
+               [    0.000     0.000     0.000]
+               [    0.000     1.000     1.000]  translation
+
+=== frame 13200 ===
+  DrawTriangle   calls=6858938  verts=76820289
+  DrawAndClip    calls=41352    verts=1293744
+  DrawAndClip2D  calls=170363   verts=1439740
+  vertex formats seen:
+    DrawAndClip2D FVF 0x01C4  x170363    XYZRHW (PRE-TRANSFORMED) +diffuse +specular tex=1
+    DrawAndClip   FVF 0x01C4  x41352     XYZRHW (PRE-TRANSFORMED) +diffuse +specular tex=1
+  world2view   [   -0.242     0.491     0.837]
+               [    0.000     0.000     0.862]
+               [   -0.506     0.000    -0.970]
+               [   -0.122    -0.208     0.000]  translation
+  view2proj    [    1.428     0.000     0.000]
+               [    0.000     0.000     1.904]
+               [    0.000     0.000     0.000]
+               [    0.000     1.000     1.000]  translation
+
+=== frame 13800 ===
+  DrawTriangle   calls=6966092  verts=89577876
+  DrawAndClip    calls=41952    verts=1726944
+  DrawAndClip2D  calls=239659   verts=1756980
+  vertex formats seen:
+    DrawAndClip2D FVF 0x01C4  x239659    XYZRHW (PRE-TRANSFORMED) +diffuse +specular tex=1
+    DrawAndClip   FVF 0x01C4  x41952     XYZRHW (PRE-TRANSFORMED) +diffuse +specular tex=1
+  world2view   [   -0.242     0.491     0.837]
+               [    0.000     0.000     0.862]
+               [   -0.506     0.000    -0.970]
+               [   -0.122    -0.208     0.000]  translation
+  view2proj    [    1.428     0.000     0.000]
+               [    0.000     0.000     1.904]
+               [    0.000     0.000     0.000]
+               [    0.000     1.000     1.000]  translation
+
+=== frame 14400 ===
+  DrawTriangle   calls=7069892  verts=102172116
+  DrawAndClip    calls=42552    verts=2160144
+  DrawAndClip2D  calls=314659   verts=2128980
+  vertex formats seen:
+    DrawAndClip2D FVF 0x01C4  x314659    XYZRHW (PRE-TRANSFORMED) +diffuse +specular tex=1
+    DrawAndClip   FVF 0x01C4  x42552     XYZRHW (PRE-TRANSFORMED) +diffuse +specular tex=1
+  world2view   [   -0.242     0.491     0.837]
+               [    0.000     0.000     0.862]
+               [   -0.506     0.000    -0.970]
+               [   -0.122    -0.208     0.000]  translation
+  view2proj    [    1.428     0.000     0.000]
+               [    0.000     0.000     1.904]
+               [    0.000     0.000     0.000]
+               [    0.000     1.000     1.000]  translation
+
+=== frame 15000 ===
+  DrawTriangle   calls=7173692  verts=114765171
+  DrawAndClip    calls=43152    verts=2593344
+  DrawAndClip2D  calls=389659   verts=2500980
+  vertex formats seen:
+    DrawAndClip2D FVF 0x01C4  x389659    XYZRHW (PRE-TRANSFORMED) +diffuse +specular tex=1
+    DrawAndClip   FVF 0x01C4  x43152     XYZRHW (PRE-TRANSFORMED) +diffuse +specular tex=1
+  world2view   [   -0.242     0.491     0.837]
+               [    0.000     0.000     0.862]
+               [   -0.506     0.000    -0.970]
+               [   -0.122    -0.208     0.000]  translation
+  view2proj    [    1.428     0.000     0.000]
+               [    0.000     0.000     1.904]
+               [    0.000     0.000     0.000]
+               [    0.000     1.000     1.000]  translation
+
+=== frame 15600 ===
+  DrawTriangle   calls=7277278  verts=127358790
+  DrawAndClip    calls=43752    verts=3026544
+  DrawAndClip2D  calls=415369   verts=2628120
+  vertex formats seen:
+    DrawAndClip2D FVF 0x01C4  x415369    XYZRHW (PRE-TRANSFORMED) +diffuse +specular tex=1
+    DrawAndClip   FVF 0x01C4  x43752     XYZRHW (PRE-TRANSFORMED) +diffuse +specular tex=1
+  world2view   [   -0.242     0.491     0.837]
+               [    0.000     0.000     0.862]
+               [   -0.506     0.000    -0.970]
+               [   -0.122    -0.208     0.000]  translation
+  view2proj    [    1.428     0.000     0.000]
+               [    0.000     0.000     1.904]
+               [    0.000     0.000     0.000]
+               [    0.000     1.000     1.000]  translation
+
+=== frame 16200 ===
+  DrawTriangle   calls=7380478  verts=139979133
+  DrawAndClip    calls=44352    verts=3459744
+  DrawAndClip2D  calls=415969   verts=2630520
+  vertex formats seen:
+    DrawAndClip2D FVF 0x01C4  x415969    XYZRHW (PRE-TRANSFORMED) +diffuse +specular tex=1
+    DrawAndClip   FVF 0x01C4  x44352     XYZRHW (PRE-TRANSFORMED) +diffuse +specular tex=1
+  world2view   [   -0.242     0.491     0.837]
+               [    0.000     0.000     0.862]
+               [   -0.506     0.000    -0.970]
+               [   -0.122    -0.208     0.000]  translation
+  view2proj    [    1.428     0.000     0.000]
+               [    0.000     0.000     1.904]
+               [    0.000     0.000     0.000]
+               [    0.000     1.000     1.000]  translation
+
+=== frame 16800 ===
+  DrawTriangle   calls=7483827  verts=152594223
+  DrawAndClip    calls=44952    verts=3892944
+  DrawAndClip2D  calls=416569   verts=2632920
+  vertex formats seen:
+    DrawAndClip2D FVF 0x01C4  x416569    XYZRHW (PRE-TRANSFORMED) +diffuse +specular tex=1
+    DrawAndClip   FVF 0x01C4  x44952     XYZRHW (PRE-TRANSFORMED) +diffuse +specular tex=1
+  world2view   [   -0.242     0.491     0.837]
+               [    0.000     0.000     0.862]
+               [   -0.506     0.000    -0.970]
+               [   -0.122    -0.208     0.000]  translation
+  view2proj    [    1.428     0.000     0.000]
+               [    0.000     0.000     1.904]
+               [    0.000     0.000     0.000]
+               [    0.000     1.000     1.000]  translation
+
+=== frame 17400 ===
+  DrawTriangle   calls=7587065  verts=165189141
+  DrawAndClip    calls=45552    verts=4326144
+  DrawAndClip2D  calls=417169   verts=2635320
+  vertex formats seen:
+    DrawAndClip2D FVF 0x01C4  x417169    XYZRHW (PRE-TRANSFORMED) +diffuse +specular tex=1
+    DrawAndClip   FVF 0x01C4  x45552     XYZRHW (PRE-TRANSFORMED) +diffuse +specular tex=1
+  world2view   [   -0.242     0.491     0.837]
+               [    0.000     0.000     0.862]
+               [   -0.506     0.000    -0.970]
+               [   -0.122    -0.208     0.000]  translation
+  view2proj    [    1.428     0.000     0.000]
+               [    0.000     0.000     1.904]
+               [    0.000     0.000     0.000]
+               [    0.000     1.000     1.000]  translation
+
+=== frame 18000 ===
+  DrawTriangle   calls=7690265  verts=177768639
+  DrawAndClip    calls=46152    verts=4759344
+  DrawAndClip2D  calls=417769   verts=2637720
+  vertex formats seen:
+    DrawAndClip2D FVF 0x01C4  x417769    XYZRHW (PRE-TRANSFORMED) +diffuse +specular tex=1
+    DrawAndClip   FVF 0x01C4  x46152     XYZRHW (PRE-TRANSFORMED) +diffuse +specular tex=1
+  world2view   [   -0.242     0.491     0.837]
+               [    0.000     0.000     0.862]
+               [   -0.506     0.000    -0.970]
+               [   -0.122    -0.208     0.000]  translation
+  view2proj    [    1.428     0.000     0.000]
+               [    0.000     0.000     1.904]
+               [    0.000     0.000     0.000]
+               [    0.000     1.000     1.000]  translation
+
+=== frame 18600 ===
+  DrawTriangle   calls=7793650  verts=190377633
+  DrawAndClip    calls=46752    verts=5192544
+  DrawAndClip2D  calls=418369   verts=2640120
+  vertex formats seen:
+    DrawAndClip2D FVF 0x01C4  x418369    XYZRHW (PRE-TRANSFORMED) +diffuse +specular tex=1
+    DrawAndClip   FVF 0x01C4  x46752     XYZRHW (PRE-TRANSFORMED) +diffuse +specular tex=1
+  world2view   [   -0.242     0.491     0.837]
+               [    0.000     0.000     0.862]
+               [   -0.506     0.000    -0.970]
+               [   -0.122    -0.208     0.000]  translation
+  view2proj    [    1.428     0.000     0.000]
+               [    0.000     0.000     1.904]
+               [    0.000     0.000     0.000]
+               [    0.000     1.000     1.000]  translation
+
+=== frame 19200 ===
+  DrawTriangle   calls=7896850  verts=202982613
+  DrawAndClip    calls=47352    verts=5625744
+  DrawAndClip2D  calls=418969   verts=2642520
+  vertex formats seen:
+    DrawAndClip2D FVF 0x01C4  x418969    XYZRHW (PRE-TRANSFORMED) +diffuse +specular tex=1
+    DrawAndClip   FVF 0x01C4  x47352     XYZRHW (PRE-TRANSFORMED) +diffuse +specular tex=1
+  world2view   [   -0.242     0.491     0.837]
+               [    0.000     0.000     0.862]
+               [   -0.506     0.000    -0.970]
+               [   -0.122    -0.208     0.000]  translation
+  view2proj    [    1.428     0.000     0.000]
+               [    0.000     0.000     1.904]
+               [    0.000     0.000     0.000]
+               [    0.000     1.000     1.000]  translation
+
+=== frame 19800 ===
+  DrawTriangle   calls=8000050  verts=215575452
+  DrawAndClip    calls=47952    verts=6058944
+  DrawAndClip2D  calls=419569   verts=2644920
+  vertex formats seen:
+    DrawAndClip2D FVF 0x01C4  x419569    XYZRHW (PRE-TRANSFORMED) +diffuse +specular tex=1
+    DrawAndClip   FVF 0x01C4  x47952     XYZRHW (PRE-TRANSFORMED) +diffuse +specular tex=1
+  world2view   [   -0.242     0.491     0.837]
+               [    0.000     0.000     0.862]
+               [   -0.506     0.000    -0.970]
+               [   -0.122    -0.208     0.000]  translation
+  view2proj    [    1.428     0.000     0.000]
+               [    0.000     0.000     1.904]
+               [    0.000     0.000     0.000]
+               [    0.000     1.000     1.000]  translation
+
+=== frame 20400 ===
+  DrawTriangle   calls=8103559  verts=228196113
+  DrawAndClip    calls=48552    verts=6492144
+  DrawAndClip2D  calls=420169   verts=2647320
+  vertex formats seen:
+    DrawAndClip2D FVF 0x01C4  x420169    XYZRHW (PRE-TRANSFORMED) +diffuse +specular tex=1
+    DrawAndClip   FVF 0x01C4  x48552     XYZRHW (PRE-TRANSFORMED) +diffuse +specular tex=1
+  world2view   [   -0.242     0.491     0.837]
+               [    0.000     0.000     0.862]
+               [   -0.506     0.000    -0.970]
+               [   -0.122    -0.208     0.000]  translation
+  view2proj    [    1.428     0.000     0.000]
+               [    0.000     0.000     1.904]
+               [    0.000     0.000     0.000]
+               [    0.000     1.000     1.000]  translation
+
+=== frame 21000 ===
+  DrawTriangle   calls=8207359  verts=240835908
+  DrawAndClip    calls=49152    verts=6925344
+  DrawAndClip2D  calls=420769   verts=2649720
+  vertex formats seen:
+    DrawAndClip2D FVF 0x01C4  x420769    XYZRHW (PRE-TRANSFORMED) +diffuse +specular tex=1
+    DrawAndClip   FVF 0x01C4  x49152     XYZRHW (PRE-TRANSFORMED) +diffuse +specular tex=1
+  world2view   [   -0.242     0.491     0.837]
+               [    0.000     0.000     0.862]
+               [   -0.506     0.000    -0.970]
+               [   -0.122    -0.208     0.000]  translation
+  view2proj    [    1.428     0.000     0.000]
+               [    0.000     0.000     1.904]
+               [    0.000     0.000     0.000]
+               [    0.000     1.000     1.000]  translation
+
+=== frame 21600 ===
+  DrawTriangle   calls=8311294  verts=253443303
+  DrawAndClip    calls=49752    verts=7358544
+  DrawAndClip2D  calls=421369   verts=2652120
+  vertex formats seen:
+    DrawAndClip2D FVF 0x01C4  x421369    XYZRHW (PRE-TRANSFORMED) +diffuse +specular tex=1
+    DrawAndClip   FVF 0x01C4  x49752     XYZRHW (PRE-TRANSFORMED) +diffuse +specular tex=1
+  world2view   [   -0.242     0.491     0.837]
+               [    0.000     0.000     0.862]
+               [   -0.506     0.000    -0.970]
+               [   -0.122    -0.208     0.000]  translation
+  view2proj    [    1.428     0.000     0.000]
+               [    0.000     0.000     1.904]
+               [    0.000     0.000     0.000]
+               [    0.000     1.000     1.000]  translation
+
+=== frame 22200 ===
+  DrawTriangle   calls=8414939  verts=266043270
+  DrawAndClip    calls=50352    verts=7791744
+  DrawAndClip2D  calls=421969   verts=2654520
+  vertex formats seen:
+    DrawAndClip2D FVF 0x01C4  x421969    XYZRHW (PRE-TRANSFORMED) +diffuse +specular tex=1
+    DrawAndClip   FVF 0x01C4  x50352     XYZRHW (PRE-TRANSFORMED) +diffuse +specular tex=1
+  world2view   [   -0.242     0.491     0.837]
+               [    0.000     0.000     0.862]
+               [   -0.506     0.000    -0.970]
+               [   -0.122    -0.208     0.000]  translation
+  view2proj    [    1.428     0.000     0.000]
+               [    0.000     0.000     1.904]
+               [    0.000     0.000     0.000]
+               [    0.000     1.000     1.000]  translation
+
+=== frame 22800 ===
+  DrawTriangle   calls=8516883  verts=278619561
+  DrawAndClip    calls=50952    verts=8224944
+  DrawAndClip2D  calls=438553   verts=2790544
+  vertex formats seen:
+    DrawAndClip2D FVF 0x01C4  x438553    XYZRHW (PRE-TRANSFORMED) +diffuse +specular tex=1
+    DrawAndClip   FVF 0x01C4  x50952     XYZRHW (PRE-TRANSFORMED) +diffuse +specular tex=1
+  world2view   [   -0.242     0.491     0.837]
+               [    0.000     0.000     0.862]
+               [   -0.506     0.000    -0.970]
+               [   -0.122    -0.208     0.000]  translation
+  view2proj    [    1.428     0.000     0.000]
+               [    0.000     0.000     1.904]
+               [    0.000     0.000     0.000]
+               [    0.000     1.000     1.000]  translation
+
+=== frame 23400 ===
+  DrawTriangle   calls=8617683  verts=291154530
+  DrawAndClip    calls=51552    verts=8658144
+  DrawAndClip2D  calls=455953   verts=2934544
+  vertex formats seen:
+    DrawAndClip2D FVF 0x01C4  x455953    XYZRHW (PRE-TRANSFORMED) +diffuse +specular tex=1
+    DrawAndClip   FVF 0x01C4  x51552     XYZRHW (PRE-TRANSFORMED) +diffuse +specular tex=1
+  world2view   [   -0.242     0.491     0.837]
+               [    0.000     0.000     0.862]
+               [   -0.506     0.000    -0.970]
+               [   -0.122    -0.208     0.000]  translation
+  view2proj    [    1.428     0.000     0.000]
+               [    0.000     0.000     1.904]
+               [    0.000     0.000     0.000]
+               [    0.000     1.000     1.000]  translation
+
+=== frame 24000 ===
+  DrawTriangle   calls=8718483  verts=303709119
+  DrawAndClip    calls=52152    verts=9091344
+  DrawAndClip2D  calls=473353   verts=3078544
+  vertex formats seen:
+    DrawAndClip2D FVF 0x01C4  x473353    XYZRHW (PRE-TRANSFORMED) +diffuse +specular tex=1
+    DrawAndClip   FVF 0x01C4  x52152     XYZRHW (PRE-TRANSFORMED) +diffuse +specular tex=1
+  world2view   [   -0.242     0.491     0.837]
+               [    0.000     0.000     0.862]
+               [   -0.506     0.000    -0.970]
+               [   -0.122    -0.208     0.000]  translation
+  view2proj    [    1.428     0.000     0.000]
+               [    0.000     0.000     1.904]
+               [    0.000     0.000     0.000]
+               [    0.000     1.000     1.000]  translation
+
+=== frame 24600 ===
+  DrawTriangle   calls=8819714  verts=316297140
+  DrawAndClip    calls=52752    verts=9524544
+  DrawAndClip2D  calls=490753   verts=3222544
+  vertex formats seen:
+    DrawAndClip2D FVF 0x01C4  x490753    XYZRHW (PRE-TRANSFORMED) +diffuse +specular tex=1
+    DrawAndClip   FVF 0x01C4  x52752     XYZRHW (PRE-TRANSFORMED) +diffuse +specular tex=1
+  world2view   [   -0.242     0.491     0.837]
+               [    0.000     0.000     0.862]
+               [   -0.506     0.000    -0.970]
+               [   -0.122    -0.208     0.000]  translation
+  view2proj    [    1.428     0.000     0.000]
+               [    0.000     0.000     1.904]
+               [    0.000     0.000     0.000]
+               [    0.000     1.000     1.000]  translation
+
+=== frame 25200 ===
+  DrawTriangle   calls=8922918  verts=328921173
+  DrawAndClip    calls=53352    verts=9957744
+  DrawAndClip2D  calls=494891   verts=3254844
+  vertex formats seen:
+    DrawAndClip2D FVF 0x01C4  x494891    XYZRHW (PRE-TRANSFORMED) +diffuse +specular tex=1
+    DrawAndClip   FVF 0x01C4  x53352     XYZRHW (PRE-TRANSFORMED) +diffuse +specular tex=1
+  world2view   [   -0.242     0.491     0.837]
+               [    0.000     0.000     0.862]
+               [   -0.506     0.000    -0.970]
+               [   -0.122    -0.208     0.000]  translation
+  view2proj    [    1.428     0.000     0.000]
+               [    0.000     0.000     1.904]
+               [    0.000     0.000     0.000]
+               [    0.000     1.000     1.000]  translation
+
+=== frame 25800 ===
+  DrawTriangle   calls=9026534  verts=341538033
+  DrawAndClip    calls=53952    verts=10390944
+  DrawAndClip2D  calls=502611   verts=3317428
+  vertex formats seen:
+    DrawAndClip2D FVF 0x01C4  x502611    XYZRHW (PRE-TRANSFORMED) +diffuse +specular tex=1
+    DrawAndClip   FVF 0x01C4  x53952     XYZRHW (PRE-TRANSFORMED) +diffuse +specular tex=1
+  world2view   [   -0.242     0.491     0.837]
+               [    0.000     0.000     0.862]
+               [   -0.506     0.000    -0.970]
+               [   -0.122    -0.208     0.000]  translation
+  view2proj    [    1.428     0.000     0.000]
+               [    0.000     0.000     1.904]
+               [    0.000     0.000     0.000]
+               [    0.000     1.000     1.000]  translation
+
+=== frame 26400 ===
+  DrawTriangle   calls=9133044  verts=354337722
+  DrawAndClip    calls=57258    verts=10829556
+  DrawAndClip2D  calls=555131   verts=3649704
+  vertex formats seen:
+    DrawAndClip2D FVF 0x01C4  x555131    XYZRHW (PRE-TRANSFORMED) +diffuse +specular tex=1
+    DrawAndClip   FVF 0x01C4  x57258     XYZRHW (PRE-TRANSFORMED) +diffuse +specular tex=1
+  world2view   [   -0.242     0.491     0.837]
+               [    0.000     0.000     0.862]
+               [   -0.506     0.000    -0.970]
+               [   -0.122    -0.208     0.000]  translation
+  view2proj    [    1.428     0.000     0.000]
+               [    0.000     0.000     1.904]
+               [    0.000     0.000     0.000]
+               [    0.000     1.000     1.000]  translation
+
+=== frame 27000 ===
+  DrawTriangle   calls=9239844  verts=367063722
+  DrawAndClip    calls=90942    verts=11328924
+  DrawAndClip2D  calls=600330   verts=4411336
+  vertex formats seen:
+    DrawAndClip2D FVF 0x01C4  x600330    XYZRHW (PRE-TRANSFORMED) +diffuse +specular tex=1
+    DrawAndClip   FVF 0x01C4  x90942     XYZRHW (PRE-TRANSFORMED) +diffuse +specular tex=1
+  world2view   [   -0.242     0.491     0.837]
+               [    0.000    -0.000     0.862]
+               [   -0.506     0.000    -0.970]
+               [   -0.122    -0.208     0.000]  translation
+  view2proj    [    1.428     0.000     0.000]
+               [    0.000     0.000     1.904]
+               [    0.000     0.000     0.000]
+               [    0.000     1.000     1.000]  translation
+
+=== frame 27600 ===
+  DrawTriangle   calls=9346644  verts=379789722
+  DrawAndClip    calls=129942   verts=11838924
+  DrawAndClip2D  calls=660930   verts=5241736
+  vertex formats seen:
+    DrawAndClip2D FVF 0x01C4  x660930    XYZRHW (PRE-TRANSFORMED) +diffuse +specular tex=1
+    DrawAndClip   FVF 0x01C4  x129942    XYZRHW (PRE-TRANSFORMED) +diffuse +specular tex=1
+  world2view   [   -0.242     0.491     0.837]
+               [    0.000    -0.000     0.862]
+               [   -0.506     0.000    -0.970]
+               [   -0.122    -0.208     0.000]  translation
+  view2proj    [    1.428     0.000     0.000]
+               [    0.000     0.000     1.904]
+               [    0.000     0.000     0.000]
+               [    0.000     1.000     1.000]  translation
+
+=== frame 28200 ===
+  DrawTriangle   calls=9453444  verts=392515722
+  DrawAndClip    calls=168942   verts=12348924
+  DrawAndClip2D  calls=721530   verts=6072136
+  vertex formats seen:
+    DrawAndClip2D FVF 0x01C4  x721530    XYZRHW (PRE-TRANSFORMED) +diffuse +specular tex=1
+    DrawAndClip   FVF 0x01C4  x168942    XYZRHW (PRE-TRANSFORMED) +diffuse +specular tex=1
+  world2view   [   -0.242     0.491     0.837]
+               [    0.000    -0.000     0.862]
+               [   -0.506     0.000    -0.970]
+               [   -0.122    -0.208     0.000]  translation
+  view2proj    [    1.428     0.000     0.000]
+               [    0.000     0.000     1.904]
+               [    0.000     0.000     0.000]
+               [    0.000     1.000     1.000]  translation
+
+=== frame 28800 ===
+  DrawTriangle   calls=9560244  verts=405241722
+  DrawAndClip    calls=207942   verts=12858924
+  DrawAndClip2D  calls=782130   verts=6902536
+  vertex formats seen:
+    DrawAndClip2D FVF 0x01C4  x782130    XYZRHW (PRE-TRANSFORMED) +diffuse +specular tex=1
+    DrawAndClip   FVF 0x01C4  x207942    XYZRHW (PRE-TRANSFORMED) +diffuse +specular tex=1
+  world2view   [   -0.242     0.491     0.837]
+               [    0.000    -0.000     0.862]
+               [   -0.506     0.000    -0.970]
+               [   -0.122    -0.208     0.000]  translation
+  view2proj    [    1.428     0.000     0.000]
+               [    0.000     0.000     1.904]
+               [    0.000     0.000     0.000]
+               [    0.000     1.000     1.000]  translation
+
+=== frame 29400 ===
+  DrawTriangle   calls=9667044  verts=417967722
+  DrawAndClip    calls=246942   verts=13368924
+  DrawAndClip2D  calls=842730   verts=7732936
+  vertex formats seen:
+    DrawAndClip2D FVF 0x01C4  x842730    XYZRHW (PRE-TRANSFORMED) +diffuse +specular tex=1
+    DrawAndClip   FVF 0x01C4  x246942    XYZRHW (PRE-TRANSFORMED) +diffuse +specular tex=1
+  world2view   [   -0.242     0.491     0.837]
+               [    0.000    -0.000     0.862]
+               [   -0.506     0.000    -0.970]
+               [   -0.122    -0.208     0.000]  translation
+  view2proj    [    1.428     0.000     0.000]
+               [    0.000     0.000     1.904]
+               [    0.000     0.000     0.000]
+               [    0.000     1.000     1.000]  translation
+
+=== frame 30000 ===
+  DrawTriangle   calls=9773844  verts=430693722
+  DrawAndClip    calls=285942   verts=13878924
+  DrawAndClip2D  calls=903330   verts=8563336
+  vertex formats seen:
+    DrawAndClip2D FVF 0x01C4  x903330    XYZRHW (PRE-TRANSFORMED) +diffuse +specular tex=1
+    DrawAndClip   FVF 0x01C4  x285942    XYZRHW (PRE-TRANSFORMED) +diffuse +specular tex=1
+  world2view   [   -0.242     0.491     0.837]
+               [    0.000    -0.000     0.862]
+               [   -0.506     0.000    -0.970]
+               [   -0.122    -0.208     0.000]  translation
+  view2proj    [    1.428     0.000     0.000]
+               [    0.000     0.000     1.904]
+               [    0.000     0.000     0.000]
+               [    0.000     1.000     1.000]  translation
+
+=== frame 30600 ===
+  DrawTriangle   calls=9880644  verts=443419722
+  DrawAndClip    calls=324942   verts=14388924
+  DrawAndClip2D  calls=963930   verts=9393736
+  vertex formats seen:
+    DrawAndClip2D FVF 0x01C4  x963930    XYZRHW (PRE-TRANSFORMED) +diffuse +specular tex=1
+    DrawAndClip   FVF 0x01C4  x324942    XYZRHW (PRE-TRANSFORMED) +diffuse +specular tex=1
+  world2view   [   -0.242     0.491     0.837]
+               [    0.000    -0.000     0.862]
+               [   -0.506     0.000    -0.970]
+               [   -0.122    -0.208     0.000]  translation
+  view2proj    [    1.428     0.000     0.000]
+               [    0.000     0.000     1.904]
+               [    0.000     0.000     0.000]
+               [    0.000     1.000     1.000]  translation

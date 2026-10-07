@@ -1,0 +1,9 @@
+// CMake writes build_id.h from this file. See bwvr/CMakeLists.txt.
+#ifndef BWVR_BUILD_ID_H
+#define BWVR_BUILD_ID_H
+
+// The short git commit of the build, with a plus sign when the build had
+// changes that were not committed.
+#define BWVR_BUILD_ID "@BWVR_BUILD_ID_NOW@"
+
+#endif  // BWVR_BUILD_ID_H

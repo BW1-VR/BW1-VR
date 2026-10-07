@@ -1,0 +1,18 @@
+* text=auto
+
+# Windows tools read these, and the installer ships the two text files.
+*.ps1  text eol=crlf
+*.bat  text eol=crlf
+*.iss  text eol=crlf
+*.rc   text eol=crlf
+bwvr/installer/README.txt   text eol=crlf
+bwvr/installer/Notices.txt  text eol=crlf
+bwvr/installer/payload/*.ini text eol=crlf
+
+*.png binary
+*.ico binary
+*.dll binary
+*.lib binary
+
+# The git hook is a shell script.
+.githooks/* text eol=lf

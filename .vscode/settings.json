@@ -1,0 +1,5 @@
+{
+    "cmake.sourceDirectory": "${workspaceFolder}/bwvr",
+    "cmake.buildDirectory": "${workspaceFolder}/bwvr/build",
+    "cmake.configureArgs": ["-A", "Win32"]
+}

@@ -1,0 +1,4 @@
+#!/bin/sh
+# Stops a commit that holds a file of the game.
+# dev.ps1 setup turns this hook on (git config core.hooksPath .githooks).
+exec powershell -NoProfile -ExecutionPolicy Bypass -File bwvr/tools/check_repo.ps1 -Staged

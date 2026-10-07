@@ -1,0 +1,47 @@
+name: Release for testers
+
+# A release is made only when a person asks for it. On GitHub: open Actions,
+# select "Release for testers", then "Run workflow". The workflow builds main,
+# makes the installer, and puts it in a new release. Nobody makes a tag by
+# hand: the workflow names the release from the version, the date and the
+# commit.
+
+on:
+  workflow_dispatch:
+    inputs:
+      notes:
+        description: What is new in this build. The testers read this.
+        required: false
+        default: ''
+      draft:
+        description: Make a draft first. Only you see it until you publish it.
+        type: boolean
+        default: false
+
+jobs:
+  release:
+    runs-on: windows-2022
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/build
+
+      - name: Make the release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NOTES: ${{ inputs.notes }}
+          DRAFT: ${{ inputs.draft }}
+        run: |
+          $day = (Get-Date).ToUniversalTime()
+          $tag = "v$env:MOD_VERSION-$($day.ToString('yyyyMMdd'))-$env:BUILD_ID"
+          $title = "Black & White VR Mod $env:MOD_VERSION, $($day.ToString('yyyy-MM-dd')) (build $env:BUILD_ID)"
+          $notes = $env:NOTES
+          if (-not $notes) { $notes = "A test build of main." }
+          $notes += "`n`nRun the installer over the build that you have. The first line of bwvr.log in your game folder says which build you run: it must show ``build $env:BUILD_ID``."
+          $more = @('--prerelease')
+          if ($env:DRAFT -eq 'true') { $more += '--draft' }
+          gh release create $tag "$env:INSTALLER" --target $env:GITHUB_SHA --title $title --notes $notes @more
+          exit $LASTEXITCODE

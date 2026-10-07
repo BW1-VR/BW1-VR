@@ -1,0 +1,5 @@
+# The output of the runs, the lock and the copy of the profile
+desk-*/
+desk.lock
+profile-guard/
+test-now-until.txt

@@ -1,0 +1,52 @@
+# NEVER commit the game. Each person supplies his own copy, in a folder
+# outside this repo. bwvr/tools/check_repo.ps1 stops a commit that holds a
+# file of the game.
+
+# Things of one machine: the game folder path, saved logs
+/local/
+
+# Art masters and exports that hold art of the game
+/media/
+
+# Build output
+build/
+out/
+bin/
+obj/
+*.obj
+*.pdb
+*.ilk
+*.exp
+*.lib
+*.dll
+*.exe
+
+# The third party binaries that the build and the installer need are in the
+# repo. See third_party/README.md.
+!/third_party/**/*.dll
+!/third_party/**/*.lib
+
+# Reference checkouts that a contributor can clone beside the vendored code
+/third_party/bw1-decomp/
+
+# Ghidra projects are large, they are of one machine, and they hold the game
+*.gpr
+*.rep/
+ghidra_projects/
+ghidra_import.log
+
+# Logs and captures. Measurement logs that the docs cite stay.
+*.log
+!bwvr/docs/*.log
+*.bmp
+frames/
+captures/
+
+# Editors, tools and the OS
+.vs/
+*.user
+Thumbs.db
+desktop.ini
+__pycache__/
+*.pyc
+.claude/

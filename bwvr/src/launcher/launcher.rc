@@ -1,0 +1,39 @@
+// The launcher's icon and version resource. The values come from version.h.
+//
+// FileDescription is what Task Manager and the taskbar show, so it holds the
+// product name rather than the file name.
+#include <winver.h>
+#include "../common/version.h"
+
+// The icon of the exe, of every shortcut the installer makes, and of the
+// launcher window. Replace the file to change the art.
+1 ICON "../../installer/art/launcher.ico"
+
+VS_VERSION_INFO VERSIONINFO
+ FILEVERSION    BWVR_VERSION_MAJOR,BWVR_VERSION_MINOR,BWVR_VERSION_PATCH,0
+ PRODUCTVERSION BWVR_VERSION_MAJOR,BWVR_VERSION_MINOR,BWVR_VERSION_PATCH,0
+ FILEFLAGSMASK  VS_FFI_FILEFLAGSMASK
+ FILEFLAGS      0x0L
+ FILEOS         VOS_NT_WINDOWS32
+ FILETYPE       VFT_APP
+ FILESUBTYPE    VFT2_UNKNOWN
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904B0"
+        BEGIN
+            VALUE "CompanyName",      BWVR_PUBLISHER
+            VALUE "FileDescription",  BWVR_PRODUCT_NAME
+            VALUE "FileVersion",      BWVR_VERSION_TEXT
+            VALUE "InternalName",     BWVR_PRODUCT_NAME
+            VALUE "LegalCopyright",   BWVR_COPYRIGHT
+            VALUE "OriginalFilename", "Black & White VR Mod.exe"
+            VALUE "ProductName",      BWVR_PRODUCT_NAME
+            VALUE "ProductVersion",   BWVR_VERSION_TEXT
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x0409, 1200
+    END
+END

@@ -1,0 +1,33 @@
+name: Build
+
+# Each push to main and each pull request: check the repo, build the mod, run
+# the math tests and make the installer. The installer stays with the run for
+# 30 days ("Artifacts"), so a person can try the build of one commit or of one
+# pull request. This workflow makes no release. See release.yml for that.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: windows-2022
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./.github/actions/build
+
+      - name: Keep the installer with this run
+        uses: actions/upload-artifact@v4
+        with:
+          name: installer-${{ env.BUILD_ID }}
+          path: ${{ env.INSTALLER }}
+          retention-days: 30
