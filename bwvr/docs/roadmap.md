@@ -109,14 +109,16 @@ and the game needs its registry values on a different PC.
   the Quest 3 through Virtual Desktop is tested), and Windows will warn
   about a file with no signature.
 
-## To do, from the session of the video, 2026-10-07
+## To do
 
-Buck played the build of `0b53680` and recorded a video of it (the Quest's
-own recorder, through Virtual Desktop). No work is started on this list.
-His logs are saved as `buck-2026-10-07\` in the session scratchpad: 22
-files, with seven sessions of that morning. The long ones ended at 11:14
-(42578 frames, 120 lines about wood), 11:29 (67782 frames) and 11:44 (66904
-frames). No session ran on 2026-10-05 or 2026-10-06.
+This is the one list of the open work, the most urgent first. It has four
+parts: the top of the list, the list of the session of the video, what the
+rounds before left open, and the repo and the release. When an item is
+done, say so here and give the commit.
+
+The logs of the owner's sessions of 2026-10-07 are in `local\logs\2026-10-07\`
+on his PC (22 files, seven sessions of that morning: the long ones ended at
+11:14, 11:29 and 11:44). The folder `local` is not in the repo.
 
 ### The top of the list (2026-10-07, 18:12, after a session on the new install)
 
@@ -214,7 +216,81 @@ The owner played the build of `bfa6ecd` in the headset on the new install
 
 Items 2, 3 and 7 are one package (the choice of a far target). Items 4 and
 6 are one package (the zoom of the God view). Items 1, 5, 8 and 10 each
-need their own research.
+need their own research. T1, T2 and T5 are one package (a tree that is
+held, thrown or that moves).
+
+### What the rounds before left open
+
+Each of these is named in the section of its round below. None is started.
+
+- **C1. The frame time.** The mean of the headset sessions went from 79.6
+  fps on 2026-10-03 to 73.3 fps on 2026-10-04, and the desktop runs were
+  about 2 ms slower. The scenes were not the same, so measure first.
+- **C2. The fingers that react (hand feel).** The part for bodies that the
+  hand passes is built and off (`hand_feel_bodies`): no picture proves it.
+  Not shown: a tree taken with the palm to the side. The idle wave is off
+  (`hand_feel_idle`), and the owner decides.
+- **C3. The hand model.** The game's finger animations are not played (a
+  pose is a curl for each finger). The shadow of the Hand on the land has
+  the game's fingers. The textures of an edited hand file are not read.
+- **C4. The Temple.** Not done: the Challenge Room, the Library, a value of
+  the options box, a drag of a scroll. Suspects: the picture of a new save
+  is flat magenta, the waist point is 8.4 units higher after a load, the
+  ray ends short of the pointer in the left eye in a dialog box inside the
+  Temple, and the leash posts are 1.4 cm from each other at the scale of
+  the start. In the ring: a thumb on the left stick can open it, and a
+  jump to the town or to a bookmark takes the heading of the game camera.
+- **C5. The village.** Not run: food, a tree, an animal or crops set down
+  at a store, the altar, a gift to the Creature, the red halo outside the
+  influence, a Workshop that gives scaffolds, villagers that make chants,
+  a miracle of a Worship Site that is not Water.
+- **C6. Miracles.** Not run: food, wood, lightning, forest, teleport,
+  explosion, flocks, the other Creature miracles, and each reason of a
+  refusal but "needs a Creature".
+- **C7. The commands of the Creature.** Not run: the walk of the Creature
+  to an object that the leash is tied to. The range of 4 m is in meters of
+  the room, so a far zoom has almost no object target (see items 2, 3
+  and 7).
+- **C8. The scripts and the engine camera.** The scripts get the place of
+  the player. Not changed: the 114 markers at "camera position",
+  `GetFacingCameraPosition`, and the other readers of the engine camera.
+  Not run: the scoreboard and the Creature scrolls.
+- **C9. Hints that count successes.** The owner's decision of 2026-10-03:
+  later, as an option behind the hint setting. With all hints on, each
+  hint shows always. With a different setting, a hint goes away after the
+  player did its action a few times.
+- **C10. The sound.** `audio_loops_keep` is built and not proven. The plan
+  and the open points of the sound work are in `docs/audio.md`.
+- **C11. The cut scene window.** Limits: the plane stays near for some
+  seconds after a near thing left, a thing smaller than one grid cell can
+  be in front, and the advisors are in the measure.
+- **C12. A view for videos.** Offered on 2026-10-07 and not asked for: a
+  16:9 view in the game window with the cards and the subtitles in it and
+  a smoothed head, for a capture on the PC. The owner's first video came
+  from the recorder of the Quest.
+- **C13. Ghidra for contributors.** There is no shared Ghidra project (it
+  holds the exe of the game). Offered: the steps to make the same project
+  from the exe with `bwvr/ghidra/ImportDecompSymbols.py`, and a text file
+  of names in the repo when contributors start to name functions.
+
+### The repo and the release
+
+- **R1. The release workflow has never run** (`.github/workflows/release.yml`,
+  started by hand on GitHub). The GitHub login of the owner's terminal has
+  no `workflow` scope: a push that changes a file in `.github/workflows`
+  needs `gh auth refresh -h github.com -s workflow` first.
+- **R2. The roles.** Each collaborator of a private repo of a personal
+  account has write access, and `main` is not protected on the free plan.
+  A free organization gives testers read access. The owner decides.
+- **R3. The installer and a person.** No person has run the installer on a
+  real game folder: the install, an update over an older build, and the
+  uninstall. The build on GitHub makes the installer on each push.
+- **R4. The run scripts of one area** (`hand_run.ps1`, `village_run.ps1`,
+  `temple_run.ps1`, `miracle_run.ps1`) have not run from this repo.
+  `verify_build.ps1` and the scripts that it calls have. `-Box` of
+  `hand_run.ps1` is a place of the dialog at one render size.
+- **R5. The folder of before the move** (`C:\Black & White VR`) holds only
+  what the owner chose to leave. He removes it when he wants.
 
 ## Headset test, 2026-10-04, evening
 
