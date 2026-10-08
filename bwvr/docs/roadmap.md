@@ -142,7 +142,8 @@ What the check cannot show:
   an `int` for an enum, or a type of the Windows build.
   `check_names.py --all` lists them. Nobody has read them one by one.
 
-The two wrong names are not reported to the project bw1-decomp yet.
+The two wrong names are not reported to the project bw1-decomp. The owner
+decided that on 2026-10-08: do not report them.
 
 ## Alpha 1 for testers, 2026-10-07
 
