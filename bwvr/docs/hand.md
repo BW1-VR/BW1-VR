@@ -33,13 +33,19 @@ This file always uses the real names.
 
 ### Tools used
 
-- A Ghidra project with full auto analysis and the 37k decomp names applied
-  lives in the session scratchpad (`handgh/proj`, project `bwhand`). The
-  analysis takes about 2.5 minutes. `handgh/dec.bat LIST OUT` decompiles a
-  list of addresses to `handgh/out/`.
-- The decompiler loses register arguments of `__thiscall` and `__fastcall`
-  functions. Every calling convention in this file was read from the
-  disassembly (the `ret` and the first instructions).
+- A Ghidra project of the exe with full auto analysis and the names of
+  bw1-decomp is in `local\ghidra`. `bwvr/tools/re.ps1 setup` makes it in
+  about 3 minutes, and `re.ps1 decompile` gives the C of a list of
+  addresses in `local\ghidra\out\`.
+- The research for this file used an older project of the same exe, in
+  which the names came after the analysis. There the decompiler lost the
+  register arguments of `__thiscall` and `__fastcall` functions. So every
+  calling convention in this file was read from the disassembly (the `ret`
+  and the first instructions).
+- In the project of `re.ps1` the names come before the analysis. Ghidra
+  then makes the class, the signature and `this` from each decorated name.
+  A signature that comes from a name is a claim of the symbol file, not a
+  proof. Check it in the disassembly before you mark a fact [V].
 
 ## 1. Where the Hand's position comes from
 

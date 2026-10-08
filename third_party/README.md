@@ -35,6 +35,8 @@ new SDK version, and update the hash in `package.ps1` in the same commit.
 
 ## Not in the repo
 
-`bw1-decomp` (https://github.com/openblack/bw1-decomp) has names for many
-functions of the game. It is a help for reverse engineering. Clone it to
-`third_party/bw1-decomp` if you want it. That folder is not tracked.
+`bw1-decomp` (https://github.com/openblack/bw1-decomp) has names for about
+26,000 functions of the game. The tools that read the code of the game use
+its symbol file. `.\bwvr\tools\re.ps1 names` puts one commit of it in
+`third_party/bw1-decomp`. The script holds the commit. That folder is not
+tracked.

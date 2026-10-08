@@ -83,9 +83,25 @@ each run. Keep those rules in each new script.
 The notes are in `bwvr/docs/` (start with `hand.md`, "How to read this
 file" and "Tools used"). The addresses of the game are in
 `bwvr/src/common/bw_addresses.h`. The mod fits one exe only, the v1.42 file,
-and it checks the SHA-1 before it hooks anything. A Ghidra project of the
-exe is large and holds the game, so it stays on your machine.
-`third_party/README.md` names a public project with function names.
+and it checks the SHA-1 before it hooks anything.
+
+Two tools read the code of the game. Both use the function names of the
+public project `bw1-decomp` (see `third_party/README.md`).
+
+- `python bwvr\tools\disasm.py 0x005B3C70` gives the disassembly of one
+  function in less than a second, with the names. It also finds a name
+  (`--find`), the callers of a function (`--callers`) and the uses of an
+  address (`--xref`). It needs Python 3 and `pip install capstone`.
+- `.\bwvr\tools\re.ps1 decompile 0x005B3C70` gives the C of a function from
+  Ghidra, in `local\ghidra\out\`. It needs Ghidra 12 and a JDK 21.
+
+Set them up one time with `.\bwvr\tools\re.ps1 setup`. It gets the names,
+and it makes a Ghidra project of your `runblack.exe` in `local\ghidra`
+(about 3 minutes). `.\bwvr\tools\re.ps1 status` says what is there. The
+project is large and holds the game, so it stays on your machine: git does
+not track `local`. You can open it in Ghidra too
+(`local\ghidra\project\runblack.gpr`). Close it there before you run
+`re.ps1 decompile`, because a Ghidra project takes one user at a time.
 
 ## AI tools
 

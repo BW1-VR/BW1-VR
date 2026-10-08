@@ -13,6 +13,10 @@ Usage:
     python disasm.py --xref 0x00EC8010       # who touches this address
 
 All addresses are virtual addresses at image base 0x00400000.
+
+The exe is runblack.exe of the game folder in local\\game-path.txt (set it
+with dev.ps1 setup). The names are in third_party\\bw1-decomp, which git does
+not track. Get them with: .\\bwvr\\tools\\re.ps1 names
 """
 
 import argparse
@@ -27,9 +31,19 @@ except ImportError:
     sys.exit("capstone is required: pip install capstone")
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-EXE = os.path.join(ROOT, "Black & White Game", "runblack.exe")
+GAME_FILE = os.path.join(ROOT, "local", "game-path.txt")
 SYMBOLS = os.path.join(ROOT, "third_party", "bw1-decomp", "config", "BW1W120",
                        "symbols.txt")
+
+
+def default_exe():
+    """Return runblack.exe of the game folder that dev.ps1 setup wrote down."""
+    if not os.path.exists(GAME_FILE):
+        sys.exit("No game folder is set. Run this first, at the root of the "
+                 "repo:\n  .\\dev.ps1 setup -Game \"<the folder that holds "
+                 "runblack.exe>\"")
+    with open(GAME_FILE, "r", encoding="utf-8-sig") as handle:
+        return os.path.join(handle.readline().strip(), "runblack.exe")
 
 
 class Image:
@@ -321,12 +335,19 @@ def main():
     parser.add_argument("--find", help="list symbols matching this regex")
     parser.add_argument("--xref", help="find references to this address")
     parser.add_argument("--callers", help="find calls and jumps to this address")
-    parser.add_argument("--exe", default=EXE)
+    parser.add_argument("--exe", help="default: runblack.exe of the game folder")
     parser.add_argument("--symbols", default=SYMBOLS)
     args = parser.parse_args()
 
-    image = Image(args.exe)
+    exe = args.exe or default_exe()
+    if not os.path.exists(exe):
+        sys.exit("There is no runblack.exe at: %s" % exe)
+    image = Image(exe)
     symbols = load_symbols(args.symbols)
+    if not symbols:
+        print("No names: there is no symbol file at %s\n"
+              "Get the names with: .\\bwvr\\tools\\re.ps1 names" % args.symbols,
+              file=sys.stderr)
 
     if args.find:
         find_symbols(symbols, args.find)

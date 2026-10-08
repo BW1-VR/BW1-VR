@@ -80,6 +80,38 @@ first. Collaborators of a private repo of a personal
 account all have write access, and GitHub does not protect `main` there on
 the free plan. An organization gives read access for testers.
 
+**The tools that read the code of the game (2026-10-08).** They had not
+moved with the repo: `disasm.py` looked for the exe and the symbol file in
+the layout of before the move, and the Ghidra projects and their scripts
+were in a temporary folder of one machine. Now:
+
+- `bwvr/tools/re.ps1 setup` gets the names (one commit of
+  `openblack/bw1-decomp`, in `third_party\bw1-decomp`, not tracked) and
+  makes a Ghidra project of the exe of the contributor in `local\ghidra`.
+  `re.ps1 decompile <addresses>` gives the C in `local\ghidra\out\`.
+- `bwvr/tools/disasm.py` reads the game folder of `local\game-path.txt`.
+- The Ghidra scripts are in `bwvr/ghidra/`: `ApplySymbols.java` and
+  `Decompile.java`. They replace `ImportDecompSymbols.py`.
+
+Checked on that day on the PC of the owner: the symbol file is the same
+file as before (38488 lines). The project was made in 2.2 minutes, and
+26107 functions and 12381 labels have a name. Three functions decompile in
+5 s. `disasm.py` gives the listing, a name search and the callers.
+
+The decompiled C is better than in the projects of before. There the names
+came after the analysis and stayed decorated, and the decompiler lost
+`this`. Now the names come before the analysis, so Ghidra makes the class
+and the signature from each one: `void __thiscall
+HandStateHolding::Update(HandStateHolding *this, float, LHMatrix *)`, and
+calls such as `CHand::SetDistanceFromView(...)`. The two swapped names of
+`docs/hand.md` are corrected in the project too.
+
+Two limits. Ghidra starts with batch files that stop on `(`, `)` or `&` in
+an argument, so the repo must be in a folder without them, and the import
+reads a copy of the exe that the script removes after it. `disasm.py`
+needs `pip install capstone`. It was not there on the PC of the owner, and
+it was installed for Python 3.12 on that day.
+
 ## Alpha 1 for testers, 2026-10-07
 
 Buck wants to give the mod to a small group of testers. It is not a
@@ -279,10 +311,20 @@ Each of these is named in the section of its round below. None is started.
   16:9 view in the game window with the cards and the subtitles in it and
   a smoothed head, for a capture on the PC. The owner's first video came
   from the recorder of the Quest.
-- **C13. Ghidra for contributors.** There is no shared Ghidra project (it
-  holds the exe of the game). Offered: the steps to make the same project
-  from the exe with `bwvr/ghidra/ImportDecompSymbols.py`, and a text file
-  of names in the repo when contributors start to name functions.
+- **C13. Ghidra for contributors.** Done on 2026-10-08, see "The tools that
+  read the code of the game" above. There is no shared Ghidra project (it
+  holds the exe of the game): `bwvr/tools/re.ps1 setup` makes the same
+  project from the exe of each contributor. Still offered and not done: a
+  text file of names in the repo when contributors start to name functions.
+- **C14. Look at REA again after 2026-10-15.** REA
+  (`github.com/morluto/rea`, the npm package `rea-agents`) is an MCP server
+  that gives an agent the pseudocode, the strings and the references of a
+  binary through Ghidra. On 2026-10-08 (version 6.0.0) it did not fit: on
+  Windows it is experimental and read only, each session imports the exe
+  into a new temporary project (it cannot open the project of
+  `local\ghidra`), and so it has none of the names of bw1-decomp. It fits
+  when it can open a project that is there, or take a symbol file, on
+  Windows. The owner asked for a new look after about one week.
 
 ### The repo and the release
 
@@ -302,6 +344,11 @@ Each of these is named in the section of its round below. None is started.
   `hand_run.ps1` is a place of the dialog at one render size.
 - **R5. The folder of before the move** (`C:\Black & White VR`) holds only
   what the owner chose to leave. He removes it when he wants.
+- **R6. Two scripts still look for the game in the repo.**
+  `bwvr/tools/launch-vr.ps1` and the default of `--game` in
+  `bwvr/tools/hand_export/export.py` use the folder `Black & White Game` at
+  the root, which is the layout of before the move. `dev.ps1 play` does the
+  work of the first one. The second one runs with `--game "<folder>"`.
 
 ## Headset test, 2026-10-04, evening
 
