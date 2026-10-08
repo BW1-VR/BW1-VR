@@ -11,8 +11,10 @@ tested by a person yet.
 
 ## This repo, from 2026-10-07
 
-The mod moved to this repo (`github.com/Buckzor/BW1-VR`, private, by
-invitation) so that testers and contributors can take part. The history
+The mod moved to this repo (`github.com/BW1-VR/BW1-VR`, private, by
+invitation) so that testers and contributors can take part. The repo
+started in the personal account of the owner, and it is in the organization
+`BW1-VR` from 2026-10-07 in the evening. GitHub sends the old address on. The history
 starts new at version 1.1.0. The text of the old history is in this file,
 with the project name of the owner.
 
@@ -361,13 +363,19 @@ Each of these is named in the section of its round below. None is started.
 
 ### The repo and the release
 
-- **R1. The release workflow has never run** (`.github/workflows/release.yml`,
-  started by hand on GitHub). The GitHub login of the owner's terminal has
-  no `workflow` scope: a push that changes a file in `.github/workflows`
-  needs `gh auth refresh -h github.com -s workflow` first.
-- **R2. The roles.** Each collaborator of a private repo of a personal
-  account has write access, and `main` is not protected on the free plan.
-  A free organization gives testers read access. The owner decides.
+- **R1. The release workflow.** Done: the owner started
+  `.github/workflows/release.yml` on 2026-10-07, and it passed in 3 minutes.
+  The people of the repo can get the release `v1.1.0-20261007-feb8ced` (a
+  pre-release, with the installer) from 2026-10-08. Still true: the
+  GitHub login of the owner's terminal has no `workflow` scope, so a push
+  that changes a file in `.github/workflows` needs
+  `gh auth refresh -h github.com -s workflow` first.
+- **R2. The roles.** Done on 2026-10-07: the repo is in the free
+  organization `BW1-VR`. A member gets no access from the organization
+  (the base permission is "none"), and each person gets a role on the repo:
+  read or triage for a tester, write for a contributor. Still true: `main`
+  is not protected on the free plan, so a person with write access can push
+  to `main`. `CONTRIBUTING.md` asks for a pull request.
 - **R3. The installer and a person.** No person has run the installer on a
   real game folder: the install, an update over an older build, and the
   uninstall. The build on GitHub makes the installer on each push.

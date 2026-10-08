@@ -118,7 +118,7 @@ nothing more to download.
 ### The first time
 
 ```powershell
-git clone https://github.com/Buckzor/BW1-VR.git
+git clone https://github.com/BW1-VR/BW1-VR.git
 cd BW1-VR
 .\dev.ps1 setup -Game "D:\Games\Black & White"
 .\dev.ps1
