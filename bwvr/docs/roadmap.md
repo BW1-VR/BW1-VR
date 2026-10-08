@@ -311,8 +311,8 @@ Each of these is named in the section of its round below. None is started.
   16:9 view in the game window with the cards and the subtitles in it and
   a smoothed head, for a capture on the PC. The owner's first video came
   from the recorder of the Quest.
-- **C13. Ghidra for contributors.** Done on 2026-10-08, see "The tools that
-  read the code of the game" above. There is no shared Ghidra project (it
+- **C13. Ghidra for contributors.** Done on 2026-10-08 (`988166a`), see
+  "The tools that read the code of the game" above. There is no shared Ghidra project (it
   holds the exe of the game): `bwvr/tools/re.ps1 setup` makes the same
   project from the exe of each contributor. Still offered and not done: a
   text file of names in the repo when contributors start to name functions.
