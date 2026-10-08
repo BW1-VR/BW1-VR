@@ -366,10 +366,11 @@ Each of these is named in the section of its round below. None is started.
 - **R1. The release workflow.** Done: the owner started
   `.github/workflows/release.yml` on 2026-10-07, and it passed in 3 minutes.
   The people of the repo can get the release `v1.1.0-20261007-feb8ced` (a
-  pre-release, with the installer) from 2026-10-08. Still true: the
-  GitHub login of the owner's terminal has no `workflow` scope, so a push
-  that changes a file in `.github/workflows` needs
-  `gh auth refresh -h github.com -s workflow` first.
+  pre-release, with the installer) from 2026-10-08. The GitHub login of
+  the owner's terminal has the `workflow` scope from 2026-10-08, so a push
+  can change a file in `.github/workflows`. The workflows use
+  `actions/checkout@v7` and `actions/upload-artifact@v7` from that day (the
+  versions before ran on a Node.js that GitHub has deprecated).
 - **R2. The roles.** Done on 2026-10-07: the repo is in the free
   organization `BW1-VR`. A member gets no access from the organization
   (the base permission is "none"), and each person gets a role on the repo:
