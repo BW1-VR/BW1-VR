@@ -78,9 +78,10 @@ $NamesDir    = Join-Path $Repo 'third_party\bw1-decomp'
 $Symbols     = Join-Path $NamesDir 'config\BW1W120\symbols.txt'
 $NamesUrl    = 'https://github.com/openblack/bw1-decomp'
 # The commit of bw1-decomp that the docs of the mod were written with. To move
-# to a newer one, change this, remove third_party\bw1-decomp, and run "setup
-# -Force". Then check the pair of swapped names in ApplySymbols.java and in
-# disasm.py against the new file.
+# to a newer one, change this, remove third_party\bw1-decomp, and run "names".
+# Then run "python bwvr\tools\check_names.py", read each line of
+# bwvr\ghidra\name-corrections.txt against the new file, and run
+# "project -Force".
 $NamesCommit = 'eebbaa16bc418e637353a407982b5dc6ce1f118d'
 
 function Say([string]$Text) { Write-Host ('== ' + $Text) -ForegroundColor Cyan }

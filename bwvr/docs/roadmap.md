@@ -112,6 +112,38 @@ reads a copy of the exe that the script removes after it. `disasm.py`
 needs `pip install capstone`. It was not there on the PC of the owner, and
 it was installed for Python 3.12 on that day.
 
+**Two wrong names in the symbol file (2026-10-08).** The first decompile of
+the new project gave `ObtainRequiredHandPosition` a sixth parameter of the
+class `CHand`. `docs/hand.md` says `LHPoint&`, and the doc is right: the
+function writes three floats through that parameter, and the caller gives
+a local of 12 bytes. The fault is in the decorated name of the symbol file,
+which has a back-reference digit that is one too low. The mod does not call
+the function, so no code of the mod was wrong.
+
+The exe has no symbols, so a person or a tool wrote each Windows name of
+the symbol file. `bwvr/tools/check_names.py` now compares the parameter
+classes of each decorated name with the Mac symbol of the same function
+(the Mac names are from the compiler). Of 12978 decorated names, 9644 have
+the classes of their Mac symbol. Two had a wrong digit:
+`ObtainRequiredHandPosition` and `BlendColor`. Both are in
+`bwvr/ghidra/name-corrections.txt` with the proof, and `disasm.py` and the
+Ghidra project read that file. The project was made again with it. Each
+decompiled function now also says when its parameter types come from its
+name.
+
+What the check cannot show:
+
+- 1420 names have no Mac symbol with the same name. 102 of them give a
+  class as a digit: 80 are a method that names its own class, and the 22
+  others were read by eye and look right.
+- 1713 names are not compared (constructors, operators, and names with no
+  parameter list), and Windows cannot read 131 names.
+- 70 names differ from the Mac symbol with each class by name, for example
+  an `int` for an enum, or a type of the Windows build.
+  `check_names.py --all` lists them. Nobody has read them one by one.
+
+The two wrong names are not reported to the project bw1-decomp yet.
+
 ## Alpha 1 for testers, 2026-10-07
 
 Buck wants to give the mod to a small group of testers. It is not a

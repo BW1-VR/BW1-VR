@@ -57,7 +57,7 @@ of the unofficial patch v1.42 is accepted.
 | `src/proxy/`, `src/probe/`, `src/xrtest/` | The ddraw proxy, an early probe, a test of the OpenXR path with no game |
 | `src/common/` | The addresses in the game, the exe check, the version |
 | `test/controller_math/` | The math tests |
-| `tools/` | `package.ps1` (the installer), `check_repo.ps1`, `desk/` (the desktop test runs), `hand_export/`, `re.ps1` and `disasm.py` (they read the code of the game) |
-| `ghidra/` | The two Ghidra scripts that `re.ps1` runs |
+| `tools/` | `package.ps1` (the installer), `check_repo.ps1`, `desk/` (the desktop test runs), `hand_export/`, `re.ps1`, `disasm.py` and `check_names.py` (they read the code of the game) |
+| `ghidra/` | The two Ghidra scripts that `re.ps1` runs, and `name-corrections.txt` |
 | `installer/` | The Inno Setup script, the player readme, the notices |
 | `docs/` | One document for each area, and `roadmap.md` |

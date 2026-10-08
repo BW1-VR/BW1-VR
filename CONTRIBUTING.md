@@ -103,6 +103,14 @@ not track `local`. You can open it in Ghidra too
 (`local\ghidra\project\runblack.gpr`). Close it there before you run
 `re.ps1 decompile`, because a Ghidra project takes one user at a time.
 
+A name or a signature from the symbol file is a claim, not a proof. The exe
+has no symbols: a person or a tool wrote each Windows name, and Ghidra makes
+the parameter types of a function from it. Check a type in the code before
+you use it. When a name is wrong, put the right one in
+`bwvr/ghidra/name-corrections.txt` with the proof. Both tools read that
+file. `python bwvr\tools\check_names.py` compares the names with the Mac
+symbols of the same project, which are from the compiler.
+
 ## AI tools
 
 Most of this project is written with AI coding tools, and you are welcome to

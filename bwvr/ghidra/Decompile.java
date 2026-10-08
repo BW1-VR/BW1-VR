@@ -13,6 +13,7 @@ import ghidra.app.decompiler.DecompileResults;
 import ghidra.app.script.GhidraScript;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.listing.Function;
+import ghidra.program.model.symbol.SourceType;
 import ghidra.program.model.symbol.Symbol;
 import java.io.PrintWriter;
 import java.nio.charset.StandardCharsets;
@@ -61,6 +62,9 @@ public class Decompile extends GhidraScript {
         out.println("// ==== " + f.getName(true) + " @ " + f.getEntryPoint()
             + " (asked " + text + ") ====");
         out.println("// " + f.getPrototypeString(true, true));
+        if (f.getSignatureSource() == SourceType.IMPORTED) {
+          out.println("// The parameter types come from the decorated name, not from the code.");
+        }
         // The decorated name of the symbol file is a second label at the
         // entry. Print it, so that a search for it finds this function.
         for (Symbol label : currentProgram.getSymbolTable().getSymbols(f.getEntryPoint())) {

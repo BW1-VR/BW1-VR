@@ -9,6 +9,9 @@
 // The runblack.exe of the unofficial patch v1.42 has the code of v1.20 at the
 // same addresses, so the names of BW1W120 fit it. See docs/address-map.md.
 //
+// Some names of the symbol file are wrong. name-corrections.txt, beside this
+// script, holds the right ones, and the script uses them.
+//
 // The one argument is the path of symbols.txt. With no argument (in the
 // Script Manager of Ghidra) the script asks for the file.
 //
@@ -20,6 +23,7 @@ import ghidra.program.model.listing.Function;
 import ghidra.program.model.symbol.SourceType;
 import ghidra.program.model.symbol.SymbolTable;
 import java.io.BufferedReader;
+import java.io.File;
 import java.io.FileInputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
@@ -42,10 +46,7 @@ public class ApplySymbols extends GhidraScript {
       "??_7CameraMode@@6B@", "??_7CHand@@6B@", "??_7HandStateCamera@@6B@",
       "??_7GestureSystem@@6B@"};
 
-  // The symbol file has the names of these two addresses swapped. The vtable
-  // and the call sites prove it: docs/hand.md, "Two symbol names are
-  // swapped". tools/disasm.py has the same pair.
-  private static final long[][] SWAPPED = {{0x005B3C70L, 0x005B5E70L}};
+  private static final String CORRECTIONS = "name-corrections.txt";
 
   private static class Entry {
     String name;
@@ -53,14 +54,8 @@ public class ApplySymbols extends GhidraScript {
     boolean function;
   }
 
-  @Override
-  public void run() throws Exception {
-    String[] args = getScriptArgs();
-    String path = args.length > 0 ? args[0]
-        : askFile("symbols.txt of bw1-decomp (config/BW1W120)", "Apply").getAbsolutePath();
-
+  private static List<Entry> read(String path) throws Exception {
     List<Entry> entries = new ArrayList<>();
-    Map<Long, Entry> first = new HashMap<>();
     try (BufferedReader reader = new BufferedReader(
         new InputStreamReader(new FileInputStream(path), StandardCharsets.UTF_8))) {
       String line;
@@ -73,9 +68,20 @@ public class ApplySymbols extends GhidraScript {
         e.address = Long.parseLong(m.group(3), 16);
         e.function = m.group(2).equals("text") && comment.contains("type:function");
         entries.add(e);
-        first.putIfAbsent(e.address, e);
       }
     }
+    return entries;
+  }
+
+  @Override
+  public void run() throws Exception {
+    String[] args = getScriptArgs();
+    String path = args.length > 0 ? args[0]
+        : askFile("symbols.txt of bw1-decomp (config/BW1W120)", "Apply").getAbsolutePath();
+
+    List<Entry> entries = read(path);
+    Map<Long, Entry> first = new HashMap<>();
+    for (Entry e : entries) first.putIfAbsent(e.address, e);
 
     for (int i = 0; i < ANCHOR_ADDRESS.length; i++) {
       Entry e = first.get(ANCHOR_ADDRESS[i]);
@@ -86,13 +92,22 @@ public class ApplySymbols extends GhidraScript {
       }
     }
 
-    for (long[] pair : SWAPPED) {
-      Entry a = first.get(pair[0]);
-      Entry b = first.get(pair[1]);
-      if (a == null || b == null) continue;
-      String name = a.name;
-      a.name = b.name;
-      b.name = name;
+    // A correction replaces the name at its address, or adds a name.
+    File corrections = new File(getSourceFile().getParentFile().getAbsolutePath(), CORRECTIONS);
+    if (!corrections.exists()) {
+      println("ApplySymbols: STOPPED. There is no " + corrections);
+      return;
+    }
+    int corrected = 0;
+    for (Entry c : read(corrections.getPath())) {
+      Entry e = first.get(c.address);
+      if (e == null) {
+        entries.add(c);
+        first.put(c.address, c);
+      } else {
+        e.name = c.name;
+      }
+      corrected++;
     }
 
     SymbolTable table = currentProgram.getSymbolTable();
@@ -126,6 +141,7 @@ public class ApplySymbols extends GhidraScript {
         fails++;
       }
     }
-    println("ApplySymbols: functions " + functions + ", labels " + labels + ", fails " + fails);
+    println("ApplySymbols: functions " + functions + ", labels " + labels + ", fails " + fails
+        + ", corrections " + corrected);
   }
 }

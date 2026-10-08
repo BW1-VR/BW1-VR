@@ -1,0 +1,28 @@
+# Corrections to the names of bw1-decomp (config/BW1W120/symbols.txt).
+#
+# The exe of the game has no symbols. A person or a tool wrote each decorated
+# Windows name of the symbol file, and some are wrong. A line here replaces
+# the name at its address. The format is the format of the symbol file.
+# tools/disasm.py and ghidra/ApplySymbols.java read this file after the
+# symbol file, so the two tools give the same name for one address.
+#
+# Give the proof with each correction. tools/check_names.py finds a name
+# whose parameter classes are not the classes of the Mac symbol of the same
+# function. The Mac symbol files hold the names from the compiler.
+
+# The symbol file has these two names at the address of the other one.
+# Proof: docs/hand.md, "Two symbol names are swapped" (the vtable of
+# HandStateHolding, and the call with nine stack arguments).
+#
+# The decorated name of ObtainRequiredHandPosition also had a wrong sixth
+# parameter: "AAV1@" is a reference to the class of name 1, and name 1 is
+# CHand, because name 0 is the name of the function. The Mac symbol is
+# ObtainRequiredHandPosition__FP5CHandffRfR7LHPointR7LHPointRibb, and the
+# code writes three floats through that parameter (0x005B5E70, docs/hand.md).
+?Update@HandStateHolding@@QAEXMPAVLHMatrix@@@Z = .text:0x005B3C70; // type:function
+?ObtainRequiredHandPosition@@YAXPAVCHand@@MMAAMAAVLHPoint@@2AAH_N4@Z = .text:0x005B5E70; // type:function
+
+# The third parameter was "PAV0@", a pointer to a class with the name of the
+# function. The Mac symbol is BlendColor__FlP9LH3DColorP9LH3DColor, and the
+# code reads the same color bytes through the second and the third parameter.
+?BlendColor@@YAXHPAVLH3DColor@@0@Z = .text:0x005284C0; // type:function

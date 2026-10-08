@@ -27,9 +27,35 @@ name for both. [V]
 | Address | Symbol file says | It really is | Proof |
 | --- | --- | --- | --- |
 | `0x005B3C70` | `ObtainRequiredHandPosition` | `HandStateHolding::Update` | slot 3 (+0x0C) of the `HandStateHolding` vtable `0x00900B40`. It starts `mov esi, ecx` and reads the CHand at `[esi+4]` |
-| `0x005B5E70` | `HandStateHolding::Update` | `ObtainRequiredHandPosition` | `HandStateNormal::Update` calls it at `0x005B71CB` with nine stack arguments and cleans `0x24` bytes. That matches the mangled signature `(CHand*, float, float, float&, LHPoint&, LHPoint&, int&, bool, bool)` |
+| `0x005B5E70` | `HandStateHolding::Update` | `ObtainRequiredHandPosition` | `HandStateNormal::Update` calls it at `0x005B71CB` with nine stack arguments and cleans `0x24` bytes. That matches the signature of the Mac symbol, `(CHand*, float, float, float&, LHPoint&, LHPoint&, int&, bool, bool)` |
 
 This file always uses the real names.
+
+### The decorated name of ObtainRequiredHandPosition had a wrong class
+
+The symbol file gives this function the name
+`?ObtainRequiredHandPosition@@YAXPAVCHand@@MMAAMAAVLHPoint@@AAV1@AAH_N5@Z`.
+A demangler reads the sixth parameter of that name as `CHand&`: `AAV1@` is
+a reference to the class of name 1, and name 1 is `CHand`, because name 0 is
+the name of the function. The sixth parameter is an `LHPoint&`, the up
+vector. [V]
+
+| Proof | What it shows |
+| --- | --- |
+| The Mac symbol, `ObtainRequiredHandPosition__FP5CHandffRfR7LHPointR7LHPointRibb` | The names of the Mac build are from the compiler. The fifth and the sixth parameter are `LHPoint&` |
+| The function, `0x005B5E70` | It writes three floats through the sixth parameter (`+0`, `+4`, `+8`) and copies them to `0x00D13F60` |
+| `HandStateNormal::Update`, `0x005B71B5` | It gives the address of a local of 12 bytes (`lea edx, [esp+0x20]`). Then it gives the same local to the pose builder `fn_0046E160` as the up vector |
+
+The exe has no symbols, so a person or a tool wrote each decorated Windows
+name of the symbol file. The mod does not call this function and has no
+declaration of it, so no code of the mod used the wrong class.
+
+`bwvr/ghidra/name-corrections.txt` holds the right name, and `disasm.py` and
+the Ghidra project use it. `bwvr/tools/check_names.py` compares the
+parameter classes of each decorated name with the Mac symbol of the same
+function. On 2026-10-08 it found two names with a wrong back-reference
+digit: this one, and `BlendColor` `0x005284C0` (its third parameter read as
+a class `BlendColor`, and it is an `LH3DColor*`). Both are corrected.
 
 ### Tools used
 

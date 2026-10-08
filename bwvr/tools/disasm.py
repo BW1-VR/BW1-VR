@@ -34,6 +34,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 GAME_FILE = os.path.join(ROOT, "local", "game-path.txt")
 SYMBOLS = os.path.join(ROOT, "third_party", "bw1-decomp", "config", "BW1W120",
                        "symbols.txt")
+CORRECTIONS = os.path.join(ROOT, "bwvr", "ghidra", "name-corrections.txt")
 
 
 def default_exe():
@@ -118,10 +119,19 @@ SYMBOL_LINE = re.compile(
     r"(?:\s*//\s*(?P<comment>.*))?$")
 
 
-# Pairs of addresses whose names the bw1-decomp symbol file has swapped.
-SWAPPED_NAMES = [
-    (0x005B3C70, 0x005B5E70),  # HandStateHolding::Update, ObtainRequiredHandPosition
-]
+def read_symbol_lines(path):
+    """Yield (address, name, size) for each line of a symbols file."""
+    with open(path, "r", encoding="utf-8", errors="replace") as handle:
+        for line in handle:
+            match = SYMBOL_LINE.match(line.strip())
+            if match is None:
+                continue
+            size = 0
+            comment = match.group("comment") or ""
+            size_match = re.search(r"size:0x([0-9A-Fa-f]+)", comment)
+            if size_match:
+                size = int(size_match.group(1), 16)
+            yield int(match.group("addr"), 16), match.group("name"), size
 
 
 def load_symbols(path):
@@ -129,28 +139,13 @@ def load_symbols(path):
     table = {}
     if not os.path.exists(path):
         return table
-    with open(path, "r", encoding="utf-8", errors="replace") as handle:
-        for line in handle:
-            match = SYMBOL_LINE.match(line.strip())
-            if match is None:
-                continue
-            addr = int(match.group("addr"), 16)
-            name = match.group("name")
-            size = 0
-            comment = match.group("comment") or ""
-            size_match = re.search(r"size:0x([0-9A-Fa-f]+)", comment)
-            if size_match:
-                size = int(size_match.group(1), 16)
-            table[addr] = (name, size)
-    # The symbol file swaps these two names. The vtable and the call sites
-    # prove it, see docs/hand.md, "Two symbol names are swapped". Keep each
-    # size with its address, and swap only the names.
-    for first, second in SWAPPED_NAMES:
-        if first in table and second in table:
-            first_name, first_size = table[first]
-            second_name, second_size = table[second]
-            table[first] = (second_name, first_size)
-            table[second] = (first_name, second_size)
+    for addr, name, size in read_symbol_lines(path):
+        table[addr] = (name, size)
+    # Some names of the symbol file are wrong. The corrections file holds the
+    # right ones, with the proof of each. A correction replaces the name and
+    # keeps the size of the address, unless it gives a size.
+    for addr, name, size in read_symbol_lines(CORRECTIONS):
+        table[addr] = (name, size or table.get(addr, ("", 0))[1])
     return table
 
 
