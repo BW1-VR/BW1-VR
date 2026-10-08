@@ -144,6 +144,17 @@ The owner played the build of `bfa6ecd` in the headset on the new install
   tree will not plant at all and falls over. He wants more feedback: the
   player must see when a release plants the tree and when it does not.
   This goes with T1.
+- **T6. A fast grab of a rock breaks the rock at times** (added
+  2026-10-08). The player closes the grip on a rock and moves the hand
+  away quickly, with the grip still held. Then the rock breaks and does
+  not go into the hand. His guess: the mod sees an open grip when the hand
+  leaves the rock that fast, so the game breaks the rock and does not pick
+  it up. He thinks that other interactions can have the same fault when
+  the player is fast, not only rocks. Not known: the cause. Find first how
+  the plain game breaks a rock with the mouse. Then read in the log what
+  the mod sends when the hand leaves the rock before the pick up is over.
+  Maybe this goes with T2: in both, the hand and the object move apart
+  during the pick up.
 
 ### The list of the session of the video
 
@@ -217,7 +228,7 @@ The owner played the build of `bfa6ecd` in the headset on the new install
 Items 2, 3 and 7 are one package (the choice of a far target). Items 4 and
 6 are one package (the zoom of the God view). Items 1, 5, 8 and 10 each
 need their own research. T1, T2 and T5 are one package (a tree that is
-held, thrown or that moves).
+held, thrown or that moves). T6 is near T2 and can go with that package.
 
 ### What the rounds before left open
 
