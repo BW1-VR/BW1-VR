@@ -50,7 +50,7 @@ The order inside FinishFrame [V, disassembly of `0x0082F460`]:
 | --- | --- |
 | `0x0082F49C` to `0x0082F4C7` | The callbacks without the late flag `0x80000000` |
 | `0x0082F4C9` | The sun glare, `fn_0086BB60` |
-| `0x0082F5E4` to `0x0082F614` | `ZFUNC` set to `ALWAYS`, then a screen quad (`DrawIndexedPrimitive`, vtable `+0x68`). It sets the depth to 1.0 (`tabletop.md` 4.4). |
+| `0x0082F5E4` to `0x0082F614` | `ZFUNC` set to `ALWAYS`, then a screen quad (`DrawIndexedPrimitive`, vtable `+0x68`). It sets the depth to 1.0 (`tabletop.md`, "Not built: the ring and the depth key"). |
 | `0x0082F686` to `0x0082F6DD` | The cinema bars, only when `0x00EB9950` is not zero |
 | `0x0082F6ED` to `0x0082F718` | The callbacks with the late flag. The screen interface draws here. |
 | `0x0082F7D3` | `EndScene` (vtable `+0x18`) |
@@ -101,8 +101,8 @@ box drawn in a pass is the one that HelpText queued in the pass before [I].
 | Video in play | `LHVideoPlayer::thedraw`, also from `FallingSpell::Draw` | late callbacks | the eyes. Not classified yet. |
 
 The size, the placement and the shift of the interface in the eye pictures are
-in `draw_hooks.cpp` and `backend.md` ("Subtitles", "Menus keep their size",
-"Tooltips drawn twice in each eye").
+in `draw_hooks.cpp` and `backend.md` ("Interface size", "Subtitles",
+"Tooltips").
 
 `Creature::Draw` arms the Creature panel only while the Creature is
 `GInterface::GetInteractObject` [V]. The box itself is fixed to the screen.
@@ -425,7 +425,7 @@ prints both poses once, and again after each recenter.
 | Creature panel | section 13 | the Creature panel |
 
 The advisors float about 43 degrees to each side, 1 to 1.5 m away
-(`tabletop.md` 5.1), so they do not meet the panels.
+(`tabletop.md`, "The spirits beside the table"), so they do not meet the panels.
 
 A quad layer draws over the projection layer everywhere. A panel behind a
 nearer object still covers it, and the two depth cues then disagree. In
@@ -435,7 +435,7 @@ nearer than the world behind it in nearly all views [I].
 ### 4.4 Tabletop placement (planned)
 
 With the table on, the panels use the normal placement. The plan is to hang
-them on the table anchor of `tabletop.md` 2.2 (the table center in the room,
+them on the table anchor of `tabletop.md`, "The table camera" (the table center in the room,
 80 cm forward and 40 cm down from the recenter pose):
 
 | Quad | Center | Content |
@@ -771,7 +771,7 @@ Esc menu open, the Options page, and a subtitle.
 
 ## 13. The Creature panel
 
-The camera part is in `hand.md` (the Creature by touch).
+The camera part is in `creature.md` (the Creature by touch).
 
 ### 13.1 What the game draws [V]
 

@@ -317,7 +317,7 @@ game calls it for a Creature that the Hand does not have (`0x005D3E33`,
 `Creature::ValidForLockedSelectProcess` (`0x00476E10`) gives 1 for a Creature
 that has a player, no spell on it and no state `0xD` [V], because a press on
 the Creature starts its touch with the locked select. So the game's test for a
-bulk take passes for the Creature (see section 3.5).
+bulk take passes for the Creature (see `grab.md`, "The bulk take").
 
 ## 2. The Creature by touch
 
@@ -1072,7 +1072,7 @@ now"), and the Creature state ends.
 
 ## 7. Not built, open
 
-- **The touch with no press** (`creature_touch`, stage 2 of the design). The
+- **The touch with no press** (`creature_touch`). The
   Hand within 25 cm of the body would press the trigger for the player, and
   the release past 35 cm. The mod must then hold the game's right button for
   the player (`controllers.cpp`, `PumpButtons`). The hand passes the Creature

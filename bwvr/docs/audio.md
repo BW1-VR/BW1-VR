@@ -161,7 +161,7 @@ stream 2 to 4 times the latency ahead. The DLL has 16 sample slots. (V)
   thread while the mixer thread runs. (I)
 
 The mod calls QMixer only from the game thread, as the DLL does. The mixer of
-the mod runs on the thread of QMixer (section 8).
+the mod runs on the thread of QMixer (section 7).
 
 ## 3. The listener
 
@@ -894,7 +894,7 @@ and the ear agree in time. `HapticsPulseHands` (`haptics.cpp`) calls
 gives the tap (one for an arrival, though the pulse comes in each frame of the
 end of the glide), and `world` gives the thud. The cue plays also with
 `haptics_pct=0`. The grab of the land in `world_grab.cpp` calls the thud
-cue. See `hand.md`.
+cue. See `hand-model.md`, "Haptics".
 
 ## 9. Ini keys and test keys
 

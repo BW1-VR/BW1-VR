@@ -981,7 +981,7 @@ The Hand is the pointing hand: the right controller by default
 - It strokes and commands the Creature (see [creature.md](creature.md)).
 
 The other hand does not place the Hand. Its grip grabs the world: the land
-moves with it, as the camera grab (see [grab-world.md](grab-world.md)). It
+moves with it, as the grab of the land in the God view (see [god-view.md](god-view.md), section 5). It
 works while the pointing hand holds an object. With both grips closed, the
 pointing grip joins the grab, but only when the Hand is empty and over nothing
 it can hold. With `grab_hand=2` the pointing grip can also start a grab alone

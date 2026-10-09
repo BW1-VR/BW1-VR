@@ -255,7 +255,7 @@ preset and the trim in the headset. [M] `controllers.md`, section 8.
 The menu pointer, the teleport arc, the cone of the grab from a distance and
 the Creature commands all read this ray. A near press does not: it acts from
 the point of the Hand at the tip of the index finger. [M] `god-view.md`,
-section 10, and `grab.md`.
+section 6, and `grab.md`.
 
 ### 2.4 Guide and open plans
 
@@ -670,8 +670,7 @@ The teleport of the mod is in `god-view.md`, section 14: A on the pointing
 hand holds the arc, the release moves the player, and a one euro filter
 smooths the aim. The mod plays no sound for a teleport. The default is no
 blink (`blink=0`), and the right stick makes a snap turn of 45 degrees
-(`snap_turn=2`). `god-view.md` says "short black blink" for the move, but the
-code default is `blink=0`. [M]
+(`snap_turn=2`). `blink` can add a short black blink to the move. [M]
 
 ### 5.3 Guide and open plans
 

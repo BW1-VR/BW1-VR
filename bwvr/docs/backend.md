@@ -1461,7 +1461,7 @@ in front. The mod reads the keys and never takes them from the game.
 | Shift F12 | `test_keys=1` | The subtitles step through 25, 30, 35, 40 and 45 degrees below the middle of the view |
 | Ctrl F12 | `test_keys=1` | Who owns the pointer: automatic, the controllers only, or the mouse only (`controllers.md`) |
 | Ctrl Shift F12 | `test_keys=1` | The ears: the head, or the game camera (`audio.md`). Press it with the mouse at rest |
-| Shift F11 | `test_keys=1` | The grab of the world: as set, one to one, or off (`grab-world.md`). Press it with the mouse at rest |
+| Shift F11 | `test_keys=1` | The grab of the world: as set, one to one, or off (`god-view.md`). Press it with the mouse at rest |
 | Ctrl Shift F11 | `test_keys=1` | The interface panel on and off, when `ui_panel` is not 0 (`ui-layer.md`) |
 | Numpad 0 | `test_keys=1` | The cut scene window goes off and on (`cutscene-window.md`) |
 | Numpad 1 | `test_keys=1` | The depth limit of the cut scene window goes off and on |

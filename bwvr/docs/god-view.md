@@ -863,8 +863,7 @@ and the camera events (0x304 for a wheel click and 0x308 for a land drag).
   The run is in section 12.
 - **The mouse** pans, zooms, turns and moves the ground. Its Hand still has
   the game's own size, which grows with the distance, and its throw has the
-  speeds of the life size scale. These are items 2 and 10 of Part 3 of
-  `design-creature-teleport.md`, in `hand_direct.cpp`.
+  speeds of the life size scale. These are in `hand_direct.cpp`.
 - **A load** on the same land is not tested. Save, pan far away, and load:
   the view must come back at the place of the save, with the same scale.
 - **The tilt keys.** Which key of the game sets a tilt of more than 0 is not
@@ -879,7 +878,7 @@ and the camera events (0x304 for a wheel click and 0x308 for a land drag).
   the tutorial waits for event 0x308, which a grab sends.
 - **Not built for the grab:** a vignette while the camera moves, a cut for the
   advisor anchor (`SpiritAnchorCameraCut`) on a fast grab, and a hint text
-  "Grab the world" in `controller-hints.md`.
+  "Grab the world" (see `controller-hints.md`).
 - **Needs the headset:** the ground height of 60 cm, the zoom step of 1.5
   times, the start scale of 100, the Hand at the life size scale near the
   eyes with the near plane of 5 cm, the look of the land and the clouds at
@@ -892,7 +891,7 @@ and the camera events (0x304 for a wheel click and 0x308 for a land drag).
 ## 14. The teleport
 
 Hold A to see where the teleport goes, and let go to go there. The code is in
-`teleport.cpp`. The design is in `design-creature-teleport.md`, part 2.
+`teleport.cpp`. The commands of the Creature are in `creature.md`.
 
 **What the player does.** Hold A. An arc leaves the pointing hand and falls on
 the land. A ring on the land shows the target. Let go of A to go there. The
@@ -908,7 +907,8 @@ not. B, while A is down, cancels the teleport and starts no gesture.
 | Immersive view (Ctrl F11 off, with no story) | A parabola | The eye goes over the target at the same height over the land. The heading stays |
 | The mouse, in the God view | None | A double click goes to the land under the mouse |
 
-Each move is one cut with a short black blink. Nothing moves after it. The
+Each move is one cut. With `blink` above 0 a short black blink covers it
+(`blink` is 0 by default). Nothing moves after it. The
 teleport never glides. With `teleport=0` the A button sends the game's own
 jump.
 
@@ -1205,7 +1205,7 @@ of each update:
   when the camera is at rest: no change for 250 ms and no flight. A jump that
   landed at once needs a rest of 100 ms only: the game puts the focus on the
   land in its next update, and the look point is read after that. Then the
-  view goes there, with the short black blink of a teleport. A camera that
+  view goes there, with the blink of a teleport (only when `blink` is above 0). A camera that
   the game moves for many frames gives one cut at its end, never a glide.
 - **A small move is not a new place.** A new place needs a turn of 5 degrees,
   or a look point (15.4) that moved 5 percent of the camera distance and

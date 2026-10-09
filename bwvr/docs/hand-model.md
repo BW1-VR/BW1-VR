@@ -358,7 +358,7 @@ the fingers in it by how far they are pressed. The code is in
 `src/mod/hand_model_math.h` (the pure math) and `src/mod/overlay.cpp` (the
 poses, and which hands draw). The format of the files and the game's own code
 are in "The model of the Hand". The poses and the rule of one pair of hands
-are in hand.md, "One pair of hands".
+are in hand.md, "8. The two real hands and which one is the Hand".
 
 ### What the mod does
 
@@ -518,7 +518,7 @@ With `test_keys=1`:
 - **Shift and the minus key of the number pad** step the look: the
   alignment of the player, evil, neutral, good.
 - The minus key alone shows and hides the mesh of the game's own Hand (hand.md,
-  "One pair of hands").
+  "8. The two real hands and which one is the Hand").
 
 ### The log
 
@@ -746,7 +746,7 @@ Hand is the real hand, 1:1, and its place and its turn never change. So in
 the mod only the fingers react. A hand that the player pushes into the land
 goes into the land, and the land hides it. The one exception is the land test
 of the Hand's point, which lifts the pointing hand so that the tip of its
-index finger stays 0.5 cm over the land (hand.md, "The point touches the
+index finger stays 0.5 cm over the land (hand.md, "5. The touch of the
 land").
 
 **What the game gives cheaply.**
@@ -1103,7 +1103,7 @@ of the target at the Hand draws also with `hand_glow=0`.
 1. `sky_detail.cpp` calls `HandGlowDraw` after the sun glare, at
    `0x0082F4C9` in `LH3DRender::FinishFrame`. There the world and the sorted
    list are drawn, the depth buffer holds them, and the interface is not
-   drawn yet ([tabletop.md](tabletop.md), 4.4). The call runs in every eye
+   drawn yet (see [tabletop.md](tabletop.md), "Not built: the ring and the depth key"). The call runs in every eye
    pass, for each value of `sun_glare`.
 2. `HandDirectGlowFacts` (`hand_direct.cpp`) gives the point, the Hand's
    length, the hand mode and whether the Hand holds an object. The first ask
@@ -1208,7 +1208,7 @@ The index finger closes with the trigger. The middle, ring and little
 fingers close with the grip. The curl is 0.12 at a value of 0, so a hand at
 rest is a little bent, and 1 at a value of 1. A full curl turns the three
 joints by 75, 95 and 55 degrees about +z, toward the palm side. The poses
-and the thumb are in hand.md, "One pair of hands". With `hand_model=1` (the
+and the thumb are in hand.md, "8. The two real hands and which one is the Hand". With `hand_model=1` (the
 default) the mesh of the game stands for the low poly hand
 ("The game's hand on both real hands").
 
@@ -1226,7 +1226,7 @@ default) the mesh of the game stands for the low poly hand
 3. `sky_detail.cpp` calls `OverlayDraw` after the sun glare and before the
    glow, at `0x0082F4C9` in `LH3DRender::FinishFrame`. There the world and
    its depth are drawn, and the interface is not. Later a screen quad resets
-   the depth before the interface draws ([tabletop.md](tabletop.md), 4.4),
+   the depth before the interface draws ([tabletop.md](tabletop.md), "Not built: the ring and the depth key"),
    so the depth of the hand does not reach the interface. The glow comes
    after the hand, so it also shows on the hand.
 4. `OverlayEyeMatrix` gives the world to camera matrix of this eye and puts
@@ -1261,7 +1261,7 @@ overlay. With 0 the overlay draws nothing for the hands and changes no state.
 With `hand_exact=1` and `overlay=0` the overlay draws only the hand that the
 game's Hand does not cover (hand.md, "The exact Hand"). With
 `hand_hide_game=1` (the default) the overlay draws both hands with `overlay=0`
-too (hand.md, "One pair of hands"). There is no launcher row.
+too (hand.md, "8. The two real hands and which one is the Hand"). There is no launcher row.
 
 **The log.** The tag is `overlay`. One line at the first draw, and one at
 each change of the owner of the pointer. Then, on the first draw, on a

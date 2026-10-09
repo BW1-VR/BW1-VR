@@ -784,8 +784,7 @@ effects of the game (`GInterface::StartImmersion` `0x005D8A10`) to pulses
 
 The fake head (`head_pose.cpp`) builds the pose the runtime would report, and
 the rest of the path is the same. A fake controller does the same for a hand.
-It needs the desktop rig from `backend.md`, "A headset is not needed to test
-most of this", with `fake_head=1`. The origin of the fake head is identity at
+It needs the desktop rig from `backend.md`, "Testing without a headset", with `fake_head=1`. The origin of the fake head is identity at
 zero, so a fake hand in LOCAL space is a hand in the room.
 
 The fake hand stands still. It changes only in discrete steps, like the sweep
@@ -925,7 +924,7 @@ hands change sides. The default mode is the God view (`god-view.md`).
 
 | Control | Behavior |
 | --- | --- |
-| Grip | Grabs the land: pull to move it across, and up or down, one to one. Both grips turn and scale the land (`god-view.md`, `grab-world.md`). `grab_hand=2` also lets the grip of the pointing hand grab the land when the Hand is empty and over nothing it can hold |
+| Grip | Grabs the land: pull to move it across, and up or down, one to one. Both grips turn and scale the land (`god-view.md`, section 5). `grab_hand=2` also lets the grip of the pointing hand grab the land when the Hand is empty and over nothing it can hold |
 | X (A when the left hand points) | Hold: opens the ring, and the hand picks an item (section 10) |
 | Stick | Push: opens the ring. The stick points and the trigger chooses (section 10) |
 | Trigger | Chooses an item when the stick opened the ring. No other job |
@@ -958,7 +957,7 @@ hands change sides. The default mode is the God view (`god-view.md`).
 
 The other keys of the Hand (the reach, the size, the throw, the Creature) are
 in `hand.md`, `throw.md` and `creature.md`. The keys of the grab of the world
-are in `grab-world.md`.
+are in `god-view.md`, section 5.6.
 
 ### 5.3 Files and functions
 
@@ -1043,8 +1042,8 @@ Desktop runs use the fake controller with `fake_head=1`. These checks apply:
    shows one press, one land drag and the exact ray, and the camera moves once,
    at the step.
 7. **The mouse still works.** Send relative mouse input with `mouse_event` and
-   `MOUSEEVENTF_MOVE`, not `SetCursorPos` (`backend.md`, "Holding the ground
-   and turning the head dragged the land"). The owner changes to the mouse.
+   `MOUSEEVENTF_MOVE`, not `SetCursorPos` (`backend.md`, "Holding the land
+   shook the camera"). The owner changes to the mouse.
    While the real left button is held and the script presses and releases the
    trigger, the game sees one press and one release.
 
