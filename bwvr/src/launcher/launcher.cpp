@@ -86,9 +86,9 @@ const Setting kSettings[] = {
      "God view=4|Stereoscopic window=1|Tabletop (test)=3", 4,
      "God view: the land is at your waist, so your hands can reach it. It "
      "works with motion controllers and with the mouse. Controllers: push "
-     "the right stick forward or back to zoom one step. Push the left stick "
-     "forward or back to move the ground up or down. Hold the left grip and "
-     "pull to move the land. Mouse: drag the land to move it. Turn the "
+     "the right stick forward or back to zoom one step. Hold the left grip "
+     "and pull to move the land, across and up and down. Mouse: drag the "
+     "land to move it. Turn the "
      "wheel to zoom one step. Press a tilt key to move the ground up or "
      "down. Stereoscopic window: the game is on a 3D screen in front of "
      "you, and your head does not move the camera. Tabletop: the island is "

@@ -83,10 +83,6 @@ is built, and no test has proven it.
   and the Direct3D devices shut down, and whether the crash can cut the
   last lines of the log or a write of the profile.
 
-- **B10. The launcher names a wrong control.** For the God view, the
-  launcher says that the left stick moves the ground up and down. The left
-  grip moves the ground, and the left stick opens the ring menu.
-
 B1, B2, B3 and B4 are one package: a thing that is held, thrown, or that
 moves while the Hand takes it.
 
