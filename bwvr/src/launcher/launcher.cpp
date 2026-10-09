@@ -108,8 +108,8 @@ const Setting kSettings[] = {
     //  "size."},
     {kBool, "intro_vr", "Intro in stereo", nullptr, 0,
      "Shows the Lionhead logo at the start of the game in 3D around you. The "
-     "menu button skips it. This is new and not tested in a headset yet. "
-     "Off shows the intro flat, as before."},
+     "menu button skips it. It is not finished: some things show double, and "
+     "the logo does not move. Off shows the intro flat."},
 
     // Not offered: the sizes and the depth of the interface in the eye
     // pictures have settled defaults. With controllers the hints and the

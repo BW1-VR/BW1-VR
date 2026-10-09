@@ -16,7 +16,8 @@ from the code and not confirmed by a run.
 - The other startup videos are Bink files. They are pre-rendered and stay flat.
 - With `intro_vr=1`, the mod runs `RunAlexFX` one time for each eye, with a
   still camera at the final angle and the head tracked. A controller moves the
-  mouse pointer that pushes the particles. `intro_vr` is off by default.
+  mouse pointer that pushes the particles. `intro_vr` is off by default: in a
+  headset some things show double, and nothing moves with the still camera.
 - A press of a trigger or of A, B, X or Y skips the logos and the intro (the
   skip, `intro_skip`, on by default).
 - The mod answers the game's check for an internet connection itself, so a PC
@@ -216,9 +217,16 @@ of `RunAlexFX` advances by something that is not `g_delta_time` (for example
 
 `intro_still=1` holds the camera at the rest pose `(0, 0, 100)` looking at
 `(0, 0, 0)` for the whole intro (`kStillPosition`, `kStillFocus` in
-`intro_vr.cpp`). The particles fly in around it. The render frustum of about
-110 degrees limits how far to the side and behind the player particles show
-[I]. Particles behind the head do not draw.
+`intro_vr.cpp`). The render frustum of about 110 degrees limits how far to
+the side and behind the player particles show [I]. Particles behind the head
+do not draw.
+
+With the still camera nothing moves in the headset: the player sees the
+formed logo from the start. The motion of the intro of the game is the
+motion of its camera. The orbs stay where they are, the camera goes between
+them, and then it goes away to the place from which the logo shows. This
+was seen in a headset, and it is not read in the code yet. `intro_still=0`
+gives the camera of the game, with its turns.
 
 ### The ways back to the flat intro
 
@@ -258,12 +266,24 @@ The pointer is a shadow touch: a particle that overlaps the point of the
 controller in the view moves. The push reaches every particle along the sight
 line inside the pixel disc, whatever the depth.
 
-### What needs the headset
+### What a headset showed, and what is open
 
-- Comfort of the still camera and the scale (logo about 2.2 m wide at 3 m).
-- The fade boxes and the name text at zero disparity, and the sprite depth. If
-  the fade box looks like a wall that covers the whole view, turn it off in VR
-  and fade with the sprite color alpha alone [I].
+The intro in stereo is not finished, so `intro_vr` stays 0.
+
+- Some things show double, here and there. The cause is not known. Suspects:
+  the fade boxes and the name text at zero disparity, and the sprite depth.
+  If the fade box looks like a wall that covers the whole view, turn it off
+  in VR and fade with the sprite color alpha alone [I].
+- Nothing moves with the still camera (see "The still camera"). Wanted:
+  motion that shows the depth and does not make the player sick. One idea is
+  a camera that moves along the path of the game and does not turn. That is
+  motion that the player did not make, so it needs a decision first. A way
+  that keeps the rule: the orbs are a small model in front of the player,
+  the path of the game moves the model, and the room stays still.
+
+Not known yet:
+
+- The comfort of the scale (logo about 2.2 m wide at 3 m).
 - The frame rate with two effect calls and the real `Flip` skip. On the desktop
   each call includes a `Flip` that waits for the display. With a headset
   `PresentWatchSkipDesktop` skips them.
@@ -441,8 +461,8 @@ the service "Remote Access Connection Manager" again as an administrator.
   `0x00D34A94`, `0x00D34A90`) in place after the original returns. It needs a
   map of the strides first [I]. A short haptic pulse when a particle moves is an
   easy extra.
-- Headset tests of the stereo intro (see "What needs the headset") and of the
-  skip with a real controller.
+- The faults of the stereo intro in a headset (see "What a headset showed,
+  and what is open").
 - Not verified: the exact particle count and array strides (the `0xC000` bound
   and the strides `0x34` and 12 suggest 4096 particles [I]), the push maths in
   detail, and that `0x00E85304` holds the mouse button bits.
