@@ -59,6 +59,12 @@
 //                        in which the target comes, stays while it is there,
 //                        and shows each time (hint_card_math.h, TargetRule).
 //                        Ctrl and End switch it, with test_keys=1
+//   hint_words=1         1 a target has one text: while the prompt of a target
+//                        shows, it owns its button and the hint of the game for
+//                        that button does not take its place. A hint of the
+//                        game with no words (only "," or ".") never shows. 0
+//                        the hint of the game takes the place of the prompt.
+//                        Ctrl and Home switch it, with test_keys=1
 //
 // With no headset (the desktop test) the route runs too. A capture frame
 // saves each card as bwvr-hintcard-right-NNNNN.bmp or
@@ -119,6 +125,7 @@ int g_size_pct = 100;    // hint_card_size_pct
 bool g_toggled_off = false;  // the test key
 bool g_test_keys = false;    // test_keys
 int g_timing = 1;            // prompt_timing, and its test key
+int g_words = 1;             // hint_words, and its test key
 
 int IniKey(const char* key, int fallback) {
   char path[MAX_PATH];
@@ -140,6 +147,7 @@ void ReadSettings() {
   if (g_prompts < 0 || g_prompts > 2) g_prompts = 1;
   g_test_keys = IniKey("test_keys", 0) != 0;
   g_timing = IniKey("prompt_timing", 1) != 0 ? 1 : 0;
+  g_words = IniKey("hint_words", 1) != 0 ? 1 : 0;
   g_size_pct = IniKey("hint_card_size_pct", 100);
   if (g_size_pct < 50) g_size_pct = 50;
   if (g_size_pct > 200) g_size_pct = 200;
@@ -158,6 +166,12 @@ void ReadSettings() {
                          "the target is there, and shows each time"
                        : "each prompt waits for its dwell and goes after its "
                          "hold and its count");
+  ModLog("hint card    : hint_words=%d, %s", g_words,
+         g_words != 0 ? "a target has one text: the prompt of the mod owns its "
+                        "button, and a hint of the game with no words does not "
+                        "show"
+                      : "a hint of the game takes the place of the prompt for "
+                        "the same button, and a hint with no words can show");
 }
 
 // --- the words -----------------------------------------------------------------
@@ -869,6 +883,8 @@ void Stage(CardState* card) {
 int g_logs = 0;
 const int kMaxLogs = 160;
 uint64_t g_game_hints = 0;
+uint64_t g_empty_hints = 0;  // hints of the game with no words, not shown
+uint64_t g_owned_hints = 0;  // hints of the game that a prompt of a target owns
 uint64_t g_frames_routed = 0;
 // Frames with a hint of the game that did not show, because it is false with
 // the controllers (GameHintTrue): for the trigger, and for the grip.
@@ -1004,6 +1020,11 @@ void HintCardGameHint(int eye, const wchar_t* button, uint32_t button_code,
   if (eye != g_noted_eye) return;
   if (text == nullptr) text = L"";
   if ((button == nullptr || button[0] == 0) && text[0] == 0) return;
+  // A text of only spaces or punctuation says nothing. It does not show.
+  if (g_words != 0 && !hint_card_math::HintTextHasWords(text)) {
+    ++g_empty_hints;
+    return;
+  }
   ++g_game_hints;
   Line line;
   // Code 1 is the game's left button, the trigger. Code 2 is the grip.
@@ -1031,6 +1052,7 @@ void HintCardLatchContext(int eye) {
 }
 
 static void PollTimingKey();
+static void PollWordsKey();
 
 void HintCardEndFrame() {
   CardsStart();
@@ -1063,6 +1085,7 @@ void HintCardEndFrame() {
   }
 
   PollTimingKey();
+  PollWordsKey();
 
   // The prompt of the context.
   int shown = kCtxNone;
@@ -1073,8 +1096,11 @@ void HintCardEndFrame() {
     raw_context = context;
     // A hint of the game for the same button says it already. Then the
     // prompt adds no line, and that must not count as one of its shows.
+    // With hint_words=1 the prompt of a target owns its button: the hint of
+    // the game, which comes a few frames later, must not change the words.
     if (context != kCtxNone && context != kCtxMiracle &&
-        context != kCtxVillage) {
+        context != kCtxVillage &&
+        !(g_words != 0 && IsTargetContext(context))) {
       Content probe[kHands] = {g_game, {}};
       AddPrompts(probe, context, false);
       if (probe[kPointing].count == g_game.count &&
@@ -1116,6 +1142,28 @@ void HintCardEndFrame() {
     for (int i = 0; i < game.count && kept < 1; ++i) {
       if (game.line[i].button[0] != 0) continue;
       game.line[kept++] = game.line[i];
+    }
+    game.count = kept;
+  }
+  if (g_words != 0 && IsTargetContext(shown)) {
+    // The prompt of a target owns its buttons. The hint of the game for the
+    // same button goes, so the words stay the same while the target stays.
+    Content probe[kHands] = {};
+    AddPrompts(probe, shown, first_show);
+    Content& game = content[kPointing];
+    int kept = 0;
+    for (int i = 0; i < game.count; ++i) {
+      bool owned = false;
+      for (int j = 0; j < probe[kPointing].count && !owned; ++j) {
+        owned = game.line[i].button[0] != 0 &&
+                wcscmp(game.line[i].button, probe[kPointing].line[j].button) ==
+                    0;
+      }
+      if (owned) {
+        ++g_owned_hints;
+      } else {
+        game.line[kept++] = game.line[i];
+      }
     }
     game.count = kept;
   }
@@ -1318,6 +1366,27 @@ static void PollTimingKey() {
                          "count");
 }
 
+// THE A/B KEY (test_keys=1): Ctrl with Home switches hint_words between 1 and
+// 0. The pointing controller gives a long pulse for 1 and a short pulse for 0.
+static void PollWordsKey() {
+  static bool was = false;
+  if (!g_test_keys) return;
+  const bool down = (GetAsyncKeyState(VK_HOME) & 0x8000) != 0 &&
+                    (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
+  const bool pressed = down && !was;
+  was = down;
+  if (!pressed) return;
+  DWORD process = 0;
+  const HWND window = GetForegroundWindow();
+  if (window != nullptr) GetWindowThreadProcessId(window, &process);
+  if (process != GetCurrentProcessId()) return;
+  g_words = g_words != 0 ? 0 : 1;
+  ControllersGesturePulse(0.5f, g_words != 0 ? 0.24f : 0.08f);
+  ModLog("test key     : Ctrl and Home: hint_words is %d now (%s)", g_words,
+         g_words != 0 ? "a target has one text"
+                      : "a hint of the game takes the place of the prompt");
+}
+
 void HintCardToggle() {
   ReadSettings();
   if (!g_on) {
@@ -1343,6 +1412,9 @@ void HintCardReport() {
          "grip and the leashed Creature)",
          g_frames_routed, a.frames_shown, b.frames_shown, g_game_hints,
          g_false_trigger, g_false_grip);
+  ModLog("hint card    : hint_words=%d: %llu hints of the game with no words "
+         "did not show, and %llu hints of the game for a button of the prompt "
+         "of a target did not show", g_words, g_empty_hints, g_owned_hints);
   ModLog("hint card    : %llu and %llu frames had words and no tracked hand. "
          "%llu and %llu frames a card did not show, because it was on the "
          "other hand or on the other card. The cards changed side %llu and "
@@ -1370,6 +1442,7 @@ void HintCardReport() {
   }
   g_frames_routed = 0;
   g_game_hints = 0;
+  g_empty_hints = g_owned_hints = 0;
   g_false_trigger = g_false_grip = 0;
   for (int h = 0; h < kHands; ++h) {
     g_cards[h].frames_shown = 0;

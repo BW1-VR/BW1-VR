@@ -1014,6 +1014,15 @@ inline void HintCardChecks() {
           "two cards that share half of their width meet", 1, 1);
   }
 
+  // A HINT WITH NO WORDS. Only a text with a letter or a digit has words.
+  Check(!HintTextHasWords(nullptr) && !HintTextHasWords(L"") &&
+            !HintTextHasWords(L",") && !HintTextHasWords(L".") &&
+            !HintTextHasWords(L" , . "),
+        "a text of spaces and punctuation has no words", 0, 0);
+  Check(HintTextHasWords(L"Pick Up") && HintTextHasWords(L"x2") &&
+            HintTextHasWords(L"Pick Up."),
+        "a text with a letter or a digit has words", 1, 1);
+
   SubtitleCardChecks();
 }
 

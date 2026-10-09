@@ -57,11 +57,10 @@ is built, and no test has proven it.
   open grip plants the tree, and then the tree falls to the ground. At
   times a tree does not plant at all and falls over. The player must see
   when a release plants the tree and when it does not.
-- **B5. The words of a hint card change a moment after they show.** The
-  card shows the prompt of the mod at once ("[Grip] Take"). The hint of
-  the game for the same button comes 6 to 8 frames later and takes its
-  place ("Pick Up"). Use one text for one action. At times a hint of
-  the game with no text shows on the card as "[Grip] ," or "[Grip] .".
+- **B5. The hint card at the close of the grip.** For about 15 frames after
+  the grip closes on an object to take, the card shows the hint of the game
+  ("Pick Up") where it showed the prompt "Take". The context has no target
+  in those frames, so the hint of the game shows.
 - **B6. A soft lock in the quest of the sailors.** The sailors ask for
   wood. After a tree was dropped on their boat, the boat took no wood, the
   subtitle "Trees won't work, they need prepared wood" stayed, and the game

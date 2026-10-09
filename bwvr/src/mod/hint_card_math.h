@@ -326,6 +326,20 @@ inline bool GameHintTrue(unsigned code, bool have_mode, int mode,
   return true;
 }
 
+// A TEXT THAT SAYS NOTHING. A hint of the game can have a text of only spaces
+// or punctuation (",", "."). It has no words, so it never goes to the card.
+inline bool HintTextHasWords(const wchar_t* text) {
+  if (text == nullptr) return false;
+  for (; *text != 0; ++text) {
+    const wchar_t c = *text;
+    if ((c >= L'0' && c <= L'9') || (c >= L'A' && c <= L'Z') ||
+        (c >= L'a' && c <= L'z') || c > 127) {
+      return true;
+    }
+  }
+  return false;
+}
+
 // THE SIZE. The card texture has a fixed density, so a letter has one size in
 // the room. A card wider than `most` meters becomes `most` wide, and its
 // height keeps the aspect.

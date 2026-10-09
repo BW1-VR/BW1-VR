@@ -719,9 +719,10 @@ once a frame, and the first match counts, in this order:
 
 The words come from `ControllerHintWord`, the same table as the key caps
 (8.3), so they follow the profile, the left hand and `controller_swap_buttons`.
-A line for a button that the controller does not have is left out. A line that
-has the same button word as a hint of the game on the same card is left out (the
-hint of the game says what the button does now). The Hand's mode is latched in
+A line for a button that the controller does not have is left out. Outside
+the contexts of a target, a line that has the same button word as a hint of the
+game on the same card is left out (the hint of the game says what the button
+does now). For a target, see "One text for one action" below. The Hand's mode is latched in
 the left eye pass, in the `HelpText` callback, after the world is drawn
 (`HintCardLatchContext`).
 
@@ -736,8 +737,26 @@ has a dwell, a hold time and a count (`kRules` in `hint_card.cpp`):
    away until the context ends and starts again.
 3. A context shows its prompt 2 to 4 times in a session. After that the player
    knows it.
-4. A hint of the game for the same button on the same card takes the place of
-   the prompt, and that does not count as a show.
+4. Outside the contexts of a target, a hint of the game for the same button on
+   the same card takes the place of the prompt, and that does not count as a
+   show.
+
+**One text for one action.** The hint of the game for the button of a target
+comes some frames after the target. With `hint_words=1` (the default) the
+prompt of a target owns its button for as long as the target is there: the
+hint of the game for that button does not show, so the words of the card do
+not change while the target and the action stay the same. The mod chooses its
+own prompt because it is there in the first frame and it names the action of
+the controller. The hints of the game for other buttons, and the hints with no
+button (for example the name of a miracle), stay. For the contexts that are
+not about a target (an object in the Hand, the empty land, a dialog box, the
+teleport aim) the hint of the game still takes the place of the prompt, and it
+is the only text there when it came before the dwell of the prompt ended. With
+`hint_words=0` the hint of the game takes the place of the prompt in every
+context.
+
+A hint of the game with no words (the text has no letter and no digit, for
+example "," or ".") never goes to the card with `hint_words=1`.
 
 **The prompt of a target follows the target.** With `prompt_timing=1` (the
 default) rules 1 to 3 do not apply to a context about a thing that the Hand or
@@ -778,12 +797,13 @@ the help options of the game, so a player with "No ToolTips" sees them too.
 | `prompts` | 1 | 0 no prompts, 1 the first times, 2 always |
 | `hint_card_size_pct` | 100 | The size of the card, 50 to 200 |
 | `prompt_timing` | 1 | 1 the prompt of a target shows at once, stays while the target is there and shows each time. 0 the dwell, hold and count for all prompts (9.4) |
+| `hint_words` | 1 | 1 the prompt of a target owns its button and a hint of the game with no words does not show. 0 the hint of the game takes the place of the prompt, as it comes (9.4) |
 
 `hint_card.cpp` reads the keys itself, at the first frame. With `test_keys=1`
 and `ui_panel=0`, Ctrl Shift F11 switches between the card and the hints in the
 eye pictures, for a live comparison. With `test_keys=1`, Ctrl End switches
 `prompt_timing` between 1 (a long pulse in the pointing controller) and 0 (a
-short pulse).
+short pulse). Ctrl Home switches `hint_words` the same way.
 
 ### 9.6 The log
 
