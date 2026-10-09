@@ -1,6 +1,6 @@
 ====================================================================
  Black & White VR Mod
- Version 1.1.0 (alpha 1, for testers)
+ Version 1.1.0 (alpha, for testers)
  By Buck
 ====================================================================
 
@@ -10,8 +10,8 @@ WHAT IT IS
 
 The Black & White VR Mod puts Black & White (Lionhead Studios, 2001)
 into a VR headset. You see the world in real stereo 3D, and your head
-turns the view. You play with the mouse and the keyboard, as you
-always did.
+turns the view. You play with motion controllers, or with the mouse
+and the keyboard.
 
 The mod adds its own files beside the game. It changes no game file,
 and it does not touch your saved games.
@@ -35,12 +35,24 @@ A VR headset with an OpenXR runtime that registers a 32 bit entry.
 Windows. The mod needs nothing else.
 
 
+HOW TO INSTALL
+--------------
+
+1. Run the installer.
+2. If Windows warns about a file with no signature, select "More
+   info", then "Run anyway".
+3. If the installer does not find your game folder, select it.
+4. To update, run a newer installer over the old one. You do not need
+   to remove the old one first.
+
+
 HOW TO START
 ------------
 
-1. Open the "Black & White VR Mod" shortcut. The launcher opens.
-2. Set what you want.
-3. Press "Play in VR".
+1. Start your VR software and connect the headset.
+2. Open the "Black & White VR Mod" shortcut. The launcher opens.
+3. Set what you want. See THE SETTINGS.
+4. Press "Play in VR".
 
 The launcher saves your settings, starts the game in the headset,
 and closes. "Play, new game" does the same and starts a new game.
@@ -48,20 +60,21 @@ and closes. "Play, new game" does the same and starts a new game.
 
 The game shows its logos when it starts. To skip them, press a
 trigger or A, B, X or Y on a controller. Esc and a mouse click skip
-them too, as before.
+them too.
 
 
 THE SETTINGS
 ------------
 
-The launcher shows five groups.
+The launcher shows six groups.
 
   Picture         How big a picture each eye gets, how sharp the
                   textures are, and how far out models keep their
                   full detail.
 
-  View            The play mode, and how big the world feels. The
-                  default play mode is the God view (see below).
+  View            The play mode, how big the world feels, and the
+                  intro in stereo. The default play mode is the God
+                  view (see below).
 
   Comfort         The size of the interface and of the hint beside
                   the Hand, and how far in front of you the
@@ -71,6 +84,9 @@ The launcher shows five groups.
                   head: turns in steps, jumps, the zoom step, the
                   story camera and the blink.
 
+  Controllers     How the Hand follows your controller, the glow at
+                  the Hand, and the grab of the world.
+
   Testing         One box, which turns on keys for tests. The box
                   is off, and a player does not need it.
 
@@ -78,7 +94,12 @@ Every setting has a tooltip. Hold the pointer over a setting, and
 the tooltip tells you what the setting does.
 
 If you are not sure, leave the settings as they are. Each default is
-a value that the headset tests settled.
+a tested value.
+
+Some settings are not in the launcher. You can set them in the file
+bwvr.ini in the game folder, in the section [bwvr]. The text of this
+readme names each one as key=value. The launcher writes bwvr.ini
+when you save.
 
 
 THE GOD VIEW
@@ -86,8 +107,7 @@ THE GOD VIEW
 
 The God view is the default play mode. The land is at your waist, so
 your hands can reach it. It works with motion controllers and with
-the mouse. It takes the place of the play mode "Immersive". If your
-settings had "Immersive", the God view starts in its place.
+the mouse.
 
 The view does not go up or down with the hills. Zoom out to see more
 of the island. Zoom in until the world is life size. A cut scene of
@@ -145,8 +165,8 @@ The tutorial of the game turns on the camera controls one at a time.
 Until the tutorial turns on a control, that control does nothing in
 the God view.
 
-Ctrl F11 turns the God view off and on. Off is the old immersive
-view. It is for tests only.
+Ctrl F11 turns the God view off and on. Off gives the immersive
+view, which is for tests only.
 
 
 THE SOUND
@@ -163,8 +183,9 @@ and an arrival of the grab from a distance have a soft sound. Set
 audio_cues=0 in bwvr.ini to turn these off, or audio_cues_pct to
 change their level (100 is the level as made).
 
-The advisors and the speech of a story sound as before. Set
-audio_mixer=0 in bwvr.ini for the sound of the world as it was.
+The advisors and the speech of a story sound as the game made them.
+Set audio_mixer=0 in bwvr.ini to let the sound system of the game
+(QMixer) pan each sound, with no mixing by the mod.
 
 
 THE KEYS
@@ -174,17 +195,26 @@ THE KEYS
         it when you sit down, or when the world is not where you
         expect it. This key always works.
 
-The game keys and the mouse work as they always did. In the God
+The game keys and the mouse work as they always do. In the God
 view, the tilt keys move the ground (see THE GOD VIEW).
 
-With "Test keys" on, F12 saves a picture of each eye in the game
-folder, Shift F12 moves the subtitles down one step, and Ctrl F12 sets
-who points: the mouse, the controllers, or both. Ctrl Shift F12 steps
-the sound back toward the sound of the game, one change for each
-press, and then to the start again. Shift F11 sets the grab of the
-world: as set, one to one, or off. Ctrl Shift F11 turns the interface
-panel on and off, when it is set up. Press these keys with the mouse
-still.
+With "Test keys" on, these keys work. Press them with the mouse
+still:
+
+  F12                 Save a picture of each eye in the game folder.
+  Shift F12           Move the subtitles down one step. After the
+                      lowest step they go back up.
+  Ctrl F12            Set who points: the mouse, the controllers, or
+                      both.
+  Ctrl Shift F12      Step the sound back toward the sound of the
+                      game, one change for each press, and then to
+                      the start again.
+  Shift F11           Set the grab of the world: as set, one to one,
+                      or off.
+  Ctrl Shift F11      Turn the interface panel on and off, when it is
+                      set up.
+  Number pad keys     Switch between two ways of one behavior, while
+                      you play. See TEST KEYS OF THE NUMBER PAD.
 
 
 MOTION CONTROLLERS
@@ -252,10 +282,19 @@ how it points:
                       pull the left trigger to choose. Let the stick
                       rest in the middle to close the ring.
 
+To change the grab of the world, set "Grab the world" in the
+launcher (key grab_hand). 1 uses the grip of your other hand. 2 also
+uses the grip of the pointing hand when the Hand is empty and not
+over an object. 0 turns the grab off.
+
 While a menu or a dialog box is open, the Hand steps aside. The
 pointing controller then points like a mouse: a thin line shows where
 it points, and the trigger clicks. Close the game menu with "Continue
 Game". The Hand comes back when the menu closes.
+
+
+THE RING
+--------
 
 The ring holds what the plain game has only on the keyboard. An item
 acts as its key does in the game. The first page has: go to the
@@ -276,22 +315,6 @@ the Temple to go back to the place where you were. In the God view,
 radial_menu_creature=0 in bwvr.ini for the camera of the game that
 follows the Creature.
 
-In a room of the Temple, point your hand at a door, a picture or a
-pad. A line shows where you point. Pull the trigger or close the grip
-to click. The room does not turn when you point: turn your head to
-look about, or push the stick to the left or to the right to turn in
-steps. The ring of the Temple goes to each room too, and it has the
-way out. Set temple_pointer=0 in bwvr.ini for the pointer of before,
-which was the place of your hand in the view.
-
-To save in the Save Game Room, click an empty picture two times and
-then click OK. The save has no message, because the text line needs
-a keyboard. To load, click the picture of the save and then Yes.
-
-At the Temple on the land, a short press of the grip on the door goes
-into the Temple, and a short press on one of the three leash posts
-chooses that leash.
-
 To change the items, set radial_menu_items, radial_menu_items2 and
 radial_menu_items_temple in bwvr.ini: 8 words with commas, from the
 top and clockwise. The words are temple, enter, creature, town, land,
@@ -303,9 +326,31 @@ and none. Set radial_menu_stick=0 for the ring with X only,
 radial_menu_button=0 for the ring with the stick only, or
 radial_menu=0 for no ring. Set radial_menu_reach_cm to change how far
 your hand moves to pick an item (5), and radial_menu_size_pct for the
-size of the ring (100). With "Test keys" on in the launcher, Ctrl with
-the 1 key of the number pad goes through the two ways while you play.
-The ring is new in this version and was not tested in a headset.
+size of the ring (100).
+
+
+THE TEMPLE
+----------
+
+In a room of the Temple, point your hand at a door, a picture or a
+pad. A line shows where you point. Pull the trigger or close the grip
+to click. The room does not turn when you point: turn your head to
+look about, or push the stick to the left or to the right to turn in
+steps. The ring of the Temple goes to each room too, and it has the
+way out. Set temple_pointer=0 in bwvr.ini to point with the place of
+your hand in the view.
+
+To save in the Save Game Room, click an empty picture two times and
+then click OK. The save has no message, because the text line needs
+a keyboard. To load, click the picture of the save and then Yes.
+
+At the Temple on the land, a short press of the grip on the door goes
+into the Temple, and a short press on one of the three leash posts
+chooses that leash.
+
+
+THE POINTING LINE
+-----------------
 
 The line of the pointing hand is not the ray of the runtime. For a
 Touch controller the mod turns that ray 7 degrees toward your other
@@ -314,11 +359,12 @@ If the line does not point where you expect, set aim_pitch_deg and
 aim_yaw_deg in bwvr.ini, in degrees. A positive pitch turns the line
 up. A positive yaw turns it toward your other hand. Set aim_preset=1
 for the pointer of Meta's own apps (6.5 degrees toward your other hand
-and 0.8 up), or aim_preset=0 for the ray of the runtime. With "Test
-keys" on in the launcher and Num Lock on, the keys 8, 2, 4 and 6 of the
-number pad turn the line 1 degree up, down, to the left and to the
-right while you play. The key 5 goes to the next preset. bwvr.log gives
-the values after each press.
+and 0.8 up), or aim_preset=0 for the ray of the runtime. bwvr.log
+gives the values after each change.
+
+
+HINTS AND SUBTITLES
+-------------------
 
 While a controller points, the hints of the game show on a small card
 beside the wrist of your pointing hand, and not in the view. The card
@@ -327,8 +373,7 @@ picture in the room, so the hint is never double, and your Hand cannot
 hide it. A hint that is not true with the controllers does not show.
 For example, in the God view the trigger does not move the land, so the
 card does not say "Trigger Move". Set hint_card=0 in bwvr.ini to draw
-the hints in the view, as before. Set controller_hints=0 to keep the
-mouse hints.
+the hints in the view. Set controller_hints=0 to keep the mouse hints.
 
 Each controller has its own card. A line for a button of the other
 controller shows beside the wrist of that hand: "Grip Move the land",
@@ -354,10 +399,14 @@ straight ahead of the place where you sat when you pressed F11, a
 little below eye level and 1.6 m away. It does not follow your head, so
 the text is never double. If you turn far away from it for more than
 one second, it fades out and comes back ahead of you. Set
-subtitle_card=0 in bwvr.ini to draw the subtitles in the view, as
-before. Set subtitle_card_distance_cm, subtitle_card_down_deg and
+subtitle_card=0 in bwvr.ini to draw the subtitles in the view. Set
+subtitle_card_distance_cm, subtitle_card_down_deg and
 subtitle_card_width_cm in bwvr.ini to change the place and the size of
 the text. The defaults are 160, 17 and 100.
+
+
+THE HAND AND THE OBJECTS
+------------------------
 
 With the direct hand, the Hand acts from one point: the tip of your
 index finger. Put that point on an object, or at most 4 cm from it. A
@@ -376,18 +425,7 @@ A scroll is a target from 10 cm. At more than 4 cm it is the target
 only when no other object is in reach. The scroll of a challenge
 starts at the first press of the grip on it. Set scroll_reach_cm in
 bwvr.ini to change the 10 cm. Set scroll_click=0 and scroll_draw=0
-for the scroll of the versions before.
-
-In the God view the quests of the game see where you are. When a
-quest waits for you to come near a thing, your head or a hand must be
-near it on the land. When a quest waits for you to look at a thing,
-your head must face it. In a cut scene the quest sees the camera of
-the cut scene, as in the game. Set script_distance=0 and script_view=0
-in bwvr.ini for the versions before, where a quest saw only the camera
-of the game, far behind you. With "Test keys" on in the launcher, Ctrl
-with the 7 key of the number pad goes between the two while you play.
-The controller gives a long pulse for the new rule and a short pulse
-for the old one.
+to turn off the press on a scroll and the drawing of its halo.
 
 The color of the glow is the color of the grip on the hint cards.
 It is gold when the grip can pick something up or take from a store
@@ -396,6 +434,18 @@ knock on a house or touch your Creature. There is no glow when a
 press does nothing, and none while the Hand holds an object. To turn
 the glow off, clear "Glow at the Hand's point" in the launcher. Set
 hand_glow_idle=1 in bwvr.ini for a glow that shows always.
+
+In the God view the quests of the game see where you are. When a
+quest waits for you to come near a thing, your head or a hand must be
+near it on the land. When a quest waits for you to look at a thing,
+your head must face it. In a cut scene the quest sees the camera of
+the cut scene, as in the game. Set script_distance=0 and script_view=0
+in bwvr.ini if a quest must see only the camera of the game, far
+behind you.
+
+
+THE FAR GRAB
+------------
 
 To take an object that is out of reach, point your hand at it. A gold
 halo shows around the object, and the controller gives a short tick.
@@ -439,26 +489,23 @@ Near objects win. While your Hand is 10 cm or less from an object
 that a press acts on, there is no far target and no halo, and the grip
 of the pointing hand does not grab the world. So the grip acts only on
 the object at your Hand. The far targets come back when your Hand is
-more than 15 cm from each such object. Set
-far_grab_near_cm and far_grab_near_out_cm in bwvr.ini to change the
-two distances. With "Test keys" on in the launcher, the point key (.)
-of the number pad goes between this rule and the old pick while you
-play. The controller gives a long pulse for the new rule and a short
-pulse for the old pick.
+more than 15 cm from each such object. Set far_grab_near_cm and
+far_grab_near_out_cm in bwvr.ini to change the two distances.
+
+
+HOLD, RELEASE AND THROW
+-----------------------
 
 The rope of the leash ends in the palm of your hand. Set
 leash_at_palm=0 in bwvr.ini to end it at the wrist of the game's
-Hand, as before.
+Hand.
 
 The Hand lets go when you open the grip. The grip opens when your
 hand starts to open fast, or when it is almost open. If the Hand lets
 go when you do not want it to, set grip_fast_open=0 in bwvr.ini. The
 game then drops the object at once, and does not wait for its next
-game turn. Set release_at_once=0 in bwvr.ini for the old wait. With
-"Test keys" on in the launcher, the star key (*) of the number pad
-goes between the old release and the new one while you play. The
-controller gives a long pulse for the new release and a short pulse
-for the old one.
+game turn. Set release_at_once=0 in bwvr.ini to make the game wait
+for its next game turn.
 
 In the God view and in the Tabletop play mode, an object that you
 throw flies as a real object flies in your room: as fast as your hand
@@ -466,13 +513,17 @@ moved, on the same arc, for the same time. Swing your hand and open
 the grip in the swing. A hard throw can kill a villager, as in the
 game. Open the grip with a still hand to put an object down. A tree
 and a miracle fly as the game makes them fly. Set throw_law=1 in
-bwvr.ini for the slower flight of the game's physics, or throw_law=0
-for the old throw.
+bwvr.ini for the slower flight of the physics of the game, or
+throw_law=0 for a throw that scales your hand speed by a fixed gain.
 
 After a thrown object touches the land, it slows to the pace of the
 game, bounces low and comes to rest soon. Set throw_land=0 in bwvr.ini
-if you want the landing of the game's physics at the speed of the
-flight.
+if you want the landing of the physics of the game at the speed of
+the flight.
+
+
+MIRACLES
+--------
 
 To cast a miracle, hold B and draw its gesture in the air: the same
 shape that you draw with the mouse. Draw it in front of you, as you
@@ -500,9 +551,11 @@ When the game refuses a cast, the card says why.
 To cancel a miracle, shake your hand or press B for a short time. As
 in the game, a miracle from a bubble is then lost, and a miracle from
 a Worship Site gives its power back. Set miracle_hand=0 in bwvr.ini
-for the miracle of the versions before. With "Test keys" on in the
-launcher, Ctrl with the 8 key of the number pad goes between the two
-while you play.
+to turn off the miracle in your Hand.
+
+
+YOUR CREATURE
+-------------
 
 To stroke or slap your Creature, put your hand on it and close the
 grip. The view does not move, and your hand stays open: the index
@@ -513,13 +566,12 @@ grip. Move your hand slowly over the Creature to stroke it. Hit its
 body with a fast move, about 1 m/s, to slap it. A swing of the arm
 and a flick of the wrist count the same, forehand and backhand. Set
 creature_slap_mps in bwvr.ini to change the speed. Set
-creature_stroke_hand=3 in bwvr.ini for the stroke of the build
-before: a fist, and a slap of the arm at 1.5 m/s. Set
-creature_finger_below_pct and creature_flat_above_pct (60 and 90) to
-change the size at which the hand changes, in percent of the length
-of your hand. With the flat hand, the glow and the touch are at your
-palm. Set creature_palm_point=0 in bwvr.ini to keep them at the tip of
-your index finger.
+creature_stroke_hand=3 in bwvr.ini for a fist, and a slap of the arm
+at 1.5 m/s. Set creature_finger_below_pct and creature_flat_above_pct
+(60 and 90) to change the size at which the hand changes, in percent
+of the length of your hand. With the flat hand, the glow and the
+touch are at your palm. Set creature_palm_point=0 in bwvr.ini to keep
+them at the tip of your index finger.
 The glow is pale gold while your hand touches the Creature. Open the
 grip to stop. A short press of the grip on your Creature changes its
 leash, as a short click with the mouse does. When the interface panel
@@ -543,8 +595,8 @@ in view and press the trigger. A quick press sends your Creature to the
 place that you pointed at when you pressed. A green ring shows that
 place for a moment. The sea is not a place for this: the ring is red
 there. The grip does not send the Creature. To stroke or slap, put your
-hand on the Creature as before. Set creature_command=0 in bwvr.ini for
-the old controls.
+hand on the Creature. Set creature_command=0 to turn the commands of
+the trigger off. The grip on the land then sends the Creature.
 
 To aim with care, hold the trigger. The target follows your hand while
 you hold it. When you point at an object, its halo shows. When you
@@ -557,11 +609,8 @@ An object takes the aim of the trigger only when you point at it:
 within 3 degrees, at most 4 m from your head, and not when you point at
 the land in front of it. If objects take the aim too often or not often
 enough, set creature_command_cone_deg and creature_command_max_m in
-bwvr.ini. Set creature_command_rule=1 for the rule of the versions
-before: the press chose its target, and an object took the aim from far
-away. With "Test keys" on in the launcher, Ctrl with the 5 key of the
-number pad goes between the two rules while you play. The controller
-gives a long pulse for the new rule and a short pulse for the old one.
+bwvr.ini. Set creature_command_rule=1 if the press must choose its
+target, and an object can take the aim from far away.
 
 To tie the leash to an object, point at the object and press the
 trigger two times, one soon after the other. The first press sends your
@@ -580,8 +629,11 @@ leash comes off. A short press of the trigger with your hand
 pointed at your Creature takes the leash off too. If the leash comes
 off when you do not want it to, set leash_shake_mps=1.0 in bwvr.ini.
 The default is 0.6, the speed of each move in meters a second. The
-value 0 turns the shake off. These controls are new and were not
-tested in a headset before this version.
+value 0 turns the shake off.
+
+
+HAPTICS
+-------
 
 The controllers give short pulses for what you do. A pulse comes for
 a new target, a lock on a far object, and a fetched object that
@@ -590,7 +642,11 @@ stroke or a slap of your Creature. A change of the leash, a command,
 the teleport and a gesture that the game knows give one too. A hand
 that is still gives no pulse. Set haptics_pct in bwvr.ini to change
 the strength: 100 is the default, 50 is half, and 0 turns the pulses
-off. Motion controllers are new in this version.
+off.
+
+
+TABLETOP
+--------
 
 In the play mode "Tabletop (test)", the island is a model on a
 table. The Hand is where your hand is on the model, with no long
@@ -599,8 +655,50 @@ Hold both grips, then turn your hands to turn the land, or spread
 them to zoom in. The table stays where it is, and the land stops
 when you let go.
 
-For the controls of the God view, the default play mode, see THE GOD
-VIEW above.
+
+TEST KEYS OF THE NUMBER PAD
+---------------------------
+
+With "Test keys" on in the launcher, some keys of the number pad
+switch between two ways of one behavior while you play. The
+controller gives a long pulse for the way that is the default, and a
+short pulse for the other way. These keys are for testers. A player
+does not need them.
+
+  Ctrl 1    The two ways of the ring (X, the stick, or both).
+  Ctrl 5    The two rules of the aim of the trigger
+            (creature_command_rule).
+  Ctrl 7    The two rules for what a quest sees
+            (script_distance and script_view).
+  Ctrl 8    The two ways to cast a miracle (miracle_hand).
+  .         The rule "near objects win" and the pick of the Hand
+            (far_grab_near_cm).
+  *         The two ways of release (release_at_once).
+  8, 2      Turn the pointing line 1 degree up or down.
+  4, 6      Turn the pointing line 1 degree to the left or right.
+  5         Go to the next preset of the pointing line.
+
+
+CUT SCENES
+----------
+
+A cut scene plays on a screen. While the game shows its black bars,
+the view closes to a screen 2 m in front of you, in the direction
+that you look when the cut scene starts. The game moves its camera
+there as it does on a monitor. The screen is a window: the scene is
+behind it, and the subtitles are below the scene. The view opens
+again when the cut scene ends. The screen does not follow your head.
+If you do not see it, press F11, and it comes in front of you. Y on
+the left controller is Esc. The Hand does not follow your hands until
+the view is open again. To see cut scenes in the full view with held
+shots, set cutscene_window=0 in bwvr.ini.
+
+A story camera with no black bars can put a shot in an odd place.
+The game can also move the camera for you with no bars, for example
+to follow the Creature. There the mod cuts to each shot instead of
+gliding to it, because a glide that fills the view is uncomfortable.
+The shot itself is the shot that the game chose, and some shots sit
+too near or point away from the action.
 
 
 KNOWN ISSUES
@@ -643,32 +741,23 @@ the two pictures then do not join.
 The frame rate drops in busy scenes. If it gets too low, lower the
 resolution scale, or bring the model detail distance in.
 
-A cut scene plays on a screen. While the game shows its black bars,
-the view closes to a screen 2 m in front of you, in the direction
-that you look when the cut scene starts. The game moves its camera
-there as it does on a monitor. The screen is a window: the scene is
-behind it, and the subtitles are below the scene. The view opens
-again when the cut scene ends. The screen does not follow your head.
-If you do not see it, press F11, and it comes in front of you. Y on
-the left controller is still Esc. The Hand does not follow your
-hands until the view is open again. To see cut scenes in the full
-view, as in earlier versions, set cutscene_window=0 in bwvr.ini.
-
-A story camera with no black bars can put a shot in an odd place.
-The game can also move the camera for you with no bars, for example
-to follow the Creature. There the mod cuts to each shot instead of
-gliding to it, because a glide that fills the view is uncomfortable.
-The shot itself is still the shot that the game chose, and some
-shots sit too near or point away from the action.
-
 
 SUPPORT
 -------
 
 The mod writes a log, bwvr.log, beside runblack.exe in the game
 folder. It starts a new log each time the game runs, and it keeps
-the logs of the 20 runs before as bwvr-old-<date>-<time>.log. Send
-the log of the run that had the problem. The log holds:
+the logs of the 20 runs before as bwvr-old-<date>-<time>.log. The
+first line of the log gives the build of the mod.
+
+To report a fault:
+
+1. Open the Issues page of the project on GitHub.
+2. Select "New issue", and fill in the form.
+3. Attach bwvr.log and each bwvr-old file of the same day.
+4. Write what you did, what you expected and what happened.
+
+The log holds:
 
   - the settings that the mod read,
   - the hooks that went in, and the hooks that failed,
@@ -678,14 +767,18 @@ the log of the run that had the problem. The log holds:
 HOW TO REMOVE IT
 ----------------
 
-Open Windows Settings, then Apps. Find "Black & White VR Mod" in the
-list, and remove it.
+1. Open Windows Settings, then Apps.
+2. Find "Black & White VR Mod" in the list.
+3. Remove it.
 
 The uninstaller takes away only the files that the mod put in the
 game folder, and the log. If the game folder held a ddraw.dll from
 another program before you installed the mod, the installer kept
 that file, and the uninstaller puts it back. Your saved games, your
 creature and the game files are never touched.
+
+The uninstaller asks if you want to keep your settings (bwvr.ini). A
+later install of the mod starts where you left off if you keep them.
 
 
 THANK YOU
