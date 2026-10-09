@@ -873,6 +873,11 @@ void ReadSettings() {
     g_teleport.on = number("teleport", 1) != 0;
     g_teleport.reach_m = number("teleport_reach_m", 10);
     g_teleport.ring_cm = number("teleport_ring_cm", 11);
+    g_teleport.ring_mode = number("teleport_ring_mode", 1);
+    g_teleport.ring_units = number("teleport_ring_units", 11);
+    g_teleport.ring_min_cm = number("teleport_ring_min_cm", 4);
+    g_teleport.ring_max_cm = number("teleport_ring_max_cm", 40);
+    g_teleport.test_keys = number("test_keys", 0) != 0;
     // The grab from a distance: point at an object that is out of reach,
     // close the grip and pull toward the head. throw_law=1 sends sqrt(s) v in
     // the God view and on the table, so a throw lands where the real throw

@@ -140,9 +140,11 @@ the trigger and the grip only.
   Trigger             Click on things. A drag with the trigger does
                       not move the land. Use the left grip.
   A                   Hold it and an arc shows where you will go. A
-                      ring marks the place. Let go to go there. A
-                      red arc means you cannot go there. Press B to
-                      cancel.
+                      ring marks the place. The ring has one size in
+                      the world: it is larger when you zoom in, and
+                      smaller when you zoom out. Let go to go there.
+                      A red arc means you cannot go there. Press B
+                      to cancel.
 
 With the mouse:
 

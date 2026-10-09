@@ -668,7 +668,7 @@ land under the Hand.
 The land aim is the arc of the teleport (`teleport_reach_m`, see
 `god-view.md`), a straight ray on the table. The aim goes through the same
 one euro filter (`aim_smooth.h`). The target is valid when it is on the map
-and not the sea. The ring has the size of the teleport ring
+and not the sea. The ring has a fixed size in the room at every scale
 (`teleport_ring_cm`). The arc and the ring are green, the color of the
 trigger, and red for a target that is not valid. The filter of the aim starts
 again at each press, so the first aim has no lag.

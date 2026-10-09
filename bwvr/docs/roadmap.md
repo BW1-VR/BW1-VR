@@ -121,8 +121,6 @@ moves while the Hand takes it. B10 is near it.
   the short press and the hold need a rule that keeps both. Find how the
   plain game makes the Creature stop and attend to the Hand, so that the
   mod uses the game's own way.
-- **P3. The mark of the teleport** must scale with the zoom, or have one
-  size in the world.
 - **P4. A choice of control scheme, a smooth zoom, and a two hand grab as
   in Deisim.**
   - A choice of control scheme: more options, so that each player chooses

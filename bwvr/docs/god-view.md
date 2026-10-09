@@ -1024,11 +1024,25 @@ the land under the mouse ray, and not to the object.
 `overlay.cpp` has a second source for the arc, with its own switch, so the arc
 draws with `overlay=0` too. A tube of 6 sides and 6 mm of the room across, with
 no cap, 576 triangles at most. A ring of 24 points that follow the land, 2 cm
-over it, from 8 to 11 cm of the room (`teleport_ring_cm` sets the outer
-radius, and the inner radius is 0.75 of it). A valid ring has a disc in the
+over it. The inner radius is 0.75 of the outer radius, so the band has a
+width of a quarter of the radius at each size. A valid ring has a disc in the
 middle. A red ring has a cross. The meshes are opaque, with the depth test and
-the depth write on, as the hands. The arc keeps its shape at every scale,
-because the tube, the ring and the lift are in meters of the room. The overlay
+the depth write on, as the hands. The tube of the arc and the lift of the ring
+are in meters of the room, so they look the same at every scale.
+
+**The size of the ring.** By default (`teleport_ring_mode=1`) the ring has one
+size in the world: an outer radius of 11 units (`teleport_ring_units`). The
+God view scale goes from 7.5 units a meter (life size) to 4000, and the start
+scale is 100. At the start scale the ring is 11 cm of the room. It gets
+larger in the room when the player zooms in and smaller when the player zooms
+out, but never smaller than 4 cm (`teleport_ring_min_cm`) and never larger
+than 40 cm (`teleport_ring_max_cm`). So the ring says how large the place is
+from 27.5 to 275 units a meter (about 3 zoom steps in and 4 steps out from
+the start scale). Outside this range it has the limit: 40 cm at life size
+(0.3 units) and 4 cm at 4000 units a meter (160 units). The lift of 2 cm
+stays in the room at each size. The rule is in `teleport_math.h`.
+`teleport_ring_mode=0` gives a ring of one size in the room
+(`teleport_ring_cm`, 11 by default). The overlay
 clips them at the near plane of 5 cm (section 8). `kMaxTriangles` has 648 more
 triangles for this.
 
@@ -1052,7 +1066,15 @@ All in `[bwvr]`. They are ini only. The launcher has no row for them.
 | --- | --- | --- |
 | `teleport` | 1 | 1 is the arc. 0 gives the game's own A jump |
 | `teleport_reach_m` | 10 | The flat range of a 45 degree aim, 2 to 100 |
-| `teleport_ring_cm` | 11 | The outer radius of the ring, 5 to 60 |
+| `teleport_ring_mode` | 1 | 1 is a ring of one size in the world (`teleport_ring_units`), 0 is a ring of one size in the room (`teleport_ring_cm`) |
+| `teleport_ring_units` | 11 | The outer radius of the ring in world units for mode 1, 1 to 1000 |
+| `teleport_ring_min_cm` | 4 | The smallest outer radius in the room for mode 1, 1 or more |
+| `teleport_ring_max_cm` | 40 | The largest outer radius in the room for mode 1 |
+| `teleport_ring_cm` | 11 | The outer radius of the ring for mode 0, 5 to 60 |
+
+With `test_keys=1`, Ctrl with Insert changes `teleport_ring_mode` between 1
+and 0. The pointing controller gives a long pulse for 1 and a short pulse for
+0.
 
 ### 14.7 The log
 
@@ -1065,6 +1087,7 @@ teleport     : hit land at x y z, the target is land. Valid (cyan), 56 land look
 teleport     : no hit: the aim is the sky, so there is no arc
 teleport     : A is refused: a story owns the camera, frame N
 teleport     : A is up, so go to x y z (God view), frame N. The eye is at ...
+teleport     : the ring has a radius of 11.0 cm of the room and 11.0 units of the world, at 100.0 units a meter, rule 1
 teleport     : the God view moved. The head went from ... to ... off. The land under the head was 0.600 m below it, and now it is 0.600 m. Scale 100.00 to 100.00, heading ..., version N.
 teleport     : A is up on a red target: the target is the sea, so nothing happens, frame N
 teleport     : the aim is cancelled: B was pressed, and it starts no gesture, frame N
@@ -1073,6 +1096,7 @@ teleport     : N aims over N frames (N on a valid target, ...). N releases went,
 teleport     : N land lookups, at most N in one frame. The arc was drawn in N eye passes with N triangles.
 ```
 
+The ring line goes out once for each aim.
 The aim line goes out on the first frame, on a change of the hit or of the
 reason, and every 90 frames, 90 lines at most.
 
@@ -1093,6 +1117,10 @@ The math test (`TeleportChecks`) covers:
   target within 0.01 units, the land under the head keeps its room height
   within 1 mm, `s` and `psi` do not change, a target at the head gives the same
   pose, and a hill over the head is kept 10 cm under it.
+- `RingRadiusCm` (`teleport_checks.h`): mode 0 gives 11 cm at each scale. Mode 1
+  gives 11 cm at 100 units a meter, 7.3 cm at 150, 16.5 cm at 66.7, 40 cm at
+  7.5 and 4 cm at 4000. The size is always from 4 to 40 cm, never grows with a
+  zoom step out, and is 11 units of the world between the limits.
 - `BuildTube`: 24, 12 and 576 triangles, every corner at the radius from the
   line (a straight tube within 1e-6 m, the arc within 2 percent), and unit
   normals. `BuildLandRing`: 72 triangles (valid) or 52 (red), every point at the
@@ -1131,7 +1159,7 @@ on.
 - The teleport has run only in the math test. No desktop run has shown it in
   the game.
 - The look of the arc and the ring in the headset: the width of 6 mm, the
-  colors, the ring size, and whether the arc is easy to aim at 4000 units a
+  colors, the limits of 4 and 40 cm of the ring, and whether the arc is easy to aim at 4000 units a
   meter.
 - Whether the aim pose (the point of the controller) feels right as the start
   of the arc, or whether the arc must start at the index finger.

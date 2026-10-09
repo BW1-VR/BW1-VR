@@ -55,6 +55,7 @@
 #include "haptics.h"
 #include "overlay_math.h"
 #include "table_math.h"
+#include "teleport_math.h"
 #include "tabletop.h"
 #include "teleport.h"
 
@@ -358,7 +359,11 @@ void Evaluate(const TeleportInput& in, Mode mode) {
   g_draw.count = 0;
   g_draw.ring = false;
   g_draw.units_per_meter = in.units_per_meter;
-  g_draw.ring_cm = static_cast<float>(g_settings.ring_cm);
+  g_draw.ring_cm = teleport_math::RingRadiusCm(
+      g_settings.ring_mode, static_cast<float>(g_settings.ring_cm),
+      static_cast<float>(g_settings.ring_units),
+      static_cast<float>(g_settings.ring_min_cm),
+      static_cast<float>(g_settings.ring_max_cm), in.units_per_meter);
   for (int i = 0; i < 3; ++i) {
     g_aim.origin_m[i] = in.origin_m[i];
     g_aim.direction[i] = in.direction[i];
@@ -553,6 +558,40 @@ void Commit(const TeleportInput& in, Mode mode) {
                (t[2] - in.eye[2]) * (t[2] - in.eye[2])));
 }
 
+// What the size rule of the ring is now, in the log.
+void LogRuleMode(const char* why) {
+  if (g_settings.ring_mode != 0) {
+    ModLog("teleport     : ring size rule 1 (%s): one size in the world, %d "
+           "units, between %d and %d cm of the room", why,
+           g_settings.ring_units, g_settings.ring_min_cm,
+           g_settings.ring_max_cm);
+  } else {
+    ModLog("teleport     : ring size rule 0 (%s): one size in the room, %d cm",
+           why, g_settings.ring_cm);
+  }
+}
+
+// THE A/B KEY (test_keys=1): Ctrl with Insert changes the size rule of the
+// ring between 1 (one size in the world) and 0 (one size in the room). The
+// pointing controller gives a long pulse for 1 and a short pulse for 0. The
+// key is read once a frame, and only while a window of the game is in front.
+void PollRingKey() {
+  static bool was = false;
+  if (!g_settings.test_keys) return;
+  const bool down = (GetAsyncKeyState(VK_INSERT) & 0x8000) != 0 &&
+                    (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
+  const bool pressed = down && !was;
+  was = down;
+  if (!pressed) return;
+  DWORD process = 0;
+  const HWND window = GetForegroundWindow();
+  if (window != nullptr) GetWindowThreadProcessId(window, &process);
+  if (process != GetCurrentProcessId()) return;
+  g_settings.ring_mode = g_settings.ring_mode != 0 ? 0 : 1;
+  ControllersGesturePulse(0.5f, g_settings.ring_mode != 0 ? 0.24f : 0.08f);
+  LogRuleMode("Ctrl and Insert");
+}
+
 }  // namespace
 
 void TeleportSetOptions(const TeleportSettings& settings) {
@@ -561,12 +600,23 @@ void TeleportSetOptions(const TeleportSettings& settings) {
   if (g_settings.reach_m > 100) g_settings.reach_m = 100;
   if (g_settings.ring_cm < 5) g_settings.ring_cm = 5;
   if (g_settings.ring_cm > 60) g_settings.ring_cm = 60;
+  g_settings.ring_mode = g_settings.ring_mode != 0 ? 1 : 0;
+  if (g_settings.ring_units < 1) g_settings.ring_units = 1;
+  if (g_settings.ring_units > 1000) g_settings.ring_units = 1000;
+  if (g_settings.ring_min_cm < 1) g_settings.ring_min_cm = 1;
+  if (g_settings.ring_max_cm < g_settings.ring_min_cm) {
+    g_settings.ring_max_cm = g_settings.ring_min_cm;
+  }
   g_installed = true;
   if (g_settings.on) {
     ModLog("teleport     : on. Hold A to aim an arc with a reach of %d m, and "
-           "let go of A to go to the ring (%d cm). B cancels. The mouse double "
-           "click in the God view goes too.", g_settings.reach_m,
-           g_settings.ring_cm);
+           "let go of A to go to the ring. B cancels. The mouse double "
+           "click in the God view goes too.", g_settings.reach_m);
+    LogRuleMode("start");
+    if (g_settings.test_keys) {
+      ModLog("keys         : Ctrl with Insert changes the size rule of the "
+             "ring between the world and the room (test_keys=1)");
+    }
   } else {
     ModLog("teleport     : off. A makes the game's jump. The mouse double "
            "click in the God view still teleports.");
@@ -614,6 +664,7 @@ void TeleportFrame() {
     g_second_tick_at = 0;
     HapticsPulse(haptics_math::kTick);
   }
+  PollRingKey();
   TeleportInput in;
   if (!ControllersTeleportInput(&in)) {
     if (g_aiming) CancelAim("the controllers are off", false);
@@ -681,6 +732,11 @@ void TeleportFrame() {
   SmoothAim(&in, true);
   Evaluate(in, mode);
   LogAim(in, mode, true);
+  ModLog("teleport     : the ring has a radius of %.1f cm of the room and %.1f "
+         "units of the world, at %.1f units a meter, rule %d",
+         g_draw.ring_cm,
+         teleport_math::RingRadiusUnits(g_draw.ring_cm, in.units_per_meter),
+         in.units_per_meter, g_settings.ring_mode);
 }
 
 bool TeleportMouseDoubleClick(void* mode_ptr) {

@@ -11,6 +11,13 @@ struct TeleportSettings {
   bool on = true;     // teleport: 1 is the arc, 0 is the A jump of the game
   int reach_m = 10;   // teleport_reach_m: the flat range of a 45 degree aim
   int ring_cm = 11;   // teleport_ring_cm: the outer radius of the ring
+  // teleport_ring_mode: 1 is a ring of one size in the world (the default),
+  // 0 is a ring of one size in the room (ring_cm).
+  int ring_mode = 1;
+  int ring_units = 11;      // teleport_ring_units: the world size of mode 1
+  int ring_min_cm = 4;      // teleport_ring_min_cm: the smallest size, mode 1
+  int ring_max_cm = 40;     // teleport_ring_max_cm: the largest size, mode 1
+  bool test_keys = false;   // test_keys: Ctrl and Insert change the mode
 };
 
 void TeleportSetOptions(const TeleportSettings& settings);
