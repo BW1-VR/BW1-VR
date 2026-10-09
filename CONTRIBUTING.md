@@ -49,8 +49,8 @@ repo of this kind, so it is a rule between us.
 - **The log tells the story.** One line for each change of state, with the
   numbers, never a line for each frame. A log from a tester's session must
   show what happened in the case that he did not like.
-- **Say what is proven.** In a pull request and in the docs, say what a
-  desktop run showed, what only a headset can show, and what did not run.
+- **Say what is proven.** In a pull request, say what a desktop run showed,
+  what only a headset can show, and what did not run.
 
 ## Tests
 
@@ -75,6 +75,12 @@ each run. Keep those rules in each new script.
 - **Docs**: each area has one doc in `bwvr/docs/`. When the code changes,
   the doc says what the code does now. `[V]` marks a fact that was verified
   in the disassembly.
+- **The current state only**: the roadmap, the docs and the comments say
+  what is true now and what is planned. The git history is the history.
+  When a task is done or a fault is corrected, remove it from the roadmap
+  and the docs. Do not keep dates, names of test runs, a fault that is
+  gone, or a design that was dropped. The reason and the proof of a change
+  go in the commit message and the pull request.
 - **Commits**: an imperative subject line that says what changes ("Keep the
   Hand at the real hand in the Totem state"), then why, if it is not plain.
 

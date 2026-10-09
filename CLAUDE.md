@@ -7,8 +7,9 @@ and OpenXR. The main mode is the God view: the land at the height of the
 waist, and the player's hands are the Hand, 1:1. The owner is Buck. He tests
 each build in a Quest 3 through Virtual Desktop.
 
-Read `README.md` and `CONTRIBUTING.md` first. The work list and the history
-are in `bwvr/docs/roadmap.md`. Each area has one doc in `bwvr/docs/`.
+Read `README.md` and `CONTRIBUTING.md` first. The work list is in
+`bwvr/docs/roadmap.md`. Each area has one doc in `bwvr/docs/`. The history
+is in git, not in the docs.
 
 ## Never
 
@@ -50,13 +51,31 @@ are in `bwvr/docs/roadmap.md`. Each area has one doc in `bwvr/docs/`.
   there.
 - Put new math in a pure header with checks in `bwvr/test/controller_math/`.
 - Prove a change in the game with a desktop run (`bwvr/tools/desk/`), and
-  say plainly what ran, what did not, and what only a headset can show. Do
-  not merge a change of behavior that no run has shown.
+  say plainly in the commit message or the pull request what ran, what did
+  not, and what only a headset can show. Do not merge a change of behavior
+  that no run has shown.
 - Recipes of the scripted controller depend on the render size and on which
   window is in front. Check the first lines of each run log.
 - Several agents: one git worktree and one branch for each, land by a fast
   forward, and brief each agent with a file.
 - Keep `bwvr/docs/roadmap.md` and the doc of the area current.
+
+## The docs and the comments hold the current state
+
+The roadmap, the README files, the docs and the comments say what is true
+now and what is planned. The git history is the history.
+
+- When a task is done or a fault is corrected, remove it from the roadmap
+  and from each doc. Do not mark it as done. Write what the mod does now in
+  the doc of the area.
+- Do not write the story of a change in a doc or a comment: no dates, no
+  names of test runs, no "before" and "after", no fault that is gone, no
+  design that was dropped, no person who asked for it. Put the reason and
+  the proof of a change in the commit message or the pull request.
+- A comment says what the code does and why it must be so. It does not say
+  what the code did before.
+- An open question, a known limit and a thing that only a headset can show
+  are the current state. Keep them, and remove each one when it is solved.
 
 ## Writing
 
