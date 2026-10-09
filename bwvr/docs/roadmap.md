@@ -178,9 +178,10 @@ and the game needs its registry values on a different PC.
 
 ## To do
 
-This is the one list of the open work, the most urgent first. It has four
+This is the one list of the open work, the most urgent first. It has five
 parts: the top of the list, the list of the session of the video, what the
-rounds before left open, and the repo and the release. When an item is
+rounds before left open, the new features that the owner asked for, and the
+repo and the release. When an item is
 done, say so here and give the commit.
 
 The logs of the owner's sessions of 2026-10-07 are in `local\logs\2026-10-07\`
@@ -360,6 +361,41 @@ Each of these is named in the section of its round below. None is started.
   `local\ghidra`), and so it has none of the names of bw1-decomp. It fits
   when it can open a project that is there, or take a symbol file, on
   Windows. The owner asked for a new look after about one week.
+
+### The new features that the owner asked for
+
+- **F1. Hand tracking** (asked 2026-10-09). The player plays with the hands
+  and no controllers: the Hand follows the real hand and its fingers, one
+  to one, as it follows a controller today. Not started. First find what
+  the headset gives to the game: whether Virtual Desktop (VDXR) gives a 32
+  bit OpenXR program the extension `XR_EXT_hand_tracking`, and which
+  gestures it gives. `controllers.md` has the same open question ("whether
+  Virtual Desktop reports hand tracking as a profile"). Then choose a
+  gesture for each control of today: the grip, the trigger, the stick, and
+  A, B, X and Y. The rules of the Hand stay: the real hand, one to one, and
+  no motion that the player did not make.
+- **F2. A choice of control scheme, a smooth zoom, and a two hand grab as
+  in Deisim** (asked 2026-10-09).
+  - A choice of control scheme: more options, so that each player chooses
+    how the controls work. For example: the zoom in steps or smooth, the
+    turn in steps or smooth, and the grab of the world with one hand or with
+    two. Many of these are ini keys today, which a player does not see. Find
+    where the player chooses them (the launcher, or a menu in the game), and
+    keep the scheme of today as the default.
+  - A smooth zoom: today the stick zooms in steps of 1.5 times
+    (`god_zoom_step_pct`). A smooth zoom changes the scale while the stick
+    is held, and stops when the stick is let go. Give it an ini key with the
+    steps as the old value, and a test key. This goes with item 4 of the
+    list of the video session: a zoom must keep the player over the same
+    place of the land.
+  - A two hand grab as in Deisim: the player holds both grips, and the
+    hands make the world smaller or larger and turn it. A version of this
+    is there (`god-view.md`, section 5): both grips turn the land about up
+    and scale it with the spread of the hands, about the land point under
+    the middle of the hands. When the work on F2 starts, first compare the
+    controls of the mod with the controls of Deisim (the owner asked for this
+    on 2026-10-09). Points to compare: the turn is only about up here, the
+    height of the land stays, and the grip of the Hand also takes objects.
 
 ### The repo and the release
 
