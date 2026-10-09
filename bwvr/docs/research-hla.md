@@ -1,22 +1,12 @@
 # What Half-Life: Alyx does, and what the mod can take from it
 
-Research only. No source file, build, game run or registry value changed
-while it was written. Nobody started Half-Life: Alyx, SteamVR or Black &
-White for it.
-
-Asked for by Buck on 2026-10-03: "I have HL:A installed, you could do some
-research and compare things like throwing physics, hints, teleport system,
-surround sound, interactions, raycasting angles, etc. to it, see if you can
-pull anything useful from the code that would make our mod more polished and
-refined."
-
-The mod takes numbers, rules and design ideas from the game. It takes no code
-and no asset. Each extracted file stays in the scratchpad, not in the repo.
+Research on the game Half-Life: Alyx (HLA) as a reference for the hands, the
+throw, the hints, the teleport, the sound and the comfort of the mod. The mod
+takes numbers, rules and design ideas from it. It takes no code and no asset.
 
 Marks used in this file:
 
-- **[G]** read in the game files, or in another file on this PC. The line
-  names the file or the function.
+- **[G]** read in the game files. The line names the file or the function.
 - **[P]** from a public source. The line has the link.
 - **[I]** inferred. The evidence points that way, but no file says it.
 - **[M]** what the mod does, with the doc that says so.
@@ -25,65 +15,57 @@ Marks used in this file:
 
 ## 0. Sources and method
 
-**The install.** Steam app 546560 in
-`C:\Program Files (x86)\Steam\steamapps\common\Half-Life Alyx`. The game
-files have the date 2026-10-02. The packed files are in `game/hlvr/pak01_*.vpk`
-(46,934 files).
+**The install.** Steam app 546560. The packed files are in
+`game/hlvr/pak01_*.vpk` (46,934 files).
 
-**The tools.** All of them are in the scratchpad folder `hla`:
+**The tools.**
 
-- A small Python reader for the VPK archives (`vpk.py`). It gives the plain
-  text files: `scripts/instructor_lessons.txt`, `cfg/*`, the localization
-  files.
-- The Source 2 Viewer command line tool, version 20.0, from the official
-  GitHub releases of ValveResourceFormat. It gives the compiled files as
-  text: the models (attachments, bones), the sound stacks, the sound events,
-  the panorama layouts and styles, the particle files.
-- A Python script with capstone (`cvars.py`) that lists each console variable
-  of a DLL with its default. Each variable has a small start function of one
-  form: `lea r8, default`, `lea rdx, name`, `lea rcx, object`, `call`. The
-  script found 2,585 variables in `server.dll` and 1,763 in `client.dll`. A
-  few variables that have a change function are not in the list.
-- A Python disassembly helper (`s2re.py`, `fn.py`) that finds the code that
-  reads a variable or a string. The DLLs have no symbols. A function has only
-  its address as a name in this file.
-- A reader for the caption file (`ccd.py`). The words of the developer
-  commentary of the game are in
-  `game/hlvr/resource/subtitles/closecaption_english.dat`.
+- A reader for the VPK archives. It gives the plain text files:
+  `scripts/instructor_lessons.txt`, `cfg/*`, the localization files.
+- The Source 2 Viewer command line tool (ValveResourceFormat). It gives the
+  compiled files as text: the models (attachments, bones), the sound stacks,
+  the sound events, the panorama layouts and styles, the particle files.
+- A script with capstone that lists each console variable of a DLL with its
+  default. Each variable has a small start function of one form:
+  `lea r8, default`, `lea rdx, name`, `lea rcx, object`, `call`. It found
+  2,585 variables in `server.dll` and 1,763 in `client.dll`. A few variables
+  that have a change function are not in the list.
+- A disassembly helper that finds the code that reads a variable or a
+  string. The DLLs have no symbols, so a function has only its address as a
+  name in this file.
+- A reader for the caption file
+  `game/hlvr/resource/subtitles/closecaption_english.dat`. It holds the words
+  of the developer commentary of the game.
 
 **Units.** HLA uses inches. 1 unit is 2.54 cm. The axes of Source 2 are x
 forward, y left, z up. An angle has three parts: pitch (positive is down),
 yaw (positive is left) and roll.
 
-**The other files on this PC.** The render model files of SteamVR, in
-`steamapps\common\SteamVR\resources\rendermodels` and in `drivers`. They give
-the poses of each controller against its raw pose.
+**The render model files of SteamVR** (`resources\rendermodels` and
+`drivers`) give the poses of each controller against its raw pose.
 
 ## 1. The findings that help the mod most
 
 The order is value against cost. Each line names the section with the
-evidence and the changes.
+evidence.
 
 1. **Aim 6 degrees lower.** The menu ray of HLA on a Touch controller is the
    aim pose turned 7.1 degrees toward the other hand and 6.0 degrees down.
    The yaw agrees with the pointer of Meta (6.45 degrees). The pitch does
-   not: the pointer of Meta is 0.8 degrees up. Buck said "too high". The
-   mod already has this ray as `aim_preset=2`, the default (commit
-   `c9bb998`). Cost: one headset test. (Section 2)
+   not: the pointer of Meta is 0.8 degrees up. The mod has this ray as
+   `aim_preset=2`, the default. (Section 2)
 2. **A cone of 15 degrees with its tip 25 cm behind the hand.** The cone of
    the gravity gloves is twice as wide as the cone of the mod (8 degrees).
    A near object can be 20 degrees from the ray. A new target must also be
    in the view of the head (60 by 70 degrees). The lock holds a target to 60
-   degrees. Buck's own log had his object at the edge of the 8 degrees.
-   (Section 3)
+   degrees. (Section 3)
 3. **A low bounce after a throw.** The median material of HLA keeps 10% of
    the speed at a bounce, the default material 25%, and the friction is
-   0.8. This is the number for Buck's open item "objects jitter and bounce
-   too fast". (Section 4)
-4. **A gain of 1.6 on each throw.** The throw law of the mod is already the
-   law of HLA: the peak of the last 100 ms with a short mean around it. HLA
-   then multiplies each throw by 1.6, and it takes the velocity from the
-   runtime, not from positions. (Section 4)
+   0.8. (Section 4, built: `throw.md`)
+4. **A gain of 1.6 on each throw.** The throw law of the mod is the law of
+   HLA: the peak of the last 100 ms with a short mean around it. HLA then
+   multiplies each throw by 1.6, and it takes the velocity from the runtime,
+   not from positions. (Section 4)
 5. **A hint opens and closes on an event, and it counts successes.** No HLA
    hint runs on a clock. Each stops for good after the player did the action
    1 to 3 times. (Section 7)
@@ -141,7 +123,7 @@ order of Source: yaw first, then pitch.
 
 **The raw pose against the aim pose.** The render model files of SteamVR
 give each pose of a controller against its raw pose. [G]
-`SteamVR\resources\rendermodels\oculus_quest_plus_controller_right\oculus_quest_plus_controller_right.json`
+`rendermodels\oculus_quest_plus_controller_right\oculus_quest_plus_controller_right.json`
 (the Quest 2 and the Quest Pro files have the same numbers):
 
 ```
@@ -157,8 +139,7 @@ degrees below the grip pose. These are the numbers of the Virtual Desktop
 runtime in `controllers.md`, section 8.1. So the aim pose of SteamVR is the
 aim pose that the mod gets. [I]
 
-**The result for a Touch controller.** [I] From the two facts above (the
-calculation is `aimcalc.py` in the scratchpad):
+**The result for a Touch controller.** [I] From the two facts above:
 
 - Against the aim pose, the menu ray of HLA points 7.09 degrees toward the
   other hand and 5.99 degrees down.
@@ -172,11 +153,11 @@ calculation is `aimcalc.py` in the scratchpad):
 | The menu ray of HLA (`aim_preset=2`) | 7.09 | 5.99 down | this section |
 | The `tip` pose of SteamVR for a Touch controller | 0 | 2.0 up | [G] the file above |
 
-**Not proven.** Nobody ran the game for this. The result needs two things
-that no file says in words. The first: the engine gives the game the raw
-pose with no turn of its own. The start of the ray supports this, because it
-comes out 1.4 cm from the aim point. The second: the Virtual Desktop driver
-for SteamVR gives the same raw pose as the Oculus driver.
+**Not proven.** The result needs two things that no file says in words. The
+first: the engine gives the game the raw pose with no turn of its own. The
+start of the ray supports this, because it comes out 1.4 cm from the aim
+point. The second: the Virtual Desktop driver for SteamVR gives the same raw
+pose as the Oculus driver.
 
 **Other controllers.** SteamVR gives each controller a `tip` pose, "the
 position and rotation that are appropriate for pointing (i.e. with a laser
@@ -184,7 +165,7 @@ pointer)". [P] <https://github.com/ValveSoftware/openvr/wiki/Input-Profiles>
 The `tip` of the Index controller is 40 degrees below its raw pose and 5
 degrees toward the other hand. The aim pose of the Steam Frame controller is
 40 degrees below its raw pose, with no yaw. [G]
-`SteamVR\drivers\indexcontroller\resources\rendermodels\valve_controller_knu_1_0_right\`
+`drivers\indexcontroller\resources\rendermodels\valve_controller_knu_1_0_right\`
 and `drivers\frame_controller`. So the pitch of 45 degrees and the yaw of 10
 degrees are Valve's own choice for the menu. They are 5 degrees lower than
 SteamVR's own pointing poses, and they turn more toward the other hand.
@@ -227,7 +208,7 @@ end (radius 0.5 inch). [G] `particles/ui_laser_pointer.vpcf`. The menu sits
 (`vr_game_menu_interact_dist`). [G]
 
 **Small helps for the menu.** [G] The names and the defaults are read. The
-meaning of each line is my reading of the name:
+meaning of each line is a reading of the name:
 
 - `cl_panel_freeze_time_after_press` 0.5: the pointer does not move for 0.5 s
   after a press. The pull of the trigger then cannot move the pointer off
@@ -263,46 +244,34 @@ The only numbers of Meta are in the Interaction SDK. Its pointer is the
 controller pose turned 6.45 degrees toward the other hand and 0.79 degrees
 up (`controllers.md`, section 8.1).
 
-### 2.3 What the mod does today
+### 2.3 The mod
 
-- Until 2026-10-03 the aim ray was the aim pose of the runtime with no turn,
-  from the aim point of the runtime. [M] `controllers.md`, section 2.7.
-- The menu pointer, the teleport arc, the cone of the grab from a distance
-  and the Creature commands all read this ray. A near press does not: it
-  acts from the point of the Hand at the tip of the index finger. [M]
-  `god-view.md`, section 10, and `hand.md`, "One point for each interaction".
-- Since commit `c9bb998` of 2026-10-03 the ray of a Touch controller has
-  three presets (`aim_preset`): 0 is the ray of the runtime, 1 is the
-  pointer of Meta, and 2 is the menu ray of HLA from this file. The default
-  is 2. A preset also moves the start of the ray. `aim_pitch_deg` and
-  `aim_yaw_deg` add a trim, and the number pad changes the preset and the
-  trim in the headset. [M] `controllers.md`, section 8.
-- The mod draws the ray only in a menu: a warm white line of 2 mm radius
-  that ends on the cursor. It has no dot. [M] `controllers.md`, section 3.6.
-- A one euro filter smooths the aim of the teleport and of the Creature
-  command on the land. The ray of the menu and of the grab from a distance
-  has no filter. [M] `god-view.md`, section 14.5.
-- Buck on 2026-10-03: the ray points "too high and to the right".
+The ray of a Touch controller has three presets (`aim_preset`): 0 is the ray
+of the runtime, 1 is the pointer of Meta, and 2 is the menu ray of HLA from
+section 2.1. The default is 2. A preset also moves the start of the ray.
+`aim_pitch_deg` and `aim_yaw_deg` add a trim, and the number pad changes the
+preset and the trim in the headset. [M] `controllers.md`, section 8.
 
-### 2.4 Changes, in order of value against cost
+The menu pointer, the teleport arc, the cone of the grab from a distance and
+the Creature commands all read this ray. A near press does not: it acts from
+the point of the Hand at the tip of the index finger. [M] `god-view.md`,
+section 10, and `grab.md`.
 
-1. **Test the three presets in the headset.** Agent aim built the menu ray
-   of HLA as `aim_preset=2` while this file was written, from the numbers of
-   section 2.1. Numpad 5 goes through the presets. The test must show which
-   preset is correct for the menu, and which is correct for the grab from a
-   distance. Cost: none.
-2. **Freeze the menu pointer after a press.** Keep the pointer pixel for a
-   short time (HLA: 0.5 s) after the trigger goes down. The docs of the mod
-   do not name such a rule. Cost: small, in the code that makes the pointer
-   pixel. Do it only if Buck's clicks miss.
-3. **Give the world ray its own trim, if one trim does not fit.** HLA aims
-   the menu with one ray and the world with a second ray (the hand). The
-   headset test can show that the menu is correct and the grab from a
-   distance is not. Then add a second pair of trim keys for the world ray.
-   Cost: small.
-4. **A dot at the end of the menu ray.** HLA draws a dot of 1.3 cm radius
-   where the ray meets the menu. Cost: small. Value: low, because the mod
-   has the game cursor at that point.
+### 2.4 Guide and open plans
+
+- **Which preset is correct** for the menu, and which for the grab from a
+  distance, needs a headset test. Numpad 5 goes through the presets.
+- **Freeze the menu pointer after a press.** Keep the pointer pixel for a
+  short time (HLA: 0.5 s) after the trigger goes down. The mod has no such
+  rule. Do it only if clicks miss. Cost: small, in the code that makes the
+  pointer pixel.
+- **A second trim for the world ray**, if one trim does not fit. HLA aims the
+  menu with one ray and the world with a second ray (the hand). If the menu
+  is correct and the grab from a distance is not, add a second pair of trim
+  keys for the world ray. Cost: small.
+- **A dot at the end of the menu ray.** HLA draws a dot of 1.3 cm radius
+  where the ray meets the menu. The mod draws a warm white line only. Value:
+  low, because the mod has the game cursor at that point.
 
 Not for the mod: the turn of 10 degrees for the weapon hand. The mod has no
 weapon in the hand.
@@ -347,8 +316,8 @@ eventually becomes automatic." [G] `closecaption_english.dat`.
   direction of the head. The view is 60 degrees wide and 70 degrees high
   (`vr_gg_fov_max_for_target`, `vr_gg_fov_max_vert_for_target`) and 500
   inches deep. The object that is the candidate now does not need this test
-  again. [G] `0xbe07d0`. So the gloves do not take
-  an object that the player does not look at.
+  again. [G] `0xbe07d0`. So the gloves do not take an object that the player
+  does not look at.
 
 **The choice among candidates.** [G] `0x3f3b40`, at `0x3f4749`. The value
 `dot` is the cosine of the angle between the axis and the object:
@@ -446,34 +415,13 @@ eventually becomes automatic." [G] `closecaption_english.dat`.
 `vr_hand_pull_test_segments`, `vr_hand_pull_dynamic_min_gravity_scale` and
 `vr_gg_fov_center_vert_offset` (debug draw only) do nothing in this build.
 
-### 3.2 What the mod does today
+### 3.2 The mod
 
-All from `hand.md`, "The grab from a distance" [M]:
+The grab from a distance is in `grab.md`. The mod keeps a small cone
+(`far_grab_cone_deg=8`, 14 degrees to keep a target) in place of the cone of
+HLA, and the object ends in the palm with no catch.
 
-- A new target must be within 8 degrees of the aim ray, less the angular
-  radius of the object (`far_grab_cone_deg=8`). A target stays to 14
-  degrees.
-- The score is that angle plus 1 degree times log2(1 + the distance in
-  meters). A rival must be 2 degrees better.
-- The range is 2.0 m from the head along the floor (`far_grab_max_m`). The
-  grab from a distance is off while a pressable object is within 10 cm of
-  the point of the Hand.
-- A target that the land hides is out.
-- The highlight is a halo behind the object: gold, or red outside the
-  influence.
-- The grip locks the target and shows a gold tether. After 60 ms, one of
-  three things starts the pull: 0.8 m/s toward the head within 55 degrees
-  (`far_grab_pull=80`), 12 cm of travel, or an upward flick of 1.0 m/s.
-- The game picks the object up at once, and the mod draws a glide. The
-  glide takes 0.30 s plus 0.05 s for each meter, 0.50 s at most. It rises
-  by 15% of the distance.
-- The object ends in the palm with no catch. The closed grip carries it.
-- Pulses: 0.15 for 10 ms at a new target, 0.3 for 30 ms at the lock.
-- Buck on 2026-10-03: "Distance grab is uncomfortable". His log had the
-  object that he pointed at 6.7 to 7.9 degrees from the ray, at the edge of
-  the cone (`controllers.md`, section 8.1).
-
-### 3.3 Changes, in order of value against cost
+### 3.3 Guide and open plans
 
 1. **A wider cone with its tip behind the hand.** The cone of the mod is
    half the cone of HLA. Put the tip 25 cm behind the aim point, and set
@@ -505,7 +453,7 @@ All from `hand.md`, "The grab from a distance" [M]:
    pull feel like the act of the player. It needs a flight of 0.6 s and a
    wide catch zone (25 cm, and a press at any time in the flight). The mod
    lets the game pick the object up at once, so a real catch is a larger
-   change. Ask Buck before any work. Cost: medium to large.
+   change. Cost: medium to large.
 
 Not for the mod: the limit of 30 cm near the hand, because the mod has its
 own rule. Also not the limits of mass and size, and not the classes of
@@ -592,55 +540,34 @@ file has 369 materials. [G] `surfaceproperties/surfaceproperties.vsurf`:
 - The median friction is 0.8.
 - A body that does not move goes to sleep (`sv_phys_sleep_enable` 1).
 
-### 4.2 What the mod does today
+### 4.2 The mod
 
-- The release is the opening of the grip below 35%, or a fall of 30% in 3
-  frames (`grip_fast_open=1`). A game turn runs at once
-  (`release_at_once=1`). [M] `hand.md`, "The release at once".
-- The throw velocity is the peak (`throw_law=2`). The velocity of each sample
-  is the mean over 24 ms on each side. The largest sample from the 120 ms
-  before the opening wins. The samples are positions of the grip point in
-  room space. [M] `hand.md`, "The speed of a throw".
-- There is no gain. A time factor of 2 (`throw_slow_x10=20`) keeps the real
-  arc and the real landing point, at half the speed. [M] "The throw
-  physics".
-- A release with a mean of 0.18 m/s or less over 80 ms is a set down, unless
-  the peak reached 1 m/s. [M]
-- There is no aim assist. [M] "The real hand".
-- After the landing, the game does its own bounce and roll. Buck: the
-  objects jitter and bounce too fast (the evening list, item 1).
+The throw law of the mod is the law of HLA: the peak in a window of about 100
+ms, with a short mean around it. The speed, the flight, the landing (with a
+low bounce and a brake near the friction of HLA) and the release at once are
+in `throw.md`. There is no aim assist. There is a set down rule that HLA does
+not have, because the game of the mod needs one.
 
-### 4.3 Changes, in order of value against cost
+### 4.3 Guide and open plans
 
-The law of the mod is already the law of HLA: the peak in a window of about
-100 ms, with a short mean around it. Four things differ.
-
-1. **A low bounce after the landing.** This is Buck's open item. The number
-   to aim for: an object keeps 10 to 25% of its speed at a bounce, and it
-   comes to rest after one or two contacts. If the mod can find the bounce
-   factor of the game for a thrown object, set it in that range for a throw
-   from the Hand. Cost: medium, it needs the disassembly of the game.
-2. **The gain of 1.6 as an A/B.** Valve multiplies each throw by 1.6, with
-   no condition. A throw at the true speed of the hand feels weak to most
-   players. Let `throw_gain_pct` act on `throw_law=2`, and give Buck a test
-   key that goes between 100 and 160. Cost: small.
-3. **The velocity of the runtime as a second source.** OpenXR gives the
+1. **The gain of 1.6 as an A/B.** Valve multiplies each throw by 1.6, with
+   no condition. A throw at the true speed of the hand can feel weak. Let
+   `throw_gain_pct` act on `throw_law=2`, and add a test key that goes
+   between 100 and 160. Cost: small.
+2. **The velocity of the runtime as a second source.** OpenXR gives the
    linear velocity of a pose (`XrSpaceVelocity`). It comes from the motion
    sensor and it does not depend on the frame rate. Add it as `throw_law=3`:
    the same peak rule, with the velocity of the runtime in place of the
    position difference. The log must say if the runtime gives no valid
    velocity. Cost: small to medium.
-4. **Samples at fixed times, not one for each frame.** HLA asks the runtime
+3. **Samples at fixed times, not one for each frame.** HLA asks the runtime
    for the pose at 10 times, 11 ms apart, at the moment of the release.
    OpenXR lets an app locate a space at a time in the near past. With this,
    a slow frame does not make a hole in the window. Cost: medium. Do it
    only if a log shows frames longer than 15 ms at a release.
 
-No change:
-
-- The set down rule. HLA has none, but the game of the mod needs one.
-- The angular velocity. HLA does not use it.
-- An aim assist. HLA has none.
+No change: the angular velocity (HLA does not use it) and an aim assist (HLA
+has none).
 
 ## 5. The teleport
 
@@ -737,28 +664,16 @@ running as opposed to referring to game terminology." [G]
 the script lists. `vr_teleport_delay_time` (0.3) and
 `vr_teleport_controller_fadein` (0.03) have no known meaning.
 
-### 5.2 What the mod does today
+### 5.2 The mod
 
-- The player holds A on the pointing hand, and the release of A moves the
-  player. B stops the teleport. [M] `god-view.md`, section 14.
-- The arc is a parabola from the aim ray: g is 9.8, and the start speed gives
-  a flat range of 10 m at 45 degrees (`teleport_reach_m=10`). It has 48
-  steps. No arc shows above 60 degrees. [M] section 14.2.
-- The marker is a tube and a ring on the land of 11 cm (`teleport_ring_cm`).
-  Cyan with a disc is a valid place. Red with a cross is not. [M] 14.5.
-- A one euro filter smooths the aim (direction 0.9 Hz plus 6 Hz per rad/s,
-  point 1.5 Hz plus 8 Hz per m/s). [M] 14.5.
-- A valid place is on the map, above the sea, and more than 30 cm from the
-  point under the head. [M] 14.3.
-- The move is one cut. The heading and the scale stay. The doc says "short
-  black blink", but the default in the code is no blink (`blink=0`). A pulse
-  of 0.4 for 60 ms answers the move, and two ticks of 0.2 answer a red
-  target. [M] 14.4.
-- The right stick makes a snap turn of 45 degrees (`snap_turn=2`). [M]
-  `god-view.md`, section 4.
-- The mod plays no sound for a teleport.
+The teleport of the mod is in `god-view.md`, section 14: A on the pointing
+hand holds the arc, the release moves the player, and a one euro filter
+smooths the aim. The mod plays no sound for a teleport. The default is no
+blink (`blink=0`), and the right stick makes a snap turn of 45 degrees
+(`snap_turn=2`). `god-view.md` says "short black blink" for the move, but the
+code default is `blink=0`. [M]
 
-### 5.3 Changes, in order of value against cost
+### 5.3 Guide and open plans
 
 1. **A sound for the move.** Play one of the game's own sounds when the
    player arrives, and a different one for a red target. HLA shows that the
@@ -768,16 +683,15 @@ the script lists. `vr_teleport_delay_time` (0.3) and
    map, look for a valid place within about 25 cm of room. Also keep the
    last valid place for a short distance. The marker then stays cyan along a
    shore. Cost: small to medium.
-3. **Decide the blink.** The doc and the code disagree. Blink is the default
-   of HLA and Valve calls it the most comfortable. Give Buck the A/B on a
-   test key, then correct the doc or the default. Cost: none to small.
+3. **Decide the blink.** Blink is the default of HLA and Valve calls it the
+   most comfortable. Add an A/B on a test key, then make the doc and the
+   default agree. Cost: none to small.
 4. **Let the stick turn the marker.** While A is held, the stick of the same
    hand is free. Let it turn an arrow on the ring, and turn the player to
    that direction at the cut. This helps a player who sits. Cost: medium.
-5. **The filter of HLA as an A/B.** The one euro filter is a good filter.
-   If Buck reports a slow marker or a marker that shakes, the dead zone
-   curve of HLA is a second law to test. It is 10 lines of pure math. Cost:
-   small.
+5. **The filter of HLA as an A/B.** If the marker is slow or shakes, the dead
+   zone curve of HLA is a second law to test. It is 10 lines of pure math.
+   Cost: small.
 6. **A calm color for a place that is not valid.** HLA uses gray, not red.
    Value: low.
 
@@ -830,8 +744,7 @@ makes no pulse. [G] and [I]. The feedback is the hand: the fingers go onto
 the surface. A different rule lights the items that the player looks at.
 An item glows when three things are true: it is inside its glow range, it
 is within 32 degrees of the view direction (`glow_use_tolerance` 0.85), and
-the line from the eye is clear.
-[G] `client.dll`, `0x633e70`.
+the line from the eye is clear. [G] `client.dll`, `0x633e70`.
 
 **The grab.** [G] `0xd52304`, `0xd58110`:
 
@@ -866,52 +779,34 @@ the line from the eye is clear.
 grip do the same grab. [G] A hint sits on the hand that must act
 (section 7).
 
-### 6.2 What the mod does today
+### 6.2 The mod
 
-All from `hand.md` [M]:
+The mod draws its own hands, 1:1 with the real hand, and hides the Hand mesh
+of the game. The model, the glow and the pulses are in `hand-model.md`. The
+pick of a near object is in `grab.md`. In the mod the 1:1 hand and the
+fingers that follow the trigger and the grip stay as they are.
 
-- The mod draws its own hands, 19 cm long, 1:1 with the real hand
-  (`hand_real_cm=19`). The Hand mesh of the game is hidden.
-- The index follows the trigger. The other fingers follow the grip. The
-  poses are hold, point, flat, fist and relaxed, with a blend of 0.1 s. An
-  object in the Hand sits in the palm.
-- A glow disc at the tip of the index shows what a press will do
-  (`hand_glow=1`). Gold is an object to take, pale gold is an object to
-  activate, and pale blue is nothing. The pick reach is 4 cm
-  (`hand_pick_cm=4`).
-- Pulses (strength and time): 0.15 for 20 ms over an object, 0.35 for 50 ms
-  when a pick up starts, 0.60 for 80 ms when the object is in the Hand,
-  0.40 for 70 ms at a release, 0.60 to 1.00 for a slap.
-- One hint card for each controller shows which button does what.
-- Open from the evening list: a point that is vague (item 8), a fist while
-  the Hand strokes (item 9), a glow that always shows (item 11).
-
-### 6.3 Changes, in order of value against cost
+### 6.3 Guide and open plans
 
 1. **Put the highlight on the object, not on the finger.** HLA shows nothing
    at the hand. The glow of HLA is on the item. The mod has a halo for a
    target at a distance. Use the same halo for the object that a near press
-   will take, and remove the pale blue disc for "nothing". This answers item
-   11 of the evening list. Cost: small.
+   will take, and remove the pale blue disc for "nothing". Cost: small.
 2. **Choose the near object by a score, from the palm.** The rule of HLA is
    the cosine to the hand direction divided by the square of the distance.
    The reach is 15 cm, and the sight test uses a sphere of 5 cm. The mod
-   picks inside 4 cm of one point at the tip of the index. A score lets the
-   Hand take the object that it faces when two objects are near. Scale the
-   numbers to the size of the land. Cost: medium. It is in the area of
-   agent hand.
-3. **Short pulses.** HLA uses pulses of 11 ms and three strengths. The mod
-   uses 10 to 100 ms. A long pulse at each event makes the controller feel
-   busy. Test the pick up and the release at 20 ms. Cost: small.
+   picks inside a small distance of one point at the tip of the index. A
+   score lets the Hand take the object that it faces when two objects are
+   near. Scale the numbers to the size of the land. Cost: medium.
+3. **Short pulses.** HLA uses pulses of 11 ms and three strengths. A long
+   pulse at each event makes the controller feel busy. Test the pick up and
+   the release at 20 ms. Cost: small.
 4. **A pulse for a hit, by its force.** When the Hand or the object in it
    hits the land, give a pulse that grows with the speed of the hit, at most
    one in 0.2 s. Cost: small to medium, the mod must know the contact.
 5. **Hide the correction in the motion of the hand.** When a large object
    goes to the palm, move it only while the hand moves. Cost: medium. Value:
    low.
-
-No change: the 1:1 hand, and the fingers that follow the trigger and the
-grip.
 
 ## 7. Hints and prompts
 
@@ -979,22 +874,14 @@ in ways that feel as natural as possible, entwined within the core flow of
 the game so that you don't feel like the game just stopped to teach you
 something." [G] `closecaption_english.dat`.
 
-### 7.2 What the mod does today
+### 7.2 The mod
 
-- One card beside each wrist shows the hints of that hand (`hint_card=1`). It
-  is a dark card with white letters of 8 mm, and the word of the button is on
-  a badge. [M] `controller-hints.md`, sections 9.2 and 9.9.
-- The card is 3 cm clear of the outline of the hand, at the depth of the
-  wrist, and it faces the head. It fades in 0.25 s and out in 0.35 s. [M] 9.3.
-- The card shows the tooltips of the game with words for the controller, and
-  the prompts of the mod: Select, Release to go, Pull to fetch, Open to drop,
-  Take, Hold to collect, Stroke or slap, Move the land, Menu, Teleport, Send
-  the Creature. [M] 9.4.
-- A prompt shows after a dwell of 0.3 s (1.5 s for the land), for 4 to 6 s,
-  and 2 to 4 times in a session (`prompts=1`). [M] 9.4.
-- The mod has no picture of the controller and no lit button. [M] 9.7.
+One card beside each wrist shows the hints of that hand (`hint_card=1`), with
+the tooltips of the game and the prompts of the mod. A prompt shows after a
+dwell, for 4 to 6 s, and 2 to 4 times in a session (`prompts=1`). The mod has
+no picture of the controller and no lit button. [M] `controller-hints.md`.
 
-### 7.3 Changes, in order of value against cost
+### 7.3 Guide and open plans
 
 1. **Close a prompt on the event, not on a clock.** "Pull to fetch" must show
    from the lock to the pull and then go away at once. "Release to go" must
@@ -1008,10 +895,10 @@ something." [G] `closecaption_english.dat`.
    when the player has not done the action for some time in a place where it
    helps. HLA waits 5 s for the teleport. Cost: small.
 4. **One quiet sound when a new prompt opens**, with at least 4 s between two
-   sounds. Cost: small. Use a sound of the game.
-5. **Light the button on a picture of the controller.** This is step H4 of
-   `controller-hints.md`. HLA shows that it is the right goal: the hint names
-   the action and the picture follows the bindings. Cost: large.
+   sounds. Use a sound of the game. Cost: small.
+5. **Light the button on a picture of the controller.** This is the last step
+   of `controller-hints.md`. HLA shows that it is the right goal: the hint
+   names the action and the picture follows the bindings. Cost: large.
 
 ## 8. Sound
 
@@ -1072,20 +959,14 @@ off (`snd_steamaudio_enable_pathing` 0). One event uses them. [G]
 (`Grabbity.HoverPing`) plays at volume 0.15, through the HRTF, and a limiter
 lets only one play at a time. [G] the sound event files.
 
-### 8.2 What the mod does today
+### 8.2 The mod
 
-- All sound goes through the QMixer of the game, which does the 3D
-  positioning in software. The docs do not say that QMixer has an HRTF,
-  reverb or occlusion. [M] `audio.md`, section 2.
-- The listener is the head, set each frame (`audio_head=1`). The voices of
-  the advisors get a direction (`audio_advisors=1`). [M] section 10.
-- Distances are in room meters: 1 m sounds as 40 game units
-  (`audio_room=1`). A sound with no object plays at the ears. [M] 11.5.
-- Flat effects and single ambient sounds get a place
-  (`audio_flat_places=1`). The ambient bed and the music stay flat. [M] 11.6.
-- Open: background sounds stop at times (the evening list, item 3).
+All sound goes through the QMixer of the game, which does the 3D positioning
+in software. `audio.md` does not say that QMixer has an HRTF, reverb or
+occlusion. The listener is the head, distances are in room meters, and the
+ambient bed and the music stay flat. [M] `audio.md`.
 
-### 8.3 Changes, in order of value against cost
+### 8.3 Guide and open plans
 
 1. **A floor on the distance, or a spread, for a source near the head.** In
    the God view the Hand and the objects in it are 30 to 60 cm from the
@@ -1093,8 +974,8 @@ lets only one play at a time. [G] the sound event files.
    source inside 25 to 50 cm to the two ears. Cost: small, where the mod
    sets the position of a sound.
 2. **Feedback sounds are quiet and single.** For each sound that the mod
-   adds (a target, a lock, a prompt): low volume, and one at a time. Cost:
-   none, as a rule for new work.
+   adds (a target, a lock, a prompt): low volume, and one at a time. This is
+   a rule for new work.
 3. **An HRTF for the sounds with a place.** This is the one thing that tells
    the ear that a sound is below. In the God view the land is at waist
    height, so most sounds are below the head, and panning cannot say that.
@@ -1104,8 +985,7 @@ lets only one play at a time. [G] the sound event files.
    the samples that `LHSamplePlay` gets. Cost: large. It is a track of its
    own, and `audio.md` must say if the mod can get the samples.
 4. **Keep the flat layer flat.** HLA does not send low and long layers
-   through the HRTF. The mod already keeps the ambient bed and the music
-   flat. No change.
+   through the HRTF. The mod keeps the ambient bed and the music flat.
 
 Not for the mod: occlusion by walls, because the land of the game is open.
 Also not baked reverb, because it needs the maps in a form that the mod does
@@ -1138,9 +1018,8 @@ occurrence of motion sickness."
 **An elevator is slow and half closed.** "We found that we could make the
 elevator rides in Half-Life: Alyx comfortable enough for most players by
 moving the elevator slowly and limiting how much the player could see out of
-the elevator." The first design was more open. Valve added more cover "so
-that the player always had some significant portion of the elevator in their
-field of view".
+the elevator." Valve added cover "so that the player always had some
+significant portion of the elevator in their field of view".
 
 **The player keeps the hands.** In each talk scene the player can move, look
 away and handle objects. The characters answer only a small set of actions
@@ -1160,42 +1039,28 @@ Russell.
 - The pause menu comes with a fade of 0.2 s
   (`hlvr_pause_postprocess_fadein`).
 
-### 9.2 What the mod does today
-
-- The cinema bars flag of the game starts the cut scene window. [M]
-  `cutscene-window.md`, section 1.
-- Black walls close around the player in 0.5 s (`cutscene_window_ms=500`). A
-  stereo screen 2.6 m wide stands 2 m ahead at head height
-  (`screen_width_cm=260`, `screen_distance_cm=200`). It is fixed in the room
-  and does not follow the head. [M] sections 3 and 5.
-- The camera of the game moves inside the picture. The picture has a view of
-  70 degrees, and the bars cover 44% of it. [M] sections 6 and 7.
-- Y or the left menu button skips the scene. The trigger is a left click.
-  There are no hands, no glow, no hints, no teleport and no grab. [M]
-  section 7.
-- Since the commits of 2026-10-03: the screen starts ahead of the head
-  (`cutscene_face_head=1`), nothing comes in front of the screen
-  (`cutscene_depth=1`), and the subtitles are on a card under the screen
-  (`cutscene_subtitles=1`). [M] `cutscene-window.md`.
-
-### 9.3 Changes, in order of value against cost
+### 9.2 The mod
 
 The cut scene window already follows the main rule of HLA: the camera that
-moves is in a window, and the player stays in a frame that does not move.
-Three things differ.
+moves is in a window, and the player stays in a frame that does not move. The
+window has black walls, a fixed screen of 2.6 m at 2 m (`screen_width_cm=260`,
+`screen_distance_cm=200`) and a fade of 0.5 s (`cutscene_window_ms=500`). It
+has no hands, no glow, no hints, no teleport and no grab. [M]
+`cutscene-window.md`.
+
+### 9.3 Guide and open plans
 
 1. **Give the room something to see.** In HLA the cabin fills most of the
    view, and the cabin is the reference of the player. In the mod the walls
    are black, so the only thing the eye can hold is the picture that moves.
    Draw a thin frame around the screen, and a dim floor or a dim grid in the
-   room. Cost: small. Give Buck the A/B.
+   room. Cost: small. Test it as an A/B.
 2. **A smaller window as a comfort setting.** A screen of 2.6 m at 2 m is 66
-   degrees wide. HLA says "small windows". The key `screen_width_cm` exists.
-   Name a comfort value near 1.8 m (48 degrees) in the README. Cost: none to
-   small.
+   degrees wide. HLA says "small windows". Name a comfort value near 1.8 m
+   (48 degrees) in the README. Cost: none to small.
 3. **Show the hands in the room.** HLA never takes the hands from the
    player. Hands that only show, with no function, tell the player that the
-   body is still there. Cost: small. Give Buck the A/B.
+   body is still there. Cost: small. Test it as an A/B.
 
 No change: the fade. HLA uses 0.2 s for a change that the player did not
 make. The walls of the mod take 0.5 s.
@@ -1222,19 +1087,3 @@ make. The walls of the mod take 0.5 s.
 - **The names of the object classes.** The code uses bits of the object
   flags. The names in section 3.1 are from the list of entity classes that
   set each bit.
-
-## 11. The files of this research
-
-All in the scratchpad folder `hla`. None is in the repo.
-
-| File | What it is |
-| --- | --- |
-| `vpk.py`, `ccd.py` | Readers for the VPK archives and the caption file |
-| `cvars.py`, `all_cvars.tsv` | The script that lists the variables, and its result for `server.dll` and `client.dll` |
-| `pe.py`, `s2re.py`, `fn.py`, `callers.py`, `disp.py` | The disassembly helpers |
-| `dec/`, `decc/` | The functions of `server.dll` and `client.dll` that this file names |
-| `aimcalc.py` | The calculation of section 2.1 |
-| `att.py` | The attachments of a model in model space |
-| `x_hlvr/`, `vrfout/` | The text files and the decompiled files of the game |
-| `cc_english.txt` | The captions, with the developer commentary |
-| `re-common.md` | Notes on how to read the DLLs |
