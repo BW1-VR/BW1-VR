@@ -506,7 +506,7 @@ game. Open the grip with a still hand to put an object down. If your
 hand is more than 15 cm over the land, the object falls and does not
 go to the land at once. Set release_fall_cm in bwvr.ini to change this
 height, or release_fall_cm=0 to put the object down at each height.
-A tree and a miracle fly as the game makes them fly. Set throw_law=1 in
+A miracle flies as the game makes it fly. Set throw_law=1 in
 bwvr.ini for the slower flight of the physics of the game, or
 throw_law=0 for a throw that scales your hand speed by a fixed gain.
 
