@@ -524,7 +524,11 @@ void DrawOneHalo(IDirect3DDevice7* device, const FarDraw& d,
 void DrawHalo() {
   FarDraw d, c, m;
   bool same = false;
-  const bool far_target = FarGrabDrawState(&d);
+  bool far_target = FarGrabDrawState(&d);
+  // While the trigger holds a walk of the Creature, the aim is for the land:
+  // the far target of the grip has no halo. A target that the grip holds
+  // keeps its halo.
+  if (far_target && !d.locked && CreatureCommandWalkHeld()) far_target = false;
   const bool command = CreatureCommandHalo(&c, &same);
   // THE TARGET OF A MIRACLE (miracle.cpp). While a miracle is in the Hand,
   // the body that a press casts it on has the halo: gold, or red when the

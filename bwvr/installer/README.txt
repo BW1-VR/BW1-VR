@@ -596,9 +596,15 @@ the trigger off. The grip on the land then sends the Creature.
 To aim with care, hold the trigger. The target follows your hand while
 you hold it. When you point at an object, its halo shows. When you
 point at no object, an arc and a green ring show a point on the land.
-Let go, and your Creature goes to what shows then: the object with the
-halo, or the place of the ring. So if an object has the halo and you
-want the land, keep the trigger down and point away from the object.
+Let go, and your Creature goes to what shows then.
+
+A press that starts on the land stays a walk for as long as you hold the
+trigger. You move the ring over the land, and no tree, rock or villager
+takes the halo, also when you point at one. To send your Creature to an
+object, point at the object first and then press the trigger. A press
+that starts on an object keeps the object only while you point at it.
+Set creature_command_rule=2 if a held press on the land must change to
+an object that you point at.
 
 An object takes the aim of the trigger only when you point at it:
 within 3 degrees, at most 4 m from your head, and not when you point at
@@ -661,7 +667,7 @@ short pulse for the other way. These keys are for testers. A player
 does not need them.
 
   Ctrl 1    The two ways of the ring (X, the stick, or both).
-  Ctrl 5    The two rules of the aim of the trigger
+  Ctrl 5    The three rules of the aim of the trigger
             (creature_command_rule).
   Ctrl 7    The two rules for what a quest sees
             (script_distance and script_view).

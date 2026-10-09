@@ -641,7 +641,8 @@ With no leash, the trigger does what it does in the plain game.
 | --- | --- |
 | The aim is on an object | The halo of the object shows, green |
 | The aim is on no object | The arc and the ring show the land, in the same frame |
-| The aim comes onto an object while the arc shows | The object must stay in the aim for 100 ms (`kHeldCatchS`). Then its halo shows and the arc goes |
+| A press that began on the land (no object in the cone at the press), `creature_command_rule=3` | It is a walk command for as long as the trigger is held. The aim moves the land point, the arc and the ring follow it, and no object takes the halo or the command, also when the aim is on a tree, a rock or a villager. The far target of the grip has no halo in this time either (`CreatureCommandWalkHeld`), unless the grip holds it. The prompt is "Trigger Release to send". The aim must be on the object before the press to command the Creature to it |
+| The aim comes onto an object while the arc shows, `creature_command_rule=2` | The object must stay in the aim for 100 ms (`kHeldCatchS`). Then its halo shows and the arc goes |
 | The glow of the Hand is on an object: the object that the grip acts on, within `hand_pick_cm` | That object is the target. The aim does not count |
 | A tap: a release less than `creature_command_hold_ms` (250 ms) after the press | It acts on what showed at the press: the object of the press (packet `0x5D`), or the land point of the press (packet `0x5E`). A tap on your Creature is the leash click |
 | A hold: a later release | It acts on what shows at the release: the object with the halo (packet `0x5D`), or the land point of the ring (packet `0x5E`) |
@@ -752,7 +753,7 @@ The ring is red there. A sailor in the sea is a target as an object.
 **Haptics.** A tick of 0.15 at a new target, 0.3 for 30 ms when a command is
 sent, and 0.6 for 80 ms when the leash comes off.
 
-**Rule 1.** `creature_command_rule=1` gives the older rule: the press fixes
+**Rule 1.** `creature_command_rule=1` gives this rule: the press fixes
 its kind (a press with a target under the aim is a press on that target and
 the target stays until the release, a press with no target is a press on the
 land), and an object takes the aim in the cone of the grab from a distance
@@ -798,7 +799,7 @@ With the mouse, the game's own test acts.
 | `creature_command` | 1 | 0: the trigger does not command the Creature, the grip on the land sends it as in the plain game, and no shake is read |
 | `creature_command_hold_ms` | 250 | A press on the land shorter than this is a tap, and it uses the aim of the press. A longer press uses the aim of the release. 0 to 2000 |
 | `leash_shake_mps` | 0.6 | The mean speed of each stroke of a shake, in m/s. 0 turns the shake off. 0.2 to 5 |
-| `creature_command_rule` | 2 | 2 is the live target (section 4.3). 1 is the older rule |
+| `creature_command_rule` | 3 | 3 is the live target, and a press that began on the land stays a walk (section 4.1). 2 is the live target, and a held walk can change to an object that stays in the aim for 100 ms. 1 is the older rule |
 | `creature_command_cone_deg` | 3 | A new target needs the aim this near to its body, in degrees. 0.5 to 20 |
 | `creature_command_keep_deg` | the cone plus 2 | The target stays while the aim is this near |
 | `creature_command_max_m` | 4 | The range from the head, in meters of the room along the floor. 0 is no limit |
@@ -807,9 +808,9 @@ With the mouse, the game's own test acts.
 | `teleport_reach_m`, `teleport_ring_cm` | 10, 11 | The arc and the ring of the land aim. See `god-view.md` |
 
 **The A/B key.** With `test_keys=1`, Ctrl with the 5 key of the number pad
-changes `creature_command_rule` between 2 and 1 while the game runs. The
-pointing controller gives a long pulse for 2 and a short pulse for 1, and the
-log has a line. The keys of the aim trim (numpad 8, 2, 4, 6 and 5) do not act
+changes `creature_command_rule` from 3 to 2 to 1 and back while the game
+runs. The pointing controller gives a long pulse for 3, a medium pulse for 2
+and a short pulse for 1, and the log has a line. The keys of the aim trim (numpad 8, 2, 4, 6 and 5) do not act
 while Ctrl is down.
 
 **Test keys for the desktop runs only:**
@@ -845,7 +846,7 @@ has its distance from the Hand, and a new target at the Hand has the line
 "the Hand is on the". Examples of the format:
 
 ```
-creature cmd : creature_command_rule: creature_command_rule=2. While the trigger is held, the target is what the hand points at: an object, or the land. A new object needs the aim within 3.0 degrees of its body and stays to 5.0 (creature_command_cone_deg, _keep_deg). It is at most 4.0 m of the room from the head (creature_command_max_m, 0 is no limit). The land wins when the ray meets it more than 30 cm, and 20 percent of the way to it, in front of the object (creature_command_behind_cm, -1 is off), frame 0
+creature cmd : creature_command_rule: creature_command_rule=3. While the trigger is held, the target is what the hand points at: an object, or the land. A press that began on the land stays a walk: no object takes it. A new object needs the aim within 3.0 degrees of its body and stays to 5.0 (creature_command_cone_deg, _keep_deg). It is at most 4.0 m of the room from the head (creature_command_max_m, 0 is no limit). The land wins when the ray meets it more than 30 cm, and 20 percent of the way to it, in front of the object (creature_command_behind_cm, -1 is off), frame 0
 creature cmd : the aim is on the Tree 2AA30804, 0.0 degrees off the ray, 0.82 m of the room from the Hand and 1.44 m from the head, at 1999.8 52.4 2497.6. The land point of the ray is 1.39 m along it (less than 0: not known). A press of the trigger sends the Creature to it, and a second press ties the leash to it, frame 953
 creature cmd : the trigger closes with the aim on the Tree 2AA30804. It does not go to the game, frame 1001
 creature cmd : the trigger is held, and the aim is on no object now (it was on 2AA30804). The arc and the ring show the land, 476 ms after the press, frame 1022
@@ -857,7 +858,7 @@ creature cmd : the trigger opens after 119 ms, a tap, so the aim of the press co
 creature cmd : the trigger opens after 2518 ms, a hold, so the target that shows now counts, on the Tree 2A669804. The game sends packet 0x5D: the Creature acts on it, frame 1461
 creature cmd : a shake of the hand: 4 strokes in 510 ms, the slowest at 0.88 m/s, the last one 12 cm long. A stroke needs 0.60 m/s (leash_shake_mps). The leash click (packet 0x5F), frame 6010
 creature cmd : the leash is off, 70 ms after the shake, frame 6016
-creature cmd : creature_command_rule=2. While the trigger was held, what shows changed 5 times. The range left out 54490 objects, and the land in front left out 125 objects of the cone. 0 double presses tied the leash, and 0 took it back
+creature cmd : creature_command_rule=3. While the trigger was held, what shows changed 5 times. The range left out 54490 objects, and the land in front left out 125 objects of the cone. 0 double presses tied the leash, and 0 took it back
 ```
 
 ## 5. The leash
@@ -975,7 +976,7 @@ The math tests are in `bwvr/test/controller_math/` and run with
   `ReleaseLandAim`, the time of the ring after a send, `AimAtBody`,
   `RayLandDistance`, `AimLandWins` and `AimInRange`, `HeldStep` (the land at
   once, the object after 100 ms, a ring that passes 5 objects, an aim at the
-  border for 200 frames), `ReleaseLive` and `DoublePress`.
+  border for 200 frames, a press on the land that stays a walk), `ReleaseLive` and `DoublePress`.
 - The near target is in `far_checks.h` (see `grab.md`).
 
 ### 6.2 A Creature in a desktop run

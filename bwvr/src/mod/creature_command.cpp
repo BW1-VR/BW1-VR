@@ -54,6 +54,13 @@
 //   showed at the press. An object takes the aim only in a tight cone, near
 //   the player, and not when the land in front of it has the aim
 //   (creature_command_math.h, AimRule).
+// - THE WALK STAYS A WALK (creature_command_rule=3, the default). A press that
+//   began on the land (no object in the cone of the press) is a walk command
+//   for as long as the trigger is held. The aim moves the land point, and no
+//   object takes the halo or the command, also when the aim passes over a tree,
+//   a rock or a villager. The player aims at the object first and then
+//   presses to command the Creature to it. Rule 2 lets a held walk change to
+//   an object that stays in the aim for 100 ms.
 // - THE DOUBLE PRESS ties the leash to an object, as the game's double click
 //   does: the first tap sends the Creature to the object (packet 0x5D), and
 //   a second press on the same object sends packet 0x5C. While the leash is
@@ -259,10 +266,11 @@ struct Settings {
   // off.
   int test_from = 0;
   bool test = false;
-  // creature_command_rule: 2 is the live target with the tight aim. 1: the
-  // press fixes its kind, and an object takes the aim in the cone of the grab
-  // from a distance.
-  int rule = 2;
+  // creature_command_rule: 3 is the live target, and a press that began on
+  // the land stays a walk. 2 is the live target: a held walk can change to an
+  // object. 1: the press fixes its kind, and an object takes the aim in the
+  // cone of the grab from a distance.
+  int rule = 3;
   // The aim of rule 2 (creature_command_math.h, AimRule).
   float cone_deg = 3.0f;   // creature_command_cone_deg: a new target
   float keep_deg = 5.0f;   // creature_command_keep_deg: the target stays
@@ -533,6 +541,8 @@ bool Tied(const Facts& f) {
 // The rule of the aim in use. Rule 1 is the cone of the grab from a
 // distance, with no range and no land rule.
 bool LiveRule() { return g_settings.rule >= 2; }
+// The rule where a press that began on the land stays a walk.
+bool LandStays() { return g_settings.rule >= 3; }
 
 command_math::AimRule AimRuleNow() {
   command_math::AimRule rule;
@@ -691,14 +701,18 @@ int __fastcall h_LandPress(void* self, void* unused, const MapCoords* at) {
 // The line of the rule in use, at the start and at each press of the key.
 void LogRule(const char* from) {
   if (LiveRule()) {
-    ModLog("creature cmd : %s: creature_command_rule=2. While the trigger is "
+    ModLog("creature cmd : %s: creature_command_rule=%d. While the trigger is "
            "held, the target is what the hand points at: an object, or the "
-           "land. A new object needs the aim within %.1f degrees of its body "
+           "land. %s A new object needs the aim within %.1f degrees of its body "
            "and stays to %.1f (creature_command_cone_deg, _keep_deg). It is "
            "at most %.1f m of the room from the head (creature_command_max_m, "
            "0 is no limit). The land wins when the ray meets it more than %d "
            "cm, and 20 percent of the way to it, in front of the object "
            "(creature_command_behind_cm, -1 is off), frame %llu", from,
+           g_settings.rule,
+           LandStays() ? "A press that began on the land stays a walk: no "
+                         "object takes it."
+                       : "A press on the land can change to an object.",
            g_settings.cone_deg, g_settings.keep_deg, g_settings.max_m,
            g_settings.behind_cm, g_frame);
   } else {
@@ -730,7 +744,8 @@ void Init() {
   if (g_settings.ring_cm > 100) g_settings.ring_cm = 100;
   g_settings.test_from = IniInt("creature_command_test", 0);
   g_settings.test = g_settings.test_from > 0;
-  g_settings.rule = IniInt("creature_command_rule", 2) >= 2 ? 2 : 1;
+  g_settings.rule = IniInt("creature_command_rule", 3);
+  g_settings.rule = g_settings.rule >= 3 ? 3 : (g_settings.rule == 2 ? 2 : 1);
   g_settings.cone_deg = IniFloat("creature_command_cone_deg", 3.0f);
   if (!(g_settings.cone_deg >= 0.5f)) g_settings.cone_deg = 0.5f;
   if (g_settings.cone_deg > 20.0f) g_settings.cone_deg = 20.0f;
@@ -788,13 +803,13 @@ void Init() {
   }
   if (g_settings.test_keys) {
     ModLog("keys         : Ctrl with numpad 5 changes creature_command_rule "
-           "between 2 and 1 (test_keys=1)");
+           "from 3 to 2 to 1 and back (test_keys=1)");
   }
 }
 
 // THE A/B KEY (test_keys=1): Ctrl with the 5 key of the number pad changes
-// the rule between 2 and 1. The pointing controller gives a long pulse for 2
-// and a short pulse for 1. The key is read once a frame, and only while a
+// the rule from 3 to 2 to 1 and back. The pointing controller gives a long
+// pulse for 3, a medium pulse for 2 and a short pulse for 1. The key is read once a frame, and only while a
 // window of the game is in front.
 void PollRuleKey() {
   static bool was = false;
@@ -808,8 +823,10 @@ void PollRuleKey() {
   const HWND window = GetForegroundWindow();
   if (window != nullptr) GetWindowThreadProcessId(window, &process);
   if (process != GetCurrentProcessId()) return;
-  g_settings.rule = g_settings.rule >= 2 ? 1 : 2;
-  ControllersGesturePulse(0.5f, g_settings.rule >= 2 ? 0.24f : 0.08f);
+  g_settings.rule = g_settings.rule <= 1 ? 3 : g_settings.rule - 1;
+  ControllersGesturePulse(0.5f, g_settings.rule >= 3   ? 0.40f
+                                : g_settings.rule == 2 ? 0.24f
+                                                       : 0.08f);
   LogRule("Ctrl and numpad 5");
 }
 
@@ -1414,6 +1431,8 @@ bool CreatureCommandTestPoint(float out[3]) {
   return true;
 }
 
+bool CreatureCommandWalkHeld() { return g_claim && g_held.land_stays; }
+
 void CreatureCommandSelect() {
   Target next = {};
   next.kind = kTargetNone;
@@ -1426,6 +1445,9 @@ void CreatureCommandSelect() {
       g_press != command_math::kPressCreature) {
     return;  // rule 1: a press on the land, or a press that was stopped
   }
+  // A walk that began on the land stays a walk: no object is a target until
+  // the trigger opens, so no halo, no tick and no log line for one.
+  if (g_claim && g_held.land_stays) return;
   Facts f;
   if (!Active(&f)) return;
   const bool tied = Tied(f);
@@ -1705,7 +1727,8 @@ bool CreatureCommandPumpTrigger(bool trigger, bool ok) {
                            : command_math::kPressLand);
       {
         command_math::Shown shown = {ShownOfPress(g_press), g_target.object};
-        command_math::HeldStart(&g_held, shown);
+        command_math::HeldStart(&g_held, shown,
+                                LandStays() && g_press == command_math::kPressLand);
       }
       g_aim.have = false;
       g_aim.valid = false;

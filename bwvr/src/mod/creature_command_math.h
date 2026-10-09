@@ -405,6 +405,9 @@ inline bool AimInRange(const AimRule& rule, float floor_m, bool current) {
 //     moves across the land does not jump to each object that it passes.
 //   - From one object to a different one: at once. The cone has its own band
 //     (AimRule), and a different object must have a lower score.
+//   - A press that began on the land can keep the land (land_stays): then no
+//     object shows for as long as the trigger is held, and the aim only moves
+//     the land point.
 enum ShownKind { kShownNone, kShownLand, kShownObject, kShownCreature };
 
 struct Shown {
@@ -418,9 +421,12 @@ struct HeldState {
   Shown shown;
   const void* waiting;    // an object that is in the aim, and does not show yet
   double waiting_since;
+  bool land_stays;        // the press began on the land, and it stays a walk
 };
 
-inline void HeldStart(HeldState* s, Shown shown) {
+// land_stays is wanted only for a press that began on the land.
+inline void HeldStart(HeldState* s, Shown shown, bool land_stays = false) {
+  s->land_stays = land_stays && shown.kind == kShownLand;
   s->shown = shown;
   s->waiting = nullptr;
   s->waiting_since = 0.0;
@@ -428,6 +434,12 @@ inline void HeldStart(HeldState* s, Shown shown) {
 
 // One frame. The answer is what shows now.
 inline Shown HeldStep(HeldState* s, Shown candidate, double now) {
+  if (s->land_stays) {
+    s->waiting = nullptr;
+    s->shown.kind = kShownLand;
+    s->shown.object = nullptr;
+    return s->shown;
+  }
   const bool object =
       candidate.kind == kShownObject || candidate.kind == kShownCreature;
   if (!object || candidate.object == nullptr) {

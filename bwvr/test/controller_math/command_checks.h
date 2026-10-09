@@ -494,6 +494,48 @@ inline void LiveChecks() {
           kShownObject);
   }
 
+  // A PRESS ON THE LAND THAT STAYS A WALK (creature_command_rule=3).
+  {
+    int tree = 0, house = 0;
+    const Shown none = {kShownNone, nullptr};
+    const Shown on_tree = {kShownObject, &tree};
+    const Shown on_house = {kShownObject, &house};
+    const Shown on_creature = {kShownCreature, &house};
+    HeldState s;
+    HeldStart(&s, Shown{kShownLand, nullptr}, true);
+    int halos = 0;
+    double t = 1.0;
+    for (int i = 0; i < 300; ++i, t += 0.011) {
+      const Shown candidate = i % 30 < 10   ? on_tree
+                              : i % 30 < 20 ? on_house
+                              : i % 30 < 25 ? on_creature
+                                            : none;
+      if (HeldStep(&s, candidate, t).kind != kShownLand) ++halos;
+    }
+    Check(halos == 0,
+          "a press on the land with land_stays: 300 frames on trees, houses "
+          "and the Creature show no object", halos, 0);
+    // The same aim without land_stays shows the tree after 100 ms.
+    HeldStart(&s, Shown{kShownLand, nullptr}, false);
+    HeldStep(&s, on_tree, 0.00);
+    Check(HeldStep(&s, on_tree, 0.12).kind == kShownObject,
+          "without land_stays the tree shows after 100 ms", 1, 1);
+    // A press on an object ignores land_stays.
+    HeldStart(&s, on_tree, true);
+    Check(HeldStep(&s, on_tree, 0.00).kind == kShownObject &&
+              HeldStep(&s, none, 0.011).kind == kShownLand,
+          "a press on an object keeps the live target", 1, 1);
+    Check(HeldStep(&s, on_tree, 0.022).kind == kShownLand &&
+              HeldStep(&s, on_tree, 0.13).kind == kShownObject,
+          "and the object can come back after 100 ms", 1, 1);
+    // A hold on the land that stays a walk acts on the land of the release.
+    const LiveRelease r =
+        ReleaseLive(1.0, 0.25, kShownLand, kShownLand, true, true);
+    Check(r.command == kCommandLand && !r.from_press,
+          "the hold on the land sends the walk to the land of the release", 1,
+          1);
+  }
+
   // WHAT THE RELEASE DOES WITH THE LIVE TARGET.
   {
     const double hold = 0.25;

@@ -98,15 +98,11 @@ moves while the Hand takes it.
 
 ### Changes to the controls
 
-- **P1. The choice of a far target.** One package of three parts:
+- **P1. The choice of a far target.** One package of two parts:
   - The cone of the far target does not fit the objects: it is too large
     for some and too small for others. In the quest to save the children
     the highlight goes to trees, not to the characters. A guess: the cone
     uses the collision model.
-  - A held trigger on the land must only send the Creature to walk. When
-    the aim is on the ground, the command must stay a walk command and
-    never change to an object. With trees beside the place, the trees take
-    the highlight (`creature_command_rule=2`).
   - The size of the cone and the order of the targets. Ideas: a better
     order of priority for the targets, or a small cone to get a target and
     a larger cone to keep it, so that a lock is not lost quickly. The cone
