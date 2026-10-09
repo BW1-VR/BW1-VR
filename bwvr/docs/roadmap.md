@@ -83,8 +83,18 @@ is built, and no test has proven it.
   and the Direct3D devices shut down, and whether the crash can cut the
   last lines of the log or a write of the profile.
 
+- **B10. Some objects cannot be dropped.** When the grip opens, the object
+  goes to the ground at once, also from a height. It does not fall. Wanted:
+  the mod reads the height of the hand over the land. With the hand near
+  the land, the object is set down gently. With the hand higher up, the
+  object is dropped and falls. Find first which objects do this. A guess:
+  the rule that makes a release a set down looks only at the speed of the
+  hand (`throw.md`, "The speed of a throw": a still hand sets the object
+  down), and the set down of the game puts the object on the land. Give
+  the height rule an ini key with the behavior of now as one value.
+
 B1, B2, B3 and B4 are one package: a thing that is held, thrown, or that
-moves while the Hand takes it.
+moves while the Hand takes it. B10 is near it.
 
 ### Changes to the controls
 
