@@ -1,11 +1,11 @@
 // Motion controllers: read the hands, work out where the aim ray points, and
-// act as a second mouse (steps M1 and M2). See docs/controllers.md.
+// act as a second mouse. See docs/controllers.md.
 //
 // THE MOUSE. The trigger is the left button and the grip is the right button.
 // With the direct hand the grip holds like a real hand: close it on an object
 // to take it, keep it closed to carry, open it to let go or throw. The mod
 // sends the game's second click for the opening (GripStep in
-// controller_math.h, docs/hand.md "The grip holds").
+// controller_math.h, docs/grab.md "The grip holds").
 // Every button event of the game goes through LHMouse::SetButtons, and only the
 // window procedure calls it. So this file hooks it, and it keeps one held mask
 // for the real mouse and one for the controller. A call reaches the game only
@@ -26,11 +26,11 @@
 //
 // THE PIXEL. The aim ray starts at the hand, and the game casts the Hand's ray
 // from the eye. The two rays meet at one point only, so the pixel needs a
-// target distance s. In M1 s is the distance from the eye to the game
+// target distance s. The distance s is the distance from the eye to the game
 // camera's focus, which is the land in the middle of the game's view (see
-// docs/controllers.md, 3.2).
+// docs/controllers.md, "3.2 Parallax and the projection depth").
 //
-// THE DIRECT HAND (M3). The Hand's point is the grip pose in the world, moved
+// THE DIRECT HAND. The Hand's point is the grip pose in the world, moved
 // out by the reach curve (controller_math.h, ReachDistance) along the line
 // from a fixed anchor in the room at about the chest. The eye, the head
 // matrix and the head center all come from one head sample, so a head that
@@ -93,17 +93,17 @@ float HandDirectFarLimit();
 // "aimfar", and the wider pick that finds it.
 bool HandDirectSeekFarPoint(float out[3]);
 void HandDirectWidenFar(int frames, float meters);
-// hand_direct.cpp: whether the pointing grip may grab the world (M7).
+// hand_direct.cpp: whether the pointing grip may grab the world.
 bool HandDirectClaimFree(const char** why);
 // hand_direct.cpp: the Hand facts of the grip, and the latch of the throw at
-// the opening of the grip. See docs/hand.md, "The grip holds".
+// the opening of the grip. See docs/grab.md, "The grip holds".
 bool HandDirectGripFacts(bool* holding, bool* settled, bool* spring,
                          bool* take);
 void HandDirectGripOpened();
 // hand_direct.cpp: a bulk take still runs with the grip open, so the next
-// interface step must end it. See docs/hand.md, "The bulk take".
+// interface step must end it. See docs/grab.md, "The bulk take".
 void HandDirectEndTake();
-// hand_direct.cpp: the take of the mod from a forest runs. See docs/hand.md,
+// hand_direct.cpp: the take of the mod from a forest runs. See docs/grab.md,
 // "Many trees from a forest".
 bool HandDirectModTake();
 // hand_direct.cpp: the release at once is on now (release_at_once, and the
@@ -121,20 +121,20 @@ void HeadPoseFakeLookStep(bool on);
 // world_grab.cpp: the player's camera mode ran on a recent frame, with input.
 bool WorldGrabCameraReady();
 // tabletop.cpp: the room of the table in this frame. See docs/tabletop.md,
-// section 10.6.
+// "The hand on the table".
 // hand_exact.cpp: the exact Hand is on, so the Hand's point is the real
-// index tip (docs/hand.md, "The exact Hand").
+// index tip (docs/hand.md, "7. The exact Hand").
 bool HandExactOn();
 // tabletop.cpp: the Hand's size while the table or the God view owns the
 // view, and 0 otherwise.
 float TabletopHandSize();
 bool TabletopRoom(float origin[3], float basis[9], float center[3],
                   float* gain);
-// teleport.cpp: A makes the teleport, and not the old jump.
+// teleport.cpp: A makes the teleport.
 bool TeleportOwnsA();
 // teleport.cpp: the player aims the teleport now (A is down).
 bool TeleportAiming();
-// far_grab.cpp: the grab from a distance (docs/hand.md, "The grab from a
+// far_grab.cpp: the grab from a distance (docs/grab.md, "The grab from a
 // distance"). The pump gives it the grip, and it says when to hold the grip
 // back from the grip machine.
 bool FarGrabPumpGrip(bool grip, bool ok);
@@ -186,12 +186,12 @@ enum FakeInput {
   kSeekCreature,
   kNudge,
   kSlap,
-  // Step M7: the left hand's own points and grip, and steps of the head.
+  // The left hand's own points and grip, and steps of the head.
   kLPoint,
   kLGrip,
   kLean,
   kLook,
-  // Step M6: steps through a gesture template.
+  // Steps through a gesture template.
   kTrace,
   // A picture of both eyes, 3 frames later. It moves nothing.
   kShot,
@@ -286,11 +286,11 @@ bool g_script_leans = false;
 const int kSeekIndex = -2;
 float g_seek_cm[3] = {0.0f, 0.0f, 0.0f};
 // The words "nudge" and "slap" step the hand sideways by a known distance, in
-// one frame, for the Creature tests (M5). Each one toggles between the two
+// one frame, for the Creature tests. Each one toggles between the two
 // sides of the pose. A seek clears the offset. "seekc" seeks the Creature,
 // and "touchc" puts the hand on its body bone.
 float g_side_cm = 0.0f;
-// Step M6: the word "trace" steps the hand through a gesture template of
+// The word "trace" steps the hand through a gesture template of
 // Data\Gestures.jty. It holds the first pose for kTraceLead frames, so the
 // script can press the draw button there, and then takes the next still pose
 // every kTraceFrames frames. The template
@@ -425,7 +425,7 @@ void ParsePoints(const char* text, int (*points)[3], int* count) {
 // bytes each. A template starts with 80 samples of five floats (x, a pad, y,
 // the turn and the direction), then the corner count and the gesture type in
 // the first bytes of the next two ints, and five more numbers. See
-// docs/hand.md, section 5.
+// docs/miracles.md, "Storage".
 const long kJtyRecord = 0x640 + 7 * 4;
 
 void AddTracePoint(int trace, float x, float y) {
@@ -509,7 +509,7 @@ void LoadTraces(const char* list) {
 
 // The values the runtime would report for one fake hand. The grip pose is the
 // aim pose. The script drives the right hand, and the left hand's grip and
-// points (M7).
+// points.
 // Where the fake right hand is, in cm from the head center (right, up,
 // forward): the base pose or the point of a word, then the sideways step and
 // the step of the word "pull".
@@ -646,7 +646,7 @@ struct Pointing {
   float grip_room[3];    // the same in the room, for the motion test
   float anchor[3];       // the reach anchor in the world
   float reach[3];        // the grip point moved out by the reach curve
-  float reach_room[3];   // the same in the room, for the velocity (M4, M5)
+  float reach_room[3];   // the same in the room, for the velocity
   float room_basis[9];   // L, to turn a room velocity into the world
   float reach_factor;    // reach distance / real distance, 1 up close
   float grip_distance;   // the real distance from the anchor, units
@@ -655,14 +655,14 @@ struct Pointing {
   bool have_hand_pixel;
   bool hand_off_view;
   float hand_x, hand_y;  // the render pixel of the reach point
-  // Step M6: the head matrix in the room, of the same head sample, and the
+  // The head matrix in the room, of the same head sample, and the
   // render size.
   float head[9];
   float render_w, render_h;
   // The table owns this frame, and the hand goes on it (docs/tabletop.md,
-  // section 10.6).
+  // "The hand on the table").
   bool table;
-  // The exact Hand (docs/hand.md, "The exact Hand"): the grip's axes in the
+  // The exact Hand (docs/hand.md, "7. The exact Hand"): the grip's axes in the
   // world, L * M_grip, and the offset from the grip to the real index tip.
   bool have_rotation;
   float grip_rotation[9];
@@ -828,11 +828,10 @@ void Seek(int kind) {
 
 // THE SCRIPT AFTER THE FIRST STORY (the test key fake_controller_play_frame).
 // The first story of a new game ends at a time, not at a frame. So the frame
-// at which the player gets the Hand changes with the frame rate: 2750 with a
-// render of 2880 by 2880, and 3541 and 4009 in two runs at 2560 by 1440. With
-// the key at N, the steps of the script from frame N on count from the frame
-// at which the controller first places the Hand after frame 1000: that frame
-// is N. The steps before N keep their frames. 0 is off.
+// at which the player gets the Hand changes with the frame rate and the
+// render size. With the key at N, the steps of the script from frame N on
+// count from the frame at which the controller first places the Hand after
+// frame 1000: that frame is N. The steps before N keep their frames. 0 is off.
 int IniInt(const char* key, int fallback);
 bool DirectHandNow();
 int g_script_play = -1;
@@ -948,7 +947,7 @@ void UpdateScript() {
         g_aim_set = true;
       }
       // A third number that is not 0: the two angles are the aim itself,
-      // and not a turn from the aim of before.
+      // and not a turn from the last aim.
       if (turn[2] != 0) {
         g_aim_yaw = 0.0f;
         g_aim_pitch = 0.0f;
@@ -1216,7 +1215,7 @@ void Compute() {
         &p.hand_off_view);
   }
 
-  // The target distance, M2 first: the eye to the game camera's focus. On
+  // The target distance: the eye to the game camera's focus. On
   // the table the game camera is not in the picture, so it is the eye to the
   // table center.
   p.target_distance = controller_math::Distance(p.table ? table_center : focus,
@@ -1225,9 +1224,9 @@ void Compute() {
   // THE MENU. While a dialog box is up, the game draws it with the interface
   // shift, so the player sees it at one depth in front of the eyes (see
   // aim_smooth.h, MenuDepth). The aim ray must meet the menu there. With the
-  // distance of the focus, the pixel was the line from the eye through a far
+  // distance of the focus, the pixel is the line from the eye through a far
   // point of the ray. The menu is much nearer, and the hand is not at the eye,
-  // so the cursor and the end of the drawn ray were far apart.
+  // so the cursor and the end of the drawn ray would be far apart.
   if (MenuUp()) {
     float shift_px = 0.0f, separation = 0.0f;
     if (StereoUiDepthNow(&shift_px, &separation)) {
@@ -1316,8 +1315,8 @@ bool g_button_event = false;
 // kGripCloseAbove (0.55) and open below kGripOpenBelow (0.35), in
 // GripLevelStep of controller_math.h. With the direct hand, the control that
 // is the game's right button also opens when its value falls fast, so the
-// Hand lets go when the real hand starts to open (grip_fast_open, docs/hand.md,
-// "The release at once").
+// Hand lets go when the real hand starts to open (grip_fast_open,
+// docs/throw.md, "The release at once").
 bool g_trigger_down = false;
 bool g_grip_down = false;
 controller_math::GripLevel g_trigger_level = {};
@@ -1378,7 +1377,8 @@ ULONGLONG g_wheel_tick = 0;
 bool g_zoom_blocked = false;  // a push refused during a grab, not back yet
 // The God view: one zoom step for each push of the stick. A push acts once,
 // and the stick must come back before the next one. The other hand's stick
-// has no job: the grip of that hand moves the ground (docs/god-view.md, 5).
+// has no job: the grip of that hand moves the ground (docs/god-view.md,
+// "5. Moving around: the grab and the mouse").
 bool g_god_zoom_armed = true;
 uint64_t g_god_zooms = 0;
 bool g_other_before[3] = {false};  // B or Y, the menu button, the stick click
@@ -1412,7 +1412,7 @@ bool g_not_usable[4] = {false};  // the reasons, for the report
 bool g_pointing_active = false;
 bool g_hand_back = false;
 
-// THE GRIP HOLDS (docs/hand.md, "The grip holds"). With the direct hand the
+// THE GRIP HOLDS (docs/grab.md, "The grip holds"). With the direct hand the
 // right button comes from GripStep, not straight from the grip. The control
 // is the grip, or the trigger with controller_swap_buttons=1.
 controller_math::GripHold g_hold = {};
@@ -1480,15 +1480,15 @@ bool FakeFront() {
   return on == 1;
 }
 
-// THE GAME WINDOW BEHIND (docs/controllers.md, "The game window behind"). A
-// player in the headset cannot see the desktop. When a different program was
-// in front there, the hands did nothing, and the player did not know why
-// (Buck's log of 2026-10-04). So the headset session stands for the front:
+// THE GAME WINDOW BEHIND (docs/controllers.md, "9. The game window behind"). A
+// player in the headset cannot see the desktop. When a different program is
+// in front there, the hands would do nothing, and the player would not know
+// why. So the headset session stands for the front:
 // while it has the focus of the runtime, the controllers act in the game.
 // Each input of a controller goes into the game in the process: the buttons,
 // the pointer, the wheel sum and Esc. So no other program gets it. The mouse
 // and the keyboard of the desktop keep the rule of Windows: they act in the
-// program in front. controller_window_behind=0 gives the rule of before, and
+// program in front. controller_window_behind=0 gives the rule of the plain game, and
 // a hand then acts only while the game window is in front.
 //
 // ControllersFrame latches the focus of the session once a frame. The fake
@@ -1583,15 +1583,15 @@ void PulseWith(int index, float amplitude, float seconds) {
 
 void Pulse(int index) { PulseWith(index, 0.25f, 0.015f); }
 
-// THE GAME'S OWN HAPTICS (M4). GInterface::StartImmersion 0x005D8A10 starts a
+// THE GAME'S OWN HAPTICS. GInterface::StartImmersion 0x005D8A10 starts a
 // force feedback effect of the Immersion glove and mouse. The game calls it
 // with an effect index from 0 to 0x2F, thiscall (int effect, unsigned int),
 // ret 8. The hook sits at the entry, before the gate that tests for the
 // Immersion device, and always calls the original. Then it sends a short
 // pulse to the hand that holds the pointer.
 //
-// The names are from the callers (docs/hand.md, section 7). The other indices
-// get a mild pulse, and the first start of each one is logged so it can be
+// The names are from the callers (docs/hand-model.md, "Haptics"). The other
+// indices get a mild pulse, and the first start of each one is logged so it can be
 // named later.
 const int kEffectCount = 0x30;
 struct EffectPulse {
@@ -1607,14 +1607,14 @@ EffectPulse EffectFor(int effect) {
     case 1: return {0.60f, 0.060f, 100, "soft slap"};
     case 2: return {1.00f, 0.100f, 100, "hard slap"};
     case 3: return {0.70f, 0.120f, 100, "gesture success"};
-    // Seen in the desktop runs (docs/hand.md, "M4 as built"). The names of
-    // 4, 5, 6, 44 and 46 are from when they started, not from the callers.
+    // The names of 4, 5, 6, 44 and 46 are from when they start in a desktop
+    // run, not from the callers.
     case 4: return {0.35f, 0.050f, 100, "a pick up starts"};
     case 5: return {0.60f, 0.080f, 100, "the object is in the Hand"};
     case 6: return {0.15f, 0.020f, 200, "the Hand is over an object"};
     case 7: return {0.30f, 0.040f, 80, "the leash goes on"};
     // The game's own names of 8, 9, 14 and 18 to 28 are in its enum
-    // IMMERSION_EFFECT_TYPE (docs/hand.md, "A miracle in the Hand").
+    // IMMERSION_EFFECT_TYPE (docs/miracles.md, "The Immersion effects").
     case 8: return {0.50f, 0.150f, 150, "the trail of a gesture"};
     case 9: return {0.50f, 0.150f, 150, "a miracle crackles in the Hand"};
     case 14: return {0.30f, 0.040f, 80, "a one-off seed pops"};
@@ -1657,8 +1657,7 @@ void __fastcall h_StartImmersion(void* self, void* unused, int effect,
     return;
   }
   g_effect_last[effect] = now;
-  // The kind of the effect gives the pulse (haptics.cpp). The amplitudes of
-  // the table above are the ones of the builds before.
+  // The kind of the effect gives the pulse (haptics.cpp).
   HapticsGameEffect(effect);
 }
 
@@ -1763,7 +1762,7 @@ void ReleaseController(const char* why) {
   g_force_double = false;
 }
 
-// --- the grab of the world (M7) ----------------------------------------------
+// --- the grab of the world ---------------------------------------------------
 //
 // THE BUTTONS. The other hand's grip grabs the world. It is no mouse button,
 // so it takes nothing from pick up, the land drag, casting or the Creature,
@@ -1772,7 +1771,7 @@ void ReleaseController(const char* why) {
 // nothing it can hold. Then the game never gets that press. With an object
 // under the Hand, the pointing grip stays the game's pick up. With
 // grab_hand=2 the pointing grip can also start a grab alone, by the same rule.
-// See docs/grab-world.md, section 4.
+// See docs/god-view.md, "5.2 The buttons of the grab".
 //
 // While a grab holds, the trigger and any new left press are held back from
 // the game: a land drag would fight the camera. A trigger that is already
@@ -2024,7 +2023,7 @@ void GrabSamples() {
   g_grab_frame = g_frame;
 }
 
-// --- the draw of a gesture (M6) ----------------------------------------------
+// --- the draw of a gesture ---------------------------------------------------
 //
 // THE BUTTON. gesture_button draws: B by default, or Y on the left hand. While
 // it is held, gesture_air.cpp puts the grip point on a plane and gives the
@@ -2191,7 +2190,7 @@ void PumpEsc(ULONGLONG now) {
 bool ControllersHoldButtons() { return g_ctrl_mask != 0; }
 
 // True while the grip carries an object with no game button, or clicks to let
-// it go (docs/hand.md, "The grip holds"). The owner rule of pointer_map.cpp
+// it go (docs/grab.md, "The grip holds"). The owner rule of pointer_map.cpp
 // keeps the pointer with the controller then, as for a held button. It does
 // not change how the real mouse buttons reach the game.
 // For miracle.cpp: the second face button of the pointing hand is down on
@@ -2260,7 +2259,7 @@ void __fastcall h_SetButtons(void* self, void* unused, int flag) {
     g_mouse_mask &= static_cast<uint8_t>(~bit);
   }
   // While the controller holds no button, the real mouse reaches the game
-  // exactly as it did before controllers: every event, even one that repeats
+  // exactly as the plain game: every event, even one that repeats
   // a state. A release can happen outside the window and never arrive, and
   // the game then needs the next press, or the double click after it.
   if (g_ctrl_mask == 0) {
@@ -2498,7 +2497,7 @@ void PumpButtons(ULONGLONG now) {
   }
 
   // THE GRIP HOLDS. With the direct hand, the right button is what GripStep
-  // asks for. In its Pass phase that is the control itself, as before.
+  // asks for. In its Pass phase that is the control itself.
   const bool hold_on = DirectHandNow();
   controller_math::GripStepOut hold = {false, false, false, 0};
   if (hold_on) {
@@ -2593,7 +2592,7 @@ void PumpButtons(ULONGLONG now) {
 //
 // IN THE GOD VIEW (docs/god-view.md) the stick forward and back is one zoom
 // step of the view for each push, not a wheel step. The other hand's stick
-// has no job. The turn goes the same way as before, and comfort_camera.cpp
+// has no job. The turn goes the same way as with the plain stick, and comfort_camera.cpp
 // gives it to the God view.
 void PumpStick(ULONGLONG now) {
   if (!Usable()) {
@@ -2769,15 +2768,14 @@ bool Hook(uintptr_t address, void* replacement, void** original,
 
 // --- the aim --------------------------------------------------------------------
 
-// THE AIM RAY (docs/controllers.md, section 8). The ray of a hand is the aim
-// pose of the runtime with one turn in the frame of the controller, from a
-// point that the preset can move. The turn has two parts.
+// THE AIM RAY (docs/controllers.md, "8. The aim ray"). The ray of a hand is
+// the aim pose of the runtime with one turn in the frame of the controller,
+// from a point that the preset can move. The turn has two parts.
 //
 // aim_preset: on a Touch controller the ray is one of three rays (aim_math.h,
 // THE PRESETS): 0 the ray of the runtime, 1 the pointer of Meta's Interaction
-// SDK, 2 the menu pointer of Half-Life: Alyx. The default is 2. Buck compared
-// the menu ray with the ray of the Quest menu on 2026-10-03, and the ray of
-// the mod, which was the ray of the runtime, was too high and to the right.
+// SDK, 2 the menu pointer of Half-Life: Alyx. The default is 2. The ray of the
+// runtime sits too high and to the right of the ray of the Quest menu.
 //
 // aim_pitch_deg and aim_yaw_deg: a trim on top, for all controllers. A
 // positive pitch is up, and a positive yaw is toward the other hand.
@@ -3288,7 +3286,7 @@ bool g_have_rest_grip = false;
 const float kGripMoveMeters = 0.02f;
 }  // namespace
 
-// For pointer_map.cpp: the render pixel of the pointing hand. In M2 that is
+// For pointer_map.cpp: the render pixel of the pointing hand. With the pointer it is
 // where the aim ray points. With the direct hand it is the Hand's own point,
 // seen from the eye. False when there is none.
 bool ControllerRenderPixel(float* x, float* y, bool* off_view) {
@@ -3312,7 +3310,7 @@ bool ControllerRenderPixel(float* x, float* y, bool* off_view) {
   return true;
 }
 
-// For gesture_air.cpp (M6): the draw button and the points of the last
+// For gesture_air.cpp: the draw button and the points of the last
 // controllers frame. False with the controllers off, or before the first
 // frame.
 bool ControllersGestureInput(GestureInput* out) {
@@ -3348,7 +3346,7 @@ bool ControllersGestureInput(GestureInput* out) {
 // the pointer do not go in the gesture ring (gesture_air.cpp).
 bool ControllersOwnPointer() { return g_on && g_installed && g_pointer_owned; }
 
-// Step M8: the state the hint words follow. The profile is empty when the
+// The state the hint words follow. The profile is empty when the
 // runtime has not told it yet.
 void ControllersHintState(ControllerHintState* out) {
   memset(out, 0, sizeof(*out));
@@ -3365,7 +3363,7 @@ void ControllersHintState(ControllerHintState* out) {
   }
 }
 
-// For hint_card.cpp (docs/controller-hints.md, "The hint card"): the grip
+// For hint_card.cpp (docs/controller-hints.md, "9. The hint card"): the grip
 // pose of one hand and the head center, in the LOCAL space of OpenXR, in
 // meters, from the last controllers frame. `which` is 0 for the hand that
 // points and 1 for the other hand. `left` says which hand it is. False when
@@ -3441,7 +3439,7 @@ bool ControllerPointing() {
 }
 
 // Whether the aim turned more than 1 degree from where it was when the mouse
-// last moved, or when this last said yes. The aim that counts is the new rest.
+// last moved, or when this last said yes. The aim that counts is the aim at rest.
 // With the direct hand, a move of the grip point of 2 cm in the room counts
 // too, because a hand can move without a turn.
 //
@@ -3500,7 +3498,7 @@ void ControllersSetPointerOwned(bool owned) { g_pointer_owned = owned; }
 // Hand's reach point, for the rays of the camera code (the land drag). The
 // point is fixed in the room, so a lean of the head does not turn the ray and
 // the land does not slide. False when the direct hand does not own the
-// pointer, and then the rays come from the pointer pixel as before.
+// pointer, and then the rays come from the pointer pixel.
 bool ControllerCameraRay(float direction_out[3]) {
   if (!DirectHandNow() || !g_pointer_owned || !g_point.have_grip ||
       !g_point.have_camera_dir) {
@@ -3511,8 +3509,8 @@ bool ControllerCameraRay(float direction_out[3]) {
 }
 
 // For hand_direct.cpp: the point where the direct hand goes this frame, and
-// the reach factor. False when the mouse owns the Hand, with the M2 pointer,
-// or with no grip point. Then the game places the Hand as before.
+// the reach factor. False when the mouse owns the Hand, with the pointer,
+// or with no grip point. Then the game places the Hand.
 bool ControllerDirectHand(float point_out[3], float* reach_factor,
                           float* real_distance) {
   if (!DirectHandNow() || !g_pointer_owned || !g_point.have_grip) return false;
@@ -3522,7 +3520,7 @@ bool ControllerDirectHand(float point_out[3], float* reach_factor,
   return true;
 }
 
-// For hand_direct.cpp (M4 and M5): where the reach point and the grip are in
+// For hand_direct.cpp: where the reach point and the grip are in
 // the room this frame, and the room basis L. False with the same rule as
 // ControllerDirectHand.
 bool ControllerDirectMotion(float reach_room_out[3], float grip_room_out[3],
@@ -3536,7 +3534,7 @@ bool ControllerDirectMotion(float reach_room_out[3], float grip_room_out[3],
   return true;
 }
 
-// For hand_exact.cpp (docs/hand.md, "The exact Hand"): the pointing grip's
+// For hand_exact.cpp (docs/hand.md, "7. The exact Hand"): the pointing grip's
 // axes in the world of this frame, L * M_grip, and whether it is the left
 // hand. False with the same rule as ControllerDirectHand.
 bool ControllersExactRotation(float rotation[9], bool* left) {
@@ -3554,8 +3552,8 @@ namespace {
 bool g_overlay_seen_tracked[2] = {false, false};
 }  // namespace
 
-// For overlay.cpp (docs/hand.md, "Overlay renderer"): the grip pose of each
-// hand in the world, one to one, and its trigger and squeeze. It takes the
+// For overlay.cpp (docs/hand-model.md, "Overlay renderer"): the grip pose of
+// each hand in the world, one to one, and its trigger and squeeze. It takes the
 // head sample of this frame and the steps of Compute, on the table and off
 // it, so the pointing grip lands on the point the direct hand uses when the
 // reach gain is 0. The rotation is L * M_grip, as HandToWorld gives it. A
@@ -3629,13 +3627,13 @@ bool ControllersOverlayHands(OverlayHands* out) {
 // call to the end of GGame::ProcessGraphicsEngine. The pump of the buttons
 // runs after that time: GGame::Loop calls GGame::ProcessGraphicsEngine at
 // 0x0054D3BE and then GGame::FlipScreen at 0x0054D3F5, and LHScreen::Flip
-// has the pump. So the pump got the map of the immersive view, at 7.5 units
-// a meter from the game camera. In Buck's log of 2026-10-04 each press of a
-// Creature command on the land said "the arc meets no land" for that reason
-// (12 of 12), and the tap used the aim of the release. On the desktop the
-// game camera is near the land, and the press met the land near that
-// camera. So ControllersFrame makes the aim once, inside the draw, and each
-// caller gets that aim until the next frame.
+// has the pump. So the pump gets the map of the immersive view, at 7.5 units
+// a meter from the game camera. A press of a Creature command on the land
+// would say "the arc meets no land" for that reason, and the tap would use
+// the aim of the release. On the desktop the game camera is near the land,
+// and the press meets the land near that camera. So ControllersFrame makes the
+// aim once, inside the draw, and each caller gets that aim until the next
+// frame.
 namespace {
 TeleportInput g_frame_aim = {};
 }  // namespace
@@ -3713,7 +3711,7 @@ void LatchFrameAim() {
 }
 }  // namespace
 
-// THE RAY OF A FAR GRAB (docs/hand.md, "The grab from a distance"): the aim
+// THE RAY OF A FAR GRAB (docs/grab.md, "The grab from a distance"): the aim
 // pose of the pointing hand in the world, as the teleport takes it. The origin
 // is the aim point, the direction is a unit vector, and units is the world
 // units in a meter of the room. eye is the eye in the world. False when the
@@ -3854,7 +3852,7 @@ void ControllersSetDirect(const DirectHandSettings& direct) {
   }
 }
 
-// Step M6, the player keys of the draw.
+// The player keys of the draw.
 void ControllersSetGesture(const GestureSettings& gesture) {
   g_gesture = gesture;
   if (g_gesture.button < 0 || g_gesture.button > 2) g_gesture.button = 1;
@@ -3868,7 +3866,7 @@ void ControllersSetGesture(const GestureSettings& gesture) {
          g_gesture.size_cm);
 }
 
-// Step M7, the player keys of the grab. world_grab.cpp gets the same.
+// The player keys of the grab. world_grab.cpp gets the same.
 void ControllersSetGrab(const GrabSettings& grab) {
   g_grab = grab;
   if (g_grab.press_pct < 5) g_grab.press_pct = 5;
@@ -3927,7 +3925,7 @@ void ControllersGrabPulse(int hands, float amplitude, float seconds) {
 // How many frames the controllers have seen.
 uint64_t ControllersFrameCount() { return g_frame; }
 
-// For the land drag probe (stage G0): the pointing grip and the head in the
+// For the land drag probe: the pointing grip and the head in the
 // room, from the last frame. False when the controller does not own the Hand.
 bool ControllersProbePoints(float grip_room[3], float head_room[3]) {
   if (!g_on || !g_pointer_owned || !g_grab_have[1] || !g_grab_have_head) {
@@ -3972,7 +3970,7 @@ void ControllersCycleOwnerMode() {
 }
 
 // Hook the two functions. Only with the controller option on, so with it off
-// the game runs exactly as before.
+// the game runs as the plain game.
 void ControllersInstall() {
   if (g_installed || !g_on) return;
   const bool a = Hook(kSetButtons, reinterpret_cast<void*>(&h_SetButtons),

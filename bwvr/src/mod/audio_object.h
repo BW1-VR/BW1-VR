@@ -8,7 +8,7 @@
 // Hand. PHandFX derives from PSysHandFX only, and slot 0x10 of its vtable is
 // PHandFX::DrawHandFX: no argument and a plain ret. The call left 4 bytes on
 // the stack, and the stack check of the caller ended the game (0xC0000409 in
-// the mod's DLL, desktop run mirB of 2026-10-04).
+// the mod's DLL).
 //
 // So the mod calls slot 0x10 only when the class of the object, by the RTTI
 // of its vtable, is Base or derives from it.

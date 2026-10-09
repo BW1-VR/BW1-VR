@@ -2,7 +2,7 @@
 //
 // controllers.cpp calls these with the poses of the runtime, and
 // test/controller_math calls them with poses it makes up. See
-// docs/controllers.md, section 8, "The aim ray".
+// docs/controllers.md, "8. The aim ray".
 //
 // A pose is in the frame OpenXR uses: x right, y up and -z forward. A
 // quaternion is x y z w.

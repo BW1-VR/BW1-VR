@@ -1,5 +1,5 @@
-// Track 5: room distances for the positional sounds (docs/audio.md,
-// section 11).
+// Room distances for the positional sounds (docs/audio.md, "6.3 Room
+// distances").
 //
 // QMixer makes a positional sound quieter with its distance from the ears.
 // The game gives each sound a distance mapping (min, max and a rolloff) with
@@ -7,7 +7,7 @@
 // with distances in world units. In the God view and on the table the world
 // is s units for each meter of the room, and s goes from 7.5 to 4000. So the
 // Creature 0.6 m from the head is 60 units away at the start. Its steps have
-// the mapping 30, 80, 4 (the trace of docs/audio.md, section 11): QMixer
+// the mapping 30, 80, 4 (docs/audio.md, "6.3 Room distances"): QMixer
 // gives them 0.2 of full level there, and nothing past 0.8 m. Zoomed out,
 // every near sound is silent.
 //
@@ -32,8 +32,8 @@
 // A SOUND AT THE LISTENER. A positional sound with no object (options + 0x20
 // is 0) is at the game camera: the object callback of the game (0x004272F9)
 // gives the camera position 0x00EA1DB8 for it, each game turn. When the ears
-// were the game camera, such a sound was at the ears. With the ears on the
-// head it came from the game camera, in the God view up to a few meters behind
+// are the game camera, such a sound is at the ears. With the ears on the
+// head it would come from the game camera, in the God view up to a few meters behind
 // and over the player. So the hook on QSWaveMixSetSourcePosition keeps the
 // offset of such a sound from the game camera and puts it at the ears plus that
 // offset, and the frame driver moves it with the ears. A sound that starts at
@@ -102,7 +102,7 @@ Channel g_ch[kChannels];
 bool g_room = true;           // audio_room
 float g_reference = 40.0f;    // audio_units_per_meter
 float g_exponent = 0.5f;      // audio_zoom_pct / 100
-bool g_linear = false;        // the test key: the room factor of before
+bool g_linear = false;        // the test key: the same factor at each zoom
 // The scale at which the zoom factor is the room factor: the start scale.
 const float kPivotScale = 100.0f;
 bool g_installed = false;

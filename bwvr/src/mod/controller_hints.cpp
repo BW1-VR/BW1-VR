@@ -1,7 +1,7 @@
-// Step M8: controller hints. See docs/controller-hints.md, "As built".
+// Controller hints. See docs/controller-hints.md, "8. The words".
 //
-// The words come from one place, BuildWords, so the key caps (H1) and the
-// help text (H2) always agree with the mapping of controllers.cpp and with
+// The words come from one place, BuildWords, so the key caps and the
+// help text always agree with the mapping of controllers.cpp and with
 // the bindings of xr_screen.cpp.
 #include <windows.h>
 #include <intrin.h>
@@ -129,7 +129,7 @@ uint32_t SignatureOf(const Words& w, const ControllerHintState& s) {
          (static_cast<uint32_t>(s.ring & 3) << 9);
 }
 
-// --- the census (H0) ----------------------------------------------------------
+// --- the census -------------------------------------------------------------
 
 struct CensusRow {
   uint32_t key;
@@ -280,7 +280,7 @@ void __cdecl h_Picture(uint32_t a1, uint32_t a2, uint32_t a3, uint32_t a4,
   o_Picture(a1, a2, a3, a4, a5, a6, a7);
 }
 
-// --- hook 3: the help text (H2) ---------------------------------------------------
+// --- hook 3: the help text --------------------------------------------------
 //
 // 0x005CAD00 stores one ADD_TEXT line: entry+0 and +4 are two numbers,
 // entry+8 is a copy of the text made with the game's allocator. The key

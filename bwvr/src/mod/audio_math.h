@@ -1,4 +1,4 @@
-// The pure math of the sound in the room (docs/audio.md, section 11). No
+// The pure math of the sound in the room (docs/audio.md, "6.3 Room distances"). No
 // Windows, no game: the math test compiles it as it is.
 #pragma once
 
@@ -34,7 +34,7 @@ inline float RoomFactor(float units_per_meter, float reference,
   return k;
 }
 
-// THE ZOOM (docs/audio.md, section 16). With the room factor above, one
+// THE ZOOM (docs/audio.md, "6.3 Room distances"). With the room factor above, one
 // meter of the room sounds the same at each zoom: a villager the size of an
 // ant is as loud as a villager of life size. The player wants the other
 // thing: zoomed out, the small sounds go away, and a crash or an explosion
@@ -75,7 +75,7 @@ inline bool FactorChanged(float sent, float now, float share) {
   return fabsf(now - sent) > share * sent;
 }
 
-// THE DISTANCE THAT DECIDES WHAT PLAYS (docs/audio.md, section 12). The game
+// THE DISTANCE THAT DECIDES WHAT PLAYS (docs/audio.md, "6.4 The ears decide what plays"). The game
 // starts a positional sound only within its maximum distance from the game
 // camera (GAudio::PlaySoundEffect, 0x00429F16). The audio DLL stops it at
 // that distance or more (LHSampleUpdate3DChannels, DLL RVA 0x143AB). With

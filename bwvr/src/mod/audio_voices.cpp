@@ -1,4 +1,4 @@
-// Track 5: the mixer of the mod (docs/audio.md, section 15).
+// The mixer of the mod (docs/audio.md, "7. The mixer of the mod").
 //
 // QMixer pans a positional sound between two speakers. It has no cue for up
 // and down, a near sound sits hard in one ear, and a far sound is only
@@ -21,13 +21,13 @@
 //   the near field, and the low pass by distance.
 //
 // WHAT STAYS WITH QMIXER: each flat sound, so the advisors, the story
-// speech, the interface, and the music. They sound as before.
+// speech, the interface, and the music. They sound as in the plain game.
 //
 // SAFE BY DEFAULT. A voice starts only when the stream is 16 bit stereo and
-// the wave is 16 bit PCM. In each other case QMixer plays the sample as
-// before. Each level and each filter moves in small steps (15 ms), a stop
-// fades in 8 ms, and the sum is kept inside 16 bits. The waves are copies in
-// buffers that the slots keep and use again.
+// the wave is 16 bit PCM. In each other case QMixer plays the sample as in
+// the plain game. Each level and each filter moves in small steps (15 ms), a
+// stop fades in 8 ms, and the sum is kept inside 16 bits. The waves are copies
+// in buffers that the slots keep and use again.
 //
 // Ini: audio_mixer (default 1, 0 is QMixer's own panning), audio_height,
 // audio_near, audio_far, audio_bed, audio_atmos_mixer (each default 1),
@@ -85,12 +85,11 @@ const int kWaveSize = 0x48;
 const float kFullVolume = 32767.0f;
 const DWORD kVolumeFlags = 0x20;
 // The level of a voice with a place at its minimum distance, for each ear.
-// The runs gave it. With 0.315 (QMixer's own number for a positional
-// channel) the two ears had 7 dB less power than QMixer's two channels for
-// the same sounds (runs mx2 and mx3). With 0.7 the power is the same for a
-// source at the side (mx7 and mx8), and QMixer is 1 to 2 dB louder for a
-// source ahead (hb3 and hb4): its pan gives a source ahead more power. 0.77
-// is between the two, within about 1 dB of QMixer in each direction.
+// With 0.315 (QMixer's own number for a positional channel) the two ears have
+// 7 dB less power than QMixer's two channels for the same sounds. With 0.7
+// the power is the same for a source at the side, and QMixer is 1 to 2 dB
+// louder for a source ahead: its pan gives a source ahead more power. 0.77 is
+// between the two, within about 1 dB of QMixer in each direction.
 const float kPlaceGain = 0.77f;
 // A wave larger than this stays with QMixer.
 const DWORD kMaxWaveBytes = 16u * 1024u * 1024u;
@@ -183,7 +182,7 @@ int g_play_kind = 0;
 int g_play_flag3d = 0;
 int g_play_relative = 0;
 // A place that the mod made for this play: a single sound of the atmosphere
-// (audio_sources.cpp, A4).
+// (audio_sources.cpp).
 bool g_play_has_place = false;
 float g_play_place[3];
 
@@ -195,7 +194,7 @@ TestStep g_test_steps[24];
 int g_test_count = 0;
 int g_test_step = -1;
 long g_test_frame = 0;      // the capture frame at which the step started
-long g_test_seen = 0;       // the capture frame of the frame before
+long g_test_seen = 0;       // the capture frame of the last frame
 int g_test_slot = -1;
 int g_test_wait = 0;
 

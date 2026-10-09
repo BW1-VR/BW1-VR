@@ -1,5 +1,5 @@
-// Track 5: soft sounds for the player's own moves (docs/audio.md, section
-// 17).
+// Soft sounds for the player's own moves (docs/audio.md, "8. Cues for the
+// moves of the player").
 //
 // The game has no sound for a move of the God view, because the mod makes
 // those moves. A move with no sound feels as if nothing happened. So the mod
@@ -191,7 +191,7 @@ void AudioCue(int kind, float pan) {
   const Sound& s = g_sounds[kind];
   if (!AudioVoicesCue(s.data, s.frames, g_level, pan)) return;
   ++g_played[kind];
-  // A test run cuts its capture at these lines (tools/audio_measure.py).
+  // A desktop run cuts its capture at these lines (tools/audio_measure.py).
   if (AudioTraceOn()) {
     ModLog("audio test   : step %llu cue %s, capture frame %ld",
            g_played[kind], kNames[kind], AudioCaptureFrames());

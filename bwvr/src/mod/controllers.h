@@ -1,12 +1,12 @@
 // Motion controllers in the mod. See docs/controllers.md.
 //
-// M1 reads the hands and works out where the aim ray WOULD point. Nothing in
-// the game changes. controllers.cpp holds the source, the fake controller and
-// the report, and controller_math.h holds the math.
+// controllers.cpp reads the hands, works out where the aim ray points, and
+// holds the fake controller and the report. controller_math.h holds the math.
 
 #pragma once
 
-// The fake controller, from the ini keys of docs/controllers.md, section 4.
+// The fake controller, from the ini keys of docs/controllers.md,
+// "4. The fake controller for desktop tests".
 // The fake hand never moves continuously. It stands in one pose, and it steps
 // to a second pose only in discrete steps.
 struct FakeControllerSettings {
@@ -27,7 +27,7 @@ struct FakeControllerSettings {
   // The same for the left hand and the word "lpoint". These are not
   // mirrored: -20 is 20 cm to the left of the head.
   char left_points[512] = {0};
-  // Step M6: template numbers of Data\Gestures.jty, separated by spaces.
+  // Template numbers of Data\Gestures.jty, separated by spaces.
   // Each word "trace" steps the right hand through the next template, one
   // still pose every 2 frames, on a plane gesture_cm wide in front of the
   // head.
@@ -35,8 +35,7 @@ struct FakeControllerSettings {
   int gesture_cm = 30;
 };
 
-// Step M6: draw a miracle's gesture in the air. See docs/hand.md, "M6 as
-// built".
+// Draw a miracle's gesture in the air. See docs/miracles.md.
 struct GestureSettings {
   // gesture_button: 0 off, 1 the second face button of the pointing hand (B
   // on the right hand, Y on the left), 2 the stick click.
@@ -61,8 +60,8 @@ struct GestureInput {
   unsigned long long frame;  // the controllers frame
 };
 
-// Step M7: move around by grabbing the world. See docs/grab-world.md,
-// section 5.2.
+// Move around by grabbing the world. See docs/god-view.md,
+// "5.2 The buttons of the grab".
 struct GrabSettings {
   bool on = true;          // grab_world
   // grab_hand: 0 off, 1 the other hand's grip, 2 also the pointing hand's
@@ -81,7 +80,7 @@ struct GrabSettings {
   int limit = 3400;        // units from the map center, (2560, 0, 2560)
   int min_height = 6;      // units above the land
   int max_speed = 0;       // units a second, 0 is no cap
-  bool probe = false;      // log the game's land drag gain (stage G0)
+  bool probe = false;      // log the game's land drag gain
 };
 
 // One hand for the grab, from controllers.cpp.
@@ -113,13 +112,12 @@ struct GrabCamera {
   bool may_turn;      // the script and the mode allow a turn
 };
 
-// The direct hand of step M3. See docs/hand.md, section 7.
+// The direct hand. See docs/hand.md, "4. The direct hand".
 struct DirectHandSettings {
-  int mode = 1;              // 0 the M2 pointer, 1 the direct hand
-  // THE HAND IS THE REAL HAND. The first headset test (2026-09-30) found a
-  // Hand that moved more than the real one and grew to the size of a couch.
-  // So there is no reach gain by default: the Hand is exactly where the
-  // controller is. Reach comes from the world, not from the arm.
+  int mode = 1;              // 0 the pointer, 1 the direct hand
+  // THE HAND IS THE REAL HAND. A reach gain makes a Hand that moves more than
+  // the real one. So there is no reach gain by default: the Hand is exactly
+  // where the controller is. Reach comes from the world, not from the arm.
   int reach_start_cm = 35;   // one to one up to this far from the anchor
   int reach_gain = 0;        // per meter, past the start. 0 is one to one
   int hand_cm = 19;          // the length of the real hand
@@ -127,9 +125,9 @@ struct DirectHandSettings {
   // The reach anchor: this far below the head center at the last recenter,
   // at about the chest.
   int reach_anchor_down_cm = 20;
-  // Step M4: the throw. The velocity of the Hand at the release, in percent.
+  // The throw. The velocity of the Hand at the release, in percent.
   int throw_gain_pct = 150;
-  // THE CREATURE BY TOUCH (docs/hand.md, "The Creature by touch").
+  // THE CREATURE BY TOUCH (docs/creature.md, "The Creature by touch").
   // creature_camera: 0 never moves the camera to the Creature, 1 moves it as
   // the game does, 2 moves it only for the mouse outside the table and the
   // God view.
@@ -144,7 +142,7 @@ struct DirectHandSettings {
   bool creature_slap_wait = false;
 };
 
-// Step M8: what the controller hints need to know. See docs/controller-hints.md.
+// What the controller hints need to know. See docs/controller-hints.md.
 struct ControllerHintState {
   bool owns;            // the controller owns the pointer now
   bool left_handed;     // the left hand points
@@ -157,7 +155,7 @@ struct ControllerHintState {
 void ControllersHintState(ControllerHintState* out);
 
 // The overlay renderer: each hand's grip pose in the world, one to one. See
-// docs/hand.md, "Overlay renderer".
+// docs/hand-model.md, "Overlay renderer".
 struct OverlayHand {
   bool valid;          // active, with a grip pose that is tracked
   float position[3];   // the grip point in the world

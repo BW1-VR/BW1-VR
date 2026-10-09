@@ -1,4 +1,4 @@
-// The pure signal math of the mixer of the mod (docs/audio.md, section 15).
+// The pure signal math of the mixer of the mod (docs/audio.md, "7. The mixer of the mod").
 // No Windows, no game: the math test compiles it as it is.
 //
 // A source with a place gets its direction for two ears from a structural

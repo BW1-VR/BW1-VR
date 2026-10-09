@@ -11,7 +11,7 @@
 //
 //   SNAP TURNS IN PLACE. A drag with the middle mouse, or a turn key, turns
 //   the player's heading by a fixed step in one frame. The position stays
-//   where it is. The middle mouse does not tilt the camera any more.
+//   where it is. The middle mouse does not tilt the camera.
 //
 //   INSTANT JUMPS. A flight that starts is finished in the same frame.
 //
@@ -22,7 +22,7 @@
 //   ratio. The first click is used at once. Clicks that come in the next
 //   150 ms are added to the next step, up to three clicks.
 //
-// It also writes the camera for the grab of the world (step M7), which
+// It also writes the camera for the grab of the world, which
 // world_grab.cpp solves from the player's hands. While a grab holds, the snap
 // turns and the wheel are refused.
 //
@@ -54,7 +54,7 @@ extern void ModLog(const char* format, ...);
 // again.
 void SpiritAnchorCameraCut();
 // controllers.cpp: a snap turn that a controller asked for has happened, and
-// whether a grip holds the world (M7).
+// whether a grip holds the world.
 void ControllersSnapTurned();
 bool ControllersGrabHeld();
 // world_grab.cpp: the grab of the world solves the camera, and this file
@@ -109,7 +109,7 @@ const uintptr_t kHeadingAndPitch = 0x004428D0;
 // CameraHelp::CameraHelpCallback, cdecl (int event, LHPoint* point,
 // unsigned inputs). The tutorial and the help hints count these events. Read
 // from the calls in CameraModeNew3::Update and from the game's own names of
-// the events (docs/god-view.md, section 13):
+// the events (docs/god-view.md, "7. The game camera"):
 //
 //   0x300   the camera turned, then 0x301 for a turn key to the left (a key
 //           turn of more than 0, 0x0045C772) or 0x302 for one to the right
@@ -269,7 +269,7 @@ uint64_t g_refused = 0;
 uint64_t g_jumps = 0;
 int g_logged = 0;
 
-// The grab of the world (M7): the frames it wrote, the turns and the wheel
+// The grab of the world: the frames it wrote, the turns and the wheel
 // clicks refused while it held, and the jump timer of the last update.
 uint64_t g_grab_writes = 0;
 uint64_t g_grab_turns_refused = 0;
@@ -483,13 +483,13 @@ void SnapTurn(uint8_t* mode, int direction, unsigned input) {
   }
 }
 
-// THE GRAB OF THE WORLD (M7). world_grab.cpp solves the camera from the
+// THE GRAB OF THE WORLD. world_grab.cpp solves the camera from the
 // hands, and this writes it where the snap turn writes: the six Zoomers,
 // through Zoomer::SetPosition, which also zeroes the speeds so the next
 // Zoomer::Update keeps the value, and the mode's copies of the position and
 // the focus, its fall back focus, its pivot and its heading. Then the next
 // zoom or turn starts from where the grab left the camera, not from a stale
-// field. See docs/grab-world.md, section 2.3.
+// field. See docs/god-view.md, "5.5 The grab on the game camera".
 //
 // Before the game's update: the grab checks that nothing else moved the
 // camera since it last wrote.
@@ -661,10 +661,10 @@ bool LandDragNow(const uint8_t* mode) {
              kLandDrag;
 }
 
-// THE GAME'S LAND DRAG IN THE GOD VIEW (docs/god-view.md, section 5). The
-// picture does not come from the game camera. So a land drag of the game
-// would move a camera that the player does not see, away from the player's
-// place. With the mouse the God view pans itself (tabletop.cpp, MousePan),
+// THE GAME'S LAND DRAG IN THE GOD VIEW (docs/god-view.md, "5.4 What the game's
+// land drag does"). The picture does not come from the game camera. So a
+// land drag of the game would move a camera that the player does not see,
+// away from the player's place. With the mouse the God view pans itself (tabletop.cpp, MousePan),
 // and a controller moves the land with the grip. So after each update with
 // a land drag, the camera goes back to where it was before the update. The
 // drag code of the game still runs. So the game still knows the drag, and
@@ -712,7 +712,7 @@ void GodDragAfter(uint8_t* mode) {
   ++g_god_drag_frames;
 }
 
-// THE GROUND BY THE TILT KEYS (docs/god-view.md, section 3). In the God view
+// THE GROUND BY THE TILT KEYS (docs/god-view.md, "3. The ground height"). In the God view
 // the game's tilt keys move the ground one step for each press: a tilt of
 // more than 0 raises the ground, and a tilt of less than 0 lowers it. The
 // game camera does not tilt, because the God view does not show it. This
@@ -741,7 +741,8 @@ void GodTiltKeys() {
   }
 }
 
-// THE GAME MOVES ITS OWN CAMERA (docs/god-view.md, section 15).
+// THE GAME MOVES ITS OWN CAMERA (docs/god-view.md, "15. The place at a camera
+// of the game").
 //
 // In the God view the picture does not come from the game camera, and the
 // game camera stays where the view put it. When the game itself puts its
@@ -768,9 +769,9 @@ void GodTiltKeys() {
 // mod, and after the player's camera mode gets the camera back from a story,
 // the game fits the camera to the land again in its own update: it puts the
 // focus on the land along the camera line, and it pulls the camera in when a
-// hill hides the focus. In runs sp4 to sp7 that moved the focus 1.0 to 25.7
-// units and the position 0 to 188.6 units, in 250 to 1312 ms, and the heading
-// stayed. That is the end of the player's move, or of the story, and not a
+// hill hides the focus. That moves the focus by up to about 26 units and
+// the position by up to about 190 units, in about 0.25 to 1.3 s, and the
+// heading stays. That is the end of the player's move, or of the story, and not a
 // move of the game. So changes in the update that follow such a moment with
 // no rest between them are not counted (settle). A change from outside the
 // update, a new mode and a jump are always counted.
@@ -779,15 +780,15 @@ void GodTiltKeys() {
 // when the camera is at rest: no change for kWatchRestMs and no flight. A
 // jump that landed at once (FinishFlight) needs kWatchLandedRestMs only: the
 // game puts the focus on the land in its next update, and the look point is
-// read after that (run sp13 read it at once, and one press of the Temple key
-// was a new place 6.9 units away). Then tabletop.cpp gets the camera, once.
+// read after that (read at once, one press of the Temple key looks like a new place
+// 6.9 units away). Then tabletop.cpp gets the camera, once.
 // A camera that the game moves for many frames gives one cut at its end,
 // never a glide.
 //
 // A SMALL MOVE IS NOT A NEW PLACE. The view goes to the land point that the
 // camera looks at (TabletopGodLookPoint) and takes its heading, so only
 // those two count. One press of the game's Temple key pulls the camera back
-// at its place: the position went 41.7 units, and the focus 2.6 units. So a
+// at its place: the position moves 41.7 units, and the focus 2.6 units. So a
 // new place needs one of these: the heading turned kWatchTurnDegrees, or the
 // look point moved kWatchLookShare of the camera distance (and
 // kWatchMoveUnits at the least).
@@ -1413,7 +1414,7 @@ void ModeUpdate(uint8_t* mode, void* unused) {
   if (from_controller) ControllersSnapTurned();
 }
 
-// TESTS WITH NO KEY PRESS, for a desktop run (docs/god-view.md, section 15).
+// TESTS WITH NO KEY PRESS, for a desktop run (docs/god-view.md, "15.9 Tests").
 //
 // spawn_test_temple=N: at update N of the player's camera mode, the mod
 // calls the game's own zoom to the Temple, CameraModeNew3::ZoomToCitadel
@@ -1639,7 +1640,8 @@ bool ComfortCameraDestinations(float position[3], float focus[3]) {
 // yet: a new camera mode of the player, a jump, or a camera that a script or
 // a load set. The God view goes to that camera only when it is at rest, so
 // in this time the view of the player is not at the place of the game camera
-// (docs/god-view.md, sections 15.3 and 16).
+// (docs/god-view.md, "15.3 The watch" and "16. The player that a script
+// sees").
 bool ComfortCameraGameMoves() { return g_watch.live && g_watch.moving; }
 
 // True for a moment after a snap or a jump, while the eyes are drawn black.

@@ -1,4 +1,4 @@
-// The Creature commands. See docs/hand.md, "The Creature commands".
+// The Creature commands. See docs/creature.md, "The Creature commands".
 //
 // WHAT THE GAME DOES WITH THE MOUSE [V, runblack.exe 1.42].
 //
@@ -39,10 +39,8 @@
 // - An object at the Hand is a target too: the object that a press of the
 //   grip acts on, within hand_pick_cm of the Hand's point. It is the target,
 //   and the aim ray does not count. An object in the aim is a target at each
-//   distance from the Hand. Until 2026-10-03 an object less than 35 cm of the
-//   room from the Hand's point was no target, and the press went to the land
-//   point of the arc. Over the sea the arc has no land point, so nothing was
-//   sent.
+//   distance from the Hand. Over the sea the arc has no land point, so a
+//   press on no object sends nothing.
 // - A press with the aim on no object shows the arc of the teleport and a
 //   green ring on the land. The release sends the game's packet 0x5E with
 //   that land point. A tap, a press shorter than creature_command_hold_ms,
@@ -66,10 +64,10 @@
 //   click, packet 0x5F.
 // - A press while the game's pick has the Creature under the Hand is not a
 //   command. It goes to the game: the stroke, the slap and the leash click of
-//   "The Creature by touch".
+//   "The Creature by touch" in docs/creature.md.
 // - The trigger of a command does not reach the game, so it does not drag
 //   the land.
-// - A press of the grip on bare land no longer sends the Creature: the hook
+// - A press of the grip on bare land does not send the Creature: the hook
 //   on fn_005D3D10 leaves the packet out while the controller places the
 //   Hand. The mouse gets the game's function.
 //
@@ -261,9 +259,9 @@ struct Settings {
   // off.
   int test_from = 0;
   bool test = false;
-  // creature_command_rule: 2 is the live target with the tight aim. 1 is the
-  // rule of the builds to 2026-10-04: the press fixes its kind, and an
-  // object takes the aim in the cone of the grab from a distance.
+  // creature_command_rule: 2 is the live target with the tight aim. 1: the
+  // press fixes its kind, and an object takes the aim in the cone of the grab
+  // from a distance.
   int rule = 2;
   // The aim of rule 2 (creature_command_math.h, AimRule).
   float cone_deg = 3.0f;   // creature_command_cone_deg: a new target
@@ -1494,7 +1492,7 @@ void CreatureCommandSelect() {
     if (kind == kTargetObject && !ValidTarget(object)) return;
     const float radius = HandDirectRadius(object);
     // THE BODY. Rule 2 measures the aim against the upright body. Rule 1
-    // measures it against the point of the object, as the builds before.
+    // measures it against the point of the object.
     // The body of the Creature is a ball around its body bone.
     const float height = !live                     ? 0.0f
                          : kind == kTargetCreature ? 2.0f * radius
@@ -1804,7 +1802,7 @@ bool CreatureCommandPumpTrigger(bool trigger, bool ok) {
     g_press = command_math::kPressNone;
   } else if (trigger && g_claim && !ok &&
              g_press != command_math::kPressNone) {
-    // The hand can no longer act: a menu, a teleport, a grab. The press is
+    // The hand cannot act: a menu, a teleport, a grab. The press is
     // stopped, and the trigger stays away from the game until it opens.
     g_press = command_math::kPressNone;
     if (Log()) {
@@ -1855,7 +1853,7 @@ void CreatureCommandFrame() {
     g_live_why = "";
   }
   // No selection ran in the last frames (the controller did not place the
-  // Hand in an eye pass), so the target is old.
+  // Hand in an eye pass), so the target is stale.
   if (g_frame > g_select_frame + 2) g_target.kind = kTargetNone;
   if (!g_live) {
     g_target.kind = kTargetNone;

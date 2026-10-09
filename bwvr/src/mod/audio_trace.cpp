@@ -1,17 +1,17 @@
-// T1 of Track 5: a log of the calls into QMixer. It changes nothing.
+// A log of the calls into QMixer. It changes nothing.
 //
 // Each hook calls the original first, then counts the call and keeps the
 // arguments. Once a second, from the frame driver on the game thread, the
-// counts and the last values go to the log. This settles the open questions of
-// docs/audio.md: how often the game moves the listener, what the DLL sends for
-// a source, and what distance mapping it uses. This file hooks the listener
-// position and the listener orientation. The source position, the polar
+// counts and the last values go to the log. It shows how often the game moves
+// the listener, what the DLL sends for a source, and what distance mapping
+// it uses (docs/audio.md). This file hooks the listener position and the
+// listener orientation. The source position, the polar
 // position and the distance mapping belong to audio_rolloff.cpp, and its
 // hooks call AudioTraceNoteSource, AudioTraceNotePolar and
 // AudioTraceNoteDistance. The mapping in the log is the game's, before the
 // room factor. The source position is the one QMixer got.
 //
-// THE PLAY TRACE (docs/audio.md, section 11). The LHSamplePlay hook of
+// THE PLAY TRACE (docs/audio.md, "11. Tools and tests without a headset"). The LHSamplePlay hook of
 // audio_sources.cpp tells this file about each sample that starts. This file
 // writes one line for each start: who played it (a game effect, an animation
 // effect, the atmosphere or an advisor), the bank, the sample, the 3D flag, the

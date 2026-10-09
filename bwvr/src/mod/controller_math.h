@@ -6,7 +6,8 @@
 //
 // Every 3x3 matrix is m[r * 3 + c], and a vector is a column: out = m * in.
 // This is the convention pointer_map.cpp and head_camera.cpp use for the room
-// basis L and the head matrix H. See docs/controllers.md, sections 2.7 and 3.1.
+// basis L and the head matrix H. See docs/controllers.md, "2.7 The controller in game world units" and
+// "3.1 The mapping".
 
 #pragma once
 
@@ -87,7 +88,7 @@ inline void RoomToWorld(const float eye[3], const float room[9],
 // and t_head come from one HeadPoseUpdate, so E - L * t_head is the game
 // camera, and a hand still in the room stays still in the world when the
 // head moves. The render position of the frame that is drawn now has the
-// lean of the frame before, so it does not fit t_head of this frame.
+// lean of the last frame, so it does not fit t_head of this frame.
 inline void EyeFromLean(const float game_position[3], const float room[9],
                         const float lean[3], float eye_out[3]) {
   float moved[3];
@@ -174,7 +175,7 @@ inline float Distance(const float a[3], const float b[3]) {
 
 // The render pixel of a point in the world: RenderPixel with a target
 // distance of zero, so the target is the point itself. The direct hand
-// (step M3) uses this for the Hand's point.
+// uses this for the Hand's point.
 inline bool PointPixel(const float eye[3], const float room[9],
                        const float head[9], const float point[3],
                        const Screen& screen, float* x, float* y,
@@ -269,7 +270,7 @@ inline void DirectReach(const float eye[3], const float room[9],
   RoomToWorld(eye, room, t_head, reach_room, reach_out);
 }
 
-// THE DIRECT HAND ON THE TABLE (docs/tabletop.md, section 10.6).
+// THE DIRECT HAND ON THE TABLE (docs/tabletop.md, "The hand on the table").
 //
 // The table maps the room to the world from its own origin P0, the recenter
 // pose over the table, with the table basis Lt. head_pose.cpp gives room
@@ -325,7 +326,7 @@ inline bool DirectionTo(const float from[3], const float to[3],
 }
 
 
-// THE MOTION OF A HAND (steps M4 and M5).
+// THE MOTION OF A HAND.
 //
 // A sample is a point of the hand and the time it was there, in seconds. The
 // direct hand keeps the last few of them, oldest first. The throw and the
@@ -338,8 +339,8 @@ struct MotionSample {
 // The mean velocity over the last window seconds, in units of the point per
 // second. It runs from the oldest sample inside the window to the newest one.
 // When only the newest sample is inside the window (a slow frame rate), it
-// runs from the sample before it. False with fewer than two samples, or when
-// the two ends are less than 4 ms apart.
+// runs from the sample just before it. False with fewer than two samples, or
+// when the two ends are less than 4 ms apart.
 inline bool MeanVelocity(const MotionSample* samples, int count,
                          double window, float out[3]) {
   if (count < 2) return false;
@@ -403,7 +404,8 @@ inline void ThrowVelocity(const float v_reach_room[3],
   for (int i = 0; i < 3; ++i) out[i] = direction[i] / length * speed;
 }
 
-// THE THROW ON THE TABLE (docs/tabletop.md, section 10.6).
+// THE THROW ON THE TABLE (docs/tabletop.md, "The throw from inside the
+// influence").
 //
 // The room velocities are at the life size scale, 7.5 units per meter. On the
 // table a meter of the room is s units, so the speed is multiplied by
@@ -443,11 +445,11 @@ inline void PreviousPoint(const float target[3], const float v_world[3],
   for (int i = 0; i < 3; ++i) out[i] = target[i] - v_world[i] * gain * dt;
 }
 
-// THE HAND'S POINT ON THE LAND (docs/hand.md, "The point touches the land").
+// THE HAND'S POINT ON THE LAND (docs/hand.md, "5. The touch of the land").
 // A Hand pushed into the land stops on it. The game keeps its own Hand half
 // its length over the land, which is 9.5 cm of the room for a hand of 19 cm
 // at every scale, so the point could not touch the land or a villager on it.
-// Now the point comes down to clearance_m meters of the room over the land,
+// So the point comes down to clearance_m meters of the room over the land,
 // at the scale now (units_per_meter). Returns the lowest height of the point.
 inline float HandLandFloor(float land, float units_per_meter,
                            float clearance_m) {
@@ -455,12 +457,12 @@ inline float HandLandFloor(float land, float units_per_meter,
   return land + clearance_m * units_per_meter;
 }
 
-// THE GRIP HOLDS (docs/hand.md, "The grip holds"). The game picks up with a
+// THE GRIP HOLDS (docs/grab.md, "The grip holds"). The game picks up with a
 // click of the right button and lets go with a second click. A real hand
 // takes, carries and lets go with one close and one open. This machine turns
 // the grip into the game's right button:
 //
-//   Pass     The grip is the button, one to one, as before. A close on an
+//   Pass     The grip is the button, one to one, as in the plain game. A close on an
 //            object starts the game's pick up, and a close on a tree pulls
 //            it (the Tug). A Miracle, the leash and the Creature also stay
 //            here.
@@ -480,7 +482,7 @@ inline float HandLandFloor(float land, float units_per_meter,
 // before the click starts carries again. The press of the click comes at
 // least one frame after the button went up.
 //
-// THE BULK TAKE (docs/hand.md, "The bulk take"). While the game takes from a
+// THE BULK TAKE (docs/grab.md, "The bulk take"). While the game takes from a
 // pile, a field or a fish farm (GripFacts::take), the rule is:
 //
 //   The grip is closed   The game collects. The grip is the button, one to
@@ -594,7 +596,7 @@ inline GripStepOut GripStep(GripHold* s, bool grip, const GripFacts& f,
 
   if (!f.direct) {
     // The mouse places the Hand, or the hand cannot act: the grip is the
-    // game's button, as before. A grip that carried must open first.
+    // game's button, as in the plain game. A grip that carried must open first.
     if (s->phase != kGripPass) {
       out.events |= kGripLost;
       s->wait_up = grip;
@@ -734,9 +736,9 @@ inline GripStepOut GripStep(GripHold* s, bool grip, const GripFacts& f,
   return out;
 }
 
-// THE GRIP OPENS AT ONCE (docs/hand.md, "The release at once"). A grip or a
+// THE GRIP OPENS AT ONCE (docs/throw.md, "The release at once"). A grip or a
 // trigger gives a value from 0 to 1. The control closes above
-// kGripCloseAbove and opens below kGripOpenBelow, as before. A hand that
+// kGripCloseAbove and opens below kGripOpenBelow, as in the plain game. A hand that
 // opens for a throw takes some frames to come below kGripOpenBelow, so the
 // Hand let go late. With fast_open, a closed control also opens when its
 // value falls fast: by kGripFastFall or more in kGripFastFrames frames, to a
@@ -800,7 +802,7 @@ inline bool GripLevelStep(GripLevel* s, float value, bool fast_open) {
   return s->down;
 }
 
-// THE GRAB OF THE WORLD (step M7). See docs/grab-world.md, section 2.2.
+// THE GRAB OF THE WORLD. See docs/god-view.md, "5.1 The grab of the land".
 //
 // A point a in the room is the world point C + L * a, with C the game camera
 // and L the room basis. A grab keeps one world point in the hand. It solves
@@ -1033,7 +1035,7 @@ inline bool GrabKeepAbove(float floor_y, GrabPose* pose) {
   return true;
 }
 
-// A GESTURE IN THE AIR (step M6). See docs/hand.md, "M6 as built".
+// A GESTURE IN THE AIR. See docs/miracles.md.
 //
 // The game reads a gesture as a path of screen pixels, x to the right and y
 // down. The hand draws in 3D. So the grip point goes on a plane: the head's
@@ -1135,7 +1137,8 @@ inline int GestureCornerIndex(const float (*points)[2], int count,
   return best;
 }
 
-// THE INTERFACE PANELS (docs/ui-layer.md, 3.2 and 4.3).
+// THE INTERFACE PANELS (docs/ui-layer.md, "3.2 The quad layers" and
+// "4.3 Normal placement").
 //
 // A quad layer in the LOCAL space of OpenXR, which is right handed with y up
 // and -z ahead. The quad shows its front, the +z side of its own frame. These
@@ -1193,8 +1196,8 @@ inline float PanelWidth(float pixels, float pixels_per_degree,
   return 2.0f * distance * tanf(half);
 }
 
-// THE GLOW AT THE HAND'S POINT (docs/hand.md, "The glow at the Hand's
-// point"). A disc that faces the eye, projected as LH3DTech::ProjectPoint
+// THE GLOW AT THE HAND'S POINT (docs/hand-model.md, "The glow at the
+// Hand's point"). A disc that faces the eye, projected as LH3DTech::ProjectPoint
 // projects a point (docs/software-tnl.md).
 struct GlowDisc {
   float x, y;    // the center, in pixels of the render
@@ -1237,7 +1240,7 @@ inline bool GlowProject(const float m[12], float hx, float hy,
     return false;
   }
   // A negative pull puts the test point farther from the eye (the halo of a
-  // far grab, docs/hand.md, "The grab from a distance").
+  // far grab, docs/grab.md, "The grab from a distance").
   float front = cz - pull;
   if (front < near_plane) front = near_plane;
   out->rhw = near_plane / front;
@@ -1246,7 +1249,7 @@ inline bool GlowProject(const float m[12], float hx, float hy,
   return true;
 }
 
-// THE CREATURE BY TOUCH (docs/hand.md, "The Creature by touch").
+// THE CREATURE BY TOUCH (docs/creature.md, "The Creature by touch").
 //
 // The body of the Creature is a vertical capsule: the points within radius
 // of a segment that goes up height units from base. hand_direct.cpp puts
@@ -1565,7 +1568,7 @@ inline void CameraTeleportDelta(const float eye[3], float eye_ground,
   out[2] = target[2] - eye[2];
 }
 
-// THE HINT AT THE HAND (docs/ui-layer.md, section 15). The game draws a
+// THE HINT AT THE HAND (docs/ui-layer.md, "15. The tooltip at the Hand"). The game draws a
 // tooltip beside the pointer, in pixels, at one place in both eyes after the
 // flat copy. With the direct hand the Hand is the real hand, 40 to 80 cm from
 // the eyes, so a flat tooltip is double when the player looks at the hand.
@@ -1575,7 +1578,7 @@ inline void CameraTeleportDelta(const float eye[3], float eye_ground,
 // The scale: the box of box_px pixels that the game asked for becomes box_cm
 // of the room at the Hand's depth. focal is the pixels of the render for one
 // unit of tan(angle) up from the middle (half_res_y * inv_half_tan_fov_y). 0
-// when a value is not usable, and then the tooltip stays as before.
+// when a value is not usable, and then the tooltip stays at the pointer.
 inline float HintAtHandScale(float focal, float depth_m, float box_px,
                              float box_cm) {
   if (!(focal > 0.0f) || !(depth_m > 0.05f) || !(box_px > 1.0f) ||
@@ -1599,7 +1602,7 @@ inline void HintAtHandPoint(const float hand[2], const float first[2],
   for (int i = 0; i < 2; ++i) p[i] = hand[i] + s * (p[i] - first[i] + offset[i]);
 }
 
-// THE GRAB FROM A DISTANCE (docs/hand.md, "The grab from a distance").
+// THE GRAB FROM A DISTANCE (docs/grab.md, "The grab from a distance").
 //
 // THE CONE. The pointing hand's aim ray picks an object when the angle from
 // the ray to the object, less the angle that the object's own radius covers,

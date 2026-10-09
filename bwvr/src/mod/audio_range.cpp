@@ -1,5 +1,5 @@
-// Track 5: the ears decide which positional sounds play (docs/audio.md,
-// section 12).
+// The ears decide which positional sounds play (docs/audio.md, "6.4 The ears
+// decide what plays").
 //
 // THE PROBLEM. The game decides what plays with its own camera, in world
 // units:
@@ -13,11 +13,11 @@
 //
 // In the God view the game camera is 400 units from the player's place, and
 // the ears are the head with room distances (audio_rolloff.cpp): QMixer hears
-// a sound up to max * k from the head. So the game stopped a loop that the
-// player was near. A sound tag (SoundTag, 0x0071E680) asks for its sound
-// again each game turn, so its loop came back when a teleport put the game
+// a sound up to max * k from the head. So the game would stop a loop that the
+// player is near. A sound tag (SoundTag, 0x0071E680) asks for its sound
+// again each game turn, so its loop comes back when a teleport puts the game
 // camera in range. The sound of a particle system is started one time
-// (AtomCore::StartSound, 0x006745D0), and it stayed away until the game made
+// (AtomCore::StartSound, 0x006745D0), and it stays away until the game makes
 // the effect again.
 //
 // WHAT THIS FILE DOES. Three hooks, all on the game thread:
@@ -229,7 +229,7 @@ Sound g_sounds[kSounds];
 // that sniffs, a tree that moves). The first start of a loop gets its line
 // when the loop has played this long. A loop that ends before gets no line.
 const DWORD kToldAfterMs = 5000;
-// TEST ONLY: the first object of the class Creature that had a loop.
+// TEST ONLY: the first object of the class Creature that has a loop.
 uintptr_t g_seen_creature = 0;
 
 const int kMaxLines = 600;

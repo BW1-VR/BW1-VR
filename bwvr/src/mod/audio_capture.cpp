@@ -1,4 +1,4 @@
-// Track 5: the sound that goes to the ears (docs/audio.md, section 14).
+// The sound that goes to the ears (docs/audio.md, "7. The mixer of the mod").
 //
 // QMixer mixes all its channels to one stream and gives each block of it to
 // the wave device with waveOutWrite. This file puts its own function in the
@@ -8,7 +8,7 @@
 // - The mixer of the mod (audio_voices.cpp) adds its sound to the block. The
 //   mod needs no sound device of its own, and its sound has the latency of
 //   the game's sound.
-// - A test run writes the blocks to bwvr-audio.wav in the game folder
+// - A desktop run writes the blocks to bwvr-audio.wav in the game folder
 //   (audio_capture=1). tools/audio_measure.py measures the file: the level
 //   of each ear, the spectrum, and the difference between the ears. A desktop
 //   run has no listener, and this is how a change of the sound gets a proof.

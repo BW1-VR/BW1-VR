@@ -1,10 +1,10 @@
-// Step M8: controller hints. See docs/controller-hints.md.
+// Controller hints. See docs/controller-hints.md.
 //
 // While a motion controller owns the pointer, the game's mouse hints show the
 // controller word in a key cap, and the help text names the controller.
-//   H0  the census: each distinct hint call goes in the log once.
-//   H1  key caps with words, and no hint for an action the controller lacks.
-//   H2  the word list for the help text, changed in memory at load.
+//   The census: each distinct hint call goes in the log once.
+//   Key caps with words, and no hint for an action the controller lacks.
+//   The word list for the help text, changed in memory at load.
 
 #pragma once
 
@@ -44,10 +44,10 @@ enum ControllerWord {
 };
 const wchar_t* ControllerHintWord(int word);
 
-// H0: a call of CameraHelp::DrawKeyOrMouse, before the mod changes it.
+// The census: a call of CameraHelp::DrawKeyOrMouse, before the mod changes it.
 void ControllerHintsNoteDraw(uint32_t from, uint32_t blink, uint32_t button,
                              uint32_t row_or_label, const wchar_t* caption);
 
-// H1 counters, for the report.
+// Key cap counters, for the report.
 void ControllerHintsCountConverted();
 void ControllerHintsCountHidden();

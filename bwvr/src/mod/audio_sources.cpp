@@ -1,14 +1,14 @@
-// A3 and A4 of Track 5: flat sounds that have a place in the world come from
+// Flat sounds that have a place in the world come from
 // that place.
 //
-// A3, THE ADVISORS. They speak through HelpDude::PlaySample (0x005BB530) with
+// THE ADVISORS. They speak through HelpDude::PlaySample (0x005BB530) with
 // the 3D flag off, so LHaudiodllR.dll plays them flat. It places the QMixer
 // channel with QSWaveMixSetPolarPosition, at an angle from a fixed pan, and a
 // range of 1.0. Turning the 3D flag on would make the game read the number
 // 0x270C as a pointer in its object callback, and that crashes. So the flag
 // stays off.
 //
-// A4, OTHER FLAT SOUNDS (docs/audio.md, section 11). Two kinds have a place:
+// OTHER FLAT SOUNDS (docs/audio.md, "6.5 Sounds the game plays flat"). Two kinds have a place:
 //
 // - A game effect with the 3D flag off and an object that has a position
 //   (Base::Get3DSoundPos, vtable offset 0x10). The point is read once, when
@@ -16,7 +16,7 @@
 //   promise that the object lives as long as the sound.
 // - A sound of the atmosphere with a position relative to the listener
 //   (options + 0x14), for example a bird or a wave. The DLL picks a random
-//   direction around the ears and keeps it relative to the ears, so it turned
+//   direction around the ears and keeps it relative to the ears, so it turns
 //   with the head. Here it gets a point in the world in that direction (on a
 //   level ring, see Choose) when it starts, kAtmosRoomMeters away in the
 //   room, and it stays there. Only on the
@@ -26,9 +26,9 @@
 // This file hooks LHSamplePlay, the one function that every sample reaches,
 // also the samples of the atmosphere and of the animations, which start inside
 // the DLL. It keeps the sample info and the place of each sound above. Every
-// rendered frame it works out the azimuth (and for A4 the elevation) of the
-// place in the frame of the head, and it sends that to the same channel with
-// the same polar call the DLL uses. The range stays what the DLL sent, so the
+// rendered frame it works out the azimuth (and for the other flat sounds the
+// elevation) of the place in the frame of the head, and it sends that to the
+// same channel with the same polar call the DLL uses. The range stays what the DLL sent, so the
 // level does not change, and no channel changes its mode. Only the direction
 // follows the room.
 //
@@ -111,7 +111,7 @@ const int kAtmosTypes = 14;
 const int kAtmosBanks = 0x194;
 // A single sound goes toward the land of its kind when the nearest cell is
 // at least this far from the ears, in meters of the room. Nearer, the land
-// of the kind is all around the player, and the ring of A4 is right.
+// of the kind is all around the player, and the ring of the other flat sounds is right.
 const float kTowardLeastMeters = 1.5f;
 // The sound is this far to each side of the line to the cell, at most.
 const float kTowardSpread = 0.45f;   // radians, 26 degrees
@@ -145,7 +145,7 @@ struct Tracked {
   int channel;          // info + 0x2C when it started
   int kind;
   const uint8_t* dude;  // HelpDude*, for an advisor
-  float point[3];       // the place in the world, for A4
+  float point[3];       // the place in the world, for the other flat sounds
   float polar[3];       // what the DLL sent: azimuth, range, elevation
   float azimuth;        // the last angle sent
   float elevation;
@@ -248,7 +248,7 @@ bool Steer(void* audio, Tracked& t, const float basis[9],
     azimuth = t.azimuth;
   }
   t.azimuth = azimuth;
-  // The advisors keep the DLL's elevation of 0, as A3 always did.
+  // The advisors keep the DLL's elevation of 0.
   t.elevation =
       t.kind == kAdvisor ? 0.0f : audio_math::Elevation(basis, head, place);
   const float range = t.kind == kAdvisor ? 1.0f : t.polar[1];

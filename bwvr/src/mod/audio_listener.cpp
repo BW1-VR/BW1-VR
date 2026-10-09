@@ -1,4 +1,4 @@
-// A2 of Track 5: the ears are the real head.
+// The ears are the real head.
 //
 // The game sets the listener once per game turn, from the game camera, in
 // GAudio::UpdateListener (0x004270D0). It calls LHListenerUpdate in
@@ -20,10 +20,9 @@
 //
 // ON THE TABLE AND IN THE GOD VIEW the ears are the head, and
 // audio_rolloff.cpp makes the distances room distances (docs/audio.md,
-// section 11). Before that change the ears went straight down from the head
-// to at most 400 units over the land under it (TabletopEars), because the
-// game's distances made the sounds silent that far from the land. That rule
-// still applies with audio_room=0.
+// "6.3 Room distances"). With audio_room=0 the ears go straight down from the
+// head to at most 400 units over the land under it (TabletopEars), because
+// the game's distances make the sounds silent that far from the land.
 //
 // Ini: audio_head (default 1), audio_advisors (default 1), audio_trace (0),
 // audio_room (1), audio_units_per_meter (40), audio_flat_places (1),
@@ -31,7 +30,7 @@
 // Test key: Ctrl Shift F12 has five steps, and each one takes one more
 // change away. All as set. The distances are the same at each zoom. QMixer
 // pans each sound. The game camera decides which sounds play. The ears are
-// on the game camera, which is the old behavior, exactly: the game camera
+// on the game camera: the behavior of the plain game, with the game camera
 // and the game's own distances.
 
 #include <windows.h>
@@ -86,9 +85,9 @@ bool g_keep_loops = true;    // audio_loops_keep
 int g_test_tag = 0;          // audio_test_tag
 int g_test_tag_bank = 1;     // audio_test_tag_bank
 // The test key. 0 all as set. 1 the room factor is the same at each zoom
-// (the sound before audio_zoom_pct). 2 also QMixer's own panning (the sound
-// before audio_mixer). 3 also the game camera decides which sounds play (the
-// sound before audio_range). 4 the ears on the game camera.
+// (the sound without audio_zoom_pct). 2 also QMixer's own panning (the sound
+// without audio_mixer). 3 also the game camera decides which sounds play (the
+// sound without audio_range). 4 the ears on the game camera.
 int g_mode = 0;
 
 // Head freshness.
@@ -448,8 +447,8 @@ void AudioFrame() {
 }
 
 // Ctrl Shift F12. Three steps, and the log says which one it is now. The
-// head. The head, but the game camera decides which sounds play, as before
-// audio_range. The game camera, which is the sound of the game.
+// head. The head, but the game camera decides which sounds play, as with
+// audio_range=0. The game camera, which is the sound of the game.
 void AudioCycleMode() {
   if (!g_installed) {
     ModLog("audio        : test key, but the audio is off or not loaded");

@@ -1,18 +1,18 @@
-// Sound in the room. Track 5 of the roadmap. See docs/audio.md.
+// Sound in the room. See docs/audio.md.
 #pragma once
 
 #include <stdint.h>
 #include <windows.h>
 
 //
-// audio_listener.cpp owns the listener (A2) and the once per frame driver.
-// audio_sources.cpp steers the voices of the advisors (A3), and the flat
-// effects and sounds of the atmosphere that have a place (A4).
+// audio_listener.cpp owns the listener and the once per frame driver.
+// audio_sources.cpp steers the voices of the advisors, and the flat
+// effects and sounds of the atmosphere that have a place.
 // audio_rolloff.cpp makes the distances of the positional sounds room
-// distances (A5).
+// distances.
 // audio_rolloff.cpp: room distances for the positional sounds.
-// others: the two hooks are needed for the trace or for A4 also with the
-// room distances off.
+// others: the two hooks are needed for the trace or for the other flat
+// sounds also with the room distances off.
 bool AudioRolloffInstall(bool room, int units_per_meter, bool others);
 // The LHSamplePlay hook calls these around the original.
 void AudioRolloffPlayBegin(const void* options);
@@ -32,7 +32,7 @@ bool AudioRoomNow(float* factor);
 bool AudioEarsPosition(float out[3]);
 
 // audio_range.cpp: the ears decide which positional sounds start and stop
-// (docs/audio.md, section 12). by_ears is audio_range, and keep_loops is
+// (docs/audio.md, "6.4 The ears decide what plays"). by_ears is audio_range, and keep_loops is
 // audio_loops_keep. test_tag is a sample number for a test sound tag on the
 // Creature, or 0.
 bool AudioRangeInstall(bool by_ears, bool keep_loops, int test_tag,
@@ -52,7 +52,7 @@ void AudioSetRange(bool by_ears, bool keep_loops, int test_tag,
 int AudioIni(const char* key, int fallback);
 
 // audio_capture.cpp: the stream that QMixer gives to the wave device
-// (docs/audio.md, section 14). capture writes it to bwvr-audio.wav. report
+// (docs/audio.md, "11. Tools and tests without a headset"). capture writes it to bwvr-audio.wav. report
 // writes its level to the log each second.
 bool AudioCaptureInstall(bool capture, bool report);
 // The mixer of the mod adds its sound to each block here: 16 bit stereo, on
@@ -86,8 +86,8 @@ enum AudioPlayKind {
   kAudioAdvisor
 };
 
-// audio_voices.cpp: the mixer of the mod (docs/audio.md, section 15). on is
-// audio_mixer. With 0, QMixer pans each sound as before.
+// audio_voices.cpp: the mixer of the mod (docs/audio.md, "7. The mixer of the
+// mod"). on is audio_mixer. With 0, QMixer pans each sound.
 bool AudioVoicesInstall(bool on);
 // The LHSamplePlay hook calls these around the original.
 void AudioVoicesPlayBegin(int kind, const void* options);
@@ -111,12 +111,12 @@ void AudioVoicesFrame();
 void AudioVoicesAudible(bool audible);
 // A flat cue through the mixer: mono, 22050 Hz, pan -1 to 1.
 bool AudioVoicesCue(const int16_t* data, int frames, float gain, float pan);
-// audio_rolloff.cpp, the test key: true gives the room factor of before,
-// which is the same at each zoom.
+// audio_rolloff.cpp, the test key: true gives a room factor that is the same
+// at each zoom.
 void AudioRolloffSetLinear(bool linear);
 
 // audio_cues.cpp: soft sounds for the player's own moves (docs/audio.md,
-// section 17).
+// "8. Cues for the moves of the player").
 enum AudioCueKind {
   kAudioCueTurnLeft,
   kAudioCueTurnRight,
@@ -148,7 +148,7 @@ const char* AudioClassName(uintptr_t object);
 bool AudioObjectPosition(uintptr_t object, float out[3]);
 const char* AudioBankName(uintptr_t bank);
 
-// audio_trace.cpp logs the calls into QMixer, for tests only (T1).
+// audio_trace.cpp logs the calls into QMixer, for tests only.
 #pragma once
 
 #include <stdint.h>
@@ -180,8 +180,8 @@ void AudioFrame();
 void AudioCycleMode();
 
 // audio_sources.cpp
-// advisors: steer the advisors (A3). flat: steer the flat effects and the
-// sounds of the atmosphere that have a place (A4). hook: the LHSamplePlay
+// advisors: steer the advisors. flat: steer the flat effects and the
+// sounds of the atmosphere that have a place. hook: the LHSamplePlay
 // hook is needed for the trace or the room distances, also with both off.
 bool AudioSourcesInstall(bool advisors, bool flat, bool hook);
 // active: the head is fresh. basis and position are the head.
