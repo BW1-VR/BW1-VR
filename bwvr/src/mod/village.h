@@ -38,6 +38,10 @@ bool VillageCanHaveJob(void* villager);
 struct FarDraw;
 bool VillageHalo(FarDraw* out);
 
+// hand_direct.cpp, at a release: a thing at the Hand takes the object in the
+// Hand now, so the opening of the grip puts the object on it.
+bool VillageTakesObject();
+
 // hint_card.cpp: the lines of the card while the Hand's point is at the
 // totem or at a miracle icon, and while the Hand moves the totem. The return
 // value is the count of lines, 0 with no such thing at the Hand.

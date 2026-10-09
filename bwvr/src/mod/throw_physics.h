@@ -31,6 +31,11 @@ void ThrowPhysicsSetSlow(int slow_x10, bool trees);
 // 0.25.
 void ThrowPhysicsSetLanding(int land, int rate_x10, int bounce_pct,
                             int brake_pct);
+// release_fall_cm: a hand that is still at the opening of the grip sets the
+// object down only when its point is this many cm of the room over the land
+// or less. Higher up the object falls. 0 sets it down at each height. With
+// test_keys=1, Shift with Scroll Lock goes between this limit and 0.
+void ThrowPhysicsSetFall(int limit_cm);
 // Before FarGrabInstall: the call that reads the place of the held object in
 // the Hand must run before the glide of a far grab.
 void ThrowPhysicsInstallEarly();
@@ -58,10 +63,13 @@ struct ThrowPlanIn {
   float units_per_meter;      // world units in a meter of the room now
   float cap;                  // the game's cap of the speed, 124
   float drop_speed;           // the game sets down at this speed or less
+  float height_m;             // the Hand's point over the land at the opening
+                              // of the grip, meters of the room now
 };
 
 struct ThrowPlanOut {
   bool drop;                  // the game sets the object down
+  bool fall;                  // a still hand high up: the object falls
   float sent[3];              // what the release action sends
   float real_mps;             // the top speed of the hand
 };

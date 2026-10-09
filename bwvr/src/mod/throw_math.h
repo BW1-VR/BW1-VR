@@ -105,6 +105,15 @@ inline bool SetDown(const float v_end_room[3], const float v_peak_room[3],
   return !(flat > drop_speed) && !(peak_mps >= swing_mps);
 }
 
+// THE HEIGHT RULE. A hand that is still at the opening of the grip sets the
+// object down only when it is near the land. A still hand higher up than the
+// limit lets the object fall. height_m is the height of the Hand's point over
+// the land (or over the sea) in meters of the room, at the scale now.
+// limit_m of 0 or less is the set down at each height.
+inline bool FallsFromHeight(float height_m, float limit_m) {
+  return limit_m > 0.0f && height_m > limit_m;
+}
+
 // THE TIME FACTOR k. The real flight can look too fast in a small world. So
 // the flight can run k times slower than real, with the same arc: the same
 // landing point, and k times the flight time. In the room the speed is v / k
@@ -125,6 +134,8 @@ inline float SlowFactor(float k, float scale, float* rate) {
 // What a release with the real flight does.
 struct RealThrow {
   bool drop;        // set the object down
+  bool fall;        // a still hand over the height limit: the object falls
+                    // with the velocity of the hand at the opening
   float real_mps;   // the speed of the hand, meters per second
   float scale;      // sqrt(s): the game's velocity is the real one over this
   float rate;       // sqrt(s) / k: the game's step runs this many times as
@@ -145,11 +156,16 @@ struct RealThrow {
 // the velocity in the game's time, cut to the cap, and with a speed across
 // the land of kSendFlat or more, so the game throws the object. The mod then
 // writes game[] to the physics object, with no cap.
+//
+// With fall set, a release that would be a set down is a fall: the object
+// leaves with the mean velocity of the hand at the opening (v_end_room), which
+// is near zero across the land. The game still gets kSendFlat across the
+// land, because it sets down each object that is slower than that.
 inline void RealThrowPlan(const float v_end_room[3],
                           const float v_peak_room[3], const float room[9],
                           float gain, float life, float s, float cap,
                           float drop_speed, RealThrow* out,
-                          float slow = 1.0f) {
+                          float slow = 1.0f, bool fall = false) {
   *out = RealThrow{};
   out->scale = s > 0.0f ? sqrtf(s) : 1.0f;
   if (out->scale < 1.0f) out->scale = 1.0f;
@@ -160,12 +176,16 @@ inline void RealThrowPlan(const float v_end_room[3],
     return;
   }
   out->real_mps = controller_math::Length(v_peak_room) / life;
-  out->drop = SetDown(v_end_room, v_peak_room, gain, life, drop_speed,
-                      kSwingMps) ||
-              !(out->real_mps > 1e-4f);
+  const bool still = SetDown(v_end_room, v_peak_room, gain, life, drop_speed,
+                             kSwingMps) ||
+                     !(out->real_mps > 1e-4f);
+  out->fall = fall && still;
+  out->drop = still && !fall;
   if (out->drop) return;
+  const float* v_room = out->fall ? v_end_room : v_peak_room;
+  if (out->fall) out->real_mps = controller_math::Length(v_room) / life;
   float along[3];
-  controller_math::Apply(room, false, v_peak_room, along);
+  controller_math::Apply(room, false, v_room, along);
   for (int i = 0; i < 3; ++i) {
     out->world[i] = along[i] * (s / life);
     out->flight[i] = out->world[i] / out->slow;

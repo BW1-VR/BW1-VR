@@ -1600,6 +1600,10 @@ bool VillageHalo(FarDraw* out) {
   return true;
 }
 
+bool VillageTakesObject() {
+  return g_ready && g_join.target != nullptr && g_join.acts;
+}
+
 void VillageFrame() {
   Init();
   g_frame = ControllersFrameCount();

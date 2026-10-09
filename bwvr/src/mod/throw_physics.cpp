@@ -198,6 +198,10 @@ bool g_test_keys = false;
 // The time factor k (throw_slow_x10 / 10) and the trees (throw_trees).
 float g_slow = 2.0f;
 bool g_trees = true;
+// THE HEIGHT RULE (release_fall_cm): the limit in meters of the room, 0 for
+// a set down at each height. g_fall_off is the A/B key (Shift Scroll Lock).
+float g_fall_m = 0.15f;
+bool g_fall_off = false;
 // THE LANDING (throw_land): 1 is the time of the land with the low bounce and
 // the brake, 2 is the low bounce and the brake in the time of the flight, 0
 // is the game's own landing. g_land_rate is the rate of the land, the steps in
@@ -1070,7 +1074,8 @@ void PollLawKey() {
   const uint64_t frame = ControllersFrameCount();
   if (frame == last_frame) return;
   last_frame = frame;
-  const bool now = (GetAsyncKeyState(VK_SCROLL) & 0x8000) != 0;
+  const bool now = (GetAsyncKeyState(VK_SCROLL) & 0x8000) != 0 &&
+                   (GetAsyncKeyState(VK_SHIFT) & 0x8000) == 0;
   if (now && !down) {
     DWORD process = 0;
     const HWND window = GetForegroundWindow();
@@ -1081,6 +1086,40 @@ void PollLawKey() {
              g_law == 2 ? "the real flight (throw_law=2)"
                         : "the square root law with the game's physics "
                           "(throw_law=1)");
+    }
+  }
+  down = now;
+}
+
+// THE HEIGHT RULE IN THE HEADSET. With test_keys=1, Shift with Scroll Lock
+// goes between the height rule (release_fall_cm) and the set down at each
+// height. A long pulse means the rule is on, a short pulse means it is off.
+// Read once a frame, and only while a window of the game is in front.
+void PollFallKey() {
+  static uint64_t last_frame = 0;
+  static bool down = false;
+  if (!g_test_keys) return;
+  const uint64_t frame = ControllersFrameCount();
+  if (frame == last_frame) return;
+  last_frame = frame;
+  const bool now = (GetAsyncKeyState(VK_SCROLL) & 0x8000) != 0 &&
+                   (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
+  if (now && !down) {
+    DWORD process = 0;
+    const HWND window = GetForegroundWindow();
+    if (window != nullptr) GetWindowThreadProcessId(window, &process);
+    if (process == GetCurrentProcessId()) {
+      g_fall_off = !g_fall_off;
+      ControllersGesturePulse(0.5f, g_fall_off ? 0.06f : 0.30f);
+      if (g_fall_off || g_fall_m > 0.0f) {
+        ModLog("hand throw   : Shift Scroll Lock: a still hand %s",
+               g_fall_off ? "sets the object down at each height"
+                          : "lets the object fall when its point is higher "
+                            "than release_fall_cm over the land");
+      } else {
+        ModLog("hand throw   : Shift Scroll Lock: release_fall_cm is 0, so a "
+               "still hand sets the object down at each height");
+      }
     }
   }
   down = now;
@@ -1177,6 +1216,7 @@ void PollSlowKeys() {
 
 void __cdecl h_DrawAll() {
   PollLawKey();
+  PollFallKey();
   PollLandKey();
   PollSlowKeys();
   DrawFlights();
@@ -1224,6 +1264,12 @@ void ThrowPhysicsSetSlow(int slow_x10, bool trees) {
   if (slow_x10 > 100) slow_x10 = 100;
   g_slow = static_cast<float>(slow_x10) / 10.0f;
   g_trees = trees;
+}
+
+void ThrowPhysicsSetFall(int limit_cm) {
+  if (limit_cm < 0) limit_cm = 0;
+  if (limit_cm > 1000) limit_cm = 1000;
+  g_fall_m = static_cast<float>(limit_cm) * 0.01f;
 }
 
 void ThrowPhysicsSetLanding(int land, int rate_x10, int bounce_pct,
@@ -1316,6 +1362,16 @@ void ThrowPhysicsInstall() {
          "arc as the real throw, %.2f times slower. Trees %s", g_slow,
          g_slow, g_trees ? "fly the same way (throw_trees=1)"
                          : "keep the game's physics (throw_trees=0)");
+  if (g_fall_m > 0.0f) {
+    ModLog("hand throw   : release_fall_cm=%.0f: a hand that is still at the "
+           "opening of the grip sets the object down when its point is %.0f "
+           "cm of the room over the land or less. Higher up the object "
+           "falls. A Miracle always sets down", g_fall_m * 100.0f,
+           g_fall_m * 100.0f);
+  } else {
+    ModLog("hand throw   : release_fall_cm=0: a hand that is still at the "
+           "opening of the grip sets the object down at each height");
+  }
   if (g_land == 0) {
     ModLog("hand throw   : throw_land=0: after its first contact a thrown "
            "object keeps the time of the flight, with the game's bounce");
@@ -1364,11 +1420,16 @@ bool ThrowPhysicsPlan(const ThrowPlanIn& in, ThrowPlanOut* out) {
   plan.frame = in.frame;
   plan.held = in.held;
   plan.s = in.units_per_meter;
+  // The height rule. A Miracle keeps the set down: its release is its own.
+  const float limit = g_fall_off ? 0.0f : g_fall_m;
+  const bool high = throw_math::FallsFromHeight(in.height_m, limit) &&
+                    !VirtualTrue(in.held, kIsSpellSeed);
   throw_math::RealThrowPlan(in.v_end_room, peak, in.room, in.gain, in.life,
                             in.units_per_meter, in.cap, in.drop_speed,
-                            &plan.t, g_slow);
+                            &plan.t, g_slow, high);
   g_plan = plan;
   out->drop = plan.t.drop;
+  out->fall = plan.t.fall;
   out->real_mps = plan.t.real_mps;
   for (int i = 0; i < 3; ++i) out->sent[i] = plan.t.sent[i];
   if (g_plan_logs >= kMaxPlanLogs) return true;
@@ -1381,12 +1442,29 @@ bool ThrowPhysicsPlan(const ThrowPlanIn& in, ThrowPlanOut* out) {
     sprintf_s(opened, " The grip opened %.0f ms before this release.",
               (in.now - in.opened) * 1000.0);
   }
+  if (plan.t.fall) {
+    ModLog("hand throw   : release at frame %llu with the real flight.%s The "
+           "hand was still, but its point was %.1f cm of the room over the "
+           "land, and the limit is %.0f cm (release_fall_cm). The object "
+           "falls with the velocity of the hand at the opening: %.2f m/s "
+           "across the land and %.2f m/s up. Sent %.1f %.1f %.1f to start the "
+           "physics. Holding %p", in.frame, opened, in.height_m * 100.0f,
+           limit * 100.0f, end_flat, plan.t.world[1] / in.units_per_meter,
+           plan.t.sent[0], plan.t.sent[1], plan.t.sent[2], in.held);
+    return true;
+  }
   if (plan.t.drop) {
+    if (in.height_m > 0.0f && limit > 0.0f && in.height_m > limit) {
+      ModLog("hand throw   : the release keeps the set down at %.1f cm of "
+             "the room over the land, because %p is a Miracle",
+             in.height_m * 100.0f, in.held);
+    }
     ModLog("hand throw   : release at frame %llu with the real flight.%s The "
            "hand was still: %.2f m/s across the land in the 80 ms before the "
            "opening, and a top speed of %.2f m/s. The game sets the object "
-           "down, sent zero. Holding %p", in.frame, opened, end_flat,
-           controller_math::Length(peak) / in.life, in.held);
+           "down at %.1f cm of the room over the land, sent zero. Holding %p",
+           in.frame, opened, end_flat, controller_math::Length(peak) / in.life,
+           in.height_m * 100.0f, in.held);
     return true;
   }
   ModLog("hand throw   : release at frame %llu with the real flight.%s The "

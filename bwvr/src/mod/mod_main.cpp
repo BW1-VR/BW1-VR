@@ -355,6 +355,7 @@ FarGrabSettings g_far_grab;
 int g_throw_law = 2;
 int g_throw_slow_x10 = 20;
 bool g_throw_trees = true;
+int g_release_fall_cm = 15;
 int g_throw_log = 0;
 // The landing of a thrown object (throw_physics.cpp).
 int g_throw_land = 1;
@@ -896,6 +897,11 @@ void ReadSettings() {
     // fly as a rock does.
     g_throw_slow_x10 = number("throw_slow_x10", 20);
     g_throw_trees = number("throw_trees", 1) != 0;
+    // release_fall_cm: a hand that is still at the opening of the grip sets
+    // the object down only when its point is this many cm of the room over
+    // the land or less. Higher up the object falls. 0 sets it down at each
+    // height. See docs/throw.md, "The height of a release".
+    g_release_fall_cm = number("release_fall_cm", 15);
     // throw_land: what a thrown object does after its first contact. 1 is
     // the time of the land with the low bounce and the brake, 2 is the low
     // bounce and the brake in the time of the flight, 0 is the landing of
@@ -1095,6 +1101,7 @@ void StartVrOnce() {
         VillageInstall();
         ThrowPhysicsSetOptions(g_throw_law, g_throw_log, g_test_keys);
         ThrowPhysicsSetSlow(g_throw_slow_x10, g_throw_trees);
+        ThrowPhysicsSetFall(g_release_fall_cm);
         ThrowPhysicsSetLanding(g_throw_land, g_throw_land_rate_x10,
                                g_throw_bounce_pct, g_throw_land_brake_pct);
         ThrowPhysicsInstallEarly();

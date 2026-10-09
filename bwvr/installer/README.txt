@@ -502,8 +502,11 @@ In the God view and in the Tabletop play mode, an object that you
 throw flies as a real object flies in your room: as fast as your hand
 moved, on the same arc, for the same time. Swing your hand and open
 the grip in the swing. A hard throw can kill a villager, as in the
-game. Open the grip with a still hand to put an object down. A tree
-and a miracle fly as the game makes them fly. Set throw_law=1 in
+game. Open the grip with a still hand to put an object down. If your
+hand is more than 15 cm over the land, the object falls and does not
+go to the land at once. Set release_fall_cm in bwvr.ini to change this
+height, or release_fall_cm=0 to put the object down at each height.
+A tree and a miracle fly as the game makes them fly. Set throw_law=1 in
 bwvr.ini for the slower flight of the physics of the game, or
 throw_law=0 for a throw that scales your hand speed by a fixed gain.
 

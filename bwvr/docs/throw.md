@@ -16,6 +16,9 @@ object is in `grab.md`.
   get it. A time factor k makes the flight slower than real (`throw_slow_x10`).
 - From the first contact the rate of the game's steps goes down to 1 step in
   each substep. A low bounce and a brake make the object come to rest.
+- A still hand near the land sets the object down. A still hand higher up
+  than `release_fall_cm` lets the object fall (see "The height of a
+  release").
 - A release runs a game turn at once, so the object leaves the Hand on the
   frame after the release action (`release_at_once`). A fast fall of the grip
   value opens the grip at once (`grip_fast_open`).
@@ -226,6 +229,7 @@ times as long.
 | `throw_log` | 0 | 1 logs each turn of a flight and each third frame of its draw, for the desktop runs. 2 also logs each substep and each frame after the first contact |
 | `throw_gain_pct` | 150 | The gain of `throw_law=0`, and the gain in the set down rule |
 | `throw_slow_x10` | 20 | The time factor k times 10, from 10 to 100. 20 is k = 2.0: the flight has the arc of the real throw, 2 times slower |
+| `release_fall_cm` | 15 | The height of the Hand's point over the land, in cm of the room, above which a still hand lets the object fall. 0 sets it down at each height |
 | `throw_trees` | 1 | 1 lets a thrown tree fly as a rock does. 0 gives the tree the game's physics |
 
 Outside the God view and the table (play modes 0 to 2) the throw uses the
@@ -236,6 +240,9 @@ gain of `throw_law=0`.
 - Scroll Lock goes between the real flight and the square root law while the
   game runs. A flight that is in the air goes on. The log names the law after
   each press.
+- Shift with Scroll Lock goes between the height rule of a release
+  (`release_fall_cm`) and the set down at each height (see "The height of a
+  release"). Scroll Lock alone does not read while Shift is down.
 - Numpad Plus makes k larger by 0.25 (slower), and Numpad Divide makes it
   smaller by 0.25 (faster), from 1.0 to 10.0. Each press gives a short pulse
   of the pointing hand (weaker at the end of the range) and a log line with
@@ -463,6 +470,96 @@ catch up of the picture (`kCatchUp`).
   rate with Ctrl and Numpad Divide), whether the change of the rate shows at
   the first contact, and whether a thrown villager lives through a soft throw
   and dies from a hard one.
+
+## The height of a release
+
+This section is the release of a still hand: a set down or a fall.
+
+### What the game does [V]
+
+`Object::InitialisePhysicsFromHand` `0x00636F00` decides at the drop action.
+It adds the object to the physics at the place of the Hand, with the velocity
+of the release. When the speed across the land squared is 4 or less (1 or
+less with the gentle mark, see `hand.md`, section 3), it is a set down: the
+function calls `PhysOb::AdjustToGroundLevel` `0x007FCB80` and
+`PhysicsObject::RaiseUntilNotIntersecting`, so the object stands on the land
+under the Hand at once and does not fall. With a faster speed it is a throw,
+and the object falls under the game's physics. So a mouse Hand, which is
+always near the land, loses nothing. A real hand in the God view can be far
+over the land, and a set down from there was a jump to the land.
+
+The classes that override the function: `Living` `0x005EFD80` and `Villager`
+`0x005EFE90` (they call the base function and then set the state of the
+creature), `Scaffold` `0x006EA8A0` (it destroys things in the way and then
+calls the base function) and `Pot` `0x0066DF00`. A `Pot` (a pile of wood or
+food in the Hand) with a velocity squared of 5 or less pours out at the place
+(`StartMultiPutdown`). Above 5 it goes to the base function and is thrown as
+any object. So the set down is the same for each kind of object that the
+Hand can hold (a rock, a tree, a villager, an animal, a ball, a crop, a
+scaffold). The mod found no kind that falls from the Hand's place with a
+velocity of zero.
+
+### What the mod does
+
+`release_fall_cm` (default 15) is the height rule. The mod latches the height
+of the Hand's point over the land (`g_target` and the altitude of the land
+under it, which is 0 over the sea) at the opening of the grip, in meters of
+the room at the scale now (`FallsFromHeight` in `throw_math.h`). A hand that is
+still at the opening (`SetDown`) then does one of two things:
+
+- At the limit or lower, the object is set down as the game does it, with a
+  velocity of zero.
+- Higher up, `RealThrowPlan` makes a fall. The object leaves with the mean
+  velocity of the hand over the 80 ms before the opening (near zero across the
+  land, and the vertical speed of the hand). The release sends 2.5 units per
+  second across the land (`kSendFlat`), which is only the least that the game
+  needs to throw the object and not set it down. The real flight then
+  overwrites the velocity, so the object falls straight down from the place of
+  the Hand under the game's physics, with the landing of "The landing of a
+  thrown object". A throw with a swing is a throw at each height.
+
+15 cm is the top of the reach values of `grab.md` (4 to 15 cm): a hand that
+hovers within the reach of the land still puts the object down.
+
+What each kind does:
+
+| Object | At the limit or lower | Higher up |
+| --- | --- | --- |
+| A rock, a ball, a crop, a scaffold, an animal, a villager | Set down | Falls. The game's landing damage is the game's own (see "The damage") |
+| A tree | Set down, and the game plants it | Falls, and the game plants it where it comes to rest (`Tree::EndPhysics`) |
+| A pot of wood or food | Pours out at the place | Falls as an object (the speed squared is 6.25, above 5), and does not pour |
+| A Miracle | Set down | Set down. A Miracle keeps its own rules and the game's release |
+| A thing that goes onto a thing (a store, a building site, the altar) | Its own rule, `grab.md`, "An object in the Hand that goes onto a thing" | The same. While a thing at the Hand takes the object (`VillageTakesObject` in `village.cpp`), the height rule does not act |
+
+`release_fall_cm=0` gives a set down at each height. The rule
+works with `throw_law=2` in the God view and on the table. The other laws and
+the play modes 0 to 2 keep the set down.
+
+### The test key
+
+With `test_keys=1`, Shift with Scroll Lock goes between the height rule and the
+set down at each height. A long pulse of the pointing hand means the rule is on,
+a short pulse means it is off. The log has a line for each press.
+
+### The log
+
+Tag `hand throw`. A fall: "The hand was still, but its point was N cm of the
+room over the land, and the limit is N cm", the velocity, and what the release
+sent. After it the log has the lines of a flight (`throw_log=1`). A set down
+names the height too.
+
+### Checks
+
+`ThrowChecks` covers the height rule: a set down at 5 cm and at the limit, a
+fall at 30 cm, the limit of 0, and, at 7.5, 67 and 1000 units per meter, a
+still hand that falls with its own velocity and sends more than the speed of a
+set down. It covers a hand at rest that falls from rest, and a swing that is a
+throw at each height.
+
+### Open
+
+- Not tested in a desktop run: a pot, a villager, a tree and an animal that
+  fall from the Hand, and an opening over a store at a height. Only a headset shows whether 15 cm feels right.
 
 ## The release at once
 

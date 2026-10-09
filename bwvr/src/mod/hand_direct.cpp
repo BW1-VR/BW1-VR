@@ -935,6 +935,7 @@ struct ThrowLatch {
   float v_room[3];
   float v_grip[3];
   float real;
+  float height;  // the Hand's point over the land, world units
 };
 ThrowLatch g_latch = {};
 const double kLatchSeconds = 0.3;
@@ -1737,6 +1738,7 @@ void PrepareThrow() {
   }
   const float gain = ControllersThrowGainPct() * 0.01f;
   float v_room[3], v_grip[3], real = 0.0f, before = 0.0f;
+  float height = g_target[1] - g_land_y;
   float sent[3] = {0.0f, 0.0f, 0.0f};
   bool moving = false;
   const double now = NowSeconds();
@@ -1749,6 +1751,7 @@ void PrepareThrow() {
       v_grip[i] = g_latch.v_grip[i];
     }
     real = g_latch.real;
+    height = g_latch.height;
     ++g_latched_throws;
   } else {
     moving = HandVelocity(kThrowWindow, v_room, v_grip, &real);
@@ -1785,6 +1788,10 @@ void PrepareThrow() {
     in.units_per_meter = table;
     in.cap = cap;
     in.drop_speed = kDropSpeed;
+    // A thing at the Hand takes the object (a store, a building, an altar):
+    // the opening of the grip puts the object on it at each height, so the
+    // height rule does not act.
+    in.height_m = VillageTakesObject() ? 0.0f : height / table;
     ThrowPlanOut plan = {};
     real_flight = ThrowPhysicsPlan(in, &plan);
     if (real_flight) {
@@ -6514,6 +6521,9 @@ void HandDirectGripOpened() {
   g_latch.valid = true;
   g_latch.time = NowSeconds();
   g_latch.frame = g_frame;
+  // The Hand's point over the land (the sea gives 0), for the height rule of
+  // the release (docs/throw.md, "The height of a release").
+  g_latch.height = g_target[1] - g_land_y;
   g_latch.moving =
       HandVelocity(kThrowWindow, g_latch.v_room, g_latch.v_grip, &g_latch.real);
   if (!g_latch.moving) {

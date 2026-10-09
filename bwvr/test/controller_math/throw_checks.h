@@ -228,6 +228,59 @@ inline void ThrowChecks() {
     Near("the flick throws at its top speed", plan.real_mps, 2.5, 0.4);
   }
 
+  // THE HEIGHT RULE. A still hand over the limit lets the object fall.
+  {
+    Check(!FallsFromHeight(0.05f, 0.15f), "5 cm over the land is a set down",
+          0, 0);
+    Check(!FallsFromHeight(0.15f, 0.15f), "at the limit is a set down", 0, 0);
+    Check(FallsFromHeight(0.30f, 0.15f), "30 cm over the land is a fall", 1,
+          1);
+    Check(!FallsFromHeight(2.0f, 0.0f), "a limit of 0 is the set down at each "
+          "height", 0, 0);
+    Check(FallsFromHeight(-1.0f, 0.15f) == false, "a point under the land is "
+          "no fall", 0, 0);
+    const float still[3] = {0.5f, -0.3f, 0.2f};  // 0.07 m/s across, 0.04 down
+    for (int k = 0; k < 3; ++k) {
+      const float scales[3] = {7.5f, 67.0f, 1000.0f};
+      const float s = scales[k];
+      RealThrow plan;
+      RealThrowPlan(still, still, identity, 1.5f, 7.5f, s, 124.0f, 2.0f,
+                    &plan, 2.0f, false);
+      Check(plan.drop && !plan.fall, "a still hand near the land sets down",
+            plan.drop, 1);
+      RealThrowPlan(still, still, identity, 1.5f, 7.5f, s, 124.0f, 2.0f,
+                    &plan, 2.0f, true);
+      Check(!plan.drop && plan.fall, "a still hand high up lets it fall",
+            plan.fall, 1);
+      Near("the fall has the velocity of the hand, across the land",
+           sqrt(plan.world[0] * plan.world[0] + plan.world[2] * plan.world[2]),
+           sqrt(0.5 * 0.5 + 0.2 * 0.2) / 7.5 * s, 1e-3 * s);
+      Near("and down", plan.world[1], -0.3 / 7.5 * s, 1e-3 * s);
+      Check(plan.sent[0] * plan.sent[0] + plan.sent[2] * plan.sent[2] >
+                2.0f * 2.0f,
+            "the release sends more than the speed of a set down", 0, 0);
+    }
+    // A hand with no motion at all falls from rest, and the release still
+    // sends a speed across the land.
+    const float none[3] = {0.0f, 0.0f, 0.0f};
+    RealThrow rest;
+    RealThrowPlan(none, none, identity, 1.5f, 7.5f, 67.0f, 124.0f, 2.0f,
+                  &rest, 2.0f, true);
+    Check(rest.fall && !rest.drop, "a hand at rest high up falls", rest.fall,
+          1);
+    Near("from rest the real flight has no velocity",
+         controller_math::Length(rest.world), 0.0, 1e-6);
+    Near("and the release sends kSendFlat across the land",
+         sqrt(rest.sent[0] * rest.sent[0] + rest.sent[2] * rest.sent[2]),
+         kSendFlat, 1e-4);
+    // A throw is a throw at each height.
+    const float fast[3] = {15.0f, 5.0f, 10.0f};
+    RealThrow thrown;
+    RealThrowPlan(fast, fast, identity, 1.5f, 7.5f, 67.0f, 124.0f, 2.0f,
+                  &thrown, 2.0f, true);
+    Check(!thrown.drop && !thrown.fall, "a throw is no fall", thrown.fall, 0);
+  }
+
   // THE PLAN. A hand at 5 m/s, 30 degrees up, in a room turned 90 degrees.
   {
     const float c = cosf(30.0f * 3.14159265f / 180.0f);
