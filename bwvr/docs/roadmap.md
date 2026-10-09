@@ -97,18 +97,16 @@ moves while the Hand takes it.
 
 ### Changes to the controls
 
-- **P1. The choice of a far target.** One package of two parts:
-  - The cone of the far target does not fit the objects: it is too large
-    for some and too small for others. In the quest to save the children
-    the highlight goes to trees, not to the characters. A guess: the cone
-    uses the collision model.
-  - The size of the cone and the order of the targets. Ideas: a better
-    order of priority for the targets, or a small cone to get a target and
-    a larger cone to keep it, so that a lock is not lost quickly. The cone
-    is small because this game has many more objects in view than a game
-    such as Half-Life: Alyx (`research-hla.md`).
-  The range of an object target of a Creature command is 4 m of the room,
-  so a far zoom has almost no object target. This belongs to the package.
+- **P1. The choice of a far target: test it in the headset.** The choice by
+  the body, the size term and the bias for living things (`far_grab_choice=1`,
+  `grab.md`) are proven by the math checks and by log lines of a desktop run
+  with a rock and a tree. No run had a villager beside a tree. In the quest to
+  save the children, check that the halo goes to the character and not to the
+  tree (Ctrl Delete with `test_keys=1` changes the choice). Open numbers: the
+  bias of 3 degrees, the least size of 2 degrees, and the range of 10 m for a
+  Creature command. The screen test offers an object to the pick by its base
+  point (12 degrees), so a tall tree that the ray crosses only at its crown,
+  far from its base, is a candidate only when the draw offers it by the pixel.
 - **P2. A held grip on the far Creature makes it stay.** When the Creature
   is the far target and the grip is held, the Creature stops and stays
   where it is for as long as the grip is held. A short grip on the far

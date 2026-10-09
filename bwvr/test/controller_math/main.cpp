@@ -3377,6 +3377,7 @@ void CreatureChecks() {
 #include "exact_checks.h"
 #include "village_checks.h"
 #include "far_checks.h"
+#include "far_choice_checks.h"
 #include "forest_checks.h"
 #include "grip_checks.h"
 #include "hand_pose_checks.h"
@@ -3748,6 +3749,7 @@ int main() {
   AudioChecks();
   ExactChecks();
   far_checks::FarChecks();
+  far_choice_checks::FarChoiceChecks();
   near_checks::NearChecks();
   near_checks::OneTargetChecks();
   near_checks::StrokeChecks();

@@ -782,16 +782,38 @@ point is inside the cone, 4 degrees wider than the selection (12 degrees,
 pixel, so the game's own pick gets no false hit. The mesh of the locked target
 is offered on each frame (`g_far_keep_model`).
 
-After the first eye pass, `FarSelect()` scores the candidates with
-`FarConeScore`:
+After the first eye pass, `FarSelect()` scores the candidates. The pure rules
+are in `far_choice_math.h` (the choice by the body) and `controller_math.h`
+(`FarConeScore`, `FarPickTarget`). The key `far_grab_choice` (default 1) picks
+the rule:
 
-- `te = max(0, t - atan(r / d))`, with t the angle off the ray, r the
-  `Get2DRadius` of the object and d its distance from the ray's origin. An
-  object behind the ray is out. An object less than 0.35 m of the room from the
-  Hand's point is a near object, and it is out too (`kFarMinHandM`, or the
+- **`far_grab_choice=0`, one point.** `te = max(0, t - atan(r / d))`, with t the
+  angle off the ray to the base of the object (the mesh translation), r the
+  `Get2DRadius` of the object and d its distance from the ray's origin. The
+  height of the object does not count.
+- **`far_grab_choice=1`, the body (default).** The angle is measured to the
+  nearest point of the upright body of the object: the line from the base up to
+  `GetHeight` (two radii when the game gives none), with the radius around it
+  (`BodyScore`, which uses `AimAtBody`). A body covers at least 2 degrees of the
+  view (`kMinCoverDeg`). A forest, a scroll and the Creature keep the point.
+  When the ray goes through two bodies, a small one comes first: the score adds
+  0.5 degrees for each log2(1 + size), with size the larger of the radius and
+  half the height in world units (`kSizeDeg`). A rock of 0.5 comes 1.2 degrees
+  before a tree of 7.5. A living thing (a villager, found by the class name, an
+  animal, found by slot `0x454` `IsAnimal` [V], and your Creature) scores 3
+  degrees better than its angle (`kLivingBiasDeg`, `RankedScore`). With the size
+  term, a villager wins over a tree on the ray when it is about 4 degrees
+  further from the ray than the tree, and over a rock when it is about 3 degrees
+  further. With no living thing near the ray the order is the plain score. The
+  bias is in the score, so the hysteresis below keeps a living target against a
+  tree. The log line of each new target says why it won and names the second
+  best ("Why: a living thing comes first. The second one is ... (Tree) at 0.0
+  degrees, score 2.50 against -1.66").
+- An object behind the ray is out. An object less than 0.35 m of the room from
+  the Hand's point is a near object, and it is out too (`kFarMinHandM`, or the
   `FarLeastMeters` of "Near objects win"). A near object of `Choose()` always
   wins, and then there is no far target.
-- The score is `te + 1 degree x log2(1 + meters from the Hand)`.
+- The score is `te + 1 degree x log2(1 + meters from the Hand)`, less the bias.
 - A new target needs `te <= 8` degrees (`far_grab_cone_deg`). The target stays
   while `te <= 14` degrees. Another object takes over only when its score is 2
   degrees lower (`FarPickTarget`).
@@ -1013,12 +1035,17 @@ not jump.
 | --- | --- | --- |
 | `far_grab` | 1 | 0 turns the whole feature off |
 | `far_grab_cone_deg` | 8 | The `te` that a new target needs. The target stays to this plus 6 |
+| `far_grab_choice` | 1 | 1 measures the angle to the body of the object, puts a small body before a large one and a living thing before a tree or a rock (see "The cone and the choice"), and gives a Creature command 10 m of range. 0 is the choice by one point of the object, and 4 m for the command |
 | `far_grab_pull` | 80 | The speed of the pull, in cm/s |
 | `far_grab_max_m` | 2.0 | The range: a target is at most this far from the head, in meters of the room along the floor. 0 gives no limit |
 | `far_grab_near_cm`, `far_grab_near_out_cm` | 10, 15 | See "Near objects win" |
 | `far_touch` | 1 | 1 makes a scroll in the aim a far target that the grip activates |
 | `far_leash` | 1 | The leash click on the player's own Creature at a distance (see [creature.md](creature.md)) |
 | `throw_law` | 2 | The law of the throw (see [throw.md](throw.md)) |
+
+With `test_keys=1`, Ctrl with the Delete key changes `far_grab_choice` between 1
+and 0 while the game runs. The pointing controller gives a long pulse for 1 and
+a short pulse for 0, and the log has a line.
 
 Test keys for the desktop runs only:
 
@@ -1029,6 +1056,14 @@ Test keys for the desktop runs only:
   is in the sea.
 - `far_test_least_cm=N`: the word takes an object N cm or more from the Hand,
   and not 50 cm.
+- `far_test_aim_class=N`: the word `aimfar` aims at the middle of the body of the
+  nearest villager (1), living thing (2), rock (3), your Creature (4) or tree
+  (5). `far_test_aim_toward=1` (a tree) or 2 (a rock) then turns the aim toward
+  the nearest such object, 20 units or less from the target, by
+  `far_test_aim_blend_pct` percent of the way. The same aim then runs with
+  `far_grab_choice=0` and `1`, and the log of each new target names the winner
+  and the second best. The start of Land 1 has no villager in view, so the
+  runs aim at rocks and trees.
 
 The fake controller has two words. `aimfar@F+n` turns the aim of the right hand
 to the nearest far target: a holdable object that is no tree, more than 0.5 m of
@@ -1061,6 +1096,16 @@ The math test (`far_checks.h`, `RangeChecks` in `grip_checks.h`):
   The target is kept at 13 and 14 degrees and lost at 14.5. An object 20 cm from
   the Hand is no target with its own distance and is one with the distance of the
   score (`FarScoreMeters`).
+- The choice by the body (`far_choice_checks.h`): a tree 4 units from a villager
+  wins over the villager when the hand is 1.2 degrees off the villager with
+  `far_grab_choice=0` and loses with 1. A ray through the crown of a tree takes
+  the tree. A villager 2.4 degrees from a tree on the ray comes first, and a
+  villager 8 degrees from it does not. Two villagers: the one under the ray
+  wins, and a shake of 2 degrees keeps the halo. A rock before a tree wins in
+  both choices, and a rock beside a tree that is nearer to the Hand wins with 1
+  and loses with 0. A tree that has the halo keeps it against a villager that
+  scores less than 2 degrees better. A villager 5 m away covers 2 degrees at the
+  least. The range of a command: 4 m, 10 m, and an ini value as it is.
 - The pull: 0.9 m/s toward the head fires. 0.9 m/s across, a head step with a
   still hand, 0.7 m/s with 5 cm, and an angle of 57.8 degrees do not fire. A
   move of 12 cm fires and 11 cm does not. A flick up fires, and one away from
@@ -1084,7 +1129,7 @@ object. Desktop runs (God view, `fake_controller=2`, Land 1, `-NEWGAME`) use the
 dialog recipe of [god-view.md](god-view.md), section 12, then the pen from about
 frame 2750.
 
-**Not shown in a run:** a fetch of an object over the sea or in it, an object
+**Not shown in a run:** a villager beside a tree (the start of Land 1 has no villager in view, so the runs use a rock and a tree), a fetch of an object over the sea or in it, an object
 with its point under the sea plane, a locked target that drifts out of the
 influence, a villager in the sea, the tether and the halo during a take at a
 distance, a `Field` and a `FishFarm` as a far target, a take with the Hand over
@@ -1092,7 +1137,7 @@ land outside the influence, a multiplayer game, a fetch of a villager, a
 Creature or a building, the haptics on a real controller, and the look of the
 halo against open land (the pen is a slope).
 
-**Needs the headset.** Whether 2 m is the right range. Whether the cone of 8
+**Needs the headset.** Whether 2 m is the right range. Whether the body, the size term and the bias of 3 degrees pick the villager that the hand points at in a crowd, in the quest to save the children. Whether the cone of 8
 degrees feels right with the real aim pose. Whether the pull at 0.8 m/s or 12 cm
 is easy to do and does not fire by accident. Whether the glide time reads well.
 Whether a take at a distance reads well: the halo, the tether and the count at

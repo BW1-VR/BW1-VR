@@ -890,6 +890,7 @@ void ReadSettings() {
     g_far_grab.on = number("far_grab", 1) != 0;
     g_far_grab.cone_deg = number("far_grab_cone_deg", 8);
     g_far_grab.pull_cmps = number("far_grab_pull", 80);
+    g_far_grab.choice = number("far_grab_choice", 1);
     // throw_law: 2 is the real flight of a thrown object (the default), 1
     // is the square root law, and 0 is the plain gain. See docs/throw.md, "The
     // throw physics". throw_log=1 logs each flight in full, and 2 also logs

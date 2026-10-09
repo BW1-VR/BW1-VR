@@ -710,7 +710,7 @@ a flicker.
 | --- | --- | --- |
 | The cone | A new target needs the aim within 3 degrees of its body (`creature_command_cone_deg`). The target stays to 5 degrees (`creature_command_keep_deg`). A different object takes the aim only with a score 1 degree lower | The land of the God view is 54 to 57 cm below the head, so the hand is 20 to 40 cm above the land. A ray from there to a point 5 m away goes down at 3 degrees. With a wide cone each tree of the far field would be in the aim. The grab from a distance keeps its cone of 8 and 14 degrees, because a grip with no target does nothing, and a trigger with no target has the land |
 | The body | The angle is measured to the upright body of the object: the line from its base to its top, with its 2D radius (`AimAtBody`). The Creature is a ball around its body bone | With a cone of 3 degrees, the aim on the crown of a near tree is more than 3 degrees from the base of the tree. The cone starts at the side of the body, so the radius adds to it |
-| The range | The object is at most 4 m of the room from the head, along the floor (`creature_command_max_m`), and 15 cm more for the target of the last frame | The arc for the land reaches 10 m, so the Creature can still go that far |
+| The range | The object is at most 10 m of the room from the head, along the floor, and 15 cm more for the target of the last frame (`creature_command_max_m`, and with `far_grab_choice=0` the default is 4 m). 10 m is the reach of the land arc. At 27.5 units a meter 4 m are 110 units and 10 m are 275 units | The arc for the land reaches 10 m, so the Creature can still go that far |
 | The land in front wins | When the aim ray meets the land before the object, the object is out when it is more than 30 cm (`creature_command_behind_cm`) plus 20 percent of the distance of the land point behind that point. The target of the last frame stays to 1.5 times that | The player who points at the land in front of a tree wants the land. The share of the distance is there because a ray near the land moves its land point by 1 m for 1 degree |
 
 The land point of the ray comes from a march along the ray in steps of 3 cm
@@ -802,7 +802,7 @@ With the mouse, the game's own test acts.
 | `creature_command_rule` | 3 | 3 is the live target, and a press that began on the land stays a walk (section 4.1). 2 is the live target, and a held walk can change to an object that stays in the aim for 100 ms. 1 is the older rule |
 | `creature_command_cone_deg` | 3 | A new target needs the aim this near to its body, in degrees. 0.5 to 20 |
 | `creature_command_keep_deg` | the cone plus 2 | The target stays while the aim is this near |
-| `creature_command_max_m` | 4 | The range from the head, in meters of the room along the floor. 0 is no limit |
+| `creature_command_max_m` | -1 | The range from the head, in meters of the room along the floor. Less than 0 follows `far_grab_choice`: 10 m for 1, and 4 m for 0. 0 is no limit |
 | `creature_command_behind_cm` | 30 | The land in front wins past this many cm of the room, plus 20 percent of the distance. -1 turns the rule off |
 | `creature_command_double_ms` | 500 | The time of a double press (section 5.2). 0 turns the double press off |
 | `teleport_reach_m`, `teleport_ring_cm` | 10, 11 | The arc and the ring of the land aim. See `god-view.md` |
@@ -1061,7 +1061,7 @@ now"), and the Creature state ends.
   the Creature does what the player expects on each kind of object.
 - Whether 0.6 m/s and 4 strokes fit a real shake, and whether a normal move
   of the hand never takes the leash off.
-- Whether 3 degrees and 4 m are the right numbers for a real hand, whether
+- Whether 3 degrees and 10 m are the right numbers for a real hand, whether
   the wait of 100 ms is right, and whether the halo on almost each object in
   the cone is too much while the leash is on.
 - Whether 500 ms is the right time for a real finger, and whether it feels

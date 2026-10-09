@@ -127,6 +127,7 @@
 #include "controller_math.h"
 #include "controllers.h"
 #include "creature_command.h"
+#include "far_choice_math.h"
 #include "far_grab.h"
 #include "forest_take.h"
 #include "haptics.h"
@@ -474,6 +475,11 @@ const int kBoxHalf = 0x24;
 const int kMeshRows = 0x14;
 // GameThing::IsCreature (slot 0x34): 1 for a Creature.
 const int kIsCreature = 0x34;
+// GameThingWithPos::IsAnimal (slot 0x454, no arguments, a plain return): 1 for
+// an Animal (Animal::IsAnimal 0x00417880). Found as the slot of
+// IsAnyKindOfTree (0x478) less the distance of the two stubs in the vtable of
+// GameThingWithPos (0x008A9EB8 and 0x008A9EDC). [V]
+const int kIsAnimal = 0x454;
 // InterfaceValidToTap (slot 0x740, thiscall (GInterfaceStatus*), ret 4): 1
 // when a press of the Action button taps the object. A scroll gives 1 while it
 // has a script (ScriptHighlight 0x0070ADD0), and a house gives 1 (Abode
@@ -768,6 +774,14 @@ ULONGLONG g_haptic_target_tick = 0;
 uint64_t g_haptic_release_frame = 0;
 float g_stroke_path_cm = 0.0f;
 const float kFarTouchBiasDeg = 3.0f;
+// far_grab_choice=1 (far_choice_math.h). The class of each candidate, the
+// score with no bias, and the text of the second candidate for the log.
+bool g_far_living[kMaxFarScores];
+controller_math::FarScore g_far_raw[kMaxFarScores];
+char g_far_runner[160];
+const char* g_far_why = nullptr;
+bool g_choice_key_down = false;
+float g_far_toward[3];  // the base of the tree of far_test_aim_toward
 uint64_t g_far_out_of_range = 0;  // candidates past far_grab_max_m, this window
 char g_far_name[48];
 // A TARGET THAT MOVES OR DIES (far_grab.cpp). The mesh of the locked target:
@@ -3003,6 +3017,35 @@ void SetRule(int rule) {
   g_one_target = g_rule >= 2;
 }
 
+// THE A/B KEY OF THE CHOICE OF A FAR TARGET (test_keys=1): Ctrl with the Delete
+// key changes far_grab_choice between 1 (the body of the object, living
+// things first, 10 m for a Creature command) and 0 (one point of the object,
+// 4 m). The pointing controller gives a long pulse for 1 and a short pulse
+// for 0. The key is read once a frame, only while a window of the game is in
+// front, and the mod does not take it from the game.
+void PollChoiceKey() {
+  if (!g_release_key) return;
+  const bool down = (GetAsyncKeyState(VK_DELETE) & 0x8000) != 0 &&
+                    (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
+  const bool pressed = down && !g_choice_key_down;
+  g_choice_key_down = down;
+  if (!pressed) return;
+  HWND window = GetForegroundWindow();
+  DWORD process = 0;
+  if (window != nullptr) GetWindowThreadProcessId(window, &process);
+  if (process != GetCurrentProcessId()) return;
+  FarGrabSetChoice(FarGrabChoice() != 0 ? 0 : 1);
+  ControllersGesturePulse(0.5f, FarGrabChoice() != 0 ? 0.30f : 0.08f);
+  ModLog("far grab    : Ctrl and Delete: far_grab_choice is %d now, frame "
+         "%llu. %s", FarGrabChoice(), g_frame,
+         FarGrabChoice() != 0
+             ? "The angle is measured to the body of the object, and living "
+               "things come first. A Creature command reaches 10 m"
+             : "The angle is measured to one point of the object. A Creature "
+               "command reaches 4 m");
+}
+
+
 void PollNearKey() {
   // The test key near_test_flips: the rule changes between 1 and 2 at each
   // frame of the list.
@@ -4320,6 +4363,25 @@ bool IsScroll(void* object) {
   return strcmp(ClassName(object), "ScriptHighlight") == 0;
 }
 
+// A LIVING THING: a villager, an animal, or a Creature (far_grab_choice=1
+// puts it before a tree or a rock in the cone). A villager has no virtual call
+// of its own with no argument, so it is found by the class name.
+bool IsLivingObject(void* object) {
+  if (IsCreatureObject(object)) return true;
+  if (reinterpret_cast<VirtualIntFn>(VTable(object)[kIsAnimal / 4])(
+          object, nullptr) != 0) {
+    return true;
+  }
+  return strcmp(ClassName(object), "Villager") == 0;
+}
+
+// The height of the body of a far candidate: the game's height, or two radii.
+float FarBodyHeight(void* object, float radius) {
+  const float height = reinterpret_cast<VirtualFloatFn>(
+      VTable(object)[kGetHeight / 4])(object, nullptr);
+  return far_choice_math::BodyHeight(height, radius);
+}
+
 // THE SELECTION OF A FAR GRAB. After the first eye pass, from the candidates
 // of the cone: a holdable object, a bulk source or a scroll that scores in
 // the cone, is not near the Hand, and is in the range of far_grab_max_m from
@@ -4354,6 +4416,7 @@ void FarSelect() {
   int current_index = -1;
   int count = 0;
   const float keep = FarGrabKeepDeg();
+  const bool fair = FarGrabChoice() != 0;
   for (int i = 0; i < g_candidate_count && count < kMaxFarScores; ++i) {
     const Candidate& c = g_candidates[i];
     const float hand_m = Distance(c.position, g_target) / g_far_units;
@@ -4366,9 +4429,17 @@ void FarSelect() {
     // (far_grab_near_out_cm). The score takes 35 cm for a nearer object.
     if (hand_m < FarMinMeters()) continue;
     const float score_m = controller_math::FarScoreMeters(hand_m);
-    // A first cut with no radius: te with a radius is never more than it.
+    // A first cut with no radius: te with a radius is never more than it. The
+    // choice by the body cuts with a radius that holds the whole body.
+    float body_radius = 0.0f, body_height = 0.0f;
+    if (fair) {
+      body_radius = Radius2D(c.object);
+      body_height = FarBodyHeight(c.object, body_radius);
+    }
     const controller_math::FarScore rough = controller_math::FarConeScore(
-        g_far_origin, g_far_direction, c.position, 0.0f, score_m);
+        g_far_origin, g_far_direction, c.position,
+        fair ? far_choice_math::CutRadius(body_height, body_radius) : 0.0f,
+        score_m);
     if (!rough.valid || rough.te > keep + 4.0f) continue;
     // THE RANGE: at most far_grab_max_m meters of the room from the head,
     // along the floor.
@@ -4426,10 +4497,21 @@ void FarSelect() {
                                                                nullptr) != 0)) {
       continue;
     }
-    const float radius = Radius2D(c.object);
-    controller_math::FarScore s = controller_math::FarConeScore(
-        g_far_origin, g_far_direction, c.position, radius, score_m);
+    const float radius = fair ? body_radius : Radius2D(c.object);
+    // The choice by the body measures the angle to the upright body of an
+    // object. A forest, a scroll and the Creature keep the point: a forest is
+    // a field of trees, a scroll floats, and the body of the Creature is
+    // found by its bone.
+    controller_math::FarScore s = far_choice_math::CandidateScore(
+        fair && !forest && !touch && !creature ? 1 : 0, g_far_origin,
+        g_far_direction, c.position, body_height, radius, score_m);
     if (!s.valid || s.te > keep) continue;
+    if (fair && forest) s.score += far_choice_math::SizePenalty(radius, 0.0f);
+    const bool living = fair && !bulk && !touch && !forest &&
+                        IsLivingObject(c.object);
+    g_far_raw[count] = s;
+    g_far_living[count] = living;
+    if (living) s.score = far_choice_math::RankedScore(s.score, true);
     // A scroll is rare, and trees stand all around it. So a scroll in the
     // cone scores kFarTouchBiasDeg better than its angle.
     if (touch) s.score -= kFarTouchBiasDeg;
@@ -4489,7 +4571,30 @@ void FarSelect() {
     return;
   }
   const Candidate& c = g_candidates[g_far_which[pick]];
+  // WHY THIS TARGET, for the log of a new target: the second best candidate
+  // of the cone and the reason (far_choice_math.h, WhyWinner). A candidate
+  // that a hill hides is out of the list.
+  const int why = far_choice_math::WhyWinner(g_far_raw, g_far_scores,
+                                             g_far_living, count, pick,
+                                             current_index, FarGrabSelectDeg());
+  g_far_why = far_choice_math::WhyWords(why);
+  const int runner =
+      far_choice_math::RunnerUp(g_far_scores, count, pick, FarGrabSelectDeg());
+  g_far_runner[0] = 0;
+  if (runner >= 0) {
+    const Candidate& r = g_candidates[g_far_which[runner]];
+    char runner_name[48];
+    strcpy_s(runner_name, ClassName(r.object));
+    _snprintf_s(g_far_runner, sizeof(g_far_runner), _TRUNCATE,
+                ". The second one is %p (%s%s) at %.1f degrees, score %.2f "
+                "against %.2f", r.object, runner_name,
+                g_far_living[runner] ? ", living" : "",
+                g_far_scores[runner].te, g_far_scores[runner].score,
+                g_far_scores[pick].score);
+  }
   FarPick out = {};
+  out.why = g_far_why;
+  out.runner = g_far_runner[0] != 0 ? g_far_runner : nullptr;
   out.object = c.object;
   strcpy_s(g_far_name, ClassName(c.object));
   out.name = g_far_name;
@@ -6110,6 +6215,7 @@ void HandDirectFrame() {
   if (g_turn_now > 0) --g_turn_now;
   PollReleaseKey();
   PollNearKey();
+  PollChoiceKey();
   LogRelease();
   const bool active = want && g_hand != nullptr;
   g_owns = active;
@@ -7801,6 +7907,18 @@ bool HandDirectSeekFarPoint(float out[3]) {
     g_far_debug_frames = 6;
     return true;
   }
+  // The test keys of the choice of a far target (docs/grab.md, "The cone and
+  // the choice"). far_test_aim_class=1 aims at the nearest villager, 2 at the
+  // nearest living thing, 3 at the nearest rock, 4 at your Creature and 5 at
+  // the nearest tree, at the middle of its body. far_test_aim_toward=1 then
+  // turns the aim toward the nearest tree, and 2 toward the nearest rock (20
+  // units or less from it), by far_test_aim_blend_pct percent of the way from
+  // the body to the base of that object. So a run can point a little off a
+  // living thing toward a tree, with the same aim for both choices.
+  static const int aim_class = TestKey("far_test_aim_class");
+  static const int aim_toward = TestKey("far_test_aim_toward");
+  static const int aim_blend = TestKey("far_test_aim_blend_pct");
+  int class_counts[4] = {0, 0, 0, 0};  // villagers, living, rocks, trees
   for (int i = 0; i < g_candidate_count; ++i) {
     const Candidate& c = g_candidates[i];
     const float meters = Distance(c.position, g_target) / units;
@@ -7834,6 +7952,24 @@ bool HandDirectSeekFarPoint(float out[3]) {
           !Holdable(c.object, status)) {
         continue;
       }
+    } else if (aim_class != 0) {
+      if ((aim_class != 4 && !Holdable(c.object, status)) ||
+          IsForest(c.object)) {
+        continue;
+      }
+      const bool villager = strcmp(ClassName(c.object), "Villager") == 0;
+      const bool living = IsLivingObject(c.object);
+      const bool rock = strcmp(ClassName(c.object), "Rock") == 0;
+      if (villager) ++class_counts[0];
+      if (living) ++class_counts[1];
+      if (rock) ++class_counts[2];
+      if ((aim_class == 1 && !villager) || (aim_class == 2 && !living) ||
+          (aim_class == 3 && !rock) ||
+          (aim_class == 4 && (!IsCreatureObject(c.object) ||
+                              LeashKind(c.object) == near_math::kLeashNone)) ||
+          (aim_class == 5 && !IsTreeObject(c.object))) {
+        continue;
+      }
     } else {
       if (!Holdable(c.object, status) || IsForest(c.object)) continue;
       // A tree is planted when it is let go, not thrown, so the test aims at
@@ -7855,6 +7991,33 @@ bool HandDirectSeekFarPoint(float out[3]) {
       for (int k = 0; k < 3; ++k) out[k] = c.position[k];
     }
   }
+  if (aim_class != 0) {
+    // The classes among the candidates, for the test: up to 12 names.
+    char names[12][40];
+    int counts[12] = {0};
+    int kinds = 0;
+    for (int i = 0; i < g_candidate_count; ++i) {
+      const char* name = ClassName(g_candidates[i].object);
+      int k = 0;
+      while (k < kinds && strcmp(names[k], name) != 0) ++k;
+      if (k == kinds) {
+        if (kinds == 12) continue;
+        strcpy_s(names[kinds], name);
+        ++kinds;
+      }
+      ++counts[k];
+    }
+    char text[400];
+    text[0] = 0;
+    for (int k = 0; k < kinds; ++k) {
+      char one[64];
+      _snprintf_s(one, sizeof(one), _TRUNCATE, "%s%s %d", k ? ", " : "",
+                  names[k], counts[k]);
+      strcat_s(text, one);
+    }
+    ModLog("far grab    : test: the classes of the %d candidates: %s",
+           g_candidate_count, text);
+  }
   ModLog("far grab    : the word aimfar found %d %s more than %.2f m of the "
          "room from the Hand and at most %.1f m from the head, among %d "
          "candidates. %s", found, bulk ? "bulk sources" : "holdable objects",
@@ -7868,6 +8031,48 @@ bool HandDirectSeekFarPoint(float out[3]) {
     ModLog("far grab    : aimfar aims at %p (%s), %.2f m of the room from the "
            "Hand, at %.1f %.1f %.1f", best_object, ClassName(best_object), best,
            out[0], out[1], out[2]);
+    if (aim_class != 0) {
+      // The middle of the body, and then the turn toward a tree.
+      out[1] += 0.5f * FarBodyHeight(best_object, Radius2D(best_object));
+      void* tree = nullptr;
+      float tree_gap = 20.0f;
+      for (int i = 0; aim_toward != 0 && i < g_candidate_count; ++i) {
+        const Candidate& c = g_candidates[i];
+        if (c.object == best_object || IsForest(c.object) ||
+            (aim_toward == 1 ? !IsTreeObject(c.object)
+                             : strcmp(ClassName(c.object), "Rock") != 0)) {
+          continue;
+        }
+        const float dx = c.position[0] - out[0], dz = c.position[2] - out[2];
+        const float gap = sqrtf(dx * dx + dz * dz);
+        if (gap < tree_gap) {
+          tree_gap = gap;
+          tree = c.object;
+          for (int k = 0; k < 3; ++k) g_far_toward[k] = c.position[k];
+        }
+      }
+      if (tree != nullptr) {
+        const float share = aim_blend * 0.01f;
+        for (int k = 0; k < 3; ++k) {
+          out[k] += share * (g_far_toward[k] - out[k]);
+        }
+      }
+      ModLog("far grab    : test: aimfar takes the body of the %s %p (%d "
+             "villagers, %d living things and %d rocks among the candidates "
+             "past the least distance). %s. The aim point is %.1f %.1f %.1f",
+             ClassName(best_object), best_object, class_counts[0],
+             class_counts[1], class_counts[2],
+             tree != nullptr ? "A tree stands near it, and the aim turns "
+                               "toward it"
+                             : "No tree stands near it, or the aim does not "
+                               "turn",
+             out[0], out[1], out[2]);
+      if (tree != nullptr) {
+        ModLog("far grab    : test: the tree %p is %.1f units from the body, "
+               "and the aim turns %d percent of the way toward its base",
+               tree, tree_gap, aim_blend);
+      }
+    }
   }
   return best_object != nullptr;
 }

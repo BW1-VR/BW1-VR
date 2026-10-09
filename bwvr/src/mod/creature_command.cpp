@@ -97,6 +97,7 @@
 #include "controller_math.h"
 #include "controllers.h"
 #include "creature_command.h"
+#include "far_choice_math.h"
 #include "creature_command_math.h"
 #include "far_grab.h"
 #include "haptics.h"
@@ -274,7 +275,8 @@ struct Settings {
   // The aim of rule 2 (creature_command_math.h, AimRule).
   float cone_deg = 3.0f;   // creature_command_cone_deg: a new target
   float keep_deg = 5.0f;   // creature_command_keep_deg: the target stays
-  float max_m = 4.0f;      // creature_command_max_m: 0 is no limit
+  float max_m = -1.0f;     // creature_command_max_m: 0 is no limit. Less than
+                           // 0 follows far_grab_choice: 10 m, or 4 m for 0
   int behind_cm = 30;      // creature_command_behind_cm: -1 turns it off
   // creature_command_double_ms: a second press on the same object this soon
   // after the first press ties the leash. 0 turns the double press off.
@@ -549,7 +551,8 @@ command_math::AimRule AimRuleNow() {
   if (LiveRule()) {
     rule.select_deg = g_settings.cone_deg;
     rule.keep_deg = g_settings.keep_deg;
-    rule.max_m = g_settings.max_m;
+    rule.max_m =
+        far_choice_math::CommandRangeM(FarGrabChoice(), g_settings.max_m);
     rule.behind_m = g_settings.behind_cm < 0 ? -1.0f
                                              : g_settings.behind_cm * 0.01f;
   } else {
@@ -713,7 +716,8 @@ void LogRule(const char* from) {
            LandStays() ? "A press that began on the land stays a walk: no "
                          "object takes it."
                        : "A press on the land can change to an object.",
-           g_settings.cone_deg, g_settings.keep_deg, g_settings.max_m,
+           g_settings.cone_deg, g_settings.keep_deg,
+           far_choice_math::CommandRangeM(FarGrabChoice(), g_settings.max_m),
            g_settings.behind_cm, g_frame);
   } else {
     ModLog("creature cmd : %s: creature_command_rule=1, the rule of the "
@@ -755,8 +759,9 @@ void Init() {
     g_settings.keep_deg = g_settings.cone_deg;
   }
   if (g_settings.keep_deg > 30.0f) g_settings.keep_deg = 30.0f;
-  g_settings.max_m = IniFloat("creature_command_max_m", 4.0f);
-  if (!(g_settings.max_m > 0.0f)) g_settings.max_m = 0.0f;
+  g_settings.max_m = IniFloat("creature_command_max_m", -1.0f);
+  // Less than 0 follows far_grab_choice (far_choice_math.h, CommandRangeM).
+  if (g_settings.max_m < 0.0f) g_settings.max_m = -1.0f;
   if (g_settings.max_m > 100.0f) g_settings.max_m = 100.0f;
   g_settings.behind_cm = IniInt("creature_command_behind_cm", 30);
   if (g_settings.behind_cm < -1) g_settings.behind_cm = -1;

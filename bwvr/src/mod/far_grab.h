@@ -13,6 +13,9 @@ struct FarGrabSettings {
   float max_m = 2.0f;      // far_grab_max_m: a target is at most this far from
                            // the head, in meters of the room along the floor.
                            // 0 gives no limit
+  int choice = 1;          // far_grab_choice: 1 is the choice by the body of
+                           // the object, with living things first. 0 is the
+                           // choice by one point of the object
 };
 
 void FarGrabSetOptions(const FarGrabSettings& settings);
@@ -27,6 +30,9 @@ float FarGrabKeepDeg();
 // far_grab_max_m: the range from the head, in meters of the room. 0 for no
 // limit.
 float FarGrabMaxMeters();
+// far_grab_choice: 1 or 0. The test key changes it while the game runs.
+int FarGrabChoice();
+void FarGrabSetChoice(int choice);
 
 // What hand_direct.cpp gives once a frame, after the history of the hand.
 struct FarFrame {
@@ -74,6 +80,9 @@ struct FarPick {
   float hand_m;             // meters of the room from the Hand's point
   float head_m;             // meters of the room from the head, along the floor
   float land[2];            // the land under it: x and z
+  const char* runner;       // the text for the log about the second best
+                            // candidate, or null
+  const char* why;          // why this target won, for the log
   void* vtable;             // the first word of the object at the selection,
                             // for the test that the object still lives
   const void* model;        // the LH3DObject of the draw at the selection

@@ -452,6 +452,13 @@ brings it from the place where it is then. This works in the God view
 and in the Tabletop play mode, and not in a multiplayer game. Set
 far_grab=0 in bwvr.ini to turn it off.
 
+When two objects are near the line of your hand, the choice follows
+the body of each object and not one point of it. You can point at the
+crown of a tree. A villager, an animal and your Creature come before a
+tree or a rock that is near the same line, and a small object comes
+before a large one that stands behind it. Set far_grab_choice=0 in
+bwvr.ini to choose by one point of the object.
+
 A far object must be near you: at most 2 m of your room from your
 head, along the floor. Set far_grab_max_m in bwvr.ini to change this
 distance. The value 0 gives no limit.
@@ -607,7 +614,7 @@ Set creature_command_rule=2 if a held press on the land must change to
 an object that you point at.
 
 An object takes the aim of the trigger only when you point at it:
-within 3 degrees, at most 4 m from your head, and not when you point at
+within 3 degrees, at most 10 m from your head, and not when you point at
 the land in front of it. If objects take the aim too often or not often
 enough, set creature_command_cone_deg and creature_command_max_m in
 bwvr.ini. Set creature_command_rule=1 if the press must choose its

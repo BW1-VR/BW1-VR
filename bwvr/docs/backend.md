@@ -1467,6 +1467,7 @@ in front. The mod reads the keys and never takes them from the game.
 | Numpad 1 | `test_keys=1` | The depth limit of the cut scene window goes off and on |
 | Ctrl Numpad 1 | `test_keys=1` | The game camera stands over the land under the head or over the recenter place (`god-view.md`, section 7) |
 | Ctrl Numpad 0 | `test_keys=1` | The God view follows the game camera or not (`god-view.md`) |
+| Ctrl Delete | `test_keys=1` | The choice of a far target: by the body of the object, or by one point (`far_grab_choice`, `grab.md`) |
 
 The launcher shows `test_keys` as "Test keys", in a group named "Testing". It is off
 by default.

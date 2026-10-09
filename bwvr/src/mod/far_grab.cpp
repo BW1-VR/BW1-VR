@@ -340,6 +340,7 @@ void FarGrabSetOptions(const FarGrabSettings& settings) {
   if (!(g_set.max_m > 0.0f)) g_set.max_m = 0.0f;
   if (g_set.max_m > 0.0f && g_set.max_m < 0.5f) g_set.max_m = 0.5f;
   if (g_set.max_m > 100.0f) g_set.max_m = 100.0f;
+  g_set.choice = g_set.choice != 0 ? 1 : 0;
   if (!g_set.on) {
     ModLog("far grab    : far_grab=0, the Hand takes only what it touches");
   } else {
@@ -348,6 +349,17 @@ void FarGrabSetOptions(const FarGrabSettings& settings) {
            "to %d, the pull is %d cm/s or a move of 12 cm. throw_law=%d",
            g_set.cone_deg, g_set.cone_deg + 6, g_set.pull_cmps,
            g_set.throw_law ? 1 : 0);
+    ModLog("far grab    : far_grab_choice=%d. %s", g_set.choice,
+           g_set.choice != 0
+               ? "The angle is measured to the body of the object (its base, "
+                 "its height and its radius, and at least 2 degrees wide). A "
+                 "villager, an animal and your Creature score 3 degrees "
+                 "better than a tree or a rock, and a small body scores "
+                 "better than a large one. The Creature command reaches "
+                 "10 m of the room"
+               : "The angle is measured to one point of the object, its base, "
+                 "less the angle of its radius. The Creature command reaches "
+                 "4 m of the room");
     if (g_set.max_m > 0.0f) {
       ModLog("far grab    : a target is at most %.2f m of the room from the "
              "head, along the floor (far_grab_max_m). A pile of a store, a "
@@ -366,6 +378,8 @@ bool FarGrabThrowLaw() { return g_set.throw_law; }
 float FarGrabSelectDeg() { return static_cast<float>(g_set.cone_deg); }
 float FarGrabKeepDeg() { return static_cast<float>(g_set.cone_deg + 6); }
 float FarGrabMaxMeters() { return g_set.max_m; }
+int FarGrabChoice() { return g_set.choice; }
+void FarGrabSetChoice(int choice) { g_set.choice = choice != 0 ? 1 : 0; }
 
 void FarGrabInstall() {
   if (g_hooked) return;
@@ -531,14 +545,16 @@ void FarGrabSelect(const FarPick& pick) {
     if (LogRoom()) {
       ModLog("far grab    : target %p (%s%s) at %.1f degrees from the ray, "
              "%.2f m of the room from the Hand and %.2f m from the head, %s "
-             "your influence, frame %llu", pick.object,
+             "your influence. Why: %s%s, frame %llu", pick.object,
              pick.name != nullptr ? pick.name : "unknown",
              pick.leash != 0 ? ", your Creature: the grip changes the leash"
              : pick.bulk ? ", a bulk source"
              : pick.touch ? ", a scroll: the grip activates it"
              : pick.forest ? ", a forest: the fetch gives a tree" : "",
              pick.te, pick.hand_m,
-             pick.head_m, pick.inside ? "inside" : "outside", g_f.frame);
+             pick.head_m, pick.inside ? "inside" : "outside",
+             pick.why != nullptr ? pick.why : "not known",
+             pick.runner != nullptr ? pick.runner : "", g_f.frame);
     }
   } else if (was_inside != pick.inside && LogRoom()) {
     ModLog("far grab    : the target %p is now %s your influence, frame %llu",
