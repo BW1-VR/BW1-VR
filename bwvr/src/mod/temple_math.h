@@ -1,5 +1,5 @@
 // The math of the pointer in a room of the Temple. See temple.cpp and
-// docs/controllers.md, "The Temple with the controllers".
+// docs/controllers.md, "The Temple".
 //
 // Pure functions: no game memory and no Windows. The checks are in
 // test/controller_math/temple_checks.h.

@@ -3,7 +3,7 @@
 // The player walks around the table and leans over it. The table is about
 // 1.5 m across, so a land of 1400 to 3300 units gets about 2000 units per
 // meter, and a head step of 1 cm moves the eye 20 units. The design is
-// docs/tabletop.md. This file builds steps T2, T3 and the first part of T5.
+// docs/tabletop.md.
 //
 // THE CAMERA. The table maps the room to the world:
 //
@@ -13,7 +13,8 @@
 // view. On the main call of a frame, this file gives it a camera at P0, the
 // place of the recenter pose in the world, that looks along the table's
 // heading. It also gives it the gain that makes the lean s units per meter.
-// The head then goes on that camera as it does today, so the render head is
+// The head then goes on that camera as it does for the life size view, so the
+// render head is
 // E = P0 + Lt * t. See TabletopCamera.
 //
 // THE GAME KEEPS ITS OWN CAMERA. The game logic reads the stored camera at
@@ -41,7 +42,8 @@
 // size of TabletopHandSize. audio_listener.cpp puts the ears at
 // TabletopEars. The grab of world_grab.cpp moves the land on the table
 // through TabletopMove: C, psi and s change, and the table top stays where
-// it is in the room. See docs/tabletop.md, sections 10.6 to 10.9.
+// it is in the room. See docs/tabletop.md, "The hand on the table", "Moving
+// the table by the grips" and "The ears on the table".
 //
 // Nothing else moves the table. Only the player's own head and hands move
 // the view.
@@ -54,14 +56,14 @@
 // steps about the ground under the head, the other hand's stick raises and
 // lowers the ground in steps, and a snap turn turns the view about the head.
 // Each step is used once, at the next main camera call (ApplyGodSteps). The
-// Hand is the real hand at the scale now. The fog, the detail distances and
+// Hand is the real hand at the scale. The fog, the detail distances and
 // the far limits follow the scale, and a hook on the near plane keeps the
 // real hand in view at the life size scale. The game's own camera stays over
 // the player's place at a normal play distance, and comfort_camera.cpp
 // writes it (TabletopGodGameCamera). When the game puts its own camera at a
 // new place, the view goes there as one cut: the land point that the camera
 // looks at is in front of the player's head (PlaceGod, docs/god-view.md,
-// section 15).
+// "The place at a camera of the game").
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -101,7 +103,8 @@ bool ScriptCameraStoryOwns();
 // cutscene_window.cpp: this frame draws on the screen of the cut scene window.
 bool CutsceneWindowFlat();
 // hand_direct.cpp: the answers that the scripts of the game got from the
-// player since the last call (docs/god-view.md, section 16).
+// player since the last call (docs/god-view.md, "The player that a script
+// sees").
 uint64_t HandDirectTakeScriptAnswers();
 // pointer_map.cpp: the ray of the mouse in the room, while the mouse owns
 // the pointer.
@@ -168,7 +171,7 @@ const uintptr_t kMyInterface = 0x00555850;
 const int kFaceHand = 0x3A0;
 typedef void*(__fastcall* MyInterfaceFn)(void* game, void* unused);
 
-// The values of docs/tabletop.md, section 3.2.
+// The values of docs/tabletop.md, "What the engine does at the table scale".
 const uintptr_t kFog = 0x00C37204;          // int, the Fog setting of BWSetup
 const uintptr_t kVanish = 0x00C37200;       // float, 700
 const uintptr_t kSizeCap = 0x00C37EC8;      // float, 5
@@ -184,7 +187,7 @@ const float kFar = 1.0e6f;
 const float kObjectsFar = 8000.0f;
 const float kSizeCapFar = 30.0f;
 // The zoom of the grab stops here: about 40 units per meter, where a village
-// fills the table (docs/tabletop.md, 6.3). The other end is the scale at the
+// fills the table (docs/tabletop.md, "Moving the table by the grips"). The other end is the scale at the
 // start, which fits the whole land.
 const float kLowestScale = 40.0f;
 // The ears stay at most this far over the land. The game's own camera is
@@ -213,7 +216,8 @@ const int kMistPosition = 0x38;
 // The fog ends at 900 units, which at the gain of 3 is 40 m of the room.
 const float kGodFarGain = 3.0f;
 // The game camera over the player's place: 400 units from the ground under
-// the head, pitched down 50 degrees (docs/tabletop.md, 2.6). The ground
+// the head, pitched down 50 degrees (docs/tabletop.md, "The game camera on the
+// table"). The ground
 // point stays within 3000 units of the map center, well inside the pull
 // back of GCamera::Update at 3500.
 const float kGodGameDistance = 400.0f;
@@ -232,7 +236,8 @@ const float kNoEdge = 1.0e9f;
 // THE GAME'S CAMERA SWITCHES, CameraHelp::EnabledFeatures. Scripts and the
 // tutorial turn the camera controls on and off with them. Bit 2 lets the
 // camera turn, bit 4 lets it zoom, and bit 8 lets the player drag the land
-// (docs/god-view.md, section 13). The table and the God view keep to them.
+// (docs/god-view.md, "The game camera"). The table and the God view keep to
+// them.
 const uintptr_t kEnabledFeatures = 0x009CDD6C;
 const uint32_t kFeatureTurn = 0x2;
 const uint32_t kFeatureZoom = 0x4;
@@ -336,8 +341,8 @@ TeleportRequest g_tele = {};
 uint64_t g_tele_moves = 0;
 int g_god_logs = 0;
 const int kMaxGodLogs = 60;
-// THE PLACE AT A CAMERA OF THE GAME (PlaceGod, docs/god-view.md, section
-// 15). A move of the game camera that comfort_camera.cpp found, kept until
+// THE PLACE AT A CAMERA OF THE GAME (PlaceGod, docs/god-view.md, "The place
+// at a camera of the game"). A move of the game camera that comfort_camera.cpp found, kept until
 // the next main camera call, which uses it once. again is the test key: the
 // view goes to the game camera of now. The cause of the next build, for the
 // log. The game camera and the version of the view at the last place, so the
@@ -801,7 +806,8 @@ void LookPoint(const float position[3], const float focus[3], float out[3]) {
   out[1] = GroundAt(out[0], out[2]);
 }
 
-// THE GOD VIEW GOES TO A CAMERA OF THE GAME (docs/god-view.md, section 15):
+// THE GOD VIEW GOES TO A CAMERA OF THE GAME (docs/god-view.md, "The place at a
+// camera of the game"):
 // when the mode starts, after Ctrl F11, on a new land, after a load, after a
 // story, and each time the game puts its own camera at a new place.
 //
@@ -813,8 +819,8 @@ void LookPoint(const float position[3], const float focus[3], float out[3]) {
 // head had, so the ground steps of the player stay. A hill under the head
 // stays 10 cm below the head.
 //
-// god_spawn=0, the rule before. The land point goes under the recenter pose,
-// and the room forward gets the heading of the game camera.
+// god_spawn=0. The land point goes under the recenter pose, and the room
+// forward gets the heading of the game camera.
 //
 // The scale is the one of the last God view, or god_units_per_meter at the
 // first start. At the first start the land at the look point is at the
@@ -831,7 +837,7 @@ bool PlaceGod(const char* cause, const float position[3],
   float room[3];
   TableRoom(room);
 
-  // The head: its place in the room and its yaw. The rule before used the
+  // The head: its place in the room and its yaw. With god_spawn=0 it is the
   // recenter pose.
   float head[3] = {0.0f, 0.0f, 0.0f};
   float head_yaw = 0.0f;
@@ -976,7 +982,7 @@ bool PlaceGod(const char* cause, const float position[3],
 // The game camera to build the view from. With god_spawn=1 it is where the
 // camera goes (the destinations of its Zoomers), so a camera that still
 // glides gives its place at once. Otherwise it is the camera of the main
-// call, as before.
+// call.
 void GameCameraNow(const float asked_position[3], const float asked_focus[3],
                    float position[3], float focus[3]) {
   if (g_settings.god_spawn != 0 &&
@@ -1066,7 +1072,7 @@ float ClampCenter(float v) {
   return v;
 }
 
-// THE MOUSE PAN (docs/god-view.md, section 5). A land drag of the mouse pans
+// THE MOUSE PAN (docs/god-view.md, "Moving around: the grab and the mouse"). A land drag of the mouse pans
 // the God view. At the press, the ray of the pointer from the head finds the
 // land (RayLand). That land point is the grabbed point, and its height in the
 // room sets a level plane. On each frame the ray of the pointer meets that
@@ -1431,10 +1437,9 @@ bool PatchSeaCall() {
 // THE KEY COLOR PAST THE TABLE.
 //
 // The game does not clear the frame in play: the sky dome is the background.
-// The first build put a clear of the key color in place of the sky. The
-// desktop run showed a purple sea: the sea is not opaque, and it showed the
-// key color behind it. So the sky still draws, as the background of the
-// sea. Then a clear of the key color covers the screen outside the outline
+// A clear of the key color cannot take the place of the sky: the sea is not
+// opaque, and it would show the key color behind it. So the sky still draws,
+// as the background of the sea. Then a clear of the key color covers the screen outside the outline
 // of the sea disc, row by row, with the game's own device clear
 // (fn_0082EE70). The land and the objects draw after it, so a mountain that
 // stands up past the outline is not cut. The glare of the sun would draw
@@ -1725,7 +1730,7 @@ bool TabletopCamera(const float asked_position[3], const float asked_focus[3],
     // A STORY HOLDS THE CAMERA: the God view stands aside, and the story plays
     // as the game made it, at the life size scale. A story frames its shots
     // for the game camera, and the God view would not show them (the same
-    // risk as the table's, docs/tabletop.md, section 8, item 7). When the
+    // risk as the table's, docs/tabletop.md, "Known limits and open questions"). When the
     // player's camera is back, the God view is built again where the story
     // left the camera.
     //
@@ -1814,11 +1819,11 @@ bool TabletopRoom(float origin[3], float basis[9], float center[3],
 // That is half of a real hand, so the Hand does not hide the village under
 // it. The controller's grip is about 5 cm over the table when the fingers
 // touch it, so the Hand then rests just over the land. hand_direct.cpp lets
-// the point come down to 5 mm over the land (docs/hand.md, "The point touches
-// the land"). The grab radius of hand_direct.cpp, 0.6 of the length, is 6 cm.
+// the point come down to 5 mm over the land (docs/hand.md, "The touch of the
+// land"). The grab radius of hand_direct.cpp, 0.6 of the length, is 6 cm.
 //
 // IN THE GOD VIEW the Hand is the real hand: hand_real_cm (19) times
-// hand_scale_pct, at the scale now. So it is the size of the player's own
+// hand_scale_pct, at the scale. So it is the size of the player's own
 // hand in the room at every zoom, and large against the villagers when the
 // view is zoomed out.
 float TabletopHandSize() {
@@ -1864,7 +1869,7 @@ bool TabletopPose(TablePose* pose, float table_room[3], float* lowest_scale,
   return true;
 }
 
-// THE GRAB MOVES THE LAND ON THE TABLE (T4). The table top stays in the room.
+// THE GRAB MOVES THE LAND ON THE TABLE. The table top stays in the room.
 // The center stays on the map, and the sea disc and the edge follow. In the
 // God view the height of the waist point stays as the grab gives it, which
 // is the height at the press, so a pan never lifts or drops the view.
@@ -1910,7 +1915,8 @@ void TabletopMove(const TablePose& pose) {
   MoveHelp(before, kInputButton);
 }
 
-// THE GROUND LIMITS OF THE GRAB (docs/god-view.md, sections 3 and 5). In the
+// THE GROUND LIMITS OF THE GRAB (docs/god-view.md, "The ground height" and
+// "Moving around: the grab and the mouse"). In the
 // God view the grab of one hand also moves the land up and down. This cuts
 // the height the solve asked for, so the land under the head stays 10 cm to
 // 2.5 m below the head. At a limit the land stops, and it never jumps
@@ -1948,7 +1954,7 @@ void TabletopGrabAllows(bool* turn, bool* zoom) {
   if ((features & kFeatureZoom) == 0) *zoom = false;
 }
 
-// THE EARS ON THE TABLE (docs/tabletop.md, 10.8). The render head is 800 to
+// THE EARS ON THE TABLE (docs/tabletop.md, "The ears on the table"). The render head is 800 to
 // 3200 units from the land, and the game plays almost nothing that far from
 // the ears. So the ears go straight down from the head to at most 400 units
 // over the land under it, and stay inside the edge of the table. They turn
@@ -1982,7 +1988,8 @@ bool TabletopEars(const float head[3], float out[3]) {
   return true;
 }
 
-// ONCE A FRAME, before the eye passes. The values of section 3.2 follow the
+// ONCE A FRAME, before the eye passes. The values of the engine at the table
+// scale follow the
 // table: set while it owns the frame, and the game's own values otherwise.
 //
 // IN THE GOD VIEW they follow the scale. The distances (the map objects, the
@@ -2222,11 +2229,11 @@ bool TabletopTableTeleport(const float target[3]) {
   return true;
 }
 
-// THE GAME PUT ITS OWN CAMERA AT A NEW PLACE (docs/god-view.md, section 15).
-// comfort_camera.cpp found a move of the game camera that the player did not
+// THE GAME PUT ITS OWN CAMERA AT A NEW PLACE (docs/god-view.md, "The place at
+// a camera of the game"). comfort_camera.cpp found a move of the game camera that the player did not
 // make, and the camera is at rest. The view goes there at the next main
 // camera call, once (ApplyGodSpawn). A second move before then replaces the
-// first. With god_spawn=0 the view stays, as before, and the log says so.
+// first. With god_spawn=0 the view stays, and the log says so.
 void TabletopGodGameMoved(const char* cause, const float position[3],
                           const float focus[3]) {
   if (!g_installed || !g_settings.god || !TabletopGodOwnsView()) return;

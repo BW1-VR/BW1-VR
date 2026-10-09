@@ -75,7 +75,7 @@ enum Item {
 };
 
 // How an item acts. Each one goes through the key path of the game
-// (docs/controls-audit.md, section 1).
+// (docs/controls-audit.md, "How the game reads a key").
 enum How {
   kHowNone,
   kHowAction,   // an action of the control map: the key that the player gave it

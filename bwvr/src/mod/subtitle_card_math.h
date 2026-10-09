@@ -21,8 +21,8 @@ namespace subtitle_math {
 const float kPi = 3.14159265f;
 const float kDegrees = 0.01745329f;  // radians in a degree
 
-// WHY THE SUBTITLES WENT APART. The subtitles were flat interface in the two
-// eye pictures, moved `shift` pixels toward the nose in each eye. Two
+// THE DEPTH OF A FLAT SUBTITLE. A flat subtitle is interface in the two eye
+// pictures, moved `shift` pixels toward the nose in each eye. Two
 // pictures that are 2 * shift pixels apart show at this depth, with `focal`
 // the pixels of one unit of tan(angle) and `eyes` the distance between the
 // eyes in meters. No shift is a depth with no end.
@@ -46,8 +46,8 @@ inline float SplitDegrees(float eyes, float depth, float looked) {
 
 // THE YAW OF THE HEAD: its turn about y, in radians. 0 is -z, and a turn to
 // the left is positive. It comes from the right axis of the head, which
-// stays level while the head looks up or down. So a head that looks straight
-// down at the land has the same yaw as before.
+// stays level while the head looks up or down. So looking straight down at
+// the land does not change the yaw.
 inline float HeadYaw(const float orientation[4]) {
   const float right[3] = {1.0f, 0.0f, 0.0f};
   float r[3];

@@ -16,20 +16,19 @@
 //
 // A turn that the player's head did not make is what makes a headset sick.
 //
-// WHY THE FIRST DESIGN FAILED
+// WHY THE SCRIPT MOVES ARE NOT JUDGED ONE BY ONE
 //
-// It hooked the script moves and judged each move once: play it or cut it.
-// In an 11 minute headset session it judged only 7 moves. Most story motion
-// never went through the hooked moves. The follow and dual cameras aim again
-// on every frame, so they glided as before. The clamp that kept the camera
-// back from its subject also made a glide of its own. It aimed the Zoomers at
-// the clamped point with the time the move had left, 7 seconds. Float
-// rounding moved the clamped point, so it aimed again on about half of all
-// frames for 20 seconds.
+// A hook on the script moves that judges each move once (play it or cut it)
+// sees only a few moves. Most story motion never goes through them. The
+// follow and dual cameras aim again on every frame, so they would glide. A
+// clamp that keeps the camera back from its subject would make a glide of its
+// own: it would aim the Zoomers at the clamped point with the time the move
+// has left. Float rounding moves the clamped point, so it would aim again on
+// about half of all frames.
 //
 // THE DRAWN CAMERA HOLDS ITS SHOT, AND CUTS
 //
-// This file does not change the game camera now. The Zoomers move as the game
+// This file does not change the game camera. The Zoomers move as the game
 // moves them, so HAS_CAMERA_ARRIVED, script timing and save games do not
 // change. Only the camera that is DRAWN changes. head_camera.cpp asks
 // ScriptCameraRenderPose at the top of its UpdateCamera hook, before anything
@@ -44,8 +43,8 @@
 //    0x005DB125) is always held. No other call is touched.
 //
 // 2. WHAT THE SHOT IS. Variant 2, the default, shows the camera where it
-//    is, so the view keeps the old shot and cuts when the move ends. It felt
-//    best in the headset. Variant 1 shows where the move ends: the Zoomer
+//    is, so the view keeps the old shot and cuts when the move ends. Variant 1
+//    shows where the move ends: the Zoomer
 //    destinations. The view then cuts at the start of a move. Variant 0 is
 //    the game's own camera.
 //
@@ -53,9 +52,9 @@
 //    60 units moves back along its own line by 25 percent, but not past 60
 //    units. A shot further out does not change. So each shot keeps its
 //    framing. The hard limits only keep the camera out of its subject (5
-//    units) and out of the ground (5 units). A first version kept every shot
-//    60 units back and 15 above the ground. In the headset most shots were
-//    then too far, and some were in places that made no sense. All of this
+//    units) and out of the ground (5 units). A rule that keeps every shot 60
+//    units back and 15 above the ground puts most shots too far, and some in
+//    places that make no sense. All of this
 //    happens to the target BEFORE the comparisons below. A clamp after them
 //    would find a difference, and cut, on every frame.
 //
@@ -721,7 +720,7 @@ bool ScriptCameraStoryOwns() { return g_story_owns; }
 // follow mode, and -1 when no mode can be read. A script of the game can put
 // a story mode on the stack in a game turn, between two main calls.
 // hand_direct.cpp asks this when a script measures from the camera (docs/
-// god-view.md, section 16).
+// god-view.md, "The player that a script sees").
 int ScriptCameraOwnerNow() {
   Owner owner;
   ReadOwner(kFromGameCamera, &owner);

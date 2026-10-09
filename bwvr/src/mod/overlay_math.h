@@ -2,7 +2,7 @@
 //
 // overlay.cpp calls these with the numbers it reads from the game, and
 // test/controller_math calls them with numbers it makes up. Nothing here reads
-// a global or touches the game. See docs/hand.md, "Overlay renderer".
+// a global or touches the game. See docs/hand-model.md, "Overlay renderer".
 //
 // Every 3x3 matrix is m[r * 3 + c], and a vector is a column: out = m * in,
 // as in controller_math.h. The game's world to camera matrix is 4 rows of 3,

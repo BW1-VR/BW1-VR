@@ -1,4 +1,4 @@
-// The real flight of a thrown object (throw_law=2). See docs/hand.md, "The
+// The real flight of a thrown object (throw_law=2). See docs/throw.md, "The
 // throw physics", and throw_math.h for the math.
 //
 // WHY. The game's physics is made for a mouse. Its gravity is 9.81 units per
@@ -51,7 +51,7 @@
 //   hurt more.
 //
 //   THE LANDING. The rate of the flight is wrong for the time after the
-//   first contact: the game made its contact for one step a substep, and at
+//   first contact: the game makes its contact for one step a substep, and at
 //   5 steps a rock turns 7.5 times a second and shakes. So from the first
 //   contact the rate goes to the rate of the land (the game's own time),
 //   while the object touches. A hook on fn_007FDE40 cuts the force of the
@@ -200,7 +200,7 @@ float g_slow = 2.0f;
 bool g_trees = true;
 // THE LANDING (throw_land): 1 is the time of the land with the low bounce and
 // the brake, 2 is the low bounce and the brake in the time of the flight, 0
-// is the landing as it was. g_land_rate is the rate of the land, the steps in
+// is the game's own landing. g_land_rate is the rate of the land, the steps in
 // a substep (1 is the game's own time). g_bounce is the share of its speed
 // that a bounce keeps, of the speed that the game gives it. g_brake is the
 // friction of the brake of the land, as a part of the friction that the game
@@ -886,7 +886,7 @@ int FlySubstep(Flight* f, uint8_t* ob) {
     ++done;
     // The force of a contact step goes to the sum of its 20 steps, as the
     // game made it, with no low bounce and no brake: a landing hurts as it
-    // did.
+    // does in the game.
     if (ob[kObContact] != 0) {
       const float* force = reinterpret_cast<const float*>(ob + kObForce);
       for (int i = 0; i < 3; ++i) f->window[i] += force[i] + f->cut[i];
@@ -1089,9 +1089,9 @@ void PollLawKey() {
 // THE LANDING IN THE HEADSET. With test_keys=1, the Pause key goes through
 // the three landings: the time of the land with the low bounce and the brake
 // (a long pulse), the low bounce and the brake in the time of the flight (a
-// pulse of middle length), and the landing as it was (a short pulse). An object that touched
-// the land before the press keeps its landing. Read once a frame, and only
-// while a window of the game is in front.
+// pulse of middle length), and the game's own landing (a short pulse). An
+// object that touched the land before the press keeps its landing. Read once
+// a frame, and only while a window of the game is in front.
 void PollLandKey() {
   static uint64_t last_frame = 0;
   static bool down = false;

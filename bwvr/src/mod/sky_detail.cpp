@@ -12,11 +12,11 @@
 // LH3DTech::UpdateCamera builds it, from the camera it is given, which is the
 // head camera.
 //
-// So every cloud turned with the head. Its visible body sits 130 to 500 units
-// from its pivot, along that basis, so a nod swung it up and down across the
-// sky. That is the "clouds bob when I tilt my head" report.
+// So every cloud would turn with the head. Its visible body sits 130 to 500
+// units from its pivot, along that basis, so a nod would swing it up and down
+// across the sky.
 //
-// The fix gives each cloud its own basis just before it is drawn: facing the
+// The mod gives each cloud its own basis just before it is drawn: facing the
 // game camera's position (0x00EA1DB8, which head_camera.cpp keeps free of the
 // head), with world up. Nothing about it depends on where the head points.
 // The weather clouds and ground mist are LH3DMist too, and get the same.
@@ -31,11 +31,11 @@
 //
 // with D and dy measured from the stored camera. A cloud seen from below is
 // not flattened, so its pole is 20 * A = 260 to 1000 units long. The clouds
-// hang only 300 to 500 units up. So the dense middle of the smoke came down
-// the eye line toward the player. It showed as gray shapes near the head, as
-// a gray wash, and as dome bodies that cut through the land.
+// hang only 300 to 500 units up. So the dense middle of the smoke would come
+// down the eye line toward the player: gray shapes near the head, a gray
+// wash, and dome bodies that cut through the land.
 //
-// Now the pole is at most a share of the distance to the camera, 25 percent
+// The pole is at most a share of the distance to the camera, 25 percent
 // by default. The pole lies on the eye line, so a shorter pole does not
 // change the outline the player sees. It only keeps the dome away from the
 // eye. The limit follows the game camera's distance, never the head.
@@ -56,10 +56,10 @@
 // head_camera.cpp, which rebuilds the camera matrices with the head, but with
 // no eye offset and no roll.
 //
-// So the glare was drawn from a different camera than the rest of the eye.
-// With head roll, the glare turned about the middle of the view, away from
-// the disc. That is the best candidate for the sun that bobs. There are three
-// modes, and the ini key sun_glare picks one:
+// So the glare is drawn from a different camera than the rest of the eye.
+// With head roll, the glare turns about the middle of the view, away from
+// the disc, and the sun seems to bob. There are three modes, and the ini key
+// sun_glare picks one:
 //
 //     0  put the eye camera back (StereoReapplyEye), then draw the glare
 //     1  draw the glare as the game does

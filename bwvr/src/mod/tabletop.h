@@ -30,8 +30,8 @@ struct TabletopSettings {
   int god_step_cm = 5;           // god_ground_step_cm: one ground step
   int god_most_units = 4000;     // god_far_units_per_meter: the farthest zoom
   // Where the player goes when the game puts its own camera at a place
-  // (docs/god-view.md, section 15).
-  int god_spawn = 1;             // god_spawn: 1 follows the game, 0 is before
+  // (docs/god-view.md, "The place at a camera of the game").
+  int god_spawn = 1;             // god_spawn: 1 follows the game, 0 does not
   int god_spawn_ahead_cm = 50;   // god_spawn_ahead_cm: the look point, ahead
   bool test_keys = false;        // test_keys: Ctrl and Numpad 0 change it
 };
@@ -71,7 +71,7 @@ bool TabletopPose(table_math::TablePose* pose, float table_room[3],
 void TabletopMove(const table_math::TablePose& pose);
 
 // The God view: cut the height of a one hand grab (pose->center[1]) to the
-// ground limits of docs/god-view.md, section 3. False when the God view does
+// ground limits of docs/god-view.md, "The ground height". False when the God view does
 // not own the view. cut is true when a limit held the height back.
 bool TabletopGodLimitHeight(table_math::TablePose* pose, bool* cut);
 
@@ -115,8 +115,8 @@ bool TabletopGodTurn(int direction, float degrees);
 bool TabletopGodGameCamera(float position[3], float focus[3],
                            uint64_t* version);
 
-// THE GAME PUT ITS OWN CAMERA AT A NEW PLACE (docs/god-view.md, section 15).
-// comfort_camera.cpp calls this when the game camera is at rest after a move
+// THE GAME PUT ITS OWN CAMERA AT A NEW PLACE (docs/god-view.md, "The place at
+// a camera of the game"). comfort_camera.cpp calls this when the game camera is at rest after a move
 // that the player did not make. The God view goes to that place at its next
 // main camera call, as one cut.
 void TabletopGodGameMoved(const char* cause, const float position[3],
@@ -124,5 +124,5 @@ void TabletopGodGameMoved(const char* cause, const float position[3],
 
 // The test key of god_spawn (Ctrl and Numpad 0, with test_keys=1): the rule
 // changes between 1 and 0, and the view goes to the game camera again by the
-// rule that it has now.
+// new rule.
 void TabletopGodSpawnToggle();

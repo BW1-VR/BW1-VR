@@ -8,14 +8,14 @@
 #include "overlay_math.h"
 
 struct TeleportSettings {
-  bool on = true;     // teleport: 1 is the arc, 0 is the old A jump
+  bool on = true;     // teleport: 1 is the arc, 0 is the A jump of the game
   int reach_m = 10;   // teleport_reach_m: the flat range of a 45 degree aim
   int ring_cm = 11;   // teleport_ring_cm: the outer radius of the ring
 };
 
 void TeleportSetOptions(const TeleportSettings& settings);
 
-// True when A makes the teleport and not the old jump: teleport=1, and the
+// True when A makes the teleport and not the game's jump: teleport=1, and the
 // head is on the camera.
 bool TeleportOwnsA();
 

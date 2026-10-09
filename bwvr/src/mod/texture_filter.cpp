@@ -154,7 +154,7 @@ HRESULT WINAPI h_SetTextureStageState(void* self, DWORD stage,
     // Choosing one mip level becomes blending two, which is trilinear
     // filtering. D3DTFP_NONE is raised as well when g_force_mips is set,
     // because a texture that HAS mip levels and is told not to use them
-    // crawls exactly the way roof tiles were reported to.
+    // crawls, as roof tiles do.
     if (value == D3DTFP_POINT || (g_force_mips && value == D3DTFP_NONE)) {
       wanted = D3DTFP_LINEAR;
       changed = true;

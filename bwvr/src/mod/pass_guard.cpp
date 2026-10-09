@@ -10,29 +10,19 @@
 //     UpdateLiquidParticles(...)
 //     Temple::UpdateFade()
 //
-// The animation clock was the first thing caught doing this: windmills span
-// twice as fast because Windmill::PreDraw stepped its own rotation by the
-// time increment on every call. That was fixed by freezing the two time
-// globals for the second pass.
+// The animation clock is one case: Windmill::PreDraw steps its own rotation
+// by the time increment on every call, so windmills would spin twice as fast.
+// The mod freezes the two time globals for the second pass.
 //
-// The camera drag is the second. It was measured rather than guessed:
+// The camera drag is the second case. It does not depend on time. A Hand that
+// updates twice against a camera that moved in between is a feedback loop, and
+// the drag would resist and then overshoot.
 //
-//     no hooks at all, several hundred fps    the drag feels right
-//     scene walked twice per frame            the drag feels heavy and
-//                                             overshoots after release
-//     eye separation driven to zero           still heavy
-//     animation clock freeze toggled          no change
+// The rule is the same as for the time freeze: the first pass steps the
+// state, and the second pass draws what the first pass decided. The two eyes
+// then show the same moment.
 //
-// So it is the second walk itself, and it is not time based. A Hand that
-// updates twice against a camera that moved in between is a feedback loop,
-// which is exactly what a drag that resists and then overshoots looks like.
-//
-// The fix is the same shape as the time freeze: let the first pass step the
-// state, and let the second pass draw what the first pass decided. The two
-// eyes then show the same moment, which is what they must do anyway.
-//
-// Each one is a separate switch so the cause can be narrowed by bisection
-// rather than by argument.
+// Each one is a separate switch, so a test can narrow the cause by bisection.
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -45,7 +35,7 @@ extern void ModLog(const char* format, ...);
 // features. See docs/hand.md, "The exact Hand".
 void HandExactAfterPrepare(void* hand);
 // throw_physics.cpp: the real flight of a thrown object runs its steps in
-// the game's physics turn. See docs/hand.md, "The throw physics".
+// the game's physics turn. See docs/throw.md, "The throw physics".
 void ThrowPhysicsTurnBegin();
 void ThrowPhysicsTurnEnd();
 // head_camera.cpp
@@ -86,15 +76,12 @@ typedef void*(__fastcall* MyInterfaceFn)(void* game, void* unused);
 // THE WORLD STEPPERS.
 //
 // These four run inside Process3dEngine as well, so the mod calls each of them
-// twice a frame. That was survivable while the two cameras differed only by an
-// eye separation. With the head on the camera they differ by a whole head
-// turn, and the sea was the first thing to show it: the horizon slid about as
-// the head moved.
+// twice a frame. With the head on the camera the two cameras differ by a whole
+// head turn, and the sea shows it: the horizon slides as the head moves.
 //
-// All four are __cdecl, checked against the binary rather than assumed. Two of
-// them take a float, which is exactly the shape that crashed the game when
-// ChangeFov turned out to be __stdcall, so the ret of each one was read first:
-// every one ends in C3, so the caller cleans.
+// All four are __cdecl (checked in the binary: every one ends in C3, so the
+// caller cleans). Two of them take a float. ChangeFov is __stdcall, so a wrong
+// guess of the convention for such a function crashes the game.
 const uintptr_t kAtmosUpdate3D = 0x008357A0;         // LH3DAtmos::Update3D(float)
 const uintptr_t kUpdateLiquidParticles = 0x00845D00;  // (float)
 const uintptr_t kTemporaryShadowUpdateAll = 0x00825190;
@@ -109,8 +96,7 @@ const uintptr_t kTempleUpdateFade = 0x00794280;
 //
 // At 30 fps a turn hides inside a 33 ms frame. At 90 fps the frame is 11.11 ms
 // and the turn does not fit, so it arrives as a hitch rather than as a cost.
-// Measurement put the whole spike outside the scene walk, in a block that
-// averages 0.37 ms and peaks at 26.52 ms. This times the suspect directly.
+// This times the turn directly.
 const uintptr_t kProcessNetworkPackets = 0x0054CC30;
 
 // CHand::UpdateHeldObject is a member function with no arguments, so this is

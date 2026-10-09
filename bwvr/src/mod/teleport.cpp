@@ -1,5 +1,5 @@
 // The teleport with a visible arc. See docs/god-view.md, "The teleport", and
-// docs/controllers.md, "The A button".
+// docs/controllers.md.
 //
 // THE PLAYER'S RULE. Hold A to aim and release A to go. While A is down, an
 // arc leaves the pointing hand and falls on the land, and a ring shows the

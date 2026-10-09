@@ -2,10 +2,9 @@
 //
 // The engine projects every vertex on the CPU, so there is no way to get a
 // second eye except to submit the geometry again against a second camera.
-// Measurement decided where: 84% of vertices are drawn while
-// GGame::Process3dEngine walks the scene, and only 3% inside
-// LH3DRender::FinishFrame. So the walk is what has to run twice, not a
-// deferred draw list.
+// 84% of vertices are drawn while GGame::Process3dEngine walks the scene, and
+// only 3% inside LH3DRender::FinishFrame. So the walk is what has to run
+// twice, not a deferred draw list.
 //
 // GGame::ProcessGraphicsEngine does this, in order:
 //
@@ -27,7 +26,7 @@
 // and not simply m[9] -= d. Getting that wrong gives an eye separation that
 // changes with the field of view.
 //
-// Three things have to be handled for the second pass, all found by testing:
+// Three things have to be handled for the second pass:
 //
 // 1. Animations advance per call, not per frame. Windmill::PreDraw reads
 //    LH3DTech::g_game_time_inc, steps its own rotation by it and stores the
@@ -37,7 +36,7 @@
 //    it, so both eyes show the same moment.
 //
 // 2. LH3DTech::g_camera, the camera position in world space, must NOT move
-//    with the eye. It was tried and it made the Hand worse. The Hand is
+//    with the eye. The Hand is
 //    placed relative to that point, so moving it per eye moves the Hand with
 //    the eye, and an object that moves with the eye has no disparity and
 //    reads as infinitely far away. The right model is the one real eyes use:
@@ -48,7 +47,7 @@
 // 2b. The MATRICES, plural. There is more than one, and moving only the one
 //    ProjectPoint reads left shadows, sprites and the landscape reading a
 //    mono camera while the rest of the world moved. eye_camera.cpp owns that
-//    now and explains which matrices and why.
+//    and explains which matrices and why.
 //
 // 3. The camera matrix must go back exactly as it was, because the Hand and
 //    the interface read it after the scene walk.
@@ -144,14 +143,15 @@ void SpiritAnchorReport();
 // controllers.cpp
 void ControllersFrame();
 void ControllersReport();
-// hand_direct.cpp: the direct hand of step M3.
+// hand_direct.cpp: the direct hand.
 void HandDirectFrame();
 void HandDirectPassBegin(int eye);
 void HandDirectPassDone(int eye);
 void HandDirectReport();
 // hand_glow.cpp: the glow at the Hand's point.
 void HandGlowReport();
-// overlay.cpp: the mod's own meshes. See docs/hand.md, "Overlay renderer".
+// overlay.cpp: the mod's own meshes. See docs/hand-model.md, "Overlay
+// renderer".
 void OverlayFrame();
 void OverlayPassEye(int eye);
 void OverlayReport();
@@ -159,7 +159,7 @@ void OverlayReport();
 void TeleportFrame();
 void TeleportReport();
 // creature_command.cpp: the trigger commands the leashed Creature, and a
-// shake takes the leash off. See docs/hand.md, "The Creature commands".
+// shake takes the leash off. See docs/creature.md, "The commands".
 void CreatureCommandFrame();
 void CreatureCommandReport();
 void MiracleFrame();
@@ -167,7 +167,7 @@ void MiracleReport();
 // village.cpp
 void VillageFrame();
 void VillageReport();
-// gesture_air.cpp: gestures drawn in the air (M6).
+// gesture_air.cpp: gestures drawn in the air.
 void GestureAirReport();
 // tabletop.cpp: the island on a table in the room. See docs/tabletop.md.
 float TabletopScale();
@@ -176,7 +176,7 @@ void TabletopToggle();
 void TabletopGodSpawnToggle();
 void TabletopReport();
 bool TabletopSweeping();
-// world_grab.cpp: moving around by grabbing the world (M7).
+// world_grab.cpp: moving around by grabbing the world.
 void WorldGrabReport();
 void WorldGrabCycleTest();
 void ControllersCycleOwnerMode();
@@ -245,7 +245,7 @@ EyePlacement g_eye_placement = kEyeNotPlaced;
 float g_eye_slide = 0.0f;  // for EyeCameraSetEye
 float g_eye_pose[9] = {1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f};
 float g_eye_move[3] = {0.0f, 0.0f, 0.0f};  // for EyeCameraSetPose
-// PHASE 3. With this on the mod submits a projection layer instead of a flat
+// HEAD TRACKING. With this on the mod submits a projection layer instead of a flat
 // quad, renders the headset's own frustum, and puts the player's head on the
 // camera. All three go together: a projection layer promises that the image
 // was rendered from the pose and frustum it reports, and a broken promise
@@ -253,8 +253,7 @@ float g_eye_move[3] = {0.0f, 0.0f, 0.0f};  // for EyeCameraSetPose
 bool g_head_tracking = false;
 bool g_head_ready = false;
 // A WINDOW TO LOOK THROUGH, for anyone the full view makes ill. With this off
-// the picture stays on a quad at a fixed distance, which is the Phase 2
-// behaviour: the head still tracks, but the screen stays put in front of the
+// the picture stays on a quad at a fixed distance: the head still tracks, but the screen stays put in front of the
 // player and nothing fills the periphery.
 bool g_immersive = true;
 // Take the eye separation from the headset rather than from the settings.
@@ -292,9 +291,9 @@ bool g_headless_grab = false;
 
 // Run the two passes with no headset and no OpenXR at all.
 //
-// Measuring stereo used to need Virtual Desktop running and the headset on,
-// which made every measurement a round trip through the one person who can
-// wear it. The draw probe does not need either. It compares what the two
+// Measuring stereo with a headset needs Virtual Desktop running and the
+// headset on, which makes every measurement a round trip through the one
+// person who can wear it. The draw probe does not need either. It compares what the two
 // passes submit, and the passes happen inside the game. So this mode runs them
 // on the desktop, throws the pictures away, and lets the probe do its work.
 // The window shows the second pass, which looks like the game with the camera
@@ -317,17 +316,13 @@ uint64_t g_total_ticks = 0;    // wall clock between frames
 // THE WORST FRAME, NOT THE AVERAGE.
 //
 // A mean of 11.11 ms can hide a 40 ms frame every hundred milliseconds, and in
-// a headset a single long frame is felt, not averaged. The camera drag was
-// reported as heavy and then as fine with no setting changed in between, which
-// is what an intermittent hitch looks like when it is judged by feel. So the
-// report now carries the worst frame in the window and a count of the frames
-// that missed, and the reports from the runtime say how many frames it
-// actually showed.
+// a headset a single long frame is felt, not averaged. So the report carries
+// the worst frame in the window and a count of the frames that missed, and the
+// reports from the runtime say how many frames it actually showed.
 //
-// The research pass predicted exactly this shape: the simulation, the script
-// machine and audio run on a 10 Hz game turn rather than per frame, so at
-// 90 fps roughly one frame in nine carries a whole turn and the other eight
-// carry none.
+// A hitch of this shape is expected: the simulation, the script machine and
+// audio run on a 10 Hz game turn rather than per frame, so at 90 fps roughly
+// one frame in nine carries a whole turn and the other eight carry none.
 uint64_t g_frame_worst = 0;
 uint64_t g_frames_missed = 0;
 // What the worst frame was actually made of. A total on its own says a frame
@@ -347,7 +342,7 @@ double g_budget_ms = 11.6;  // a little over a 90 Hz frame
 // Everything above times what happens inside this hook. At 1080p that is
 // about 3.4 ms of an 11.3 ms frame, so roughly 8 ms of every frame happens
 // somewhere this file cannot see. That block barely moves when the frame rate
-// moves, so it is a fixed cost and it is now the largest one.
+// moves, so it is a fixed cost and it is the largest one.
 //
 // The game gives us two marks per frame to split it with. This hook is
 // GGame::Process3dEngine, which walks the scene. LH3DRender::FinishFrame runs
@@ -561,10 +556,9 @@ bool GameHasFocus() {
 // it is a test key with the mouse at rest. The mod reads the keys and never
 // takes them from the game.
 //
-// Before v1.0, most keys here switched a choice live, so it could be felt in
-// the headset without a rebuild. Those choices are now settled, and the
-// values found are the defaults. The ini keys stay, except the ones the
-// launcher rewrites on every save. See launcher.cpp, kRetiredKeys.
+// The choices that these keys switched are settled, and the defaults hold the
+// values chosen. The ini keys stay, except the ones the launcher rewrites on
+// every save. See launcher.cpp, kRetiredKeys.
 void PollHotkeys() {
   static bool down[4] = {false, false, false, false};
   const int keys[4] = {VK_F11, VK_F12, VK_NUMPAD0, VK_NUMPAD1};
@@ -596,13 +590,14 @@ void PollHotkeys() {
         // Who owns the pointer: automatic, controller only, mouse only.
         ControllersCycleOwnerMode();
       } else if (shift && ctrl) {
-        // The ears: the head, or the game camera as before. Docs/audio.md.
+        // The ears: the head, or the game camera. See docs/audio.md.
         AudioCycleMode();
       }
     }
     // An A/B of the cut scene window (docs/cutscene-window.md).
     if (g_test_keys && now[2] && !down[2] && plain) CutsceneWindowToggle();
-    // An A/B of the place at a camera of the game (docs/god-view.md, 15).
+    // An A/B of the place at a camera of the game (docs/god-view.md, "The
+    // place at a camera of the game").
     if (g_test_keys && now[2] && !down[2] && ctrl && !shift) {
       TabletopGodSpawnToggle();
     }
@@ -614,7 +609,7 @@ void PollHotkeys() {
   for (int i = 0; i < 4; ++i) down[i] = now[i];
 }
 
-// PHASE 3 SETUP, once. The render has to cover what the headset asks for,
+// THE HEAD TRACKING SETUP, once. The render has to cover what the headset asks for,
 // and the game renders a symmetric frustum whose vertical angle comes from
 // the render aspect. So take the widest half angle of either eye in either
 // direction and render that both ways, which needs a roughly square render.
@@ -910,8 +905,7 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
   float right[3];
   RightAxis(base, right);
 
-  // Save the whole camera family, not just the matrix this file used to know
-  // about.
+  // Save the whole camera family, not just the one matrix.
   if (!EyeCameraCapture()) {
     o_Process3dEngine(self, unused);
     if (to_headset) g_screen->EndFrame();
@@ -977,21 +971,20 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
   g_in_pass = true;
   // ONE ROLL FOR BOTH EYES.
   //
-  // This used to be read inside the loop, once per eye. The scene walk rewrote
-  // it between the two passes, so the eyes drew 3.27 and 136.54 degrees apart
-  // in one frame and the right eye inverted. head_camera.cpp now records it
-  // once a frame, and reading it once here makes that structural rather than
-  // a promise.
+  // It is read here, not inside the loop. The scene walk can rewrite it
+  // between the two passes, and the eyes would then draw degrees apart in one
+  // frame, with the right eye inverted. head_camera.cpp records it once a
+  // frame, and reading it once here keeps it so.
   const float frame_roll = HeadCameraRoll();
 
   uint64_t scene = 0, grab = 0;
   for (int eye = 0; eye < 2; ++eye) {
     // Left eye is negative, right eye is positive, both about the camera the
     // game chose, so the mono view stays the average of the two.
-    // PHASE 3. With the head on the camera, the runtime's own per eye pose
-    // carries both the turn of the head and the separation of the eyes, so
-    // the fixed sideways offset is not used at all. Without it, or with
-    // tracking switched off, the Phase 2 behaviour stands.
+    // With the head on the camera, the runtime's own per eye pose carries
+    // both the turn of the head and the separation of the eyes, so the fixed
+    // sideways offset is not used at all. Without it, or with tracking
+    // switched off, the fixed offset is used.
     const float d = (eye == 0 ? -0.5f : 0.5f) * g_frame_separation;
     bool placed = false;
     g_eye_placement = kEyeNotPlaced;
@@ -1198,7 +1191,7 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
   g_last_frame = t0;
 
   // Everything the game does between this hook returning and being called
-  // again. LH3DRender::FinishFrame turned out to run INSIDE the scene walk,
+  // again. LH3DRender::FinishFrame runs INSIDE the scene walk,
   // so this span holds no rendering at all: it is the simulation, the script
   // machine, audio, input, and the present.
   if (g_mark_hook_end.QuadPart != 0 &&
@@ -1367,7 +1360,7 @@ void StereoSetProfile(bool on) { g_profile = on; }
 // The two test keys, F12 and Shift F12. See PollHotkeys.
 void StereoSetTestKeys(bool on) { g_test_keys = on; }
 
-// PHASE 3: the world around you instead of a screen in front of you.
+// The world around you instead of a screen in front of you.
 void StereoSetHeadFov(float degrees) { g_head_fov_deg = degrees; }
 
 void StereoSetHeadTracking(bool on) {
@@ -1444,9 +1437,9 @@ bool StereoInstall(bwvr::XrScreen* screen, float separation,
   g_screen = screen;
   g_height = height;
   // Zero asks the headset. Until the headset has measured, use the default,
-  // which is 66.7 mm at 7.5 units per metre. Writing zero here gave a world
-  // with no depth at all whenever there was no headset to ask, and would have
-  // done the same in the headset if it ever reported a bad eye position.
+  // which is 66.7 mm at 7.5 units per metre. Writing zero here would give a
+  // world with no depth at all whenever there was no headset to ask, or if the
+  // headset reported a bad eye position.
   g_eye_separation_auto = separation <= 0.0f;
   if (g_eye_separation_auto) separation = 0.5f;
   g_eye_separation = separation;

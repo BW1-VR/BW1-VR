@@ -2,7 +2,7 @@
 //
 // WHY. The plain game needs the keyboard for the Temple and its rooms, the
 // Creature, the kinds of the leash, the bookmarks, the pause and more
-// (docs/controls-audit.md, section 7). A player in a headset has no keyboard.
+// (docs/controls-audit.md, "What a player cannot do with the controllers"). A player in a headset has no keyboard.
 // The controller of the hand that does not point had three inputs with no
 // job: its first face button (X), its stick and its trigger.
 //
@@ -429,7 +429,7 @@ double NowSeconds() {
 }
 
 // One line for each change of what the ring can change in the game. A log
-// from a headset session then says what a choice did.
+// from a headset then says what a choice did.
 bool g_have_watch = false;
 Facts g_watch;
 

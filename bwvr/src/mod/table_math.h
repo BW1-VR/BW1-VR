@@ -3,7 +3,7 @@
 //
 // tabletop.cpp calls these with the numbers it reads from the game, and
 // test/controller_math calls them with numbers it makes up. Nothing here reads
-// a global or touches the game. See docs/tabletop.md, section 2.2. RayLand
+// a global or touches the game. See docs/tabletop.md, "The table camera". RayLand
 // asks for the land height through the function that the caller gives it.
 //
 // Every 3x3 matrix is m[r * 3 + c], and a vector is a column: out = m * in.
@@ -267,7 +267,7 @@ inline float Facing(const float a[3], const float b[3], const float c[3]) {
   return u[2] * w[0] - u[0] * w[2];
 }
 
-// THE HAND ON THE TABLE (docs/tabletop.md, section 10.6).
+// THE HAND ON THE TABLE (docs/tabletop.md, "The hand on the table").
 //
 // The game's Hand at size 1 is 3.2 units long (fn_0046C040). The size that
 // gives a Hand of length_m in the room at a table scale of s units per meter.
@@ -277,7 +277,7 @@ inline float HandSize(float length_m, float scale) {
   return length_m * scale / kHandLength;
 }
 
-// THE GRAB OF THE TABLE (step T4, docs/tabletop.md, section 10.7).
+// THE GRAB OF THE TABLE (docs/tabletop.md, "Moving the table by the grips").
 //
 // The table top stays where it is in the room. The land slides, turns and
 // scales on it. A grab keeps the land point under the middle of the hands at
@@ -395,7 +395,7 @@ inline void TableGrabSolve(const TableGrab& a, const float table_room[3],
   }
 }
 
-// THE EARS ON THE TABLE (docs/tabletop.md, section 10.8).
+// THE EARS ON THE TABLE (docs/tabletop.md, "The ears on the table").
 //
 // The render head is hundreds or thousands of units over the land, where the
 // game hears almost nothing. So the ears go straight down from the head, to
@@ -469,7 +469,7 @@ inline float GroundInRoom(const TablePose& pose, const float table_room[3],
   return table_room[1] + (ground_y - pose.center[1]) / pose.scale;
 }
 
-// THE GROUND LIMITS FOR A GRAB (docs/god-view.md, section 3). The land under
+// THE GROUND LIMITS FOR A GRAB (docs/god-view.md, "The ground height"). The land under
 // the head stays between nearest and farthest meters below the head. This
 // takes the height C.y that the grab asks for and gives the one to use.
 //
@@ -567,7 +567,8 @@ inline void GameCameraOver(const float ground[3], float heading,
   position[2] = ground[2] - cosf(heading) * flat;
 }
 
-// THE THROW FROM INSIDE THE INFLUENCE (docs/tabletop.md, section 10.11).
+// THE THROW FROM INSIDE THE INFLUENCE (docs/tabletop.md, "The throw from
+// inside the influence").
 // The game lets go of an object only when the land point of the release is
 // inside the player's influence. At a large scale a swing carries the Hand
 // far over the land, so the swing can start inside the influence and end
@@ -585,7 +586,8 @@ inline int ThrowFromIndex(const double* times, int count, double now,
   return -1;
 }
 
-// THE MOUSE PAN OF THE GOD VIEW (docs/god-view.md, section 5).
+// THE MOUSE PAN OF THE GOD VIEW (docs/god-view.md, "Moving around: the grab
+// and the mouse").
 //
 // The mouse is a hand that points. At the press, the land point under the
 // mouse ray is the grabbed point, and its height in the room sets a level
@@ -685,7 +687,7 @@ inline void GodTeleport(const TablePose& pose, const float table_room[3],
 }
 
 // THE PLACE OF THE GOD VIEW AT A CAMERA OF THE GAME (docs/god-view.md,
-// section 15).
+// "The place at a camera of the game").
 //
 // The game put its camera at a place, and that camera looks at a land point.
 // The player goes there. The land point is ahead_m in front of the head, and
@@ -700,8 +702,8 @@ inline void GodTeleport(const TablePose& pose, const float table_room[3],
 //
 // look is the land point with its land height. look_room_y is the height in
 // the room that the land at the look point gets. The scale does not change.
-// A head at the recenter pose with a yaw of 0, and ahead_m of 0, put the land
-// point under the recenter pose, as the first build of the God view did.
+// A head at the recenter pose with a yaw of 0, and ahead_m of 0, puts the land
+// point under the recenter pose.
 inline void GodSpawn(const float look[3], float camera_heading, float scale,
                      const float table_room[3], const float head_room[3],
                      float head_yaw, float ahead_m, float look_room_y,

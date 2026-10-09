@@ -1,14 +1,13 @@
 // Let the desktop window be any size, stop it stealing clicks, and keep the
 // Hand still in the room when the player turns their head.
 //
-// THE MEASUREMENT THIS IS BUILT ON. The game's pointer globals and the Windows
+// THE FACT THIS IS BUILT ON. The game's pointer globals and the Windows
 // cursor, logged side by side:
 //
 //     pointer : game 576 795   windows client 576 795 of 1280 x 1280
 //
 // Identical. The game's pointer is the Windows cursor in client pixels, one to
-// one and unscaled. Three things follow, and all three were reported from the
-// headset:
+// one and unscaled. Three things follow:
 //
 //   A render bigger than the monitor makes part of the game unreachable. The
 //   window is as big as the render, so the bottom of it is off the screen and
@@ -48,10 +47,9 @@
 //   pixels, and GGame::MouseHandler then sends that position straight to the
 //   interface through CMouse::ProcessPosition 0x0061A110. The interface keeps
 //   it at +0x428 and asks the landscape what is under it. So the land under
-//   the Hand was looked up at a point 2.16 times nearer the top left corner.
-//   With the head level that point is sky, so the game found no land, showed
-//   a red cross, and refused to drop anything. With the head down far enough,
-//   the wrong point happened to be land, which is why looking down helped.
+//   the Hand would be looked up at a point 2.16 times nearer the top left
+//   corner. With the head level that point is sky, so the game would find no
+//   land, show a red cross, and refuse to drop anything.
 //
 //   LHMouse::SetPosition 0x007E4E40 is how the game moves the cursor itself.
 //   It passes render pixels to SetCursorPos, which takes window pixels.
@@ -372,14 +370,14 @@ bool RenderSize(int* width, int* height) {
 
 // KEEP THE HAND STILL IN THE ROOM WHEN THE HEAD TURNS.
 //
-// The first way this was done swapped the game's own camera in around the
-// code that places the Hand, so the cursor's ray came from where the GAME was
-// looking rather than where the player was. That placed the Hand through one
-// camera while everything else the game does with the cursor used another:
-// what the Hand is over, whether a drop is allowed, where a held object goes.
-// Once the view stopped following the game's downward pitch, the two cameras
-// were 12.9 degrees apart all the time, and the game showed a red cross beside
-// the Hand, let ground spin under it instead of dragging, and refused to drop
+// The mod does not swap the game's own camera in around the code that places
+// the Hand. Then the cursor's ray would come from where the GAME looks rather
+// than where the player looks. The Hand would be placed through one camera
+// while everything else the game does with the cursor uses another: what the
+// Hand is over, whether a drop is allowed, where a held object goes. When the
+// view does not follow the game's downward pitch, the two cameras are 12.9
+// degrees apart all the time. The game then shows a red cross beside the
+// Hand, lets ground spin under it instead of dragging, and refuses to drop
 // objects anywhere but the bottom edge of the screen.
 //
 // So the camera is left alone and the CURSOR is turned instead. The view is
@@ -392,9 +390,6 @@ bool RenderSize(int* width, int* height) {
 // Every part of the game then sees one camera and one cursor, and they agree.
 // The one exception is the game's camera code, which gets its own screen for
 // the length of GCamera::Update.
-//
-// Part of the red cross turned out to have a second cause, the window pixel
-// pointer described at the top of this file.
 //
 // Only the head is compensated. When the game moves its own camera, by the
 // player dragging the land or by a cutscene, the room moves and the cursor
@@ -620,16 +615,16 @@ bool GameCameraIsPlain() {
 
 // THE EXACT POINT, NOT THE WHOLE PIXEL.
 //
-// Holding the land shook the camera in the headset, with the mouse still.
-// The camera code got its pointer from the Hand's WHOLE render pixel. That
-// pixel was turned through the head onto the game's screen and cut to a
-// whole pixel again. The head cancels in that turn, but the first cut does
-// not. Where the Hand falls inside its render pixel changes as the head
-// moves. So the game's pixel flipped between two neighbors on about 20 to 70
-// percent of frames. The land drag places the camera straight from that
-// pixel, through the camera and the plane it fixed at the press
-// (UpdateClickParams, 0x00459610). So every flip moved the camera. The
-// game's 0.3 s glide hid this until the glide was turned off.
+// The camera code does not get the Hand's WHOLE render pixel. That pixel,
+// turned through the head onto the game's screen and cut to a whole pixel
+// again, would shake the camera while the land is held and the mouse is still.
+// The head cancels in that turn, but the first cut does not. Where the Hand
+// falls inside its render pixel changes as the head moves. So the game's
+// pixel would flip between two neighbors on about 20 to 70 percent of frames.
+// The land drag places the camera straight from that pixel, through the
+// camera and the plane it fixed at the press (UpdateClickParams, 0x00459610).
+// So every flip would move the camera. The game's 0.3 s glide hides this only
+// while the glide is on.
 //
 // So the exact float the Hand is kept in is turned instead, and rounded. It
 // then only moves when the mouse moves. The pixel also stays where it was
@@ -825,7 +820,8 @@ void CountDrag(bool boxed, bool behind) {
   g_last_buttons = buttons;
 }
 
-// THE LAND DRAG PROBE, stage G0 of docs/grab-world.md. With grab_probe=1,
+// THE LAND DRAG PROBE (docs/god-view.md, "Moving around: the grab and the
+// mouse"). With grab_probe=1,
 // each land drag logs how far the controller's grip, the head and the camera
 // moved from the press to the release. The ratio is the gain of the game's
 // own drag, which follows the angle of the Hand and not its motion. Nothing
@@ -1033,8 +1029,8 @@ void __fastcall h_GCameraUpdate(void* self, void* unused) {
 // THE CAMERA CODE GETS THE HAND'S OWN RAY.
 //
 // The point on the game's screen is not the Hand. Near the frame, past it,
-// or behind the game camera, a ray through that point missed the land under
-// the Hand. So the grab point was not under the Hand, and the drag did not
+// or behind the game camera, a ray through that point misses the land under
+// the Hand. Then the grab point is not under the Hand, and the drag does not
 // follow it.
 //
 // Every ray that CameraModeNew3::Update casts through the pointer goes
@@ -1194,12 +1190,12 @@ double NowMs() {
 
 // SMOOTH THE MOUSE, NOT THE CAMERA, DURING A LAND DRAG.
 //
-// A drag of far land was choppy. A ray that hits the land at range R, from a
-// camera h above it, moves the grab point about R * R / h per radian. So one
+// A drag of far land would be choppy. A ray that hits the land at range R, from
+// a camera h above it, moves the grab point about R * R / h per radian. So one
 // window pixel of mouse motion can move the camera some meters at range.
 // The cursor also moves in whole window pixels, once a frame. So a slow drag
 // moves the camera on some frames and not on others. The game's 0.3 s glide
-// hid this, and comfort mode turns the glide off.
+// hides this, and comfort mode turns the glide off.
 //
 // So the player's own mouse motion goes into a pending amount, and the Hand
 // takes a share of it each frame: 1 - exp(-dt / time). The Hand and the
@@ -1457,7 +1453,7 @@ void ReportDrag() {
 
 // How long the Hand takes to follow the mouse in a land drag. 0 turns the
 // ease off. See DragShare.
-// grab_probe=1: log the gain of the game's own land drag (stage G0 of M7).
+// grab_probe=1: log the gain of the game's own land drag.
 void PointerMapSetGrabProbe(bool on) {
   g_probe = on;
   if (on) {
@@ -1496,14 +1492,14 @@ void PointerMapSetOptions(bool scale, bool clip) {
 //
 // The window is created the size of the render, so a render bigger than the
 // desktop leaves part of the window off the screen. With the cursor scaled
-// that no longer costs any reach, so the window can simply be shrunk to fit
-// and centred, and the render left alone at whatever size was asked for.
+// that costs no reach, so the window can simply be shrunk to fit and
+// centred, and the render left alone at whatever size was asked for.
 //
 // It is shrunk to the RENDER's shape, not the window's. The game creates its
 // window as wide as the render and only as tall as the desktop allows, so a
-// 2880 by 2880 render came up in a 2544 by 1217 window. The cursor is scaled
-// by the ratio of the two, which was 1.13 across and 2.37 down, so moving the
-// mouse down moved the Hand more than twice as far as moving it sideways.
+// 2880 by 2880 render comes up in a 2544 by 1217 window. The cursor is scaled
+// by the ratio of the two, here 1.13 across and 2.37 down, so moving the
+// mouse down would move the Hand more than twice as far as moving it sideways.
 // A window the shape of the render scales the cursor the same way both ways.
 //
 // Done once, when the render size is known and the window is not already that
@@ -1798,7 +1794,7 @@ bool g_mouse_points = false;
 // pointer. Otherwise a still mouse in a land drag and a turn of the other
 // hand's controller would move the pointer with the button down, and the
 // drag would put the grab point under the new ray. A grip that carries an
-// object counts as a held controller button here (docs/hand.md, "The grip
+// object counts as a held controller button here (docs/grab.md, "The grip
 // holds"), so a bump of the mouse does not take the object away.
 enum PointerOwner { kOwnerMouse, kOwnerController };
 PointerOwner g_owner = kOwnerMouse;
@@ -2064,7 +2060,7 @@ void PointerMapRelease() {
 }
 
 // THE MOUSE RAY IN THE ROOM, for the mouse pan of the God view (tabletop.cpp,
-// docs/god-view.md, section 5). The ray of the exact pointer through the head
+// docs/god-view.md, "Moving around: the grab and the mouse"). The ray of the exact pointer through the head
 // of this frame, H * ray, as a unit vector in the room. The cursor is locked
 // to the room in this same H, so the ray changes only when the mouse moves.
 // The Hand is on the same ray, because the game places it through the same

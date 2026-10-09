@@ -1,11 +1,9 @@
 // Stop the save game thumbnail from reading off the end of the screen.
 //
-// Entering the world with a square render killed the game with an access
-// violation. It was blamed on the wide field of view, because the two arrived
-// together. The view was innocent: a run at 2560x1440 swept the view to 105
-// degrees for 450 frames and ended clean.
+// Entering the world with a square render kills the game with an access
+// violation. The wide field of view is not the cause.
 //
-// The real fault is in ScriptedScreenShot::Process, which makes the small
+// The fault is in ScriptedScreenShot::Process, which makes the small
 // picture a save game shows. It locks the primary surface and then:
 //
 //     vstep = LHScreen::height * (1/128)
@@ -24,9 +22,9 @@
 // so the surface is whatever the wrapper gives it while width and height keep
 // the configured values. A square render in a window is exactly that case.
 //
-// The evidence that it is a row overrun and not a column one: all four crashes
-// landed on the inner column read and never on the row base read one loop out.
-// A height overrun would fault at the row base.
+// It is a row overrun and not a column one: the fault lands on the inner
+// column read and never on the row base read one loop out. A height overrun
+// would fault at the row base.
 //
 // Nothing in VR needs this picture. The mod already stops the copy to the
 // monitor, and a save thumbnail is not worth a crash, so the call is skipped

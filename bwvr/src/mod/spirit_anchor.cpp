@@ -9,9 +9,9 @@
 // uses the camera that the engine built, and it also copies the axes of that
 // camera into the spirit's own matrix.
 //
-// WHY THEY STUCK TO THE FACE. The engine's camera carries the head (see
-// head_camera.cpp). So the game put the spirits at the same place in the view
-// in every pass. They turned with the head, and they rolled with it too.
+// WHY THEY WOULD STICK TO THE FACE. The engine's camera carries the head (see
+// head_camera.cpp). So the game puts the spirits at the same place in the view
+// in every pass. They would turn with the head, and roll with it too.
 //
 // THE ROOM CAMERA. This file gives the spirit code, and only the spirit code,
 // a camera that the head does not move:
@@ -38,11 +38,11 @@
 // THE LIGHT. HelpDude::Draw (0x005C0700) places the spirits' light itself, at
 // a point behind and beside the camera, with a direct call to
 // UnprojectScreenPoint at 0x005C0747. That call is outside the three hooks,
-// so the light turned with the head while the spirits stayed still, and their
-// shading changed as the player looked around. The call is sent through
+// so the light would turn with the head while the spirits stay still, and
+// their shading would change as the player looks around. The call is sent through
 // SpiritLight, which makes the same call with the room camera swapped in.
 //
-// ON THE TABLE (docs/tabletop.md, section 10.9). The world is s units per
+// ON THE TABLE (docs/tabletop.md, "The spirits beside the table"). The world is s units per
 // meter, not 7.5. The room camera then stands at the recenter pose over the
 // table (P0), with the table's basis, and the latched pitch stays between 0
 // and 15 degrees, so the spirits float at eye level beside the table, not on
@@ -554,9 +554,9 @@ void DecideFrame(const uint8_t* control, bool present, ULONGLONG now) {
     return;
   }
   // A frame drawn in mono has nothing live in the headset. A test of time
-  // since the last stereo frame was wrong here: after one long frame it also
-  // dropped the anchor in a frame that the headset showed, and the spirits
-  // jumped to the gaze.
+  // since the last stereo frame is wrong here: after one long frame it would
+  // also drop the anchor in a frame that the headset shows, and the spirits
+  // would jump to the gaze.
   if (!StereoInPass()) {
     Drop(kReleaseIdle);
     return;

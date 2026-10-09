@@ -1,4 +1,4 @@
-// The throw of a real hand: pure math, no game state. See docs/hand.md, "The
+// The throw of a real hand: pure math, no game state. See docs/throw.md, "The
 // throw physics". throw_physics.cpp uses it, and the math test checks it.
 //
 // THE SPEED OF A THROW. A hand slows before the grip reads as open: the

@@ -2,9 +2,8 @@
 //
 // At 1920x1080 in VR the frame takes about 20 ms, and only about 12 ms of it
 // happens anywhere the mod can see. The rest sits between one scene walk and
-// the next. LH3DRender::FinishFrame turned out to run inside the scene walk,
-// so it is not that. The remaining suspects are the game's own simulation and
-// the present.
+// the next. LH3DRender::FinishFrame runs inside the scene walk, so it is not
+// that. The rest is the game's own simulation and the present.
 //
 // The present is the interesting one, for two reasons. It is the only part
 // that grows with resolution, and the picture it draws goes to a desktop

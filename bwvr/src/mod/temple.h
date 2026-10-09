@@ -1,6 +1,6 @@
 // The Temple with the controllers: the ray pointer in a room, its buttons
 // and the camera of the room. See temple.cpp and docs/controllers.md, "The
-// Temple with the controllers".
+// Temple".
 
 #pragma once
 
@@ -42,7 +42,7 @@ int TempleCardRoom();
 // The report of a window, from ControllersReport.
 void TempleReport();
 
-// THE TAPS ON THE LAND (docs/hand.md, "The door of the Temple and the leash
+// THE TAPS ON THE LAND (docs/village.md, "The door of the Temple and the leash
 // posts"). For the cards of the hands: the lines while the Hand's point is at
 // the door of the Temple or at a leash post. The return value is the count of
 // lines, 0 with no such thing at the Hand. A line is a MiracleLine of

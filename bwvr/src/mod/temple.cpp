@@ -1,5 +1,4 @@
-// THE TEMPLE WITH THE CONTROLLERS (docs/controllers.md, "The Temple with the
-// controllers").
+// THE TEMPLE WITH THE CONTROLLERS (docs/controllers.md, "The Temple").
 //
 // In the Temple the game draws a room from a camera of its own, and its Hand
 // has the state of the Temple (HandStateCitadel): the Hand is at the pixel of
@@ -769,7 +768,7 @@ void __fastcall h_CameraUpdate(void* self, void* unused, void* room,
 // (GInterface::SendInvisibleDrawCollision, from fn_00466730 in
 // CitadelHeart::DrawNow). The pick of the real hand takes its candidates
 // from GInterface::SendObjectDrawCollision, and a post does not come there.
-// So a press of the grip at a post had no target (run tland1).
+// So a press of the grip at a post has no target in the plain game.
 //
 // The mod takes the three posts from the draw of the Temple of the player
 // and gives them to the choice of the real hand as balls (HandDirectOffer).
@@ -777,9 +776,9 @@ void __fastcall h_CameraUpdate(void* self, void* unused, void* room,
 // tap are its own (InterfaceValidToTap, InterfaceTap).
 //
 // THE DOOR OF THE TEMPLE (CitadelEntrance) has a mesh for the collision, and
-// the draw offers it as each object. So it was a target of the grip before
-// this change (run tland1). The mod only reads it here, for the card and
-// for the log.
+// the draw offers it as each object. So it is a target of the grip with no
+// help from the mod. The mod only reads it here, for the card and for the
+// log.
 const uintptr_t kHeartOffers = 0x00466730;   // thiscall on CitadelHeart
 const uintptr_t kInvisibleCollision = 0x00519960;  // cdecl (object, point, radius)
 const int kHeartPlayer = 0x1C;       // the vtable place of GetPlayer
