@@ -1216,7 +1216,7 @@ ui depth     : N tooltips drawn, M second copies skipped
 
 The game sizes its help layer from the render height. A tooltip is a 25th of the
 screen height and its text two thirds of that, so at a 2880 pixel render the text
-is about 77 pixels tall. `ui_scale_pct` (default 25, 25 to 100, set in the
+is about 77 pixels tall. `ui_scale_pct` (default 25, 25 to 100, not in the
 launcher) scales that layer toward the center of the view. It applies by scope,
 inside the HelpText FinishFrame callback `0x005CD020` (subtitles, help text, the
 Creature panel at `0x005178D0`) and `HelpSystem::Draw3D` (`0x005C59A0`). The caller

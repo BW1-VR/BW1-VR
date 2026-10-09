@@ -939,7 +939,7 @@ hands change sides. The default mode is the God view (`god-view.md`).
 | `controller_left_handed` | 0 | 1 points with the left hand |
 | `controller_swap_buttons` | 0 | 1 makes the grip the left button and the trigger the right |
 | `controller_haptics` | 1 | Short pulses on presses and turns |
-| `controller_hand` | 1 | 1 puts the Hand at the controller (the direct hand). 0 keeps the pointer mode of section 3. In the launcher as "Hand" |
+| `controller_hand` | 1 | 1 puts the Hand at the controller (the direct hand). 0 keeps the pointer mode of section 3. Not in the launcher, and a save of the launcher removes the key |
 | `grip_fast_open` | 1 | With the direct hand, a closed grip also opens on a fast fall of its value (3.6) |
 | `gesture_button` | 1 | The gesture draw button: 0 off, 1 the second face button of the pointing hand, 2 the stick click |
 | `gesture_size_cm` | 30 | This much hand motion is a third of the view height to the game |

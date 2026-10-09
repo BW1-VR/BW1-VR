@@ -84,6 +84,11 @@ hand, for tests.
 | `freeze_time`, `skip_hand_pass2`, `skip_physics_pass2`, `skip_snapshot` | 1 |
 | `profile`, `capture_every_seconds` | 0 |
 | `subtitle_lift_pct` | 0: subtitles stay where the game puts them, and the interface size brings them into view |
+| `controller_hand` | 1: the Hand is at the real hand. 0 is the pointer: the controller points a ray, and the Hand goes where the ray points |
+| `script_camera` | 2: a story camera that has no window holds each shot and cuts at the end of each move. 0 lets it glide as the game moves it, 1 cuts at the start of each move |
+| `instant_jumps` | 1: a double click on the land takes the player there in one frame |
+| `camera_glide` | 0: the camera stops when the player releases the land |
+| `head_units_per_meter_x10` | 75: 7.5 game units for each meter, the life size scale |
 
 The list `kRetiredKeys` also holds the keys of earlier modes (`head_tracking`,
 `immersive`) and the keys of the desktop test tools (`fake_head*`,
@@ -94,7 +99,20 @@ headset session with no message.
 Every OpenXR runtime reports a pose for each eye, so the IPD is always known.
 The mod takes it from the distance between the two eye poses, and takes it
 again when it changes by more than 0.5 mm (for example when a Quest 3 IPD wheel
-turns). World scale changes how big the world feels.
+turns).
+
+### Settings that are not offered and that stay in the ini
+
+These keys have settled defaults, so the launcher has no row for them. Their
+rows are in comments in `kSettings`, and the mod still reads each key. A save
+does not delete them, so a value that a person writes in `bwvr.ini` is kept.
+
+| Key | Default | What it does |
+| --- | --- | --- |
+| `ui_scale_pct` | 25 | The size of subtitles, help text and the Creature panel in the eye pictures, 25 to 100 (`backend.md`, "Interface size") |
+| `ui_shift_px`, `ui_adaptive` | 8, 1 | How far the interface sits in front of the player, and whether it comes nearer when the world in front of it is nearer |
+| `hint_scale_pct`, `hint_flat` | 20, 1 | The size and the depth of the game's hint beside the Hand in the eye pictures. With controllers the hints are on the hint cards (`controller-hints.md`) |
+| `zoom_step` | 2 | The step of one wheel click on the camera of the game (`backend.md`, "Zoom in steps"). The God view has its own zoom steps |
 
 ## Settings
 
@@ -112,18 +130,7 @@ turns). World scale changes how big the world feels.
 | Setting | Default | What it does |
 | --- | --- | --- |
 | Play mode | God view | Key `play_mode`, a value and not an index. 4 God view: the land is at your waist, so your hands can reach it, with motion controllers or with the mouse (see `god-view.md`). 1 Stereoscopic window: a 3D screen in front of you, and your head does not move the camera. 3 Tabletop (test): the island is a model on a table in front of you (see `tabletop.md`). A window that follows the head is mode 2, which the launcher does not offer. An ini with `play_mode=0` gets the God view. |
-| World scale | 75 | Key `head_units_per_meter_x10`. Game units in a meter, in tenths. |
 | Intro in stereo | off | The Lionhead logo at the start forms in 3D around you. The menu button skips it. Key `intro_vr`. See `intro.md`. |
-
-### Comfort
-
-| Setting | Default | What it does |
-| --- | --- | --- |
-| Interface size | 25% | The size of subtitles, help text, tooltips and the Creature panel. A smaller size also moves them nearer to the middle of your view. 100% is the size that the game uses. Menus keep their own size. The list is 25, 30, 40, 50, 75 and 100. Key `ui_scale_pct`, 20 to 100 when written by hand. |
-| Hint size, percent | 20 | Key `hint_scale_pct`. The size of the hint beside the Hand. The game sizes its hints in pixels. |
-| Draw the hint flat | on | Key `hint_flat`. The hint stays on the Hand without the depth of the Hand. |
-| Interface depth, pixels | 8 | Key `ui_shift_px`. How far the interface sits in front of you. More pixels is nearer. |
-| Bring the interface forward when needed | on | Key `ui_adaptive`. Moves the interface nearer when the scenery in front of it is nearer. |
 
 ### Moving around
 
@@ -133,19 +140,14 @@ move the camera in steps.
 
 | Setting | Default | What it does |
 | --- | --- | --- |
-| Turn in steps | 45 degrees | Key `snap_turn`, index 0 to 3: off, 30, 45, 90 degrees. A drag sideways with the middle mouse button, or a turn key, turns you in one step. You stay where you are. The middle mouse button does not tilt the camera. Off gives the smooth turn and tilt of the game. |
-| Jump at once | on | Key `instant_jumps`. A double click on the land takes you there in one frame. Off, the camera flies there as the game does it. |
-| Let the camera glide | off | Key `camera_glide`. Off, the camera stops when you release the land. On, it slides on for a moment. |
-| Zoom step | Medium | Key `zoom_step`, index 0 to 3: the game's step (about 1.06 times the distance), small, medium, large (1.12, 1.20 and 1.30 times a click). With the last three, the first click zooms at once. Clicks in the next 0.15 seconds join the next step, up to three clicks. |
-| Story camera | Cut at the end | Key `script_camera`, index 0 to 2. How the camera moves in cut scenes and tutorials. Game: it glides as the game moves it. Cut at the start: the view cuts to where each move goes. Cut at the end: the view holds until the camera stops, then it cuts. In both cut modes a long move also cuts on the way, a close shot gets a little more room, and the camera does not shake. |
+| Turn in steps | 45 degrees | Key `snap_turn`, index 0 to 3: off, 30, 45, 90 degrees. A push of the right stick to the left or the right, a drag sideways with the middle mouse button, or a turn key, turns you in one step. You stay where you are. The middle mouse button does not tilt the camera. Off gives the smooth turn and tilt of the game. |
 | Blink when you jump or turn | off | Key `blink`, index 0 to 2: off, short (0.1 seconds), long (0.2 seconds). Black after a jump, a turn and a story camera cut. |
 
 ### Controllers
 
 | Setting | Default | What it does |
 | --- | --- | --- |
-| Hand | Direct hand | Key `controller_hand`, a value. 1 Direct hand: the Hand is where your controller is. 0 Pointer: the controller points a ray, and the Hand goes where the ray points. |
-| Glow at the Hand's point | on | Key `hand_glow`. A small glow shows the point of the Hand that picks up and clicks. It is gold when the grip can pick something up. It is green when a press acts on something that the Hand cannot pick up. Only with the direct hand. |
+| Glow at the Hand's point | on | Key `hand_glow`. A small glow at the tip of the index finger shows the point of the Hand that picks up and clicks. It shows while a press of the grip acts on something (`hand-model.md`). |
 | Grab the world | Grip of the other hand | Key `grab_hand`, a value. 1 Hold the grip of your other hand and move that hand to pull the world. Hold both grips to turn the world and to zoom. 2 Either grip: the grip of the pointing hand also grabs the world when the Hand is empty and not over an object. 0 Off. |
 
 See `controllers.md` for the full controls.
@@ -154,7 +156,7 @@ See `controllers.md` for the full controls.
 
 | Setting | Default | What it does |
 | --- | --- | --- |
-| Test keys | off | Key `test_keys`. Turns on six keys for tests. F12 saves a picture of each eye in the game folder. Shift F12 moves the subtitles down one step, and after the lowest step they go back up. Ctrl F12 sets who points: the mouse and the controllers, the controllers only, or the mouse only. Ctrl Shift F12 moves the ears between the head and the game camera. Shift F11 sets the grab of the world: as set, one to one, or off. Ctrl Shift F11 turns the interface panel on and off, when `ui_panel` is set. Press these keys with the mouse still. |
+| Test keys | off | Key `test_keys`. Turns on the keys for tests. Each key changes one rule of the mod while the game runs, for a comparison. `backend.md` ("Keys for v1.0") and the player readme list them. F12 saves a picture of each eye in the game folder. A player does not need this. |
 
 F11 makes the direction of your head straight ahead. This key is always on.
 

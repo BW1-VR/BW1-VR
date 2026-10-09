@@ -588,7 +588,7 @@ section 7 for the size of the exact Hand.
 
 | Key | Default | What it does |
 | --- | --- | --- |
-| `controller_hand` | 1 | 1 puts the Hand at the controller. 0 keeps the pointer. In the launcher as "Hand" |
+| `controller_hand` | 1 | 1 puts the Hand at the controller. 0 keeps the pointer. Not in the launcher, and a save of the launcher removes the key |
 | `hand_reach_start_cm` | 35 | The Hand follows the controller one to one up to this far from the reach anchor |
 | `hand_reach_gain` | 0 | Per meter past the start. 0 gives one to one at all distances. 215 gives the Go-Go reach: a hand 65 cm from the anchor reaches 150 units |
 | `hand_reach_anchor_down_cm` | 20 | The reach anchor is the head center at the last recenter, this far down (0 to 100) |

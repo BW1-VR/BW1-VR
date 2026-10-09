@@ -61,6 +61,11 @@ struct Setting {
 // Only settings with more than one right answer are here. Settings that only
 // break the game when changed are not offered, and SaveAll removes them from
 // the ini (see kRetiredKeys).
+//
+// A row in a comment is a setting that the launcher does not offer now. The
+// mod still reads its key, with the same default. To offer it again, take
+// the comment marks away, and take its key out of kRetiredKeys if it is
+// there.
 const Setting kSettings[] = {
     {kGroup, nullptr, "Picture", nullptr, 0, nullptr},
     {kScale, "resolution_pct", "Resolution scale", "50|200|5", 100,
@@ -94,73 +99,85 @@ const Setting kSettings[] = {
      "you, and your head does not move the camera. Tabletop: the island is "
      "a model on a table in front of you. Walk around it and lean over it. "
      "This mode is a test and is not complete."},
-    {kInt, "head_units_per_meter_x10", "World scale, tenths per meter", nullptr,
-     75,
-     "How many game units a real meter is worth, in tenths. 75 means 7.5 "
-     "units, which keeps what your eyes see and what your neck feels the same "
-     "size."},
+    // Not offered: 7.5 units for each meter is the life size scale, and a
+    // different value makes the Hand and the world the wrong size.
+    // {kInt, "head_units_per_meter_x10", "World scale, tenths per meter", nullptr,
+    //  75,
+    //  "How many game units a real meter is worth, in tenths. 75 means 7.5 "
+    //  "units, which keeps what your eyes see and what your neck feels the same "
+    //  "size."},
     {kBool, "intro_vr", "Intro in stereo", nullptr, 0,
      "Shows the Lionhead logo at the start of the game in 3D around you. The "
      "menu button skips it. This is new and not tested in a headset yet. "
      "Off shows the intro flat, as before."},
 
-    {kGroup, nullptr, "Comfort", nullptr, 0, nullptr},
-    {kValues, "ui_scale_pct", "Interface size",
-     "25%=25|30%=30|40%=40|50%=50|75%=75|100%=100", 25,
-     "The size of subtitles, help text, tooltips and the Creature panel. A "
-     "smaller size also moves them nearer to the middle of your view. 100% "
-     "is the size that the game uses. Menus keep their own size."},
-    {kInt, "hint_scale_pct", "Hint size, percent", nullptr, 20,
-     "The game sizes its hints in pixels, which is small on a monitor and "
-     "large in a headset. 20 is a fifth of the size the game asks for."},
-    {kBool, "hint_flat", "Draw the hint flat", nullptr, 1,
-     "The hint stays on the Hand but loses the Hand's depth, so it does not "
-     "sit a hand's breadth from your face. Turn it off to give it the Hand's "
-     "own depth again."},
-    {kInt, "ui_shift_px", "Interface depth, pixels", nullptr, 8,
-     "How far the interface sits in front of you. More pixels is nearer."},
-    {kBool, "ui_adaptive", "Bring the interface forward when needed", nullptr,
-     1,
-     "Moves the interface nearer when the world in front of it is nearer, so "
-     "scenery does not poke through it."},
+    // Not offered: the sizes and the depth of the interface in the eye
+    // pictures have settled defaults. With controllers the hints and the
+    // subtitles are on cards of the mod, which these keys do not change.
+    // {kGroup, nullptr, "Comfort", nullptr, 0, nullptr},
+    // {kValues, "ui_scale_pct", "Interface size",
+    //  "25%=25|30%=30|40%=40|50%=50|75%=75|100%=100", 25,
+    //  "The size of subtitles, help text, tooltips and the Creature panel. A "
+    //  "smaller size also moves them nearer to the middle of your view. 100% "
+    //  "is the size that the game uses. Menus keep their own size."},
+    // {kInt, "hint_scale_pct", "Hint size, percent", nullptr, 20,
+    //  "The game sizes its hints in pixels, which is small on a monitor and "
+    //  "large in a headset. 20 is a fifth of the size the game asks for."},
+    // {kBool, "hint_flat", "Draw the hint flat", nullptr, 1,
+    //  "The hint stays on the Hand but loses the Hand's depth, so it does not "
+    //  "sit a hand's breadth from your face. Turn it off to give it the Hand's "
+    //  "own depth again."},
+    // {kInt, "ui_shift_px", "Interface depth, pixels", nullptr, 8,
+    //  "How far the interface sits in front of you. More pixels is nearer."},
+    // {kBool, "ui_adaptive", "Bring the interface forward when needed", nullptr,
+    //  1,
+    //  "Moves the interface nearer when the world in front of it is nearer, so "
+    //  "scenery does not poke through it."},
 
     {kGroup, nullptr, "Moving around", nullptr, 0, nullptr},
     {kChoice, "snap_turn", "Turn in steps", "Off|30 degrees|45 degrees|90 degrees",
      2,
-     "Drag sideways with the middle mouse button, or press a turn key, to "
-     "turn in one step. You stay where you are. The middle mouse button does "
-     "not tilt the camera. Off gives the smooth turn and tilt of the game."},
-    {kBool, "instant_jumps", "Jump at once", nullptr, 1,
-     "A double click on the land takes you there in one frame. Off, the "
-     "camera flies there as the game does it."},
-    {kBool, "camera_glide", "Let the camera glide", nullptr, 0,
-     "Off, the camera stops when you release the land. On, it slides on for "
-     "a moment, as the game does it."},
-    {kChoice, "zoom_step", "Zoom step", "Game|Small|Medium|Large", 2,
-     "Sets how far one click of the mouse wheel zooms. Medium is about three "
-     "times the step of the game. On Small, Medium and Large, clicks in the "
-     "next 0.15 seconds join the next step."},
-    {kChoice, "script_camera", "Story camera",
-     "Game|Cut at the start|Cut at the end", 2,
-     "How the camera moves in cutscenes and tutorials. Game: it glides as the "
-     "game moves it. Cut at the start: the view cuts to where each move goes. "
-     "Cut at the end: the view holds until the camera stops, then it cuts. "
-     "With both cut choices, a long move also cuts on the way, a close shot "
-     "gets a little more room, and the camera does not shake."},
+     "Push the right stick left or right, drag sideways with the middle "
+     "mouse button, or press a turn key, to turn in one step. You stay "
+     "where you are. The middle mouse button does not tilt the camera. Off "
+     "gives the smooth turn and tilt of the game."},
+    // Not offered. These four keys act on the camera of the game. In the
+    // God view the mod moves the view in cuts and in its own zoom steps,
+    // and a story shows in a window in the room, so the defaults are the
+    // only values that a headset needs. The zoom step still acts in the
+    // stereoscopic window.
+    // {kBool, "instant_jumps", "Jump at once", nullptr, 1,
+    //  "A double click on the land takes you there in one frame. Off, the "
+    //  "camera flies there as the game does it."},
+    // {kBool, "camera_glide", "Let the camera glide", nullptr, 0,
+    //  "Off, the camera stops when you release the land. On, it slides on for "
+    //  "a moment, as the game does it."},
+    // {kChoice, "zoom_step", "Zoom step", "Game|Small|Medium|Large", 2,
+    //  "Sets how far one click of the mouse wheel zooms. Medium is about three "
+    //  "times the step of the game. On Small, Medium and Large, clicks in the "
+    //  "next 0.15 seconds join the next step."},
+    // {kChoice, "script_camera", "Story camera",
+    //  "Game|Cut at the start|Cut at the end", 2,
+    //  "How the camera moves in cutscenes and tutorials. Game: it glides as the "
+    //  "game moves it. Cut at the start: the view cuts to where each move goes. "
+    //  "Cut at the end: the view holds until the camera stops, then it cuts. "
+    //  "With both cut choices, a long move also cuts on the way, a close shot "
+    //  "gets a little more room, and the camera does not shake."},
     {kChoice, "blink", "Blink when you jump or turn", "Off|Short|Long", 0,
      "Shows black for a moment when you jump or turn. Short is 0.1 seconds "
      "and long is 0.2 seconds. Some people find a jump easier with a blink."},
 
     {kGroup, nullptr, "Controllers", nullptr, 0, nullptr},
-    {kValues, "controller_hand", "Hand", "Direct hand=1|Pointer=0", 1,
-     "Direct hand: the Hand is where your controller is. Stretch your arm to "
-     "reach far into the world. Pointer: the controller points a ray, and the "
-     "Hand goes where the ray points."},
+    // Not offered: the Hand is the real hand. The pointer stays in the mod
+    // for a dialog box and for tests (controller_hand=0).
+    // {kValues, "controller_hand", "Hand", "Direct hand=1|Pointer=0", 1,
+    //  "Direct hand: the Hand is where your controller is. Stretch your arm to "
+    //  "reach far into the world. Pointer: the controller points a ray, and the "
+    //  "Hand goes where the ray points."},
     {kBool, "hand_glow", "Glow at the Hand's point", nullptr, 1,
-     "A small glow shows the point of the Hand that picks up and clicks. It "
-     "is gold when the grip can pick something up. It is green when a press "
-     "acts on something that the Hand cannot pick up. Only with the direct "
-     "hand."},
+     "A small glow at the tip of the index finger shows the point of the "
+     "Hand that picks up and clicks. It shows while a press of the grip "
+     "acts on something."},
     {kValues, "grab_hand", "Grab the world",
      "Grip of the other hand=1|Either grip=2|Off=0", 1,
      "Hold the grip of your other hand. Move that hand to pull the world. "
@@ -170,15 +187,10 @@ const Setting kSettings[] = {
 
     {kGroup, nullptr, "Testing", nullptr, 0, nullptr},
     {kBool, "test_keys", "Test keys", nullptr, 0,
-     "Turns on six keys for tests. F12 saves a picture of each eye in the "
-     "game folder. Shift F12 moves the subtitles down one step, and after "
-     "the lowest step they go back up. Ctrl F12 sets who points: the mouse "
-     "and the controllers, the controllers only, or the mouse only. Ctrl "
-     "Shift F12 moves the ears between your head and the game camera. Shift "
-     "F11 sets the grab of the world: as set, one to one, or off. Ctrl "
-     "Shift F11 turns the interface panel on and off, when ui_panel is set. "
-     "Press "
-     "these keys with the mouse still."},
+     "Turns on the keys for tests. Each key changes one rule of the mod "
+     "while you play, so that you can compare, and the readme lists them. "
+     "F12 saves a picture of each eye in the game folder. A player does "
+     "not need this."},
 };
 
 const int kSettingCount = sizeof(kSettings) / sizeof(kSettings[0]);
@@ -546,6 +558,13 @@ const char* const kRetiredKeys[] = {
     "village_test_icon", "village_test_site", "seek_step_cm",
     "village_test_miracles", "village_test_scaffolds",
     "village_test_workshop",
+    // Settings that the launcher offered before. Each has one right answer
+    // in a headset, and the mod's default is that answer. The other
+    // settings that are not offered now (the sizes and the depth of the
+    // interface, the hint, the zoom step) stay in the ini as they are, so a
+    // value that a person wrote by hand is kept.
+    "controller_hand", "script_camera",    "instant_jumps",
+    "camera_glide",    "head_units_per_meter_x10",
 };
 
 // dxwrapper sets its own anisotropic filtering on the Direct3D 9 device, from

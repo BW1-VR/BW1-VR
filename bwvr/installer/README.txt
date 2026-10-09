@@ -66,26 +66,19 @@ them too.
 THE SETTINGS
 ------------
 
-The launcher shows six groups.
+The launcher shows five groups.
 
   Picture         How big a picture each eye gets, how sharp the
                   textures are, and how far out models keep their
                   full detail.
 
-  View            The play mode, how big the world feels, and the
-                  intro in stereo. The default play mode is the God
-                  view (see below).
+  View            The play mode and the intro in stereo. The default
+                  play mode is the God view (see below).
 
-  Comfort         The size of the interface and of the hint beside
-                  the Hand, and how far in front of you the
-                  interface sits.
+  Moving around   Turns in steps, and a blink when you jump or
+                  turn.
 
-  Moving around   How the camera moves when you did not move your
-                  head: turns in steps, jumps, the zoom step, the
-                  story camera and the blink.
-
-  Controllers     How the Hand follows your controller, the glow at
-                  the Hand, and the grab of the world.
+  Controllers     The glow at the Hand, and the grab of the world.
 
   Testing         One box, which turns on keys for tests. The box
                   is off, and a player does not need it.
@@ -224,12 +217,8 @@ The mod reads tracked controllers, for example the Quest Touch
 controllers. The mouse keeps working all the time: the one you move
 or press last is the one that points.
 
-The right hand points. In the launcher, "Controllers" and "Hand" set
-how it points:
-
-  Direct hand   The Hand is where your hand is, and the size of your
-                hand. This is the default.
-  Pointer       The controller points at the land, like a mouse.
+The right hand points. The Hand is where your hand is, and it has the
+size of your hand.
 
   Trigger             The left mouse button: drag the land, and click
                       on things.
