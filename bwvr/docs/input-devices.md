@@ -1,25 +1,25 @@
 # Input devices the game already knows about
 
-Notes for Phase 4 and Phase 5, the Hand and gestures. Nothing here is built
-yet. This records what the binary already contains, so the hand work can hook
-an existing path instead of faking mouse movement.
+This file records what the binary already contains for input devices other
+than the plain mouse. The Hand and gesture work hooks these existing paths
+instead of faking mouse movement.
 
 ## The P5 glove: patch 1.30, and nothing to take from it
 
 Patch v1.30 (March 2003) added support for the Essential Reality P5 glove, a
 2002 consumer hand tracker with finger bend sensors. It is the only time this
-game shipped support for a hand input device. We checked it in full, read
-only, against pure retail 1.20 and 1.30 installs.
+game shipped support for a hand input device. It was checked read only,
+against pure retail 1.20 and 1.30 installs.
 
 **Result: nothing from 1.30 can or needs to move into the VR build, and users
 never need to install 1.30.**
 
 ### It is not in our executable
 
-Our binary is v1.20 code, confirmed by an identical `.text` virtual size and
-section layout to v1.20 retail. The fan patch v1.42 applied byte patches on
-top, and byte patches cannot add code to an image with relocations stripped.
-No `Glove`, `P5`, `Essential` or `Reality` string appears in it, and no glove
+Our binary is v1.20 code. It has an identical `.text` virtual size and section
+layout to v1.20 retail. The fan patch v1.42 applied byte patches on top, and
+byte patches cannot add code to an image with relocations stripped. No
+`Glove`, `P5`, `Essential` or `Reality` string appears in it, and no glove
 symbol or DLL. The 28 byte matches for `P5` are the CPU name table (`Intel
 P5`) and ordinary code bytes.
 
@@ -43,11 +43,11 @@ them.
 The glove logic is about 20 KB of new code (`.text` grew by `0x5180`) in the
 1.30 `runblack.exe`. That file is SafeDisc protected. SafeDisc encrypts all
 of `.text` and all of `.data` on disk, including the strings, the assert
-paths and the RTTI names. Reading the code means removing the protection, which this
-project does not do. No public analysis exists either: bw1-decomp lists 1.30
-only as work in progress.
+paths and the RTTI names. Reading the code means removing the protection,
+which this project does not do. No public analysis exists: bw1-decomp lists
+1.30 only as work in progress.
 
-### What the plaintext still shows
+### What the plaintext shows
 
 - **Imports.** The exe imports four functions from `P5DLL.dll`: the `CP5DLL`
   constructor and destructor, `P5_Init` and `P5_SetMouseState`. Every other
@@ -97,9 +97,9 @@ A "click sensitivity" slider set how far a finger bends for a click. No line
 uses wrist rotation. The glove only drove the game's existing pointer,
 buttons and camera actions, which is the same approach as this mod.
 
-### Worth doing later, with no 1.30 install
+### Open ideas that need no 1.30 install
 
-1. Use the pose table above as a reference for the Phase 4 controller mapping.
+1. Use the pose table above as a reference for the controller mapping.
 2. "The Immersion Mushrooms" challenge on Land 1 is the "glove challenge" that
    the community remembers. Its script is already in the 1.20 files, and
    `GScript::ImmersionExists` at `0x006FDFA0` gates it. A hook there could
@@ -115,16 +115,15 @@ buttons and camera actions, which is the same approach as this mod.
    another file. Voice lines are tied to text by key name, so keep the keys.
    Do not ship Lionhead's glove text, audio or icons.
 
-## Immersion force feedback: present, and a better lead
+## Immersion force feedback
 
-The same intuition pays off somewhere else. The game links directly against
-**`IFC22.dll`**, the Immersion Foundation Classes 2.2 runtime, and uses 30 of
-its exports. This is the TouchSense haptics layer for the Immersion feedback
-mouse.
-
-That matters for VR because the effects are already named after the exact
-interactions the Hand performs, and they are already wired to the objects that
-perform them.
+The game links directly against **`IFC22.dll`**, the Immersion Foundation
+Classes 2.2 runtime, and uses 30 of its exports. This is the TouchSense haptics
+layer for the Immersion feedback mouse. The effects are named after the
+interactions that the Hand performs, and they are wired to the objects that
+perform them. The mod routes them to the controller haptics (hook in
+`controllers.cpp`, pulses in `haptics.cpp`, and the haptics section of
+`hand.md`).
 
 ### What is there
 
@@ -163,37 +162,35 @@ so there are **48 effect slots**. It reads an effect pointer array at
 `0x00D18588` holds the `CImmMouse` device pointer. Init at `0x005D86A0`
 creates the object and stores it at `0x005D86FD`. Shutdown deletes it through
 its vtable at `0x005D89D9` and clears the global. The other functions only
-test it for nonzero, so it also acts as the gate for the whole system.
+test it for nonzero, so it also acts as the gate for the whole system. Do not
+force this global to a nonzero value, because it is a device pointer.
 
-Most interesting: every object class implements
-**`GetInHandImmersionTexture`**. `Bonfire`, `DeadTree`, `HanoiBlock`,
-`PuzzleMobileObject` and `Living` all have their own. So the game already
-carries a per object answer to "what does this feel like when you are holding
-it", reached through the Hand.
+The game calls `GInterface::StartImmersion` with no Immersion hardware, so a
+hook at its entry sees every effect. The signature is `(int effect, unsigned
+int)`, `ret 8`, and the second argument is `0x80000000` every time. The
+effect slots 0 to 3, 8 and 9 come from the callers, and slots 4, 5, 6, 44 and
+46 from when they start in play (see `hand.md`).
 
-### Why this is worth keeping
+Every object class implements **`GetInHandImmersionTexture`**. `Bonfire`,
+`DeadTree`, `HanoiBlock`, `PuzzleMobileObject` and `Living` all have their own.
+So the game carries a per object answer to "what does this feel like when you
+are holding it", reached through the Hand.
 
-1. `IFC22.dll` is imported by name, so it proxies exactly like `ddraw.dll`
-   does now. The same technique already proven in this project applies.
-2. Hooking `GInterface::StartImmersion` gives a stream of named haptic events
-   at the correct moments, with magnitude and duration attached. Routing that
-   to controller haptics is a mapping job, not a reverse engineering job.
-3. `GetInHandImmersionTexture` gives per object texture, which is better than
-   one generic buzz for every grab.
+### Why this is useful
+
+1. `IFC22.dll` is imported by name, so it can be proxied like `ddraw.dll`.
+2. A hook on `GInterface::StartImmersion` gives a stream of named haptic
+   events at the correct moments, with magnitude and duration attached.
+   Routing that to controller haptics is a mapping job.
+3. `GetInHandImmersionTexture` gives a texture for each object, which is better
+   than one generic buzz for every grab.
 4. `CImmMouse::SwitchToAbsoluteMode` is one of the imported exports. The game
    can already accept an absolute pointer position from a device rather than
-   relative movement. That is worth reading properly before Phase 4 decides
-   how a tracked controller drives the Hand.
+   relative movement. This is worth reading before a decision on how a tracked
+   controller drives the Hand.
 
-### What is not known yet
+### Open questions
 
-- Answered by M4: the game calls `GInterface::StartImmersion` with no
-  Immersion hardware, so a hook at its entry sees every effect. The
-  signature is `(int effect, unsigned int)`, `ret 8`, and the second argument
-  was `0x80000000` every time. Do not force the global at `0x00D18588` to a
-  nonzero value, because it is a device pointer.
-- Which of the 48 slots each named effect occupies. See `docs/hand.md`,
-  "M4 as built": 0 to 3, 8 and 9 from the callers, and 4, 5, 6, 44 and 46
-  from when they started in play.
+- Which of the 48 slots each named effect occupies (see the slots above).
 - Whether `UpdateCollideImmersion` runs during ordinary play or only while the
   mouse is on a widget.

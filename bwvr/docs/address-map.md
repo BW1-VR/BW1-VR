@@ -12,8 +12,8 @@ address here is constant on every machine**.
 
 Our file hashes differently because the v1.42 fan patch applied byte patches on
 top. The **addresses still match**, because byte patches cannot move code in an
-image with relocations stripped. Verified by deriving six vtable addresses
-independently with an RTTI walk and comparing:
+image with relocations stripped. Six vtable addresses derived independently
+with an RTTI walk agree with the symbol file:
 
 | Address | Found by RTTI walk | Symbol in `BW1W120/symbols.txt` |
 | --- | --- | --- |
@@ -24,7 +24,10 @@ independently with an RTTI walk and comparing:
 | `0x008DF800` | `GestureSystem` vtable | `??_7GestureSystem@@6B@` |
 | `0x008C7110` | `GCamera` vtable | `??_7GCamera@@6B@` |
 
-Six for six. The symbol file is trustworthy on our binary.
+The addresses of the symbol file are right on our binary. The decorated names
+are a claim, not a proof: the exe has no symbols, and a person or a tool wrote
+each Windows name. See "Tools and method" for how to check one and how to
+correct one.
 
 Note on vtable sizes: the `size:` field in `symbols.txt` covers the symbol
 region, which includes static constants that follow the vtable. The real
@@ -67,7 +70,7 @@ changes nothing on screen.
 
 | Address | Symbol or meaning |
 | --- | --- |
-| `0x0082CD80` | **`LH3DRender::OpenD3D()`** — the T&L capability probe |
+| `0x0082CD80` | **`LH3DRender::OpenD3D()`**, the T&L capability probe |
 | `0x0082D3F0` | `LH3DRender::CloseD3D()` |
 | `0x0082B3C0` | `LH3DRender::Open()` |
 | `0x0082B570` | `LH3DRender::Close()` |
@@ -264,10 +267,24 @@ Each sets one byte, and `pc_main` at `0x00641C60` reads them.
 `-NEWGAME` is the useful one for testing. It boots to gameplay with no menu
 click, so a test run needs no window focus and no mouse.
 
-## Method notes
+## Tools and method
 
-Three independent techniques all agree, which is why the map above is
-trustworthy:
+The symbol file, `config/BW1W120/symbols.txt` of `bw1-decomp`, is the source
+of the names (see `third_party/README.md`). `CONTRIBUTING.md`, section
+"Reverse engineering", has the set up. The tools:
+
+| Tool | Use |
+| --- | --- |
+| `python bwvr\tools\disasm.py 0x005B3C70` | Disassembly of one function with the names. `--find` searches a name, `--callers` lists the callers of a function, `--xref` lists the uses of an address. Needs Python 3 and `capstone` |
+| `.\bwvr\tools\re.ps1 decompile 0x005B3C70` | The C of a function from Ghidra, in `local\ghidra\out\`. Needs Ghidra 12 and a JDK 21 |
+| `.\bwvr\tools\re.ps1 setup` | Gets the names and makes a Ghidra project of your `runblack.exe` in `local\ghidra`. `re.ps1 status` says what is there |
+| `python bwvr\tools\check_names.py` | Compares the parameter classes of the Windows names with the Mac symbols of the same project, which are from the compiler. `--all` shows every difference. Exit code 1 means a wrong name that is not corrected |
+| `bwvr/ghidra/name-corrections.txt` | A line here replaces the name at its address, with the proof as a comment. `disasm.py` and `ghidra/ApplySymbols.java` both read it, so the two tools give the same name |
+
+Check a type in the code before you use it. When a name is wrong, put the
+right one in `name-corrections.txt`.
+
+Three independent techniques agree on the map above:
 
 1. **RTTI walk.** Type descriptor to complete object locator to vtable, across
    1052 classes. Produced every vtable address here without a debugger.
@@ -276,4 +293,5 @@ trustworthy:
    its containing function.
 3. **The decomp symbol file.** 37,057 names, confirmed to map onto our exe.
 
-Use all three. Where they disagree, investigate rather than picking one.
+Use all three. Where they disagree, investigate rather than picking one. The
+addresses that the code uses are in `bwvr/src/common/bw_addresses.h`.
