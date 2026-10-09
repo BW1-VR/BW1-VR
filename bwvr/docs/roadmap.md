@@ -165,8 +165,21 @@ moves while the Hand takes it. B10 is near it.
   game camera over the table, the mouse, the wheel, the stick and the
   double click for the table, the ring and the depth key for the key color,
   and the place of the table in a real room (`tabletop.md`).
-- **P11. The intro.** A push of the particles in 3D with a controller
-  (`intro.md`).
+- **P11. The intro in stereo** (`intro_vr`, off by default) is not finished
+  (`intro.md`). In a headset:
+  - Some things show double, here and there. Find which draws get a wrong
+    depth or go to one eye only.
+  - Nothing moves. The mod holds the camera still (`intro_still=1`), and
+    the player sees the formed logo from the start. In the intro of the
+    game the orbs stay where they are. The game moves its camera between
+    them, and then away to the place from which the logo shows.
+  - Wanted: motion that shows the depth of the scene and does not make the
+    player sick. An idea: the camera moves along the path of the game and
+    does not turn. This is motion that the player did not make, so decide
+    first whether the intro is an exception to that design rule. A way that
+    keeps the rule: the orbs are a small model in front of the player, the
+    path of the game moves the model, and the room stays still.
+  - A push of the particles in 3D with a controller.
 - **P12. Ideas from Half-Life: Alyx** that are not built are in
   `research-hla.md`, for the far grab, the teleport, the hands, the hints,
   the sound and comfort.
