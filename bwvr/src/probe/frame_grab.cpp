@@ -7,8 +7,6 @@
 // BMP beside runblack.exe. This works while the window is behind other
 // windows, minimized, or on another monitor.
 //
-// Every stereo test from here on needs this, so it is worth doing properly.
-//
 // Control it with a file named bwvr-shot-frames.txt beside runblack.exe, one
 // frame number per line. With no file, the probe saves frames 600 and 1800.
 

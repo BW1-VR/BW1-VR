@@ -1,4 +1,4 @@
-// The screen interface on a surface of its own (docs/ui-layer.md, Track 3).
+// The screen interface on a surface of its own (docs/ui-layer.md).
 //
 // The menus, the subtitles and the help text draw into a panel target of the
 // render size, in the first eye pass only. The panel reaches OpenXR like an
@@ -9,16 +9,16 @@
 //
 // ui_panel in bwvr.ini:
 //
-//   0  the interface in the eye pictures, as before
-//   1  U2: the interface on its own layers. The eye pictures lose it.
-//   2  U1: the interface also drawn to the panel, which a capture saves.
-//      Nothing changes in the eye pictures or in the headset.
+//   0  the interface in the eye pictures
+//   1  the interface on its own layers. The eye pictures lose it.
+//   2  the test: the interface also drawn to the panel, which a capture
+//      saves. Nothing changes in the eye pictures or in the headset.
 //
-// This file decides the route of each frame, saves the U1 captures, and
+// This file decides the route of each frame, saves the captures, and
 // places the quads. draw_hooks.cpp picks the batches, and gpu_bridge.cpp
 // switches the Direct3D 9 target.
 //
-// WHAT DOES NOT WORK YET (U3). The pointer still points through the eye
+// WHAT DOES NOT WORK YET. The pointer still points through the eye
 // view. With ui_panel=1 a menu sits on its panel at the pixels its hit test
 // reads, but the Hand shows where the pointer is in the world, not on the
 // panel. So the player cannot see where a click on a menu lands.
@@ -31,13 +31,13 @@
 //
 // THE SUBTITLE CARD (docs/ui-layer.md, "The subtitle card"). With ui_panel=0
 // and a headset, the subtitles and the help text still leave the eye
-// pictures. Flat text in two eye pictures needs a depth, and each depth was
-// wrong for a part of the time: the text showed behind the land and the
-// hands that it was drawn over, and the player saw it double. So the help
+// pictures. Flat text in two eye pictures needs a depth, and each depth is
+// wrong for a part of the time: the text shows behind the land and the
+// hands that it is drawn over, and the player sees it double. So the help
 // text of the HelpText scope goes to the panel target in the first eye pass,
 // and a copy of the part that drew, at half the size, goes to the headset as
 // ONE quad layer. The quad is fixed in the room, ahead of the recenter pose
-// and below eye level. It goes to a new place only when the head was turned
+// and below eye level. It goes to a new place only when the head turns
 // far away from it for a moment, and then it fades out and in. It never
 // follows the head. If the runtime refuses the layer, the help text draws in
 // the eye pictures at one fixed depth. With no headset, nothing changes.
@@ -47,7 +47,7 @@
 // screen, under the scene. With no card there, the help text stays in the
 // picture of the window.
 //
-//   subtitle_card=1               0 keeps the subtitles in the eye pictures
+//   subtitle_card=1               0: the subtitles stay in the eye pictures
 //   subtitle_card_distance_cm     the distance from the head, 160
 //   subtitle_card_down_deg        the angle below eye level, 17
 //   subtitle_card_width_cm        the width of the whole render, 100
@@ -101,9 +101,8 @@ bool g_outside_capture = false;
 uint64_t g_logged_serial = 0;
 bool g_logged_quads = false;
 
-// THE TWO RECTS (docs/ui-layer.md, 4.1). Fixed values, so a panel never
-// changes size while the player looks at it. 0 in the ini takes these, which
-// come from the U1 captures. See the "as built" notes in the doc.
+// THE TWO RECTS (docs/ui-layer.md). Fixed values, so a panel never
+// changes size while the player looks at it. 0 in the ini takes these.
 //
 // The Setup dialogs are drawn at a fixed size in pixels and near the middle
 // of the render. The subtitle box and the help text sit in the lower part,
@@ -174,7 +173,7 @@ float g_creature_values[4] = {0.0f, 0.0f, 0.0f, 0.0f};
 bool g_creature_have_head = false;
 float g_creature_head[3] = {0.0f, 0.0f, 0.0f};
 float g_creature_eyes[3] = {0.0f, 0.0f, 0.0f};
-// Near the Creature, the panel stays where it went until it was hidden for
+// Near the Creature, the panel stays where it went until it is hidden for
 // kCreatureHideSeconds.
 const double kCreatureHideSeconds = 1.0;
 bool g_creature_placed = false;
@@ -295,7 +294,7 @@ void CreatureRect(int32_t layout, uint32_t w, uint32_t h, int32_t out[4]) {
 // of the recenter yaw and 15 degrees down, so a recenter moves it. Near the
 // Creature: when it shows, 30 cm over the Creature's head and 15 cm to its
 // left, 0.5 to 1.5 m from the eyes, facing them. It stays there while it
-// shows, and until it was hidden for 1 s.
+// shows, and until it is hidden for 1 s.
 void CreatureQuad(uint32_t render_w, uint32_t render_h, const float anchor[3],
                   const float yaw[4], bwvr::PanelQuad* q) {
   q->visible = false;
@@ -471,8 +470,8 @@ void SubtitleBeginFrame(bool to_headset, bool projection, uint64_t frame,
   s.capture = capture;
   s.window = false;
   if (!s.set.on) {
-    // subtitle_card=0: nothing of the card runs, and the subtitles are as
-    // they were before.
+    // subtitle_card=0: nothing of the card runs, and the subtitles stay in
+    // the eye pictures.
     s.mode = kSubtitlesOld;
     return;
   }
@@ -704,7 +703,7 @@ void SubtitleEndPasses() {
   }
   s.window_showing = false;
 
-  // THE PLACE. The anchor is the recenter pose, until the head was far away
+  // THE PLACE. The anchor is the recenter pose, until the head is far away
   // from it for a moment.
   float origin[3] = {0.0f, 0.0f, 0.0f}, origin_turn[4] = {0.0f, 0.0f, 0.0f,
                                                           1.0f};
@@ -957,7 +956,7 @@ void UiPanelBeginFrame(bool to_headset, bool projection, uint64_t frame,
   if (g_mode == kUiPanelTest) {
     on = GpuBridgePanelUsable();
   } else if (g_mode == kUiPanelLayer) {
-    // Rule 8 of docs/ui-layer.md, 2.3: in the headset only with the shared
+    // Rule 8 of docs/ui-layer.md: in the headset only with the shared
     // panel and the projection layer. The stereoscopic window (play_mode 1)
     // has no projection layer, so its interface stays in its picture. With
     // no headset this is the desktop test.
@@ -974,8 +973,8 @@ void UiPanelAfterFirstEye(uint64_t frame, bool capture) {
 }
 
 // FinishFrame outside the eye passes: the front end, the loading screens,
-// and a frame the runtime did not want drawn. Only the U1 test draws a panel
-// there. Screens with no scene are step U4.
+// and a frame the runtime did not want drawn. Only the test (ui_panel=2) draws a panel
+// there. Screens with no scene do not use the panel.
 void UiPanelBeforeFinish(bool in_stereo_pass) {
   if (g_settings.mode == kUiPanelOff || in_stereo_pass) return;
   const bool on = g_mode == kUiPanelTest && GpuBridgePanelUsable();
@@ -1010,7 +1009,7 @@ void UiPanelAfterFinish(bool in_stereo_pass, uint64_t frame) {
   }
 }
 
-// The quads of this frame (docs/ui-layer.md, 4.3). Each hangs from the
+// The quads of this frame (docs/ui-layer.md). Each hangs from the
 // recenter pose and faces the head position of that pose. A quad shows only
 // in a frame that drew its kind.
 bool UiPanelQuads(uint32_t render_w, uint32_t render_h,

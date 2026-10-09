@@ -1,4 +1,4 @@
-# The Phase 0 probe. Builds a pass-through ddraw.dll that measures which draw
+# The probe. Builds a pass-through ddraw.dll that measures which draw
 # path the game uses, then gets out of the way.
 add_library(bwvr_probe SHARED
     ../proxy/ddraw_proxy.cpp

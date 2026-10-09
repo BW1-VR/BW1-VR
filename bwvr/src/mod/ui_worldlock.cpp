@@ -1,10 +1,9 @@
-// PARKED. Nothing calls this file now.
+// PARKED. Nothing calls this file.
 //
-// "Hang subtitles in the world" was tried in the headset and read worse than
-// the subtitles on the view, so the setting, its hotkey and its step in the
-// draw hooks were removed. The math here is kept, because a later interface
-// in the world will need the same camera difference. See backend.md,
-// "Subtitles".
+// Subtitles that hang in the world read worse than subtitles on the view, so
+// no setting, hotkey or draw hook uses this math. It stays because a later
+// interface in the world will need the same camera difference. See
+// backend.md, "Subtitles in the world (parked)".
 //
 // Stop the interface riding the player's head.
 //
@@ -44,8 +43,8 @@
 // that matters.
 //
 // It is the room and not the game's own camera, because the game's camera
-// looks down at the island and the view does not. Hanging text in the game's
-// camera moved it by the game's whole downward pitch, which put a subtitle at
+// looks down at the island and the view does not. Text hung in the game's
+// camera would take the game's whole downward pitch, which puts a subtitle at
 // the bottom of the screen 68 degrees below the horizon and off the view.
 //
 // The interface then sits at a fixed direction in the world and the player can

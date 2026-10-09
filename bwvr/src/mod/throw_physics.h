@@ -1,4 +1,4 @@
-// The real flight of a thrown object. See throw_physics.cpp and docs/hand.md,
+// The real flight of a thrown object. See throw_physics.cpp and docs/throw.md,
 // "The throw physics".
 
 #pragma once
@@ -7,7 +7,7 @@
 
 #include "controller_math.h"
 
-// throw_law: 0 is the old gain, 1 is the square root law, 2 is the real
+// throw_law: 0 is the plain game's gain, 1 is the square root law, 2 is the real
 // flight. throw_log=1 logs each flight in full, for the desktop runs, and
 // throw_log=2 also logs each substep and each frame after the first contact.
 // With test_keys=1, Scroll Lock goes between the real flight and the square
@@ -21,7 +21,7 @@ void ThrowPhysicsSetSlow(int slow_x10, bool trees);
 
 // THE LANDING: what a thrown object does after its first contact. land 1 is
 // the time of the land with the low bounce and the brake, 2 is the low bounce
-// and the brake in the time of the flight, 0 is the landing as it was.
+// and the brake in the time of the flight, 0 is the landing of the plain game.
 // rate_x10 is the rate of the land times 10 (10 to 100, 10 is the game's own
 // time). bounce_pct is the share of its speed that a bounce keeps, of the
 // speed that the game gives it. brake_pct is the friction of the brake of the
@@ -35,7 +35,7 @@ void ThrowPhysicsSetLanding(int land, int rate_x10, int bounce_pct,
 // the Hand must run before the glide of a far grab.
 void ThrowPhysicsInstallEarly();
 
-// The law of a release now: the key. It is 1 in place of 2 when the hooks of
+// The law of a release: the key. It is 1 in place of 2 when the hooks of
 // the real flight are not there, and in a multiplayer game.
 int ThrowPhysicsLaw();
 

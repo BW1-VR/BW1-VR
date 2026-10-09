@@ -4,14 +4,14 @@
 // multiplies every point by the matrix at 0x00EA9E40 and divides by the
 // result, and LH3DRender::DrawTriangle then hands Direct3D the finished
 // screen space vertices as FVF 0x1C4 (XYZRHW). The Direct3D VIEW transform
-// the engine also sets is a leftover that nothing in the scene reads. That
-// is why three earlier attempts to steer the camera through Direct3D and
-// through LH3DRender::g_d3d_world2view all failed.
+// the engine also sets is a leftover that nothing in the scene reads. So
+// steering the camera through Direct3D or through
+// LH3DRender::g_d3d_world2view has no effect.
 //
 // LH3DTech::UpdateCamera(position, focus) builds that matrix. Hook it, let
 // it run, then change the matrix it just wrote. This module proves the idea
 // with a 180 degree roll, which turns the picture upside down if, and only
-// if, we now control the camera.
+// if, the mod controls the camera.
 //
 // Matrix layout, read out of ProjectPoint rather than guessed. 4 rows of 3,
 // translation in the last row, camera basis in the COLUMNS:

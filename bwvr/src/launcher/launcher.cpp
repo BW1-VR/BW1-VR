@@ -5,9 +5,9 @@
 // resolution in the registry, where the game keeps it. Then it starts the
 // game.
 //
-// WHY IT IS BUILT FROM A TABLE. This project is a long way from finished, and
-// every phase so far has added settings. A hand laid out dialog would mean an
-// edit in three places for each new one: the layout, the reader and the writer.
+// WHY IT IS BUILT FROM A TABLE. The project keeps adding settings. A hand
+// laid out dialog would mean an edit in three places for each new one: the
+// layout, the reader and the writer.
 // Here a setting is one row in kSettings and nothing else. The window sizes
 // itself around whatever the table holds, and starts a new column when one gets
 // too tall, so the table can grow without the dialog becoming unusable.
@@ -301,8 +301,7 @@ int ReadIni(const char* key, int fallback) {
 }
 
 // True when Windows refused a write to bwvr.ini. Under Program Files an
-// unelevated write fails, and the old code threw the answer away and still
-// said "Saved.".
+// unelevated write fails, and the launcher must not say "Saved." then.
 bool g_write_failed = false;
 
 void WriteIniText(const char* key, const char* text) {
@@ -403,8 +402,8 @@ void CheckEverything() {
   char message[512];
   message[0] = 0;
 
-  // Every file the mod needs at run time. A missing dxwrapper file used to
-  // pass this check, and the mod then fell back to a slow path in silence.
+  // Every file the mod needs at run time. A missing dxwrapper file makes the
+  // mod fall back to a slow path in silence, so this check lists them.
   static const char* const kNeeded[] = {
       "ddraw.dll",
       "openxr_loader.dll",
@@ -522,8 +521,8 @@ const char* const kRetiredKeys[] = {
     "window_width",    "window_height",    "freeze_time",
     "skip_hand_pass2", "skip_physics_pass2", "skip_snapshot",
     "profile",         "capture_every_seconds", "subtitle_lift_pct",
-    // Written by the old tools/launch-vr.ps1 -Desktop, and by hand during
-    // tests. stereo_headless=1 stops the headset session with no message.
+    // Keys for desktop tests. stereo_headless=1 stops the headset session
+    // with no message.
     "stereo_headless", "draw_probe",       "draw_probe_frames",
     "draw_probe_delay", "fov_sweep_after", "fov_absolute_deg",
     "fix_unscaled",    "fix_copy",         "fix_inverse",
@@ -630,7 +629,7 @@ void SaveAll() {
   WriteIni("vr", 1);
   WriteIni("stereo", 1);
   WriteIni("head_camera", 1);
-  // Settings that were offered once and have one right answer. Removing them
+  // Settings that have one right answer and are not offered. Removing them
   // means an old ini cannot keep a wrong value. The mod's own default is the
   // right answer for each, and the keys still work for testing.
   for (const char* key : kRetiredKeys) {

@@ -1,5 +1,5 @@
 // Move around by grabbing the world with a motion controller, as in Google
-// Earth VR (step M7). See docs/grab-world.md.
+// Earth VR. See docs/god-view.md, "5.1 The grab of the land".
 //
 // THE RULE. While a grab holds, one point of the world stays in the hand, and
 // nothing else moves. A still hand gives a still camera, whatever the head
@@ -30,10 +30,10 @@
 // starts outside a limit keeps its start as the limit, so a press never moves
 // the camera.
 //
-// ON THE TABLE (step T4, docs/tabletop.md, section 10.7). While the table
-// owns the view, the same grips move the land on the table, not the game
-// camera: one hand slides it, two hands turn it about up and zoom it. The
-// table top stays where it is in the room. The table is solved from the
+// ON THE TABLE (docs/tabletop.md, "Moving the table by the grips"). While
+// the table owns the view, the same grips move the land on the table, not
+// the game camera: one hand slides it, two hands turn it about up and zoom
+// it. The table top stays where it is in the room. The table is solved from the
 // press (table_math.h, TableGrabSolve), one to one, so the land point under
 // the hand stays under the hand. The game camera stays the game's. See
 // TableAnchor and TableSolve.
@@ -638,7 +638,7 @@ void TableSolve(const GrabInput& in, int mask, const char* why) {
   float middle[3], spread[3];
   TableHands(in, mask, middle, spread);
   // The game's camera switches: the tutorial turns the turn and the zoom on
-  // at its own steps (docs/god-view.md, section 13).
+  // at its own steps (docs/god-view.md, "7. The game camera").
   bool turn = g_set.turn, zoom = g_set.zoom;
   TabletopGrabAllows(&turn, &zoom);
   table_math::TablePose pose;

@@ -1,4 +1,4 @@
-// Phase 0 measurement.
+// The probe: measurements of how the game draws.
 //
 // Answers the questions static analysis could not:
 //   1. Which draw path does the world actually use, and with which FVF? If

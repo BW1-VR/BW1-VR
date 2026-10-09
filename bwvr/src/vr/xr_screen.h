@@ -1,11 +1,11 @@
 // A screen in VR, fed one or two images at a time.
 //
-// With one eye this is Phase 1: the picture the game already draws, on a flat
-// screen floating in front of the player. With two eyes it is Phase 2: the
-// same screen, but each eye sees the scene rendered from its own camera, so
-// the island has real depth.
+// With one eye this is the picture the game already draws, on a flat screen
+// floating in front of the player. With two eyes it is the same screen, but
+// each eye sees the scene rendered from its own camera, so the island has
+// real depth.
 //
-// The frame is explicit, because Phase 3 needs the headset pose before the
+// The frame is explicit, because the mod needs the headset pose before the
 // game renders anything:
 //
 //   XrScreen screen;
@@ -30,9 +30,9 @@ namespace bwvr {
 
 typedef void (*LogFn)(const char* format, ...);
 
-// What the runtime predicts for one eye at the next display time. Phase 3
-// uses this to place the camera. Phase 2 only needs the interpupillary
-// distance, which is the difference between the two positions.
+// What the runtime predicts for one eye at the next display time. The mod
+// uses this to place the camera. The interpupillary distance is the
+// difference between the two positions.
 struct EyeView {
   float position[3];      // meters, in the reference space
   float orientation[4];   // quaternion, x y z w
@@ -66,7 +66,7 @@ struct HandInput {
 };
 
 // One interface panel for this frame: a quad layer in the LOCAL space that
-// shows a rect of the panel swapchain. See docs/ui-layer.md, 3.2.
+// shows a rect of the panel swapchain. See docs/ui-layer.md.
 // The quads of the panel: the menu, the help and the Creature panel.
 const int kPanelQuads = 3;
 
@@ -199,8 +199,8 @@ class XrScreen {
 
   // Swap the log sink after Start. The retries log to nowhere so a message
   // every three seconds does not bury the file, and without this the attempt
-  // that SUCCEEDS keeps the quiet sink for the whole session, which threw away
-  // every openxr line including the eye angles and the measured separation.
+  // that SUCCEEDS keeps the quiet sink for the whole session and loses every
+  // openxr line, including the eye angles and the measured separation.
   void SetLog(LogFn log);
 
   // The swapchain's DXGI format. A bridge checks this before copying into it,
@@ -247,8 +247,8 @@ class XrScreen {
   // The same, from a texture the GPU already holds. Menus, loading screens
   // and videos never render the scene twice, so they come through here, and
   // without this they would still pay for a readback. On a modern backend
-  // that readback is far more expensive than it was: 18.98 ms per frame at
-  // 2560x1440, which makes a menu unusable.
+  // that readback is far more expensive: 18.98 ms per frame at 2560x1440,
+  // which makes a menu unusable.
   bool SubmitTexture(void* texture);
 
   void Stop();
@@ -260,12 +260,12 @@ class XrScreen {
   // it is. Tunable while running.
   void SetPlacement(float distance_meters, float width_meters);
 
-  // PHASE 3: submit the world instead of a screen.
+  // Submit the world instead of a screen.
   //
   // With projection on, EndFrame submits an XrCompositionLayerProjection built
   // from the poses and frustums that BeginFrame reported, which are the ones
   // the caller must have rendered with. With it off, the two quad layers of
-  // Phase 2 are submitted instead, which is the way back if the world shears.
+  // a flat screen are submitted instead, which is the way back if the world shears.
   void SetProjection(bool on) { projection_ = on; }
   bool projection() const { return projection_; }
 

@@ -21,10 +21,8 @@
 // cannot both be had. This is the switch between them.
 //
 // The value is a float in .data, read at 0x00823889 from the WaterTiling
-// setting. Setting WaterTiling in the registry does NOT reach it: two captures
-// either side of that change differed by 0.007 levels out of 255, so the
-// registry path is not what fills this. It is written here directly, once a
-// frame, because a level load may fill it again.
+// setting. Setting WaterTiling in the registry does NOT reach it, so the value is
+// written here directly, once a frame, because a level load may fill it again.
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>

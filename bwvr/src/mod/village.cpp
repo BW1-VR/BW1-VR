@@ -1,4 +1,4 @@
-// THE VILLAGE WITH THE REAL HAND. See docs/hand.md, "The village with the
+// THE VILLAGE WITH THE REAL HAND. See docs/village.md, "The village with the
 // real hand".
 //
 // WHAT THE GAME DOES [V, runblack.exe 1.42].
@@ -27,7 +27,7 @@
 //   owns the Hand, the pole follows the real hand one to one: one unit up of
 //   the hand is one unit up of the pole. The mod gives the game the screen
 //   rows that make its own math do that (village_math.h). With 0 the game
-//   reads the rows of the pixel of the Hand's point, as before.
+//   reads the rows of the pixel of the Hand's point, as the plain game does.
 // - The card says what the grip does at the totem and at a miracle icon, and
 //   it shows the value of the totem as the game does, with the count of the
 //   villagers that the town sends.
@@ -661,8 +661,8 @@ void Init() {
   if (g_ready) return;
   g_ready = true;
   g_settings.totem = IniInt("totem_hand", 1) != 0;
-  // The keys of the build of 2026-10-04 were for a scaffold only. They
-  // still count when the new keys are not there.
+  // The keys scaffold_join and scaffold_join_cm are the old names of these
+  // two. They count when the new keys are not there.
   g_settings.join =
       IniInt("hold_target", IniInt("scaffold_join", 1)) != 0;
   g_settings.join_cm = static_cast<float>(

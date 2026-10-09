@@ -1,4 +1,4 @@
-# The VR output layer. Shared by the standalone test and, later, the mod.
+# The VR output layer. Shared by the standalone test and the mod.
 add_library(bwvr_vr STATIC
     xr_screen.cpp
 )

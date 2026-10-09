@@ -1,5 +1,5 @@
 // The screen interface on a surface of its own, shown in the headset as quad
-// layers fixed in the room. See docs/ui-layer.md (Track 3, steps U1 and U2).
+// layers fixed in the room. See docs/ui-layer.md.
 //
 // Three files share the work:
 //
@@ -18,15 +18,15 @@ struct PanelQuad;
 }
 
 // ui_panel from bwvr.ini.
-const int kUiPanelOff = 0;    // the interface in the eye pictures, as before
-const int kUiPanelLayer = 1;  // U2: the interface on its own layer
-const int kUiPanelTest = 2;   // U1: also drawn to the panel, desktop only
+const int kUiPanelOff = 0;    // the interface in the eye pictures
+const int kUiPanelLayer = 1;  // the interface on its own layer
+const int kUiPanelTest = 2;   // the test: also drawn to the panel, desktop only
 // Not a value of the ini key. With ui_panel=0, the route of the subtitle
 // card: only the help text goes to the panel target, in eye pass 0, and it
 // does not draw in the eye pictures. The menus stay in the eye pictures.
 const int kUiPanelSubtitles = 3;
 
-// The quads cut from the one panel target (docs/ui-layer.md, 4.1). The
+// The quads cut from the one panel target (docs/ui-layer.md). The
 // Creature panel draws in the help scope, so draw_hooks.cpp counts it as
 // help. ui_panel.cpp cuts it out as a quad of its own.
 const int kPanelMenu = 0;      // the Setup dialogs
@@ -74,7 +74,7 @@ void UiPanelToggle();
 // eye passes.
 void UiPanelBeginFrame(bool to_headset, bool projection, uint64_t frame,
                        bool capture);
-// After eye pass 0 returns: the U1 capture.
+// After eye pass 0 returns: the capture.
 void UiPanelAfterFirstEye(uint64_t frame, bool capture);
 // The menu and the help quads of this frame, for XrScreen::SetPanelQuads.
 // The Creature panel quad goes to XrScreen::StagePanelQuad. False when no

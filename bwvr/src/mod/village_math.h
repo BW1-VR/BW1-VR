@@ -1,5 +1,5 @@
 // The pure math of the village with the real hand (village.cpp). See
-// docs/hand.md, "The village with the real hand".
+// docs/village.md, "The village with the real hand".
 //
 // No Windows and no game in this file, so the math test can run it.
 

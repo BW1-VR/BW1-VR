@@ -5,8 +5,8 @@
 // projection matrices pass through here, and changing them here changes what
 // is drawn.
 //
-// Writing LH3DRender::g_d3d_world2view at StartFrame turned out not to affect
-// rendering, so the engine must set its transforms later in the frame. This
+// Writing LH3DRender::g_d3d_world2view at StartFrame does not affect
+// rendering, so the engine sets its transforms later in the frame. This
 // hook finds out what it actually sets, and lets us prove camera control with
 // an unmistakable test: a 180 degree roll should turn the picture upside down.
 

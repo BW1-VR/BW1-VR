@@ -1,4 +1,4 @@
-// The village with the real hand (docs/hand.md, "The village with the real
+// The village with the real hand (docs/village.md, "The village with the real
 // hand"): the totem of the Village Centre, and the miracle icons of the
 // Worship Site.
 

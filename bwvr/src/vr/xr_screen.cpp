@@ -56,8 +56,8 @@ void Release(T*& object) {
   }
 }
 
-// THE ACTIONS AND THEIR BINDINGS. See docs/controllers.md, sections 2.2 and
-// 2.3. Every action has both hand subaction paths, so one action serves both
+// THE ACTIONS AND THEIR BINDINGS. See docs/controllers.md, "2. OpenXR input
+// in XrScreen". Every action has both hand subaction paths, so one action serves both
 // hands.
 enum Action {
   kGripPose,
@@ -258,9 +258,7 @@ struct XrScreen::Impl {
 
   PFN_xrGetD3D11GraphicsRequirementsKHR get_requirements = nullptr;
 
-  // The upload, timed in three parts. This is the last unmeasured piece of
-  // the frame, and it is the piece a modern backend would delete, so it needs
-  // a number before anyone decides the pivot is worth the work.
+  // The upload, timed in three parts.
   LARGE_INTEGER frequency = {0};
   uint64_t wait_ticks = 0;    // xrAcquireSwapchainImage and xrWaitSwapchainImage
   uint64_t copy_ticks = 0;    // Map, the row copies, Unmap
@@ -690,7 +688,7 @@ bool XrScreen::Start(uint32_t width, uint32_t height, int eyes, LogFn log) {
   s.height = height;
 
   // --- instance -----------------------------------------------------------
-  // Step M8 (H0): which extensions the runtime lists. A model of the
+  // Which extensions the runtime lists. A model of the
   // controller needs XR_MSFT_controller_model or XR_FB_render_model.
   {
     uint32_t count = 0;
@@ -882,8 +880,8 @@ bool XrScreen::Start(uint32_t width, uint32_t height, int eyes, LogFn log) {
     return false;
   }
 
-  // The eye poses are wanted relative to the head, because Phase 2 only needs
-  // the separation between them, not where the player is standing.
+  // The eye poses are wanted relative to the head, because the separation between
+  // them is all that is needed here, not where the player is standing.
   XrReferenceSpaceCreateInfo view_space_info = {
       XR_TYPE_REFERENCE_SPACE_CREATE_INFO};
   view_space_info.referenceSpaceType = XR_REFERENCE_SPACE_TYPE_VIEW;
@@ -1127,14 +1125,11 @@ bool XrScreen::BeginFrame() {
   locate.displayTime = s.frame_state.predictedDisplayTime;
   // LOCAL, not VIEW.
   //
-  // Phase 2 located the eyes in the head's own frame, because all it needed
-  // was the distance between them. In that frame the orientation is identity
-  // and the positions never move, whatever the player does, so head tracking
-  // read as no head tracking at all: the pose log printed an identity matrix
-  // and a fixed offset in every frame.
-  //
-  // Phase 3 needs where the head actually is, and the projection layer has to
-  // report poses in the same space it names, which is this one.
+  // In the VIEW space the orientation is identity and the positions never
+  // move, whatever the player does, so head tracking would read as no head
+  // tracking at all. The mod needs where the head actually is, and the
+  // projection layer has to report poses in the same space it names, which
+  // is this one.
   locate.space = s.space;
 
   XrViewState view_state = {XR_TYPE_VIEW_STATE};
@@ -1694,9 +1689,8 @@ void XrScreen::EndFrame() {
   // are the same ones the caller rendered with, which is what makes the
   // promise true.
   //
-  // A quad layer is a screen hanging in the world. It was right for Phase 1
-  // and Phase 2 and it is kept, because a wrong pose shears the world when the
-  // head moves and there has to be a way back that does not need a rebuild.
+  // A quad layer is a screen hanging in the world. It is kept as the way back,
+  // because a wrong pose shears the world when the head moves.
   //
   // THE CUT SCENE WINDOW takes a frame from the first kind to the second:
   // the frame that the mod staged as a screen goes out as quads at the pose

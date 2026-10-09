@@ -33,8 +33,7 @@ bool g_armed_this_frame = false;
 void (*g_log)(const char*, ...) = nullptr;
 
 // Reading the matrix here, at the top of the frame, shows what the engine
-// actually renders with. The earlier probe read it in FinishFrame, which
-// may be after the value has moved on.
+// actually renders with. FinishFrame may be after the value has moved on.
 
 // LHMatrix is 3 rows of 4, row-major, with the translation in the fourth
 // column: m[3], m[7], m[11]. Measured, not assumed: only this grouping makes
