@@ -739,6 +739,31 @@ has a dwell, a hold time and a count (`kRules` in `hint_card.cpp`):
 4. A hint of the game for the same button on the same card takes the place of
    the prompt, and that does not count as a show.
 
+**The prompt of a target follows the target.** With `prompt_timing=1` (the
+default) rules 1 to 3 do not apply to a context about a thing that the Hand or
+the aim is on (`IsTargetContext`, `TargetRule`): a far target, a pile, a field
+or a fish farm, an object to take, the Creature, the targets of the Creature
+commands and of the leash, the aim of a command, the totem or a miracle icon,
+and the door of the Temple or a leash post. Its prompt shows in the frame in
+which the context begins, it stays for as long as the target is there, and it
+shows each time. When the target changes, the card changes in that frame.
+
+The contexts that are not about a target keep rules 1 to 3, so they do not stay
+in the way: the empty land (with or without the leash), an object in the Hand
+(its line does not depend on what is under it), a dialog box, a room of the
+Temple, and the teleport aim.
+
+A target at the edge: the words of the last target stay for 0.15 s
+(`kLingerSeconds`, `LingerOpen`) after it goes, when no other words show. A
+new target does not wait for this. The fade of a card that comes is 0.10 s with
+`prompt_timing=1` and 0.25 s with 0. `prompt_timing=0` gives the rules 1 to 3
+for all contexts, and no linger.
+
+The facts of the frame are the Hand's facts of the same frame: the left eye
+pass latches them, and `HintCardEndFrame` reads them after both passes. The
+hints of the game for the same button (rule 4) come from the draw of the game
+and stay for 4 frames after the last one (`kHoldFrames`).
+
 A miracle in the Hand and the Village lines have no dwell and no limit on
 shows: a player with a miracle in the Hand must always see how to cast it and
 how to cancel it. With `prompts=2`, rules 2 and 3 do not apply. With
@@ -752,10 +777,13 @@ the help options of the game, so a player with "No ToolTips" sees them too.
 | `hint_card` | 1 | 1 shows the hints on the card while a controller points. 0 draws them in the eye pictures (`ui-layer.md`, section 15). |
 | `prompts` | 1 | 0 no prompts, 1 the first times, 2 always |
 | `hint_card_size_pct` | 100 | The size of the card, 50 to 200 |
+| `prompt_timing` | 1 | 1 the prompt of a target shows at once, stays while the target is there and shows each time. 0 the dwell, hold and count for all prompts (9.4) |
 
-`hint_card.cpp` reads the three keys itself, at the first frame. With
-`test_keys=1` and `ui_panel=0`, Ctrl Shift F11 switches between the card and
-the hints in the eye pictures, for a live comparison.
+`hint_card.cpp` reads the keys itself, at the first frame. With `test_keys=1`
+and `ui_panel=0`, Ctrl Shift F11 switches between the card and the hints in the
+eye pictures, for a live comparison. With `test_keys=1`, Ctrl End switches
+`prompt_timing` between 1 (a long pulse in the pointing controller) and 0 (a
+short pulse).
 
 ### 9.6 The log
 
@@ -764,6 +792,10 @@ the hints in the eye pictures, for a live comparison.
   241 by 86 px, at x y z m, 7.4 cm to the right of the wrist in the view and
   55 cm from the head. The prompt is for an object to take`: each time the words
   or the side of a card change (160 lines at most).
+- `hint card : frame N, the pointing card now says: [Grip] Take. The context of
+  the Hand is an object to take since frame M, so the card is K frames and T ms
+  behind it (prompt_timing=1)`: one line each time the words of the pointing
+  card change (400 lines at most). K is the wait of the player.
 - `hint card : the hint "[Trigger] Move" of the game does not show: the trigger
   does not move the land here. The grip of the other hand moves it`: one time
   for each of the two false hints (9.9).
@@ -806,7 +838,8 @@ The math test (`hint_checks.h`, in `test/controller_math`) covers:
   never changes the side.
 - A wrist straight under the head uses the last direction.
 - The size, the prompt rule (dwell, hold, count, a hand that goes across
-  objects, always) and the fade.
+  objects, always), the rule of a target (no dwell, hold or count), the linger
+  and the fade.
 - `GameHintTrue` for each case of 9.9.
 - 2000 poses of two hands: each has two cards, more than 95 percent start on
   the outer side, no card is on its own hand or on the other hand, and the two
@@ -874,7 +907,8 @@ it shows at the hand that holds that controller.
 - A hand that is not tracked has no card.
 
 **The look.** Short lines (at most four), a badge with the button word, and one
-size of letter. The fade is soft: 0.25 s in and 0.35 s out, in place. The
+size of letter. The fade is soft: 0.25 s in (0.10 s with `prompt_timing=1`) and 0.35 s out, in place. The
+prompts of a target show at once and stay while the target is there. The other
 prompts keep their rule: with `prompts=1` each one shows only the first times,
 and with `prompts=2` each one shows always.
 

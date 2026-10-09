@@ -797,6 +797,45 @@ inline void HintCardChecks() {
           "a context out of range shows nothing", 0.0, 0.0);
   }
 
+  // THE PROMPT OF A TARGET: no dwell, no hold, no count.
+  {
+    const PromptRule rule = {0.3f, 4.0f, 2};
+    const PromptRule old_rule = TargetRule(rule, true, false);
+    Near("the old timing keeps the dwell", old_rule.dwell, 0.3, 1e-6);
+    const PromptRule general = TargetRule(rule, false, true);
+    Near("a general prompt keeps the dwell", general.dwell, 0.3, 1e-6);
+    const PromptRule now_rule = TargetRule(rule, true, true);
+    Near("a target prompt has no dwell", now_rule.dwell, 0.0, 1e-6);
+    Check(PromptAlways(true, true, false) && !PromptAlways(false, true, false) &&
+              !PromptAlways(true, false, false) &&
+              PromptAlways(false, false, true),
+          "no hold and no count only for a target with the new timing, or "
+          "with prompts=2", 1.0, 1.0);
+    const bool always = PromptAlways(true, true, false);
+    PromptState s;
+    Check(PromptStep(&s, 5, 10.00, now_rule, always) == 5,
+          "a target prompt shows in the frame of the context", 5.0, 5.0);
+    Check(PromptStep(&s, 5, 40.00, now_rule, always) == 5,
+          "and it stays for as long as the target is there", 5.0, 5.0);
+    Check(PromptStep(&s, 6, 40.01, now_rule, always) == 6,
+          "a new target shows at once", 6.0, 6.0);
+    int shown = 0;
+    for (int i = 0; i < 10; ++i) {
+      PromptStep(&s, 0, 50.0 + i, now_rule, always);
+      shown += PromptStep(&s, 5, 50.5 + i, now_rule, always) == 5;
+    }
+    Check(shown == 10, "it shows each time, with no count", shown, 10.0);
+    // The old timing for the same steps.
+    PromptState o;
+    Check(PromptStep(&o, 5, 10.00, old_rule, false) == 0,
+          "the old timing waits for the dwell", 0.0, 0.0);
+    // AGAINST A FLICKER.
+    Check(LingerOpen(10.0, 10.10, 0.15) && !LingerOpen(10.0, 10.20, 0.15),
+          "the words of a target stay for the linger time", 1.0, 1.0);
+    Check(!LingerOpen(0.0, 1.0, 0.15),
+          "no target before gives no linger", 0.0, 0.0);
+  }
+
   // THE FADE: 0.15 s for the whole way, and it stops at 0 and 1.
   {
     float fade = 0.0f;

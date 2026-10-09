@@ -42,9 +42,10 @@
 // THE PROMPTS. A card shows what the controller can do now, as a button word
 // and a short order: "Grip Take", "Grip Pull to fetch". The context comes
 // from the mod's own state: the Hand's mode (as the glow reads it), the far
-// target, the teleport and a dialog. A prompt shows after the context held
-// for a moment, for a few seconds, and only the first times
-// (hint_card_math.h, PromptStep). A hint of the game for the same button
+// target, the teleport and a dialog. The prompt of a target shows in the frame
+// in which the target comes and stays while it is there. The other prompts
+// show after the context held for a moment, for a few seconds, and only the
+// first times (hint_card_math.h, PromptStep, TargetRule). A hint of the game for the same button
 // takes the place of the prompt.
 //
 // THE KEYS of bwvr.ini:
@@ -52,6 +53,12 @@
 //   hint_card=1          0 keeps the hints in the eye pictures
 //   prompts=1            0 no prompts, 1 the first times, 2 always
 //   hint_card_size_pct   the size of the cards, 50 to 200, 100 by default
+//   prompt_timing=1      0 each prompt has a dwell, a hold and a count (it waits
+//                        for its dwell, goes after its hold and after its
+//                        count), 1 the prompt of a target shows in the frame
+//                        in which the target comes, stays while it is there,
+//                        and shows each time (hint_card_math.h, TargetRule).
+//                        Ctrl and End switch it, with test_keys=1
 //
 // With no headset (the desktop test) the route runs too. A capture frame
 // saves each card as bwvr-hintcard-right-NNNNN.bmp or
@@ -87,6 +94,7 @@ bool ControllersCardPose(int which, float grip_position[3],
                          float grip_orientation[4], float head[3], bool* left);
 int ControllersHandCm();
 int ControllersHandScalePct();
+void ControllersGesturePulse(float amplitude, float seconds);
 // hand_direct.cpp: the Hand's point and what a press does there.
 bool HandDirectGlowFacts(float point[3], float* length, int32_t* mode,
                          bool* holding, int* eye, uint64_t* frame);
@@ -109,6 +117,8 @@ bool g_on = true;        // hint_card
 int g_prompts = 1;       // prompts
 int g_size_pct = 100;    // hint_card_size_pct
 bool g_toggled_off = false;  // the test key
+bool g_test_keys = false;    // test_keys
+int g_timing = 1;            // prompt_timing, and its test key
 
 int IniKey(const char* key, int fallback) {
   char path[MAX_PATH];
@@ -128,6 +138,8 @@ void ReadSettings() {
   g_on = IniKey("hint_card", 1) != 0;
   g_prompts = IniKey("prompts", 1);
   if (g_prompts < 0 || g_prompts > 2) g_prompts = 1;
+  g_test_keys = IniKey("test_keys", 0) != 0;
+  g_timing = IniKey("prompt_timing", 1) != 0 ? 1 : 0;
   g_size_pct = IniKey("hint_card_size_pct", 100);
   if (g_size_pct < 50) g_size_pct = 50;
   if (g_size_pct > 200) g_size_pct = 200;
@@ -141,6 +153,11 @@ void ReadSettings() {
                         : (g_prompts == 1 ? "the prompts show the first times"
                                           : "the prompts always show"),
          g_size_pct);
+  ModLog("hint card    : prompt_timing=%d, %s", g_timing,
+         g_timing != 0 ? "the prompt of a target shows at once, stays while "
+                         "the target is there, and shows each time"
+                       : "each prompt waits for its dwell and goes after its "
+                         "hold and its count");
 }
 
 // --- the words -----------------------------------------------------------------
@@ -277,6 +294,47 @@ const hint_card_math::PromptRule kRules[kContexts] = {
     {0.5f, 6.0f, 3},   // a room of the Temple
     {0.3f, 5.0f, 4},   // the door of the Temple or a leash post
 };
+
+// True for a context about a thing that the Hand or the aim is on. The
+// prompts of the others (the empty land, an object in the Hand, a dialog box,
+// the teleport aim) keep their dwell, their hold and their count, so they do
+// not stay in the way (hint_card_math.h, TargetRule).
+bool IsTargetContext(int context) {
+  switch (context) {
+    case kCtxFar:
+    case kCtxCollect:
+    case kCtxTake:
+    case kCtxCreature:
+    case kCtxCommand:
+    case kCtxLeashOff:
+    case kCtxCommandAim:
+    case kCtxLeashBack:
+    case kCtxMiracle:
+    case kCtxVillage:
+    case kCtxTempleLand:
+      return true;
+    default:
+      return false;
+  }
+}
+
+// The words of the last target, and the time of the last frame that had them
+// (hint_card_math.h, LingerOpen). The Hand at the edge of a target leaves it
+// and comes back: for this long the card keeps the words.
+const double kLingerSeconds = 0.15;
+const float kFadeInTargetSeconds = 0.10f;
+double g_target_time = 0.0;
+Content g_target_words[2] = {};  // the cards of kPointing and kOther
+
+// The timing log: one line when the context of the Hand changes, and one when
+// the words of the pointing card change (the frames between them are the wait
+// of the player).
+int g_raw_context = -1;
+uint64_t g_raw_frame = 0;
+double g_raw_time = 0.0;
+Content g_timing_words = {};
+int g_timing_logs = 0;
+const int kMaxTimingLogs = 400;
 
 hint_card_math::PromptState g_prompt_state;
 int g_prompt_shown = kCtxNone;
@@ -972,6 +1030,8 @@ void HintCardLatchContext(int eye) {
                                      &g_facts_holding, &now_eye, &frame);
 }
 
+static void PollTimingKey();
+
 void HintCardEndFrame() {
   CardsStart();
   const double now = NowSeconds();
@@ -1002,11 +1062,15 @@ void HintCardEndFrame() {
     g_game.count = 0;
   }
 
+  PollTimingKey();
+
   // The prompt of the context.
   int shown = kCtxNone;
   bool first_show = false;
+  int raw_context = kCtxNone;
   if (g_prompts != 0) {
     int context = ContextNow();
+    raw_context = context;
     // A hint of the game for the same button says it already. Then the
     // prompt adds no line, and that must not count as one of its shows.
     if (context != kCtxNone && context != kCtxMiracle &&
@@ -1020,9 +1084,13 @@ void HintCardEndFrame() {
     }
     // The lines of a miracle in the Hand do not go after 5 s or after 4
     // shows: they stay while the miracle is there.
+    const bool target = IsTargetContext(context);
+    const bool at_once = g_timing != 0;
     shown = hint_card_math::PromptStep(
-        &g_prompt_state, context, now, kRules[context],
-        g_prompts == 2 || context == kCtxMiracle || context == kCtxVillage);
+        &g_prompt_state, context, now,
+        hint_card_math::TargetRule(kRules[context], target, at_once),
+        hint_card_math::PromptAlways(target, at_once, g_prompts == 2) ||
+            context == kCtxMiracle || context == kCtxVillage);
     if (shown != kCtxNone && shown != g_prompt_shown) {
       ++g_prompt_shows[shown];
     }
@@ -1030,6 +1098,11 @@ void HintCardEndFrame() {
   }
   const bool prompt_changed = shown != g_prompt_shown;
   g_prompt_shown = shown;
+  if (raw_context != g_raw_context) {
+    g_raw_context = raw_context;
+    g_raw_frame = g_frame;
+    g_raw_time = now;
+  }
 
   // The hints of the game are for the hand that points. Each prompt goes to
   // the card of the hand that holds its control.
@@ -1050,6 +1123,35 @@ void HintCardEndFrame() {
   // The ring is open at the other hand, and its picture is there. The card
   // of that hand comes back when the ring closes.
   if (RadialMenuOpen()) content[kOther].count = 0;
+  // AGAINST A FLICKER: the words of a target stay a moment after it goes,
+  // when nothing else shows.
+  if (g_timing != 0) {
+    if (IsTargetContext(shown)) {
+      for (int h = 0; h < kHands; ++h) g_target_words[h] = content[h];
+      g_target_time = now;
+    } else if (content[kPointing].count == 0 && content[kOther].count == 0 &&
+               hint_card_math::LingerOpen(g_target_time, now,
+                                          kLingerSeconds)) {
+      for (int h = 0; h < kHands; ++h) content[h] = g_target_words[h];
+    }
+  }
+  if ((!SameContent(content[kPointing], g_timing_words) &&
+       g_timing_logs < kMaxTimingLogs) ||
+      g_capture) {
+    if (!SameContent(content[kPointing], g_timing_words)) {
+      ++g_timing_logs;
+      char words[320];
+      Describe(content[kPointing], words, sizeof(words));
+      ModLog("hint card    : frame %llu, the pointing card now says: %s. The "
+             "context of the Hand is %s since frame %llu, so the card is %lld "
+             "frames and %.0f ms behind it (prompt_timing=%d)", g_frame,
+             content[kPointing].count > 0 ? words : "nothing",
+             kContextName[raw_context], g_raw_frame,
+             static_cast<long long>(g_frame - g_raw_frame),
+             (now - g_raw_time) * 1000.0, g_timing);
+      g_timing_words = content[kPointing];
+    }
+  }
 
   // THE PLACE of each card: the wrist of its hand.
   const float hand_length = ControllersHandCm() * 0.01f *
@@ -1120,7 +1222,9 @@ void HintCardEndFrame() {
     CardState& c = g_cards[h];
     const bool show = p.show && p.placed;
     c.fade = hint_card_math::FadeStep(
-        c.fade, show, dt, show ? kFadeInSeconds : kFadeOutSeconds);
+        c.fade, show, dt,
+        show ? (g_timing != 0 ? kFadeInTargetSeconds : kFadeInSeconds)
+             : kFadeOutSeconds);
     if (!p.placed || c.fade <= 0.0f) {
       c.visible = false;
       c.fade = 0.0f;
@@ -1189,6 +1293,29 @@ void HintCardEndFrame() {
                        static_cast<uint32_t>(c.rect_h));
     }
   }
+}
+
+// THE A/B KEY (test_keys=1): Ctrl with End switches prompt_timing between 1
+// and 0. The pointing controller gives a long pulse for 1 and a short pulse
+// for 0. Read once a frame, and only while a window of the game is in front.
+static void PollTimingKey() {
+  static bool was = false;
+  if (!g_test_keys) return;
+  const bool down = (GetAsyncKeyState(VK_END) & 0x8000) != 0 &&
+                    (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
+  const bool pressed = down && !was;
+  was = down;
+  if (!pressed) return;
+  DWORD process = 0;
+  const HWND window = GetForegroundWindow();
+  if (window != nullptr) GetWindowThreadProcessId(window, &process);
+  if (process != GetCurrentProcessId()) return;
+  g_timing = g_timing != 0 ? 0 : 1;
+  ControllersGesturePulse(0.5f, g_timing != 0 ? 0.24f : 0.08f);
+  ModLog("test key     : Ctrl and End: prompt_timing is %d now (%s)", g_timing,
+         g_timing != 0 ? "a prompt of a target shows at once"
+                       : "each prompt waits for its dwell, its hold and its "
+                         "count");
 }
 
 void HintCardToggle() {

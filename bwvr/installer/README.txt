@@ -375,9 +375,10 @@ The cards also show prompts: what a button does now. Examples are "Grip
 Take" over an object, "Grip Pull to fetch" for a far object, "Grip Hold
 to collect" at a store, "Grip Stroke or slap" on your Creature,
 "Trigger Send the Creature" with the leash on, and "A Teleport" over
-the land. A prompt shows for a few seconds, and only the first times.
-Set prompts=2 in bwvr.ini to show the prompts always, or prompts=0 for
-none. Set hint_card_size_pct=150 for larger cards.
+the land. A prompt for the thing that your hand or your aim is on shows
+at once and stays while you are on it. The other prompts show for a few
+seconds, and only the first times. Set prompts=2 in bwvr.ini to show
+those always, or prompts=0 for none. Set hint_card_size_pct=150 for larger cards.
 
 The game shows its hints, the amount that you take and the subtitles
 only when its own help options are on. If you see none of them, open

@@ -399,6 +399,38 @@ inline int PromptStep(PromptState* s, int context, double now,
   return s->showing ? context : 0;
 }
 
+// THE PROMPT OF A TARGET. A target is a thing that the Hand or the aim is on
+// now. The prompt for it says what the controls do with that thing, so it
+// must follow the target:
+//
+//   1. It shows in the frame in which the context begins: no dwell.
+//   2. It stays for as long as the target is there: no hold.
+//   3. It shows each time: no count.
+//
+// A context that is not about a target (the empty land, an object in the
+// Hand, a dialog box, the teleport aim) keeps its rule, so it does not stay in
+// the way. `at_once` is false for the timing with a dwell (prompt_timing=0).
+inline PromptRule TargetRule(const PromptRule& rule, bool target,
+                             bool at_once) {
+  if (!at_once || !target) return rule;
+  PromptRule out = rule;
+  out.dwell = 0.0f;
+  return out;
+}
+
+// True when a prompt has no hold and no count (PromptStep `always`).
+inline bool PromptAlways(bool target, bool at_once, bool always_key) {
+  return always_key || (at_once && target);
+}
+
+// AGAINST A FLICKER. The Hand at the edge of a target leaves it and comes
+// back in some frames. The words of the last target stay for `linger` seconds
+// after it goes, when no other words show. A new target shows at once, and
+// does not wait for this.
+inline bool LingerOpen(double last_target, double now, double linger) {
+  return last_target > 0.0 && now >= last_target && now - last_target < linger;
+}
+
 // The fade of the card: toward 1 while it shows and toward 0 while it does
 // not, in `seconds` for the whole way. The card does not move while it
 // fades.
