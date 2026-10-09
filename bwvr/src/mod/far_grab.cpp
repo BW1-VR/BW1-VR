@@ -391,8 +391,7 @@ void FarGrabFrame(const FarFrame& f) {
     g_glide.armed = false;
   }
   // THE OBJECT ARRIVES: a pulse on each frame of the last 0.125 s of the
-  // glide, and none before it (haptics_math::ArriveNow). The build before
-  // pulsed for the whole glide.
+  // glide, and none before it (haptics_math::ArriveNow).
   if (g_glide.armed && g_glide.started &&
       haptics_math::ArriveNow(g_glide.seconds,
                               static_cast<float>(f.now - g_glide.start))) {

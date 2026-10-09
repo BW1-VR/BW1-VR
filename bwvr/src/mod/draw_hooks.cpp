@@ -1833,9 +1833,9 @@ void ShiftOut(void* verts, uint32_t count) {
 // pixels the game gave it, and those are the pixels its hit test reads.
 //
 // ui_panel=1 draws a panel batch into the panel in eye pass 0, and not at all
-// in eye pass 1. ui_panel=2, the U1 test, draws it into the panel and then
-// into the eye as before. Outside the eye passes only the test draws a panel.
-// Screens with no scene are step U4.
+// in eye pass 1. ui_panel=2, the test mode, draws it into the panel and then
+// into the eye. Outside the eye passes only the test draws a panel. A panel
+// for screens with no scene is not built (docs/ui-layer.md).
 enum PanelScopeKind { kScopeMenu, kScopeHelp, kScopeBox, kScopeKinds };
 // For the census only: HelpSystem::Draw3D, which draws in the walk and stays
 // in the eyes.
@@ -2378,7 +2378,7 @@ void UiPanelReportRoutes() {
     ModLog("ui panel     : %llu times the panel was still bound after "
            "FinishFrame", g_panel_left_bound);
   }
-  // Which draws went where, in the U1 test.
+  // Which draws went where, in the test mode.
   if (g_panel_mode == kUiPanelTest) {
     for (int i = 0; i < g_route_count; ++i) {
       const RouteStat& r = g_routes[i];

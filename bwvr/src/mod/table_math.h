@@ -723,7 +723,7 @@ inline void GodSpawn(const float look[3], float camera_heading, float scale,
 // THE LAND POINT THAT A CAMERA LOOKS AT. The game keeps the focus of the
 // player's camera on the land. A script can put the focus under the land or
 // in the air, and the player's camera mode then brings the focus back along
-// the camera line (run sp7: 22.5 units, with no move and no turn of the
+// the camera line (22.5 units in one case, with no move and no turn of the
 // camera). So the look point is the first land point on the line from the
 // camera to its focus, when the line meets the land before the focus.
 // Otherwise it is the focus, put on the land: a focus in the air is over the

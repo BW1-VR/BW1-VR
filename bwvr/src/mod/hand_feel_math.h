@@ -493,8 +493,8 @@ inline float ApproachCurl(float pose, float pickup, float weight,
 }
 
 // THE SHAPE OF THE APPROACH. The curls of `can_pickup` are near the curls of
-// a hand at rest, so the player does not see the hand change (run hf6: 11 0
-// 13 19 20 against 0 12 12 12 12). A real hand that reaches for a thing takes
+// a hand at rest, so the player does not see the hand change (11 0 13 19 20
+// against 0 12 12 12 12). A real hand that reaches for a thing takes
 // the form of the thing before it closes. So each finger goes to kPreShape of
 // the curl at which it holds the target, and never to less than the curl of
 // `can_pickup`. A small target gives a claw, and a large one an open hand.

@@ -2054,8 +2054,8 @@ void TabletopGraphicsDone() {
 
 // Clouds and ground mist past the edge are not drawn. sky_detail.cpp asks
 // before it draws each dome. With the key color on, no cloud is drawn at
-// all: a cloud is not opaque, and run t2d showed the key color through the
-// clouds that reach past the edge.
+// all: a cloud is not opaque, and the key color shows through the clouds
+// that reach past the edge.
 bool TabletopHidesMist(const void* mist) {
   if (!g_live || !g_have_table || mist == nullptr) return false;
   // The God view has no edge, and every cloud draws.

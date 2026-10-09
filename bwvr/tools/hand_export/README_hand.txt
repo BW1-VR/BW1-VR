@@ -272,4 +272,4 @@ In the folder of the repository:
 
 The tool needs Python with numpy and Pillow, and Blender. It writes
 this folder again and it runs the check. The format of the game's
-files is in bwvr/docs/hand.md, "The files of the Hand".
+files is in bwvr/docs/hand-model.md, "The files of the Hand".

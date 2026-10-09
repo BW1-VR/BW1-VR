@@ -974,7 +974,7 @@ void UiPanelAfterFirstEye(uint64_t frame, bool capture) {
 
 // FinishFrame outside the eye passes: the front end, the loading screens,
 // and a frame the runtime did not want drawn. Only the test (ui_panel=2) draws a panel
-// there. Screens with no scene do not use the panel.
+// there. A panel for screens with no scene is not built.
 void UiPanelBeforeFinish(bool in_stereo_pass) {
   if (g_settings.mode == kUiPanelOff || in_stereo_pass) return;
   const bool on = g_mode == kUiPanelTest && GpuBridgePanelUsable();

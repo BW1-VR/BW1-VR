@@ -544,9 +544,9 @@ void ReadSettings() {
     t.god_most_units = number("god_far_units_per_meter", 4000);
     // Where the player goes when the game puts its own camera at a place:
     // 1 follows the game, with the land point that the camera looks at
-    // god_spawn_ahead_cm in front of the head. 0 keeps the camera of the game. With
-    // test_keys=1, Ctrl and Numpad 0 change it (docs/god-view.md, "The place at a
-    // camera of the game").
+    // god_spawn_ahead_cm in front of the head. 0 builds the view only at the
+    // start, at a load and at the end of a story. With test_keys=1, Ctrl and
+    // Numpad 0 change it (docs/god-view.md).
     t.god_spawn = number("god_spawn", 1);
     t.god_spawn_ahead_cm = number("god_spawn_ahead_cm", 50);
     t.test_keys = number("test_keys", 0) != 0;

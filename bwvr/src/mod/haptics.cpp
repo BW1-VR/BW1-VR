@@ -113,7 +113,7 @@ void HapticsGameEffect(int effect) {
   switch (effect) {
     case 0:  // touch the Creature
       // The game starts this effect again and again while the Hand is in the
-      // body, also for a hand that is still (run hk5: 6 times in 60 frames).
+      // body, also for a hand that is still (6 times in 60 frames).
       // The mod gives one tick when the hand goes into the body, and the
       // texture of the stroke (hand_direct.cpp, TouchFrame).
       break;

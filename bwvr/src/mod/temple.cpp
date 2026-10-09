@@ -1123,8 +1123,9 @@ void WatchCamera(const Facts& f) {
 // --- the test key -------------------------------------------------------------------
 
 // Ctrl and the 6 key of the number pad: the ray with the trigger and the
-// grip as the click, the ray with the plain buttons, and the pointer of the
-// builds before. A longer pulse for each next one.
+// grip as the click, the ray with the plain buttons, and no ray (the pointer
+// is the place of the real hand in the view). A longer pulse for each next
+// one.
 void PollTestKey() {
   if (!g_test_keys) return;
   static bool before = false;
