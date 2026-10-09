@@ -4,6 +4,10 @@ This file is the list of the open work and of the plans. It does not hold
 the history: when an item is done, remove it, and write what the mod does
 now in the doc of the area. The git history is the history.
 
+The doc of each area in `bwvr/docs` ends with the open questions and the
+known limits of that area. This file names the work, and the doc has the
+detail.
+
 ## Where it stands
 
 The mod is at version 1.1.0, an alpha for a small group of testers.
@@ -79,6 +83,10 @@ is built, and no test has proven it.
   and the Direct3D devices shut down, and whether the crash can cut the
   last lines of the log or a write of the profile.
 
+- **B10. The launcher names a wrong control.** For the God view, the
+  launcher says that the left stick moves the ground up and down. The left
+  grip moves the ground, and the left stick opens the ring menu.
+
 B1, B2, B3 and B4 are one package: a thing that is held, thrown, or that
 moves while the Hand takes it.
 
@@ -142,12 +150,29 @@ moves while the Hand takes it.
   hint goes away after the player did its action a few times.
 - **P7. A view for videos.** A 16:9 view in the game window with the cards
   and the subtitles in it and a smoothed head, for a capture on the PC.
+- **P8. Pictures in the hints.** A flat picture of each button, then a
+  picture of the controller with the button lit, then a 3D model of the
+  controller (`controller-hints.md`).
+- **P9. The pointer on the interface panel**, and the screens with no
+  scene (menus, loading, videos) on a panel in the room (`ui-layer.md`).
+- **P10. The tabletop mode** (play mode 3) is a test mode. Not built: a
+  game camera over the table, the mouse, the wheel, the stick and the
+  double click for the table, the ring and the depth key for the key color,
+  and the place of the table in a real room (`tabletop.md`).
+- **P11. The intro.** A push of the particles in 3D with a controller
+  (`intro.md`).
+- **P12. Ideas from Half-Life: Alyx** that are not built are in
+  `research-hla.md`, for the far grab, the teleport, the hands, the hints,
+  the sound and comfort.
 
 ### Built, and not proven or not finished
 
 - **N1. The frame time.** Headset sessions gave means between 73 and 80
   fps, and the scenes were not the same. Measure one scene with a fixed
-  recipe before and after a change.
+  recipe before and after a change. The cause of the worst frames (31 to
+  52 ms) is not known. Ideas for the render are in `backend.md`: one walk
+  of the scene for both eyes, a projection off the centre for each eye,
+  and the game turn off the render thread.
 - **N2. The hands that react.** The part for bodies that the hand passes
   is built and off (`hand_feel_bodies`): no picture proves it. Not shown: a
   tree taken with the palm to the side. The idle wave is off
@@ -180,9 +205,27 @@ moves while the Hand takes it.
 - **N10. The cut scene window.** Limits: the plane stays near for some
   seconds after a near thing left, a thing smaller than one grid cell can
   be in front, and the advisors are in the measure.
-- **N11. A PC with no DirectX 9 runtime.** No test has run the mod on a PC
+- **N11. The God view.** No desktop run: the mouse pan, the events that a
+  step of the tutorial waits for, the load of a saved game, and a pick up,
+  a set down and a throw in the God view. The teleport has only its math
+  test. Some cameras of the game still glide: the follow of the Creature
+  after a double click, the pull back past 3500 units, the arrow keys and
+  the automatic tilt (`backend.md`).
+- **N12. The far grab.** No desktop run: the fetch of a thing that floats,
+  a villager in the sea, a Field or a FishFarm as a target, a take while
+  the Hand is outside the influence, and a second object in the Hand
+  (`grab.md`).
+- **N13. The exact Hand.** No desktop run in the Tug, Holding, Creature,
+  Grain and PlayAnim states. The Totem and the Citadel states are not read
+  (`hand.md`).
+- **N14. The throw.** Not tested: a tree that flies, a villager, a throw
+  into a pile and into the sea, and a scale other than 100 units for each
+  meter (`throw.md`).
+- **N15. The interface panel** (`ui_panel=1`). No run, on the desktop or in
+  a headset (`ui-layer.md`).
+- **N16. A PC with no DirectX 9 runtime.** No test has run the mod on a PC
   that never had the DirectX 9 runtime installed.
-- **N12. Only one headset.** No person has run the mod with a headset or a
+- **N17. Only one headset.** No person has run the mod with a headset or a
   runtime other than a Quest 3 through Virtual Desktop.
 
 ### The repo, the release and the tools

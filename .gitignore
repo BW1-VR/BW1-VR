@@ -43,9 +43,8 @@ obj/
 ghidra_projects/
 ghidra_import.log
 
-# Logs and captures. Measurement logs that the docs cite stay.
+# Logs and captures
 *.log
-!bwvr/docs/*.log
 *.bmp
 frames/
 captures/

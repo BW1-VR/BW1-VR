@@ -190,10 +190,26 @@ before your first pull request.
 | `bwvr/docs/` | The design and the reverse engineering notes of each area |
 | `third_party/` | MinHook, the OpenXR loader, dxwrapper, cgltf |
 
-Start with [`bwvr/docs/roadmap.md`](bwvr/docs/roadmap.md) (the work list and
-the history), then the doc of your area: `hand.md` (the Hand, grab, throw,
-the Creature, miracles), `god-view.md`, `controllers.md`, `backend.md` (the
-render path), `audio.md`, `cutscene-window.md`.
+Start with [`bwvr/docs/roadmap.md`](bwvr/docs/roadmap.md) (the open work),
+then the doc of your area in `bwvr/docs/`:
+
+| Doc | Area |
+| --- | --- |
+| `backend.md` | The render path, the two eye passes, OpenXR, the head, the hotkeys |
+| `god-view.md`, `tabletop.md` | The God view (the main mode) and the tabletop mode |
+| `controllers.md`, `controls-audit.md` | The controllers, and each control of the game in VR |
+| `hand.md` | The Hand of the game, and the Hand at the real hand |
+| `grab.md`, `throw.md` | Taking a thing, the far grab, forests, and the throw |
+| `creature.md`, `miracles.md`, `village.md` | The Creature, miracles, and the village, scrolls and the Temple door |
+| `hand-model.md` | How the hands look and feel: the model, the glow, haptics |
+| `ui-layer.md`, `controller-hints.md` | The interface in the room, and the hint cards |
+| `audio.md` | The sound |
+| `cutscene-window.md`, `intro.md` | Stories in a window, and the start of the game |
+| `launcher.md`, `installer.md` | The launcher and the installer |
+| `address-map.md`, `software-tnl.md`, `stereo-artifacts.md`, `input-devices.md` | Facts about the game's code and its renderer |
+| `research-hla.md` | Notes on Half-Life: Alyx as a guide for the hands |
+
+Each doc holds the current state and the plans. The history is in git.
 
 ---
 
