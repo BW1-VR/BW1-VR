@@ -33,6 +33,9 @@ struct TabletopSettings {
   // (docs/god-view.md, "The place at a camera of the game").
   int god_spawn = 1;             // god_spawn: 1 follows the game, 0 does not
   int god_spawn_ahead_cm = 50;   // god_spawn_ahead_cm: the look point, ahead
+  // Where the game camera stands (docs/god-view.md, "The game camera"): 1
+  // over the land point under the head, 0 over the recenter place.
+  int god_camera_at = 1;         // god_camera_at: the place of the game camera
   bool test_keys = false;        // test_keys: Ctrl and Numpad 0 change it
 };
 
@@ -126,3 +129,8 @@ void TabletopGodGameMoved(const char* cause, const float position[3],
 // changes between 1 and 0, and the view goes to the game camera again by the
 // new rule.
 void TabletopGodSpawnToggle();
+
+// The test key of god_camera_at (Ctrl and Numpad 1, with test_keys=1): the
+// game camera stands over the land point under the head or over the
+// recenter place.
+void TabletopGodCameraAtToggle();

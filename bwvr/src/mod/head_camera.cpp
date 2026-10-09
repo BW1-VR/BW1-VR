@@ -662,6 +662,14 @@ void HeadCameraSetEnabled(bool on) {
 // frame each does what it does in play mode 1.
 bool HeadCameraEnabled() { return g_enabled && !CutsceneWindowFlat(); }
 
+// The render head of the last table frame, in world units. False when no
+// table frame was drawn yet.
+bool HeadCameraTableEye(float out[3]) {
+  if (g_table_frame == 0xFFFFFFFFFFFFFFFFull) return false;
+  for (int i = 0; i < 3; ++i) out[i] = g_table_eye[i];
+  return true;
+}
+
 // The setting alone: the head goes on the camera in the full view.
 bool HeadCameraOn() { return g_installed && g_enabled; }
 

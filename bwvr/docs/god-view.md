@@ -124,7 +124,9 @@ G' = W + (s' / s) * (G - W)
 `W` keeps its world point and its room point, so the player keeps their place
 in the world, and the land under them keeps its height in the room. A land
 point off to the side comes nearer when the view zooms out. The heading does
-not change.
+not change. The game camera keeps its place in a zoom step too
+(section 7), so the game logic, the sound and the detail keep their
+distances to the player.
 
 **A hill over the head.** At the life size scale a hill of 100 units is 13 m
 high. A pan can bring one over the head. So the height of `W` in the room is
@@ -498,8 +500,12 @@ update of `CameraModeNew3`, `comfort_camera.cpp` (`GodAfter`) puts the game
 camera over the player's place, in the fields the snap turn and the grab
 write:
 
-- The focus is the land under the waist point, kept within 3000 units of the
-  map center.
+- The focus is the land point under the head (`god_camera_at`, 1), kept
+  within 3000 units of the map center. With `god_camera_at=0` it is the land
+  under the waist point, the recenter place. The place is taken once for each
+  move of the view. A zoom step keeps the land point under the head, so it
+  keeps the game camera in its place too. The recenter place moves in a zoom
+  step when the head is off the recenter place.
 - The camera is 400 units from it, 50 degrees above, along the heading of the
   view.
 
@@ -724,6 +730,7 @@ section 5.6.
 | `god_far_units_per_meter` | 4000 | The farthest zoom, 10 to 8000 |
 | `god_spawn` | 1 | 1: the player goes where the game puts its own camera (section 15). 0: the view is built at the start, a load and the end of a story only, with the focus under the recenter pose |
 | `god_spawn_ahead_cm` | 50 | How far the land point that the game camera looks at is in front of the head, 0 to 150 |
+| `god_camera_at` | 1 | 1: the game camera is over the land point under the head. 0: over the recenter place (section 7). Ctrl and Numpad 1 change it with `test_keys=1` |
 | `script_distance` | 1 | 1: a script that measures the distance from the camera gets the distance from the player (section 16). 0: the game's camera |
 | `script_view` | 1 | 1: a script that asks if the camera sees a thing gets the view of the head (section 16). 0: the game's camera |
 | `cutscene_window` | 1 | 1 plays a cut scene on a screen in the room (`cutscene-window.md`). 0 plays it in the full view with held shots |

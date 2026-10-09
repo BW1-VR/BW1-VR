@@ -1465,6 +1465,7 @@ in front. The mod reads the keys and never takes them from the game.
 | Ctrl Shift F11 | `test_keys=1` | The interface panel on and off, when `ui_panel` is not 0 (`ui-layer.md`) |
 | Numpad 0 | `test_keys=1` | The cut scene window goes off and on (`cutscene-window.md`) |
 | Numpad 1 | `test_keys=1` | The depth limit of the cut scene window goes off and on |
+| Ctrl Numpad 1 | `test_keys=1` | The game camera stands over the land under the head or over the recenter place (`god-view.md`, section 7) |
 | Ctrl Numpad 0 | `test_keys=1` | The God view follows the game camera or not (`god-view.md`) |
 
 The launcher shows `test_keys` as "Test keys", in a group named "Testing". It is off

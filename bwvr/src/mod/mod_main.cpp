@@ -550,6 +550,10 @@ void ReadSettings() {
     // Numpad 0 change it (docs/god-view.md).
     t.god_spawn = number("god_spawn", 1);
     t.god_spawn_ahead_cm = number("god_spawn_ahead_cm", 50);
+    // The place of the game camera: 1 over the land point under the head,
+    // 0 over the recenter place. With test_keys=1, Ctrl and Numpad 1 change
+    // it.
+    t.god_camera_at = number("god_camera_at", 1);
     t.test_keys = number("test_keys", 0) != 0;
     // Tests with no key press, for a desktop run: the game's zoom to the
     // Temple at an update of the camera mode, and the test key of god_spawn.

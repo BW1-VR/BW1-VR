@@ -174,6 +174,7 @@ float TabletopScale();
 void TabletopApplyFrame();
 void TabletopToggle();
 void TabletopGodSpawnToggle();
+void TabletopGodCameraAtToggle();
 void TabletopReport();
 bool TabletopSweeping();
 // world_grab.cpp: moving around by grabbing the world.
@@ -600,6 +601,11 @@ void PollHotkeys() {
     // place at a camera of the game").
     if (g_test_keys && now[2] && !down[2] && ctrl && !shift) {
       TabletopGodSpawnToggle();
+    }
+    // An A/B of the place of the game camera (docs/god-view.md, "The game
+    // camera").
+    if (g_test_keys && now[3] && !down[3] && ctrl && !shift) {
+      TabletopGodCameraAtToggle();
     }
     // An A/B of its depth limit.
     if (g_test_keys && now[3] && !down[3] && plain) CutsceneWindowDepthToggle();

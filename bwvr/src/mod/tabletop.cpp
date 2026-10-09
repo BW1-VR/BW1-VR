@@ -90,6 +90,8 @@ bool HeadPoseCurrent(float matrix_out[9], float translation_out[3]);
 // frame_timers.cpp hooks GGame::ProcessGraphicsEngine, and calls
 // TabletopGraphicsDone after it.
 bool FrameTimersGraphicsHooked();
+// head_camera.cpp: the render head of the last table frame, in world units.
+bool HeadCameraTableEye(float out[3]);
 // controllers.cpp: the real hand's length in cm (hand_real_cm) and the
 // percent of it that the Hand gets (hand_scale_pct).
 int ControllersHandCm();
@@ -319,6 +321,14 @@ uint64_t g_serial = 0;
 // call uses: 1, -1 or 0 each. The scale of the last God view, which it keeps
 // when it is built again.
 int g_god_zoom = 0;
+// The check of a zoom step: the render head of the frame before the step, and
+// the scale after it. The frame after the step compares it with the render
+// head of the step frame.
+struct ZoomProbe {
+  bool armed = false;
+  float eye[3] = {0.0f, 0.0f, 0.0f};
+  float scale = 1.0f;
+} g_zoom_probe;
 int g_god_ground = 0;
 int g_god_turn = 0;
 float g_god_turn_degrees = 45.0f;
@@ -1253,6 +1263,25 @@ void ApplyGodSteps() {
     const float used = GodZoom(pose, room, head, pivot_y, ratio, GodLowest(),
                                GodHighest(), &next);
     if (used != 1.0f) {
+      if (GodLog()) {
+        float after[3];
+        PoseWorld(next, room, head, after);
+        const float gone = sqrtf((after[0] - at[0]) * (after[0] - at[0]) +
+                                 (after[2] - at[2]) * (after[2] - at[2]));
+        const float place = sqrtf((next.center[0] - pose.center[0]) *
+                                      (next.center[0] - pose.center[0]) +
+                                  (next.center[2] - pose.center[2]) *
+                                      (next.center[2] - pose.center[2]));
+        ModLog("god view     : zoom check, the land under your head was at %.1f "
+               "%.1f and is at %.1f %.1f, %.2f cm of the room apart. The "
+               "recenter place moves %.2f cm of the room, and the head is "
+               "%.0f cm right and %.0f cm forward of it",
+               at[0], at[2], after[0], after[2], gone / next.scale * 100.0f,
+               place / next.scale * 100.0f, head[0] * 100.0f,
+               head[2] * 100.0f);
+      }
+      g_zoom_probe.armed = HeadCameraTableEye(g_zoom_probe.eye);
+      g_zoom_probe.scale = next.scale;
       pose = next;
       moved = true;
       Help(kHelpZoom, kInputWheel);
@@ -1760,6 +1789,18 @@ bool TabletopCamera(const float asked_position[3], const float asked_focus[3],
       ModLog("god view     : your camera is back, so the God view is too");
     }
     if (!GodLand()) return false;
+    if (g_zoom_probe.armed) {
+      g_zoom_probe.armed = false;
+      float eye[3];
+      if (HeadCameraTableEye(eye) && GodLog()) {
+        const float dx = eye[0] - g_zoom_probe.eye[0];
+        const float dz = eye[2] - g_zoom_probe.eye[2];
+        ModLog("god view     : zoom check, the drawn head moved %.2f cm of the "
+               "room over the step (%.0f %.0f before, %.0f %.0f after)",
+               sqrtf(dx * dx + dz * dz) / g_zoom_probe.scale * 100.0f,
+               g_zoom_probe.eye[0], g_zoom_probe.eye[2], eye[0], eye[2]);
+      }
+    }
     if (!g_have_table) {
       float position[3], focus[3];
       GameCameraNow(asked_position, asked_focus, position, focus);
@@ -2293,6 +2334,19 @@ void TabletopGodSpawnToggle() {
   if (TabletopGodOwnsView()) g_spawn.again = true;
 }
 
+// THE TEST KEY of god_camera_at (Ctrl and Numpad 1, with test_keys=1). The
+// version changes, so the game camera goes to the other place at its next
+// update.
+void TabletopGodCameraAtToggle() {
+  if (!g_installed || !g_settings.god || !g_settings.test_keys) return;
+  g_settings.god_camera_at = g_settings.god_camera_at != 0 ? 0 : 1;
+  ModLog("test key     : god_camera_at=%d. The game camera stands over %s",
+         g_settings.god_camera_at,
+         g_settings.god_camera_at != 0 ? "the land point under your head"
+                                       : "the recenter place");
+  ++g_god_version;
+}
+
 // A step from the sticks or the wheel. It is kept until the next main camera
 // call, which uses it once. A second push before then replaces it, so one
 // frame never takes two steps of one kind.
@@ -2342,7 +2396,36 @@ bool TabletopGodGameCamera(float position[3], float focus[3],
                            uint64_t* version) {
   if (!TabletopGodOwnsView()) return false;
   *version = g_god_version;
-  float dx = g_center[0] - kMapCenter, dz = g_center[2] - kMapCenter;
+  // The place: the land point under the head, or the recenter place. It is
+  // latched for each move of the view, so a head that moves with a still
+  // view does not move the game camera.
+  static uint64_t placed = ~0ull;
+  static int placed_at = -1;
+  static float place[2] = {0.0f, 0.0f};
+  if (placed != g_god_version || placed_at != g_settings.god_camera_at) {
+    placed = g_god_version;
+    placed_at = g_settings.god_camera_at;
+    place[0] = g_center[0];
+    place[1] = g_center[2];
+    if (g_settings.god_camera_at != 0) {
+      float room[3], head[3], under[3];
+      TableRoom(room);
+      HeadRoom(head);
+      PoseWorld(Pose(), room, head, under);
+      place[0] = under[0];
+      place[1] = under[2];
+    }
+    static int said = 0;
+    if (said < 40 && g_scale > 0.0f) {
+      ++said;
+      ModLog("god view     : the game camera is over the %s at %.1f %.1f, %.1f "
+             "units per meter",
+             g_settings.god_camera_at != 0 ? "land under your head"
+                                           : "recenter place",
+             place[0], place[1], g_scale);
+    }
+  }
+  float dx = place[0] - kMapCenter, dz = place[1] - kMapCenter;
   const float out = sqrtf(dx * dx + dz * dz);
   if (out > kGodGameRadius) {
     dx *= kGodGameRadius / out;
