@@ -80,6 +80,7 @@ and keeps the result in `local\dialog-calibration.json`. Each run script
 takes its dialog points from there. You do nothing for it. It happens one
 time for each new render size.
 
-The scripts came from one developer's working folder in October 2026.
-`verify_build.ps1` and the scripts that it calls are the maintained set. A
-script for one area can need a correction before it runs on a different PC.
+`verify_build.ps1` and the scripts that it calls are the maintained set. The
+scripts for one area (`hand_run.ps1`, `village_run.ps1`, `temple_run.ps1`,
+`miracle_run.ps1`) have run on one PC only, and can need a correction on a
+different PC.
