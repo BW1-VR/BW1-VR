@@ -2,23 +2,21 @@
 //
 // The engine draws into an IDirectDrawSurface7 render target. We lock it at
 // the end of the frame and copy the pixels into a plain BGRA buffer that the
-// VR layer can upload. That is a CPU readback, and it is the part of Phase 1
-// most likely to cost frame rate, so it measures itself and reports.
+// VR layer can upload. That is a CPU readback, and it is the part most likely
+// to cost frame rate, so it measures itself and reports.
 //
 // The surface is almost always 32 bit X8R8G8B8, which is BGRA in memory.
 //
 // THE FAST PATH DOES NOT COPY AT ALL. It locks the surface and hands the
 // pointer straight to the VR layer, which copies once into the swapchain
-// staging texture. The old path copied twice, once into a buffer here and
-// once into the staging texture, and the first of those was a per pixel
-// read modify write to force the alpha opaque, which cannot use a fast
+// staging texture. The copy through a buffer here costs a second copy, and a
+// per pixel read modify write to force the alpha opaque cannot use a fast
 // memcpy. Two copies of 3.7 MB per eye per frame is 15 MB a frame at 90 Hz.
 //
-// Forcing the alpha turned out to be unnecessary. The quad layer is submitted
-// with layerFlags of 0, and without
+// Forcing the alpha is not needed. The quad layer is submitted with
+// layerFlags of 0, and without
 // XR_COMPOSITION_LAYER_BLEND_TEXTURE_SOURCE_ALPHA_BIT the runtime ignores the
-// alpha channel. force_alpha brings the old behavior back if a runtime is
-// found that does not.
+// alpha channel.
 //
 // The 16 bit path still converts through the buffer, because 16 bit pixels
 // have to be expanded whatever happens.

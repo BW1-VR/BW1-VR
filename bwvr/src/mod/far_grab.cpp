@@ -1,4 +1,4 @@
-// The grab from a distance. See docs/hand.md, "The grab from a distance".
+// The grab from a distance. See docs/grab.md, "The grab from a distance".
 //
 // WHAT THE PLAYER DOES. The player points the hand at an object that is
 // out of reach. A gold halo shows around it (red when the land under it is
@@ -28,7 +28,7 @@
 // point. After kTouchFrames frames the far grab lets the press go.
 //
 // NEAR OBJECTS WIN. hand_direct.cpp gives no target while an object that a
-// press acts on is near the Hand's point (docs/hand.md, "One point for each
+// press acts on is near the Hand's point (docs/grab.md, "One point for each
 // interaction").
 //
 // WHAT THE GAME DOES. The mod does not move the object. After the pull it

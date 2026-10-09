@@ -17,7 +17,7 @@
 //
 //     screen y or rhw differs between the passes
 //         -> the object had a DIFFERENT WORLD POSITION in the second pass.
-//            It was rebuilt from the camera. This is the ghosting bug.
+//            It was rebuilt from the camera, and that shows as ghosting.
 //
 //     screen x is identical between the passes
 //         -> the object has no disparity at all. It is screen space, which
@@ -28,7 +28,7 @@
 //            projected shadow works this way: the shadow is a texture on the
 //            ground, and a wrong shadow matrix slides that texture across
 //            ground that never moved. Comparing positions alone cannot see
-//            this, and an earlier version of this probe could not.
+//            this.
 //
 //     the vertex COLOURS move
 //         -> per vertex lighting was computed from the camera.
@@ -39,18 +39,17 @@
 //
 // At the Direct3D device draw methods, not at the engine draw functions.
 // LH3DRender has several entry points and the interface uses more than one of
-// them, which is what made the earlier DrawAndClip2D shift split a checkbox in
-// half. Every triangle in the frame reaches the device, so a hook there cannot
-// miss a path. The probe records which methods carry traffic, so the list of
-// paths stops being an assumption.
+// them, so a hook on one of them can split a checkbox in half. Every triangle
+// in the frame reaches the device, so a hook there cannot miss a path. The
+// probe records which methods carry traffic, so the list of paths stops being
+// an assumption.
 //
 // The device vtable gives the addresses, but the hook goes on the FUNCTIONS,
-// through MinHook, not on the vtable entries. Swapping vtable entries was
-// tried first and it caught exactly one call in twenty thousand frames. The
-// game reaches the same implementation through an interface pointer this code
-// never sees, and `ddraw.dll` and `d3dim700.dll` are both already proxied
-// here, so there is more than one vtable in play. Patching the function itself
-// catches every caller whatever vtable they hold.
+// through MinHook, not on the vtable entries. Swapping vtable entries catches
+// almost no calls. The game reaches the same implementation through an
+// interface pointer this code never sees, and `ddraw.dll` and `d3dim700.dll`
+// are both already proxied here, so there is more than one vtable in play.
+// Patching the function itself catches every caller whatever vtable they hold.
 //
 // The caller return address goes into each record. That is what turns "some
 // shadows are wrong" into "this function drew them", because the address
@@ -116,7 +115,8 @@ struct Batch {
   float z_min, z_max, rhw_min, rhw_max;
 };
 
-// What we learned about one calling function, across every frame measured.
+// What the probe learned about one calling function, across every frame
+// measured.
 struct Caller {
   uint32_t address;
   uint64_t slots_used;      // one bit per vtable slot
@@ -489,8 +489,7 @@ void Compare() {
     // rhw has to be compared in proportion, not in absolute terms. It is
     // near/camera_z, so it runs from about 0.0001 far away to over 6000 for a
     // vertex almost touching the near plane. A fixed epsilon calls float
-    // rounding on the large values a rebuild, and it did: an early run flagged
-    // 450 batches whose y had moved by two hundredths of a pixel.
+    // rounding on the large values a rebuild.
     const double scale = fabs(left.rhw_sum) / n;
     const double drhw = fabs(right->rhw_sum - left.rhw_sum) / n;
     const double drhw_rel = drhw / (scale > 1e-9 ? scale : 1e-9);

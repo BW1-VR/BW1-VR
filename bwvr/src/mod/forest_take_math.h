@@ -1,4 +1,4 @@
-// The take from a forest: the rule, with no game state (docs/hand.md, "Many
+// The take from a forest: the rule, with no game state (docs/grab.md, "Many
 // trees from a forest"). forest_take.cpp gives it the facts of the Hand and
 // does what it asks. The math test runs it with no game.
 

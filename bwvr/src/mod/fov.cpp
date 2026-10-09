@@ -1,14 +1,12 @@
-// The field of view, which is the gate for Phase 3.
+// The field of view of the game.
 //
-// Today the mod submits a quad layer per eye: a flat screen hanging in front
-// of the player at a fixed size and distance. To stand inside the world
-// instead, the mod has to submit a projection layer, and a projection layer is
-// a promise: this image was rendered from this pose, with this frustum. The
+// The mod submits a projection layer per eye, and a projection layer is a
+// promise: this image was rendered from this pose, with this frustum. The
 // game must then render the headset's frustum rather than its own, or the
 // world shears when the head moves.
 //
 // A headset wants about 100 degrees per eye. The game renders far less. So
-// Phase 3 begins by widening the game's view, and that costs geometry.
+// the mod widens the game's view, and that costs geometry.
 //
 // THIS IS WHY THAT MATTERS. The scene walk was profiled at the heaviest scene
 // found so far, a glowing portal with particles and moving trees:
@@ -19,8 +17,7 @@
 //
 // The cost tracks draw calls, not pixels, and a wider view means more of the
 // island is in front of the camera. If a headset field of view doubles the
-// draw calls, Phase 3 cannot proceed until the scene is walked more cheaply.
-// So the number comes first, before any of the work that depends on it.
+// draw calls, the scene must be walked more cheaply.
 //
 // LH3DTech::ChangeFov is the right lever rather than the projection matrix,
 // because the struct it writes holds both:
@@ -89,7 +86,7 @@ const int kMaxLogged = 12;
 void __stdcall h_ChangeFov(float fov) {
   ++g_calls;
   g_asked = fov;
-  // An absolute target wins over the multiplier. Phase 3 needs the game to
+  // An absolute target wins over the multiplier. The mod needs the game to
   // render the headset's frustum, not a proportion of its own.
   const float wanted = g_absolute > 0.0f ? g_absolute : fov * g_scale;
   g_used = wanted;
@@ -150,10 +147,9 @@ void FovInstall() {
 
 // THE SWEEP.
 //
-// The first attempt at this measurement was made by hand, and it did not
-// answer the question. At one fixed scale the draw calls ranged from 336 to
-// 585, because the camera had moved between windows. The scene was drowning
-// the thing being measured.
+// A measurement by hand does not answer the question. At one fixed scale the
+// draw calls ranged from 336 to 585, because the camera had moved between
+// windows. The scene was drowning the thing being measured.
 //
 // So the mod runs the sweep itself. One step per report window, which is the
 // same 450 frames the profile counts over, so each scale gets exactly one

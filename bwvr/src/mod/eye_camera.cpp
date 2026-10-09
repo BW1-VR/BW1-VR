@@ -1,9 +1,9 @@
 // Move the camera for one eye, and keep everything derived from it in step.
 //
-// THE MISTAKE THIS CORRECTS
+// WHY ONE MATRIX IS NOT ENOUGH
 //
-// The mod used to move one matrix: the world to camera matrix at 0x00EA9E40
-// that LH3DTech::ProjectPoint reads. That is not the whole camera.
+// The world to camera matrix at 0x00EA9E40 is the one that
+// LH3DTech::ProjectPoint reads. It is not the whole camera.
 // LH3DTech::UpdateCamera builds a family of values from one camera position,
 // and different parts of the engine read different members of that family.
 // Moving one member and leaving the rest at the mono camera makes those parts
@@ -51,11 +51,10 @@
 // poking 0x00EA9E40 between the passes left 0x00EA9DE0 at the mono camera.
 // What remained after the two matrices failed to cancel was a translation
 // along the eye offset, and the per vertex perspective divide turned that
-// translation into a skew. So the shadow slid across the ground AND changed
-// shape, in opposite directions for the two eyes. That is exactly what it
-// looked like from inside the headset.
+// translation into a skew. So the shadow slides across the ground AND changes
+// shape, in opposite directions for the two eyes.
 //
-// The fix is not to reuse the first pass geometry. The shadow map, the light
+// To reuse the first pass geometry is not the answer. The shadow map, the light
 // position and the bounding box are already identical in both passes. The
 // projection has to differ per eye, and it is correct as soon as the inverse
 // is the true inverse of the matrix being used. So this calls the game's own
@@ -76,14 +75,14 @@
 // time.
 //
 // Putting the seed back before the second pass looks like the obvious answer.
-// IT IS NOT, and the draw probe says so plainly: it took the mesh transform at
-// fn_00856D40 from 150 wrong batches in 150 frames to 24760. The generator
-// feeds more than jitter, and something downstream decides WHAT to draw from
-// it, so replaying the sequence changed the scene instead of steadying it.
+// IT IS NOT: the draw probe counts 24760 wrong batches at the mesh transform
+// fn_00856D40 with the seed replayed, and 150 in 150 frames without. The
+// generator feeds more than jitter, and something downstream decides WHAT to
+// draw from it, so replaying the sequence changes the scene.
 // That shows up as a large "nomatch" count, which means the two passes did not
 // even draw the same number of things.
 //
-// So it stays off, and the particle jitter is still open. A fix that works has
+// So it stays off, and the particle jitter is open. A fix that works has
 // to leave the sequence alone and make the particles ask for the same numbers,
 // which means hooking the two DrawAt functions rather than the generator.
 

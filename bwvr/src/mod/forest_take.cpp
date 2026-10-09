@@ -1,4 +1,4 @@
-// The take from a forest (docs/hand.md, "Many trees from a forest").
+// The take from a forest (docs/grab.md, "Many trees from a forest").
 //
 // WHAT THE GAME DOES [V]. The Hand of the plain game holds one object:
 // GMagicHand has room for one (0x005FAFC0 refuses a second), and
@@ -168,8 +168,7 @@ void SayRule() {
 void ReadSettings() {
   if (g_settings.read) return;
   g_settings.read = true;
-  // Off by default from 2026-10-07: the plain game gives one tree for each
-  // grip, and the owner wants that.
+  // Off by default: the plain game gives one tree for each grip.
   g_settings.on = IniKey("forest_take", 0) != 0;
   g_settings.wait_ms = Clamp(IniKey("forest_take_wait_ms", 600), 100, 5000);
   g_settings.step_ms = Clamp(IniKey("forest_take_ms", 400), 50, 5000);

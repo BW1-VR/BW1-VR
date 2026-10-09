@@ -1,4 +1,4 @@
-// The grab from a distance. See far_grab.cpp and docs/hand.md, "The grab from
+// The grab from a distance. See far_grab.cpp and docs/grab.md, "The grab from
 // a distance".
 
 #pragma once

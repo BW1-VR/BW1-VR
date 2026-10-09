@@ -1,5 +1,5 @@
-// The direct hand (step M3): the game's Hand sits at the player's controller
-// in 3D, not on the land under a ray. See docs/hand.md, sections 1, 2 and 7.
+// The direct hand: the game's Hand sits at the player's controller
+// in 3D, not on the land under a ray. See docs/hand.md, "The direct hand".
 //
 // THE GAME BUILDS THE HAND FROM A RAY AND A DEPTH. In the Normal and the
 // Holding states, ObtainRequiredHandPosition 0x005B5E70 casts a ray through
@@ -32,7 +32,7 @@
 // object that is not near the Hand comes out of it. Buildings, signposts and
 // scrolls keep the ray.
 //
-// ONE POINT (docs/hand.md, "One point for each interaction"). The Hand's
+// ONE POINT (docs/grab.md, "One point for each interaction"). The Hand's
 // point is the tip of the real index finger, where the glow is. A press of
 // the grip acts on the nearest object within hand_pick_cm of that point: an
 // object to hold, a bulk source, or an object that the game taps (a scroll,
@@ -48,7 +48,7 @@
 // Only the Normal and the Holding states are placed. The Camera state (the
 // land drag) and every other state place the Hand as the game does.
 //
-// THE THROW (M4). The game throws with the velocity in CHand+0x48C8..0x48D0,
+// THE THROW. The game throws with the velocity in CHand+0x48C8..0x48D0,
 // world units per second. It reads that in the release action FUN_005D4DB0
 // and cuts its length to 124 (0x00C371FC). While the controller places the
 // Hand, a hook on the release action writes the hand's velocity there: the
@@ -61,12 +61,12 @@
 // latched at the opening, over the 80 ms before it (HandDirectGripOpened),
 // and the release uses that. HandDirectGripFacts tells the grip whether an
 // object is in the Hand, whether the pick up is over and whether the game
-// shows the throw spring. See docs/hand.md, "The grip holds".
+// shows the throw spring. See docs/grab.md, "The grip holds".
 //
 // THE LAND. The point stops 5 mm of the room over the land, so it touches
 // the land and the objects on it at every scale (ResolveLand).
 //
-// THE CREATURE BY TOUCH (docs/hand.md, "The Creature by touch"). A press on
+// THE CREATURE BY TOUCH (docs/creature.md, "The Creature by touch"). A press on
 // the Creature puts the Hand in the Creature state (7). There the game moves
 // its camera to the Creature and places the Hand by the Creature's depth.
 // With the controller:
@@ -92,17 +92,17 @@
 // While the Hand is in the Creature state, the pick keeps the Creature, so
 // the state lasts until the trigger opens.
 //
-// ON THE TABLE (docs/tabletop.md, section 10.6). controllers.cpp puts the
-// target on the table with no reach curve. Here the Hand gets the length
-// table_hand_cm in the room. Two hooks, only with play_mode=3 and 4, make the
-// pick work at that scale: the screen test offers the objects near the Hand,
-// and the interface step gets the land under the Hand for the influence test.
-// The throw turns the speed of the real hand into units at the table scale.
-// The game lets go only inside the player's influence, and a swing at that
-// scale often ends outside it. So a throw that ends outside goes from the
-// last point of the swing inside it (docs/tabletop.md, 10.11). The
-// Creature's test keeps the speed at the life size scale, so a stroke and a
-// slap need the same hand motion as off the table.
+// ON THE TABLE (docs/tabletop.md, "The hand on the table"). controllers.cpp
+// puts the target on the table with no reach curve. Here the Hand gets the
+// length table_hand_cm in the room. Two hooks, only with play_mode=3 and 4,
+// make the pick work at that scale: the screen test offers the objects near the
+// Hand, and the interface step gets the land under the Hand for the influence
+// test. The throw turns the speed of the real hand into units at the table
+// scale. The game lets go only inside the player's influence, and a swing at
+// that scale often ends outside it. So a throw that ends outside goes from the
+// last point of the swing inside it (docs/tabletop.md, "The throw from inside
+// the influence"). The Creature's test keeps the speed at the life size scale,
+// so a stroke and a slap need the same hand motion as off the table.
 //
 // THE GLOW. hand_glow.cpp draws a small disc at the target in each eye pass,
 // so the player sees the point the Hand interacts from. HandDirectGlowFacts
@@ -156,7 +156,7 @@ bool ControllersCreatureSlapWait();
 // head_pose.cpp
 float HeadPoseScale();
 // tabletop.cpp: the Hand's size and the scale while the table owns the view,
-// and 0 otherwise. See docs/tabletop.md, section 10.6.
+// and 0 otherwise. See docs/tabletop.md, "The hand on the table".
 float TabletopHandSize();
 float TabletopViewScale();
 // tabletop.cpp: true while the table or the God view owns the view.
@@ -170,9 +170,9 @@ bool HeadCameraRenderBasis(float basis_out[9], float position_out[3]);
 bool TabletopRoom(float origin[3], float basis[9], float center[3],
                   float* gain);
 // The state of the game camera at this moment, for a script that asks about
-// the camera between two frames (docs/god-view.md, section 16).
-// script_camera.cpp: 0 a camera mode of the player is on top, 1 a story or
-// a follow mode, -1 not known. cutscene_window.cpp: the cinema bars are up.
+// the camera between two frames (docs/god-view.md, "The player that a script
+// sees"). script_camera.cpp: 0 a camera mode of the player is on top, 1 a story
+// or a follow mode, -1 not known. cutscene_window.cpp: the cinema bars are up.
 // comfort_camera.cpp: the game moves its own camera to a new place.
 int ScriptCameraOwnerNow();
 bool CutsceneWindowBarsUp();
@@ -192,7 +192,7 @@ void HandExactReport();
 // hand_exact.cpp: the middle of the palm of the mod's hand in the world, with
 // the frame and the Hand state of the exact root that it comes from.
 bool HandExactPalm(float out[3], uint64_t* frame, int32_t* state);
-// controllers.cpp: the grab from a distance (docs/hand.md, "The grab from a
+// controllers.cpp: the grab from a distance (docs/grab.md, "The grab from a
 // distance"). The aim ray in the world, and whether the pointing hand may act
 // on a far object now.
 bool ControllersFarRay(float origin[3], float direction[3],
@@ -239,8 +239,7 @@ const uintptr_t kHandWorld = 0x00C5E680;
 // object's circle on the screen. The draw offers an object to
 // SendObjectDrawCollision only with 0x00EA1AD0 set (Game3DObject::
 // AddForDrawing, 0x0063B653). On the table a villager is 3 pixels across, so
-// the draw offered almost nothing (run th1: 45 objects in 450 frames, and
-// 7186 off the table).
+// the draw offers almost nothing.
 const uintptr_t kScreenTest = 0x00868C80;
 const uintptr_t kPickInView = 0x00EA1AF0;
 const uintptr_t kPickUnder = 0x00EA1AD0;
@@ -255,15 +254,16 @@ const uintptr_t kPickUnder = 0x00EA1AD0;
 const uintptr_t kInterfaceStep = 0x005D1120;
 const int kFaceNextLand = 0x3F0;  // MapCoords: x and z times 6553.6, then 0
 const int kFaceNextLandDistance = 0x3FC;  // a float: the land under the pointer
-// THE THROW FROM INSIDE THE INFLUENCE (docs/tabletop.md, 10.11). The release
-// action lets go only with GInterface+0x48 set (0x005D4E24). fn_005D1120 sets
-// +0x48 from the influence at +0x3F0 (0x005D1144 to 0x005D1164) and then runs
-// the step of the interface action +0x44, which for action 12 is the release
-// action (the table of steps at 0x00D17DA8, 0x30 bytes an action). Without
-// +0x48 the release action turns the throw spring off (0x005D5150), and
-// fn_005D18F0 refuses the drop, so the object stays in the Hand.
-// Influence::CalculatePlayerInfluence is cdecl (const MapCoords*, GPlayer*,
-// int, int, int) with the value in st0, and fn_005D1120 calls it with 0, 1,
+// THE THROW FROM INSIDE THE INFLUENCE (docs/tabletop.md, "The throw from inside
+// the influence"). The release action lets go only with GInterface+0x48 set
+// (0x005D4E24). fn_005D1120 sets +0x48 from the influence at +0x3F0 (0x005D1144
+// to 0x005D1164) and then runs the step of the interface action +0x44, which
+// for action 12 is the release action (the table of steps at 0x00D17DA8, 0x30
+// bytes an action). Without +0x48 the release action turns the throw spring off
+// (0x005D5150), and fn_005D18F0 refuses the drop, so the object stays in the
+// Hand. Influence::CalculatePlayerInfluence is cdecl (const MapCoords*,
+// GPlayer*, int, int, int) with the value in st0, and fn_005D1120 calls it with
+// 0, 1,
 // 1. Slot +0x1C of GInterface gives the GPlayer.
 const uintptr_t kPlayerInfluence = 0x005CD170;
 const int kFaceAction = 0x44;
@@ -272,7 +272,7 @@ const int kFaceGetPlayer = 0x1C;  // a vtable slot, thiscall, no arguments
 const int kIsSpellSeed = 0x4C4;   // a vtable slot of Object
 const int kIsAnyKindOfTree = 0x478;  // a vtable slot of Object
 
-// THE BULK TAKE (docs/hand.md, "The bulk take"). A press on a pile of food or
+// THE BULK TAKE (docs/grab.md, "The bulk take"). A press on a pile of food or
 // wood, a field or a fish farm starts the game's locked select. The start
 // packet runs FUN_005DA950: the object's NetworkFriendlyStartLockedSelect
 // (slot 0x6D0) puts a new Pot with the first amount in the Hand, and
@@ -289,7 +289,7 @@ const int kStatusTakeTurns = 0x40;    // the game turns of the take
 const int kIsLockedInInteract = 0x6A0;  // a vtable slot: 1 for a bulk source
 const int kValidForTake = 0x6CC;  // ValidForLockedSelectProcess(status), ret 4
 const int kPotAmount = 0x70;      // Pot: the amount, an unsigned int
-// THE TAKE ENDS WHEN THE BUTTON GOES UP (docs/hand.md, "The bulk take"). The
+// THE TAKE ENDS WHEN THE BUTTON GOES UP (docs/grab.md, "The bulk take"). The
 // step of the take, FUN_005D4830 (action 4 in the table at 0x00D17DA8), acts
 // on the release bit of GInterface+0x39. It reads the object of the NEXT PICK
 // RECORD (+0x400, at 0x005D483A), not the source of the take, and calls
@@ -313,7 +313,7 @@ const uintptr_t kResetActionState = 0x005D29C0;
 const int32_t kTakeAction = 4;
 const int32_t kTakeWaitAction = 5;
 const int32_t kTakeEndAction = 6;
-// A GAME TURN NOW (docs/hand.md, "The release at once").
+// A GAME TURN NOW (docs/throw.md, "The release at once").
 // GGame::LocalTimerSaysDoATurn, thiscall on GGame with no arguments and a
 // plain ret. It gives 1 when the game time is at or past 100 ms times the
 // turn count (GGame+0x205A40), and 0 in a single player game that is paused
@@ -346,7 +346,7 @@ typedef float(__cdecl* PlayerInfluenceFn)(const int32_t* coords, void* player,
                                           int a, int b, int c);
 typedef void*(__fastcall* GetPlayerFn)(void* self, void* unused);
 
-// THE CREATURE BY TOUCH. See docs/hand.md, "The Creature by touch".
+// THE CREATURE BY TOUCH. See docs/creature.md, "The Creature by touch".
 //
 // CHand::OperateInteractionCamera, thiscall (int hand mode), ret 4. Its one
 // caller is CHand::GetRequiredState (0x0046CEA0), for an empty Hand.
@@ -411,7 +411,8 @@ const int32_t kStateCreature = 7;
 const int32_t kStateGrain = 8;     // a miracle (a SpellSeed) is in the Hand
 const int32_t kModeCreature = 0x13;  // the interface hand mode of state 7
 
-// HandStateCreature fields, from the state object. See docs/hand.md, section 4.
+// HandStateCreature fields, from the state object. See docs/creature.md, "How
+// the plain game does it".
 const int kStateHand = 4;        // the CHand
 const int kStateTotal = 0xD8;    // the stroke and slap total, -1 to 1
 const int kStateTime = 0xDC;     // ms in the state, int. A slap needs 1000
@@ -430,7 +431,7 @@ const int kGamePlayers = 0x18;
 const int kGamePlayerSize = 0xA60;
 const int kGameLocalPlayer = 0x205A59;
 
-// GInterface fields. See docs/hand.md, section 2.
+// GInterface fields. See docs/hand.md, "The records in GInterface".
 const int kFaceLocked = 0x38;       // a byte: no pick while it is set
 const int kFaceHand = 0x3A0;        // the CHand
 const int kFaceStatus = 0x39C;      // the local GInterfaceStatus
@@ -453,7 +454,7 @@ const int kIsInteractable = 0x190;
 const int kIsCannotBePickedUp = 0x180;
 const int kValidForPlaceInHand = 0x6FC;
 const int kGet2DRadius = 0x64;
-// THE PICK AT THE GLOW (docs/hand.md, "One point for each interaction").
+// THE PICK AT THE GLOW (docs/grab.md, "One point for each interaction").
 // Object::GetHeight 0x00638120 (slot 0x42C, a float): the mesh's height times
 // the object's scale. Object::GetBoundingSphere 0x00637730 puts the middle of
 // an object half of it over the object's point, so the point is the base. [V]
@@ -484,7 +485,7 @@ const int kIsCreature = 0x34;
 // (slot 0x744). The left press fn_005D1AB0 grabs the land and taps nothing.
 // So the grip activates a scroll, and the trigger does not. [V]
 const int kInterfaceValidToTap = 0x740;
-// THE LEASH (docs/hand.md, "The leash at the mod's hand").
+// THE LEASH (docs/grab.md, "The leash at the mod's hand").
 // GInterface::GetLeashStartPoint, thiscall (LHPoint* out, bool), ret 8.
 // GInterface::UpdateAllLeashes 0x005D9130 calls it with 0 once a frame, from
 // GInterface::PostDrawProcess (0x005CEAB3), and gives the point to the rope
@@ -496,16 +497,16 @@ const uintptr_t kGetLeashStartPoint = 0x005D8EA0;
 const int kStatusLeash = 0x12C;  // GInterfaceStatus: the GLeashStatus
 const int kLeashOn = 0x14;       // GLeashStatus: 1 while the leash is on
 const int kLeashObject = 0x24;   // GLeashStatus: the object it is tied to
-// THE GAME'S SEARCH AT THE PALM (docs/hand.md, "The search at the palm").
-// fn_005D39E0, thiscall on GInterface (const MapCoords*), ret 4. The right
-// press FUN_005D1330 calls it when the next pick record holds no object
+// THE GAME'S SEARCH AT THE PALM (docs/grab.md, "Why the game's own paths must
+// not act"). fn_005D39E0, thiscall on GInterface (const MapCoords*), ret 4. The
+// right press FUN_005D1330 calls it when the next pick record holds no object
 // (0x005D13A1 and 0x005D14A6). GLandscape::Draw casts a ray from the camera
 // through the middle of the bones of the Hand's mesh (0x005E4848), and keeps
 // the land point that it meets in 0x00D1A3A0 (x) and 0x00D1A3A8 (z), with the
 // flag 0x00D2017C. The search takes the nearest Object within 5 units of that
-// land point (0x005D3C41). When that object is not farther from the point
-// than the land point of the record (+0x3F0) is (0x005D3CD0), the search puts
-// the object in the record (0x005D3CE9), and the press acts on it. [V]
+// land point (0x005D3C41). When that object is not farther from the point than
+// the land point of the record (+0x3F0) is (0x005D3CD0), the search puts the
+// object in the record (0x005D3CE9), and the press acts on it. [V]
 //
 // With the mouse the land point of the record is the land under the finger,
 // a few units from the land under the palm, so the search finds only an
@@ -522,7 +523,7 @@ const uintptr_t kPalmLandZ = 0x00D1A3A8;
 // GameThingWithPos::IsScriptHighlight (slot 0x48C): 1 for a scroll and for a
 // sign.
 const int kIsScriptHighlight = 0x48C;
-// THE SCROLL FROM ITS DRAW (docs/hand.md, "The scroll from its draw").
+// THE SCROLL FROM ITS DRAW (docs/village.md, "How the game draws a scroll").
 // ScriptHighlight::Draw 0x00709C60, thiscall, no arguments, plain ret. [V]
 //  - It does nothing when +0x5C is not 0, when the scroll has no mesh
 //    (+0x40), and for a scroll that is not silver while the flag at
@@ -711,7 +712,7 @@ uint64_t g_kept_offers = 0;
 bool g_table_hand = false;
 uint64_t g_land_writes = 0;
 
-// THE GRAB FROM A DISTANCE (docs/hand.md, "The grab from a distance"). The aim
+// THE GRAB FROM A DISTANCE (docs/grab.md, "The grab from a distance"). The aim
 // ray, latched once a frame by HandDirectFrame, and what the selection of the
 // first eye pass needs.
 const int kMustBeInInfluence = 0x714;  // a vtable slot of Object: 1 when the
@@ -820,12 +821,12 @@ int g_logged_acts = -1;
 // The first word of the choice at the draw that offered it (ChoiceLives).
 void* g_choice_table = nullptr;
 
-// THE PICK AT THE GLOW (docs/hand.md, "One point for each interaction").
+// THE PICK AT THE GLOW (docs/grab.md, "One point for each interaction").
 // The keys, in centimeters of the room. The A/B key (test_keys=1, the point
 // key of the number pad) changes the rule while the game runs.
 //
-// near_rule: 0 is the pick of the first builds. 1 is the pick of build
-// 3918f87: the nearest body within hand_pick_cm, and for an object that is
+// near_rule: 0 is the old pick (a reach of 60 percent of the Hand's length).
+// 1 is the nearest body within hand_pick_cm, and for an object that is
 // not near, the game's own pick at the pixel of the Hand's point. 2 is one
 // target: the pick record holds the mod's choice and nothing else, a body
 // that the point touches wins, a scroll in the reach wins, and the game's
@@ -837,7 +838,7 @@ bool g_one_target = true;   // near_rule is 2
 int g_touch_cm = near_math::kTouchCm;  // hand_touch_cm
 bool g_palm_search = false;  // palm_search: 1 leaves the game's search on
 // hand_glow_idle: 1 draws the glow also with no target and while the Hand
-// holds an object, as the builds before. The A/B key (test_keys=1) is the 7
+// holds an object. The A/B key (test_keys=1) is the 7
 // key of the number pad.
 bool g_glow_idle = false;
 bool g_glow_key_down = false;
@@ -902,7 +903,8 @@ const double kThrowWindow = 0.080;     // seconds of history for a throw
 const double kCreatureWindow = 0.050;  // and for a stroke or a slap
 const double kStaleSeconds = 0.25;     // an older newest sample is no motion
 // The game sets a thrown object down when its horizontal speed is this or
-// less, in units per second (InitialisePhysicsFromHand, docs/hand.md, 3).
+// less, in units per second (InitialisePhysicsFromHand, docs/hand.md, "Release
+// and throw").
 const float kDropSpeed = 2.0f;
 controller_math::MotionSample g_reach_history[kMaxHistory];
 controller_math::MotionSample g_grip_history[kMaxHistory];
@@ -921,7 +923,7 @@ int g_throw_logs = 0;
 const int kMaxThrowLogs = 60;
 uint64_t g_throws = 0;
 
-// THE THROW OF THE OPENING (docs/hand.md, "The grip holds"). The grip lets go
+// THE THROW OF THE OPENING (docs/grab.md, "The grip holds"). The grip lets go
 // with a click that the game reads some frames later. So controllers.cpp
 // latches the hand's motion at the moment the grip opens, over the
 // kThrowWindow before it, and the release of the next kLatchSeconds uses it.
@@ -941,7 +943,8 @@ uint64_t g_latched_throws = 0;
 // THE HAND'S PATH over the land, one point a frame while the controller
 // places the Hand, oldest first. A throw on the table or in the God view that
 // ends outside the player's influence goes from the newest point of the last
-// kThrowFromWindow seconds that is inside it (docs/tabletop.md, 10.11).
+// kThrowFromWindow seconds that is inside it (docs/tabletop.md, "The throw from
+// inside the influence").
 const double kThrowFromWindow = 0.5;
 double g_path_time[kMaxHistory];
 float g_path_x[kMaxHistory];
@@ -991,16 +994,16 @@ uint64_t g_touch_kept = 0;       // frames the pick kept the Creature
 uint64_t g_touch_waits = 0;      // states that started with no wait
 int g_touch_logs = 0;
 const int kMaxTouchLogs = 60;
-// THE OPEN HAND ON THE CREATURE (docs/hand.md). The hand of the stroke, the
-// wave of the tickle, and the two speeds of the hand in the last Update.
+// THE OPEN HAND ON THE CREATURE (docs/creature.md, "The open hand"). The hand
+// of the stroke, the wave of the tickle, and the two speeds of the hand in the
+// last Update.
 int g_stroke_mode = 0;            // creature_stroke_hand: 0 by the size of the
                                   // Creature, 1 the flat hand, 2 the finger,
-                                  // 3 the stroke of build 3918f87
-// THE STROKE OF BUILD 3918f87 (creature_stroke_hand=3), the way back if the
-// open hand is wrong in the headset: a fist while the grip is closed and the
-// flat hand while it is open, the contact at the Hand's point, no tickle,
-// the speed of the grip only, and a slap at 1.5 m/s when the ini has no
-// creature_slap_mps.
+                                  // 3 the old stroke
+// THE OLD STROKE (creature_stroke_hand=3), an A/B for the open hand: a fist
+// while the grip is closed and the flat hand while it is open, the contact at
+// the Hand's point, no tickle, the speed of the grip only, and a slap at 1.5
+// m/s when the ini has no creature_slap_mps.
 const int kStrokeBefore = 3;
 const float kSlapBeforeMps = 1.5f;
 bool g_slap_ini_set = false;      // the ini has the key creature_slap_mps
@@ -1009,8 +1012,7 @@ bool g_stroke_was_finger = true;
 // THE LIMITS OF THE HAND OF A STROKE, as parts of the hand's length
 // (near_math::StrokeLimits): creature_finger_below_pct and
 // creature_flat_above_pct. Ctrl and the 3 key of the number pad change
-// between the limits of the ini and the limits of the builds before (80 and
-// 120).
+// between the limits of the ini and the fixed limits (80 and 120).
 int g_stroke_finger_pct = near_math::kStrokeFingerBelowPct;
 int g_stroke_flat_pct = near_math::kStrokeFlatAbovePct;
 bool g_stroke_limits_before = false;
@@ -1038,11 +1040,10 @@ void ScriptPlayerInstall();
 //
 // THE PALM MUST NOT FOLLOW THE POINT. The palm comes from the mod's hand
 // (HandExactPalm), and the mod's hand stands on the point that
-// HandDirectExactFacts gives. In the first build that point was the target.
-// So with the target at the palm, the palm of the next frame was one offset
-// farther, and the point ran away 11.4 cm a frame: 60 units from the body of
-// the Creature after 27 frames (run hs1), with no touch and no stroke. Now
-// the mod's hand stands on the tip (g_tip), and the offset is from that tip.
+// HandDirectExactFacts gives. If that point were the target, the palm of the
+// next frame would be one offset farther, and the point would run away 11.4 cm
+// a frame, with no touch and no stroke. So the mod's hand stands on the tip
+// (g_tip), and the offset is from that tip.
 bool g_palm_point = true;
 bool g_palm_key_down = false;
 float g_palm_offset[3] = {0.0f, 0.0f, 0.0f};
@@ -1138,8 +1139,7 @@ int32_t g_take_turns = 0;
 int g_take_logs = 0;
 const int kMaxTakeLogs = 400;
 // The amount goes to the log on each of the first turns, then on each tenth
-// turn. A take of 111 turns filled the log of 2026-10-03, and the take after
-// it left no line.
+// turn. A log line for each turn of a long take would fill the log.
 const int32_t kTakeEachTurn = 5;
 uint64_t g_takes = 0;
 uint64_t g_take_frames = 0;
@@ -1202,7 +1202,7 @@ int32_t State(const uint8_t* hand) {
 // The states that the controller places the Hand in: Normal, Holding, and
 // with miracle_hand=1 the Grain state of a miracle in the Hand. The Grain
 // state runs the update of the Holding state (0x005B3361), so the same hooks
-// place it (docs/hand.md, "A miracle in the Hand").
+// place it (docs/miracles.md, "A miracle in the Hand in the plain game").
 bool DirectState(const uint8_t* hand) {
   const int32_t state = State(hand);
   return state == kStateNormal || state == kStateHolding ||
@@ -1455,11 +1455,11 @@ void LogTake(const uint8_t* face, const uint8_t* hand) {
 // THE POINT TOUCHES THE LAND. A controller pushed into the ground stops on
 // it: the target goes straight up to kLandClearanceM of the room over the
 // land, at the scale now. The game keeps its own Hand half its length over
-// the land, and the first build did the same. That held the point 9.5 cm of
-// the room over the land at every scale (5 cm on the table), so in the God
-// view the point could not reach the land or a villager on it. Once a frame,
+// the land. That would hold the point 9.5 cm of the room over the land at
+// every scale (5 cm on the table), so in the God view the point could not
+// reach the land or a villager on it. Once a frame,
 // from inside a Hand state, where the game itself asks the land for its
-// height. See docs/hand.md, "The point touches the land".
+// height. See docs/hand.md, "The touch of the land".
 const float kLandClearanceM = 0.005f;
 float g_land_y = 0.0f;  // the land under the point, for the test log
 void ResolveLand() {
@@ -1614,14 +1614,14 @@ bool HandVelocity(double window, float v_room[3], float v_grip[3],
   return true;
 }
 
-// THE SPEED OF THE HAND'S POINT (docs/hand.md, "The open hand on the
-// Creature"). The history above has the grip and the reach point, and on the
-// table and in the God view the reach point is the grip. The Hand's point is
-// the index tip, 17 cm from the wrist, and a turn of the wrist moves it
-// faster than the grip. So the Hand's point has its own history, in the
-// world, one sample a frame while the controller places the Hand. The speed
-// is in meters of the room a second, at the scale now. A move of the view
-// (a teleport, a zoom) in the window gives a false speed for 50 ms.
+// THE SPEED OF THE HAND'S POINT (docs/creature.md, "The open hand"). The
+// history above has the grip and the reach point, and on the table and in the
+// God view the reach point is the grip. The Hand's point is the index tip, 17
+// cm from the wrist, and a turn of the wrist moves it faster than the grip. So
+// the Hand's point has its own history, in the world, one sample a frame while
+// the controller places the Hand. The speed is in meters of the room a second,
+// at the scale now. A move of the view (a teleport, a zoom) in the window gives
+// a false speed for 50 ms.
 controller_math::MotionSample g_tip_history[kMaxHistory];
 int g_tip_count = 0;
 
@@ -1758,14 +1758,14 @@ void PrepareThrow() {
   const uint64_t latch_frames = latched ? g_frame - g_latch.frame : 0;
   g_latch.valid = false;
   const float hand_speed = moving ? controller_math::Length(v_room) : 0.0f;
-  // ON THE TABLE (docs/tabletop.md, 10.6) the speed of the real hand is
-  // turned into units at the table scale, and the game's cap still holds. A
-  // hand that the life size scale would set down sets the object down.
+  // ON THE TABLE (docs/tabletop.md, "The hand on the table") the speed of the
+  // real hand is turned into units at the table scale, and the game's cap still
+  // holds. A hand that the life size scale would set down sets the object down.
   const float table = TabletopViewScale();
   const float life = HeadPoseScale();
   bool drop = false;
   g_throw_expected = 0.0f;
-  // THE REAL FLIGHT (throw_law=2, docs/hand.md, "The throw physics"). The
+  // THE REAL FLIGHT (throw_law=2, docs/throw.md, "The throw physics"). The
   // speed is the top speed of the swing, and throw_physics.cpp flies the
   // object in the room as a real object flies. It logs the release too.
   bool real_flight = false;
@@ -1797,9 +1797,9 @@ void PrepareThrow() {
     // The plan of the real flight gave the velocity.
   } else if (moving && table > 0.0f && life > 0.0f) {
     if (FarGrabThrowLaw()) {
-      // THE SQUARE ROOT LAW (docs/hand.md, "The grab from a distance"): the
-      // speed sent is sqrt(s) times the real speed in m/s, so the object
-      // lands where the real throw lands, times s.
+      // THE SQUARE ROOT LAW (docs/throw.md, "Why the square root law is not
+      // enough"): the speed sent is sqrt(s) times the real speed in m/s, so the
+      // object lands where the real throw lands, times s.
       controller_math::SqrtThrowVelocity(v_room, v_grip, g_room, gain, life,
                                          table, cap, kDropSpeed, sent, &before,
                                          &drop);
@@ -1919,16 +1919,16 @@ bool ThrowReleaseNow(uint8_t* face) {
   return g_throw_flies;
 }
 
-// THE THROW FROM INSIDE THE INFLUENCE (docs/tabletop.md, 10.11). The game
-// lets go of an object only when the land point of the release is inside the
-// player's influence. At a large scale a swing carries the Hand far over the
-// land: a step of 2 cm is 39.5 units at 1973 units per meter, and 3 mm at the
-// life size scale. So a throw that ends outside the influence goes from the
-// newest point of the Hand's path in the last half second that is inside it.
-// The object still flies from the Hand, because the throw takes its start and
-// its velocity from packet 0x4D, not from this point. A set down, a miracle,
-// and a throw whose whole swing was outside keep the game's rule. Changes x
-// and z, once a frame.
+// THE THROW FROM INSIDE THE INFLUENCE (docs/tabletop.md, "The throw from inside
+// the influence"). The game lets go of an object only when the land point of
+// the release is inside the player's influence. At a large scale a swing
+// carries the Hand far over the land: a step of 2 cm is 39.5 units at 1973
+// units per meter, and 3 mm at the life size scale. So a throw that ends
+// outside the influence goes from the newest point of the Hand's path in the
+// last half second that is inside it. The object still flies from the Hand,
+// because the throw takes its start and its velocity from packet 0x4D, not from
+// this point. A set down, a miracle, and a throw whose whole swing was outside
+// keep the game's rule. Changes x and z, once a frame.
 void ThrowFrom(uint8_t* face, float* x, float* z) {
   if (g_from_frame == g_frame) {
     *x = g_from_x;
@@ -1999,7 +1999,7 @@ void __fastcall h_ReleaseAction(void* self, void* unused) {
   }
 }
 
-// THE CREATURE BY TOUCH (docs/hand.md, "The Creature by touch").
+// THE CREATURE BY TOUCH (docs/creature.md, "The Creature by touch").
 
 // The Get2DRadius of an object, or 0 when it gives no sane value.
 float Radius2D(void* object) {
@@ -2048,11 +2048,11 @@ bool BodyBone(uint8_t* model, float out[3]) {
   return BodyBoneRaw(model, out);
 }
 
-// WHERE THE BODY OF A CREATURE IS, AT EACH TIME (docs/hand.md, "The body of
+// WHERE THE BODY OF A CREATURE IS, AT EACH TIME (docs/creature.md, "The body of
 // the Creature before a press"). The answer is 1 for the body bone, 2 for the
 // place of the Creature on the map (the bone is not sane, near_math::
 // BoneSane), and 0 for no place. With creature_bone=0 the bone counts only
-// while the Creature is ready for the Hand, as in the builds before.
+// while the Creature is ready for the Hand.
 int BodyPlace(void* object, float out[3]) {
   uint8_t* model = CreatureModel(object);
   if (model == nullptr) return 0;
@@ -2181,7 +2181,7 @@ void TouchFrame(uint8_t* state, uint8_t* hand, float dt) {
     g_touch_body.radius = radius + ControllersCreatureTouchCm() * 0.01f * room;
     g_touch_valid = land == land;
   }
-  // THE HAND OF THE STROKE (docs/hand.md, "The open hand on the Creature").
+  // THE HAND OF THE STROKE (docs/creature.md, "The open hand").
   // The flat hand for a Creature that is large against the hand, and the
   // index finger for a small one. The contact is at the palm of the flat hand
   // and at the tip of the finger.
@@ -2288,10 +2288,9 @@ void TouchFrame(uint8_t* state, uint8_t* hand, float dt) {
                       v_world[2] * g_touch_across[2];
   const float sign = along < 0.0f ? -1.0f : 1.0f;
   g_touch_step_x = along < 0.0f ? -1 : 1;
-  // THE SPEED IS THE SPEED OF THE PART THAT HITS. The build before read the
-  // speed of the grip. A slap with the wrist, as a backhand is, keeps the
-  // grip almost still and moves the finger tips, so it did not count. The
-  // speed is now the larger of the grip's and the tip's.
+  // THE SPEED IS THE SPEED OF THE PART THAT HITS. A slap with the wrist, as a
+  // backhand is, keeps the grip almost still and moves the finger tips. So the
+  // speed is the larger of the grip's and the tip's.
   g_creature_grip = moving ? real : 0.0f;
   g_creature_tip = moving ? TipSpeedMps() : 0.0f;
   for (int i = 0; i < 3; ++i) g_creature_way[i] = moving ? v_room[i] : 0.0f;
@@ -2433,7 +2432,7 @@ void __fastcall h_CreatureUpdate(void* self, void* unused, float dt,
          first ? "the first" : "a later", g_frame);
 }
 
-// For overlay.cpp (docs/hand.md, "The open hand on the Creature"): the hand
+// For overlay.cpp (docs/creature.md, "The open hand"): the hand
 // of a stroke. 0 while the Hand is not in the Creature state. 1 for the flat
 // hand, 2 for the index finger and 3 for the hand of build 3918f87
 // (creature_stroke_hand=3). curl gets what the tickle adds to the curl
@@ -2447,7 +2446,7 @@ int StrokeHand(float curl[5]) {
   if (State(g_hand) != kStateCreature || g_stroke_frame + 2 < g_frame) {
     // THE WAIT BEFORE THE STATE. The game starts the Creature state only
     // when the Creature has ended its body action, 0.5 to 2.5 s after the
-    // press (docs/hand.md, "The body of the Creature before a press"). The
+    // press (docs/creature.md, "The body of the Creature before a press"). The
     // grip is closed for that time, so the hand was a fist. A press that is
     // past the time of a leash click is a stroke, so the hand opens then:
     // the hand that the stroke starts with, by the size of the Creature.
@@ -2519,7 +2518,7 @@ const void* LocalPlayer() {
   return game + kGamePlayers + kGamePlayerSize * game[kGameLocalPlayer];
 }
 
-// THE LEASH CLICK (docs/hand.md, "The leash from a distance"). What a click
+// THE LEASH CLICK (docs/creature.md, "The leash from a distance"). What a click
 // on this Creature does to the leash now, as a near_math::LeashKind. The
 // handler of packet 0x5F, fn_005D06E0, takes the Creature of the player
 // (GPlayer+0xA4C). It does nothing when the Creature does not live (slot
@@ -2716,8 +2715,9 @@ const char* TapWords(void* object, void* status) {
 
 // THE STATE OF A SCROLL IN PLAIN WORDS, the same in each line of the log. A
 // scroll of a challenge is not active until its first click: a script of the
-// game waits for the click and then makes it active (docs/hand.md, "The click
-// on a scroll"). silver: the type that taps with no active flag.
+// game waits for the click and then makes it active (docs/village.md, "A scroll
+// is not active until the first click"). silver: the type that taps with no
+// active flag.
 void ScrollWords(void* object, void* status, bool active, int script,
                  bool silver, bool click_on, char* out, size_t size) {
   const bool taps = Tappable(object, status);
@@ -2746,18 +2746,19 @@ bool IsCreatureObject(void* object) {
 // picks it up, the game takes from it, the game taps it, or nothing. The
 // Creature has its own kind: the game's pick and the touch of its body stay
 // as they are (KeepCreature, h_MeshRay), and it only turns the far grab off.
-// With the rule off (the A/B key) only the objects of the build before count.
+// With the rule off (the A/B key) only the objects of the old rule count.
 // With one target the Creature is a choice as each other object is, so its
 // own kind comes first: the game says that the Creature is a bulk source
 // (Creature::ValidForLockedSelectProcess), which is how its touch starts.
 //
-// A SCROLL THAT IS NOT ACTIVE YET (docs/hand.md, "The click on a scroll"). The
-// game does not tap such a scroll, but it counts a click on it: a short press
-// with the scroll in the pick record calls fn_005D3930, which records the
-// clicked object for the scripts before each test of a tap. The script of the
-// challenge waits for that click (GAME_THING_CLICKED) and makes the scroll
-// active after it. So a scroll that the game draws is a target of the grip
-// also while a press does not tap it (ClickScroll).
+// A SCROLL THAT IS NOT ACTIVE YET (docs/village.md, "A scroll is not active
+// until the first click"). The game does not tap such a scroll, but it counts a
+// click on it: a short press with the scroll in the pick record calls
+// fn_005D3930, which records the clicked object for the scripts before each
+// test of a tap. The script of the challenge waits for that click
+// (GAME_THING_CLICKED) and makes the scroll active after it. So a scroll that
+// the game draws is a target of the grip also while a press does not tap it
+// (ClickScroll).
 bool IsScrollObject(void* object);
 bool ClickScroll(void* object) {
   bool drawn = false;
@@ -2799,8 +2800,8 @@ float FarMinMeters() {
 }
 
 // The reach of the pick from the Hand's point, in world units: hand_pick_cm
-// of the room. With the rule off it is 60 percent of the Hand's length, as in
-// the build before (11.4 cm of the room for a hand of 19 cm).
+// of the room. With the rule off it is 60 percent of the Hand's length (11.4
+// cm of the room for a hand of 19 cm).
 float PickReach() {
   if (!g_near_rule) return kGrabShare * kHandLength * g_scale;
   return near_math::CmToUnits(static_cast<float>(g_pick_cm), RoomUnits());
@@ -2811,10 +2812,9 @@ int __fastcall h_SendObjectDrawCollision(void* self, void* unused,
                                          void* mesh) {
   // ON THE TABLE, while the empty Hand has a holdable object in its grab
   // radius, the game's pick keeps that object. Another object under the pick
-  // pixel is not offered to it. Run th3 showed why: on the table the pixel
-  // pick found a larger object behind the villager on some frames, and the
-  // hand mode went from 9 (pick up) to 0x12 (touch) and back each frame, so
-  // the grip did not pick up.
+  // pixel is not offered to it. On the table the pixel pick can find a larger
+  // object behind the villager, and then the hand mode goes from 9 (pick up)
+  // to 0x12 (touch) and back each frame, so the grip does not pick up.
   const bool keep = g_near_pick && g_choice != nullptr && self == g_face &&
                     object != g_choice && HandEmpty();
   const int result =
@@ -2905,12 +2905,11 @@ int __fastcall h_ScreenTest(const void* bounds, void* unused,
 
 bool Multiplayer();
 
-// A GAME TURN NOW (docs/hand.md, "The release at once"). The game runs its
+// A GAME TURN NOW (docs/throw.md, "The release at once"). The game runs its
 // packets once a game turn, 10 times a second. A release of the Hand is two
 // packets (0x4D and the drop), and the end of a take is one (0x1C). So after
 // the release action the object stayed in the Hand until the next turn, up to
-// 100 ms, and it went on with the real hand. In the log of 2026-10-03 the
-// object left the Hand 4 to 13 frames after the grip opened, 8 as a rule.
+// 100 ms, and it went on with the real hand.
 //
 // After an interface step that sends such packets, the next ask of the game
 // for a turn gets a yes (h_DoATurn). The game counts that turn as each turn,
@@ -2955,7 +2954,7 @@ bool StepSendsPackets(uint8_t* face) {
   return true;
 }
 
-// THE A/B KEY (docs/hand.md, "The release at once"). With test_keys=1, the
+// THE A/B KEY (docs/throw.md, "The release at once"). With test_keys=1, the
 // star key of the number pad turns the release at once off and on while the
 // game runs: the game turn after a release, and the fast opening of the grip
 // (HandDirectReleaseAtOnce). So the player can feel the old release and the
@@ -2984,13 +2983,13 @@ void PollReleaseKey() {
                      "opens only below 35%");
 }
 
-// THE A/B KEY of the pick at the glow (docs/hand.md, "One point for each
+// THE A/B KEY of the pick at the glow (docs/grab.md, "One point for each
 // interaction"). With test_keys=1, the point key of the number pad turns the
-// rule off and on while the game runs. Off is the build before: the pick
+// rule off and on while the game runs. Off is the old rule: the pick
 // reaches 60 percent of the Hand's length, an object that a press taps is no
-// choice, a near object does not turn the far grab off, and a scroll is no
-// far target. The pointing controller gives a long pulse for on and a short
-// pulse for off. The key is read only while a window of the game is in front.
+// choice, a near object does not turn the far grab off, and a scroll is no far
+// target. The pointing controller gives a long pulse for on and a short pulse
+// for off. The key is read only while a window of the game is in front.
 void SetRule(int rule) {
   g_rule = rule < 0 ? 0 : rule > 2 ? 2 : rule;
   g_near_rule = g_rule >= 1;
@@ -3009,7 +3008,7 @@ void PollNearKey() {
   if (!g_release_key) return;
   // The point key of the number pad: alone it changes the rule of the choice,
   // and with Ctrl it changes scroll_draw. A long pulse for the scroll from
-  // its draw and a short pulse for the scroll of the builds before.
+  // its draw and a short pulse for the old scroll.
   const bool ctrl = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
   const bool point_down = (GetAsyncKeyState(VK_DECIMAL) & 0x8000) != 0;
   const bool down = point_down && !ctrl;
@@ -3020,10 +3019,9 @@ void PollNearKey() {
   g_scroll_key_down = scroll_down;
   // THE A/B KEY OF THE GLOW: the 7 key of the number pad turns the glow with
   // no target on and off. A long pulse for the new look (no glow with no
-  // target) and a short pulse for the glow of the builds before.
+  // target) and a short pulse for the old glow.
   // With Ctrl the 7 key changes what a script of the game gets when it asks
-  // about the camera: the player (a long pulse), or the game's camera as in
-  // the builds before.
+  // about the camera: the player (a long pulse), or the game's camera.
   const bool seven_down = (GetAsyncKeyState(VK_NUMPAD7) & 0x8000) != 0;
   const bool glow_down = seven_down && !ctrl;
   const bool glow_pressed = glow_down && !g_glow_key_down;
@@ -3037,8 +3035,8 @@ void PollNearKey() {
   // finger). The pointing controller gives a pulse that is longer for each
   // next value.
   // With Ctrl the 9 key changes creature_palm_point: the point of the flat
-  // hand at the palm (a long pulse), or at the tip of the index finger as in
-  // the builds before (a short pulse).
+  // hand at the palm (a long pulse), or at the tip of the index finger
+  // (a short pulse).
   const bool nine_down = (GetAsyncKeyState(VK_NUMPAD9) & 0x8000) != 0;
   const bool slap_down = nine_down && !ctrl;
   const bool slap_pressed = slap_down && !g_slap_key_down;
@@ -3048,7 +3046,7 @@ void PollNearKey() {
   g_palm_key_down = palm_down;
   // The 3 key alone takes the next hand of a stroke. With Ctrl it changes the
   // limits of the hand by the size of the Creature: the limits of the ini,
-  // or the limits of the builds before (80 and 120 percent).
+  // or the fixed limits (80 and 120 percent).
   const bool three_down = (GetAsyncKeyState(VK_NUMPAD3) & 0x8000) != 0;
   const bool stroke_down = three_down && !ctrl;
   const bool stroke_pressed = stroke_down && !g_stroke_key_down;
@@ -3147,7 +3145,7 @@ void PollNearKey() {
                          "a target at the Hand's point");
   }
   if (!pressed) return;
-  // Between one target and the rule of the build before. With near_rule=0 or
+  // Between one target and the old rule. With near_rule=0 or
   // 1 in the ini, between that rule and one target.
   SetRule(g_rule == 2 ? (g_rule_ini < 2 ? g_rule_ini : 1) : 2);
   ControllersGesturePulse(0.5f, g_one_target ? 0.30f : 0.08f);
@@ -3375,7 +3373,7 @@ void __fastcall h_InterfaceStep(void* self, void* unused) {
 
 // THE BODY of an object for the pick: an upright cylinder from the object's
 // point, with the game's 2D radius and the game's height (near_math.h). With
-// the rule off the height is two radii, as in the build before.
+// the rule off the height is two radii.
 // AN OBJECT WITH NO MESH (temple.cpp: the door of the Temple and a leash
 // post). The game offers such an object to its own pick as a ball.
 // HandDirectOffer makes it a candidate, and its body is that ball about the
@@ -3463,7 +3461,7 @@ near_math::Gap GapTo(const Body& body, const float position[3], bool low) {
     height += 0.5f * body.height;
   }
   near_math::Gap gap = near_math::BodyGap(g_target, base, body.radius, height);
-  // With the rule off the kind breaks a tie, as in the build before.
+  // With the rule off the kind breaks a tie.
   if (!g_near_rule) gap.middle = 0.0f;
   return gap;
 }
@@ -3528,14 +3526,13 @@ bool IsScrollObject(void* object) {
              VTable(object)[kIsScriptHighlight / 4])(object, nullptr) != 0;
 }
 
-// THE SCROLL FROM ITS DRAW (see kScrollDraw, and docs/hand.md, "The scroll
-// from its draw"). The body of a scroll is what its own draw made in this
+// THE SCROLL FROM ITS DRAW (see kScrollDraw, and docs/village.md, "How the game
+// draws a scroll"). The body of a scroll is what its own draw made in this
 // frame: after the draw of the first eye pass, the mesh holds the matrix that
 // the draw used, and the ball of the box through that matrix is the scroll in
-// the picture. Each scroll that the game drew is a candidate of the choice.
-// The game's pick does not have to offer it: that depends on the pick pixel,
-// on the lock of the pick and on the distance of the mesh point from the
-// Hand, and a log of 2026-10-04 has 40 presses at a scroll with no candidate.
+// the picture. Each scroll that the game drew is a candidate of the choice. The
+// game's pick does not have to offer it: that depends on the pick pixel, on the
+// lock of the pick and on the distance of the mesh point from the Hand.
 typedef void(__fastcall* ScrollDrawFn)(void* self, void* unused);
 typedef const uint8_t*(__fastcall* GameCameraFn)(void* game, void* unused);
 ScrollDrawFn o_ScrollDraw = nullptr;
@@ -3727,7 +3724,7 @@ bool IsTreeObject(void* object) {
 // land up to 1.1 S, with the 2D radius. The touch of the body in the Creature
 // state (TouchFrame) has the same capsule and creature_touch_cm of the room
 // more. The choice does not add that. With it the capsule of a small Creature
-// had a radius of 6 cm at 100 units per meter (run hkE), and by the rule of
+// can have a radius of 6 cm at 100 units per meter, and by the rule of
 // the choice such a Creature takes the press from a tree that the Hand's
 // point is in. False when the mod does not know where the body is
 // (BodyPlace).
@@ -3795,7 +3792,7 @@ void Measure(const Candidate& c, int kind, Measured* out) {
     out->target.gap = near_math::BallGap(g_target, ball, ball_radius);
   } else if (kind == near_math::kTap) {
     // A house, and each other object that a press taps: the two cylinders of
-    // the build before. The nearer one counts.
+    // the old rule. The nearer one counts.
     out->target.gap = GapTo(body, c.position, true);
     out->center[1] = c.position[1] + 0.25f * body.height;
     out->half = 0.75f * body.height;
@@ -3854,21 +3851,20 @@ const char* KindName(int kind) {
 
 // After the first eye pass: the object of a press at the Hand's point.
 //
-// ONE POINT (docs/hand.md, "One point for each interaction"). Each candidate
+// ONE POINT (docs/grab.md, "One point for each interaction"). Each candidate
 // that a press of the grip acts on is measured from the Hand's point, where
 // the glow is: an object that the Hand can hold, a bulk source, and an object
 // that the game taps (a scroll, a house). The nearest body inside the reach of
 // the pick is the choice (near_math::Beats). The reach is hand_pick_cm of the
-// room. It was 60 percent of the Hand's length, 11.4 cm, and the log of
-// 2026-10-03 has trees that were taken 11.38 cm from the point. To the player
-// that was a pick at the palm, not at the glow.
+// room. A reach of 60 percent of the Hand's length, 11.4 cm, would be a pick at
+// the palm to the player, not at the glow.
 //
 // THE BULK TAKE. A pile of a store, a field or a fish farm cannot be held,
 // but the grip takes from it. The game starts the take from the object of the
 // next record (+0x400, FUN_005D1330 at 0x005D13BB). With only holdable
 // objects here, a villager near a store pile went in the record, and the
 // table hook kept the pile from the game's own pick, so the grip on a pile
-// did nothing (run bk4). So a bulk source counts too.
+// did nothing. So a bulk source counts too.
 //
 // A SCROLL. The game taps an object only through its own pick at the pointer
 // pixel. While a tree was the choice, the table hook kept the scroll from that
@@ -3907,7 +3903,7 @@ void Choose() {
   const float touch =
       near_math::CmToUnits(static_cast<float>(g_touch_cm), units);
   // A scroll has a longer reach (near_math::ScrollReach). With scroll_draw=0
-  // it has the reach of each object, as in the builds before.
+  // it has the reach of each object.
   const float scroll_reach =
       g_scroll_draw ? near_math::ScrollReach(
                           reach, near_math::CmToUnits(
@@ -4018,8 +4014,7 @@ void Choose() {
   // While a choice stands, the table hook keeps each other object from the
   // game's pick, the Creature too. A house beside the Creature must not do
   // that, so an object that a press taps is no choice while the Creature is
-  // as near as it. An object to hold or a bulk source stays the choice, as
-  // in the build before.
+  // as near as it. An object to hold or a bulk source stays the choice.
   if (g_choice != nullptr && best_kind == near_math::kTap &&
       creature_gap <= best.gap + eps) {
     g_choice = nullptr;
@@ -4040,7 +4035,7 @@ void Choose() {
   g_near_gap = nearest;
   // THE SCROLL NEAREST TO THE POINT, with what the game says of a press on
   // it. One line for each change while it is within 30 cm of the room, so a
-  // log of a headset session shows why a scroll was or was not the target.
+  // log shows why a scroll was or was not the target.
   g_scroll_near = -1;
   g_scroll_near_gap = 1e30f;
   for (int i = 0; i < g_scroll_count; ++i) {
@@ -4143,8 +4138,7 @@ void Choose() {
           ? *static_cast<void* const*>(g_choice)
           : nullptr;
   // ONE TARGET: each change of the target, and each change of "a press acts
-  // on it", with the body, so a log of a headset session shows what the halo
-  // was on at each press.
+  // on it", with the body, so a log shows what the halo was on at each press.
   const int acts = g_choice_acts ? 1 : 0;
   if (g_one_target && !g_choice_far &&
       (g_choice != g_logged_choice ||
@@ -4283,7 +4277,7 @@ bool FarVisible(const float at[3], float radius) {
   return true;
 }
 
-// A FOREST GIVES ONE NEW TREE (docs/hand.md, "A forest gives a tree"). A
+// A FOREST GIVES ONE NEW TREE (docs/grab.md, "A forest gives a tree"). A
 // press on a BigForest does not put the forest in the Hand. The forest is not
 // tuggable (slot 0x718 gives 0), so fn_005D1740 sets only the Tug flag
 // (CHand+0x4908) and GInterface+0x450. The step of the pick up action
@@ -4381,16 +4375,16 @@ void FarSelect() {
     // too: the grip takes from it at a distance. A scroll that a press taps
     // is one too: the grip activates it (the far touch). Else the object
     // must be holdable. A forest is holdable: the fetch gives a new tree.
-    // THE CREATURE IS A FAR TARGET OF ITS OWN KIND: THE LEASH (docs/hand.md,
-    // "The leash from a distance"). The game says that the Creature is a
-    // bulk source (Creature::ValidForLockedSelectProcess 0x00476E10 gives 1
-    // for a Creature with a player), because a press on it starts its touch
-    // with the locked select. So the aim took it as a pile: the halo and the
-    // hint said "collect", and a grip from a distance started the Creature
-    // state with the hand far from the body. A short grip changed the leash,
-    // and that part was useful. So the player's own Creature is a target
-    // again, only for the leash click: the closed grip sends packet 0x5F and
-    // no press (far_grab.cpp). A Creature of another player, and a Creature
+    // THE CREATURE IS A FAR TARGET OF ITS OWN KIND: THE LEASH
+    // (docs/creature.md, "The leash from a distance"). The game says that the
+    // Creature is a bulk source (Creature::ValidForLockedSelectProcess
+    // 0x00476E10 gives 1 for a Creature with a player), because a press on it
+    // starts its touch with the locked select. So the aim took it as a pile:
+    // the halo and the hint said "collect", and a grip from a distance started
+    // the Creature state with the hand far from the body. A short grip changed
+    // the leash, and that part was useful. So the player's own Creature is a
+    // target again, only for the leash click: the closed grip sends packet 0x5F
+    // and no press (far_grab.cpp). A Creature of another player, and a Creature
     // that the game would not leash now, is no target. far_leash=0 takes the
     // Creature out of the far targets.
     const bool creature = IsCreatureObject(c.object);
@@ -4561,10 +4555,9 @@ void Inject() {
       // in the pick up. The point of a scroll that floats can be behind that
       // land too, so an object that a press taps gets the same cut.
       //
-      // ONE TARGET: each choice gets the cut. In the log of 2026-10-03 the
-      // choice was a tree for 67 frames, and the game had it under the Hand
-      // for the last 15 of them. The tree stood on lower land than the land
-      // under the pointer, so its point was the farther one.
+      // ONE TARGET: each choice gets the cut. A tree can stand on lower land
+      // than the land under the pointer, and then its point is the farther
+      // one.
       distance = near_math::RecordDistance(
           distance,
           *reinterpret_cast<const float*>(g_face + kFaceNextLandDistance));
@@ -4702,8 +4695,8 @@ void* __fastcall h_PalmSearch(void* self, void* unused, const int32_t* land) {
 // ret): the game's handler of a press of the Action button, the grip. The
 // step of the idle interface calls it while bit 2 of GInterface+0x39 is set
 // (0x005D5207). Before it the record is made the choice, and the log gets one
-// line for each press: the target, or that there was none. So a log of a
-// headset session shows what each press acted on.
+// line for each press: the target, or that there was none. So a log shows
+// what each press acted on.
 typedef int(__fastcall* RightPressFn)(void* self, void* unused);
 const uintptr_t kRightPress = 0x005D1330;
 RightPressFn o_RightPress = nullptr;
@@ -4713,8 +4706,8 @@ uint64_t g_presses_none = 0;
 int g_press_logs = 0;
 const int kMaxPressLogs = 600;
 
-// THE CLICK OF THE GAME (docs/hand.md, "The click on a scroll"). fn_005D3930,
-// thiscall on GInterface (Object*), ret 4. [V]
+// THE CLICK OF THE GAME (docs/village.md, "A scroll is not active until the
+// first click"). fn_005D3930, thiscall on GInterface (Object*), ret 4. [V]
 //  - It records the object as the clicked object of the scripts
 //    (fn_005D36D0: GInterface+0x45C, with the game turn at +0x468). The
 //    script word GAME_THING_CLICKED (GScript::GameThingClicked 0x0070AEB0)
@@ -4884,7 +4877,7 @@ int __fastcall h_RightPress(void* self, void* unused) {
   return o_RightPress(self, unused);
 }
 
-// THE LEASH AT THE MOD'S HAND (docs/hand.md, "The leash at the mod's hand").
+// THE LEASH AT THE MOD'S HAND (docs/grab.md, "The leash at the mod's hand").
 // The game ends the rope of the leash at the wrist bone of its own Hand (see
 // kGetLeashStartPoint). The exact Hand puts that bone at the real wrist. But
 // the mesh of the game's Hand is hidden, and the player holds the rope in the
@@ -4964,7 +4957,7 @@ void __fastcall h_LeashStart(void* self, void* unused, float* out,
 // nothing: the Temple, and each object outside the influence that needs the
 // influence. So for 0x12 the object of the pick record and the influence at
 // the record's land point (GInterface+0x48) decide, as in fn_005D38A0. With
-// the rule off, 0x12 is a tap, as in the build before.
+// the rule off, 0x12 is a tap.
 //
 // A FAR TARGET HIDES THE GAME'S PICK. While the aim ray has a target that the
 // grip can take, a grip that closes goes to that target (FarGrabPumpGrip). So
@@ -5563,8 +5556,8 @@ void InstallNear() {
 
 }  // namespace
 
-// Hook the three functions. Only with the direct hand on, so with the M2
-// pointer or with controllers off the game runs exactly as before.
+// Hook the three functions. Only with the direct hand on. With controllers off
+// the game runs as the plain game does.
 void HandDirectInstall() {
   if (g_installed) return;
   const bool a = Hook(kSetDistanceFromView,
@@ -5605,9 +5598,9 @@ void HandDirectInstall() {
   }
 }
 
-// THE CREATURE WITHOUT CAMERA MOVES (docs/hand.md, "The Creature by touch").
-// mode is creature_camera. With 1 the game moves its camera as before, and
-// nothing is hooked. With 0 and 2 the hook goes in with or without the
+// THE CREATURE WITHOUT CAMERA MOVES (docs/creature.md, "The Creature by
+// touch"). mode is creature_camera. With 1 the game moves its camera,
+// and nothing is hooked. With 0 and 2 the hook goes in with or without the
 // controllers, because a mouse in the God view needs it too.
 void HandDirectInstallCreatureCamera(int mode) {
   static bool installed = false;
@@ -5678,10 +5671,9 @@ void HandDirectInstallTable() {
   Hook(kInterfaceStep, reinterpret_cast<void*>(&h_InterfaceStep),
        reinterpret_cast<void**>(&o_InterfaceStep),
        "the interface step (the land under the Hand on the table)");
-  // THE BULK TAKE: the test key bulk_test_no_keep=1 gives the take of the
-  // build of 2026-10-03, where the game's release step read a record that the
-  // mod did not fill. For the desktop run that shows the fault. Never for
-  // play.
+  // THE BULK TAKE: the test key bulk_test_no_keep=1 gives a take where the
+  // game's release step reads a record that the mod did not fill. For the
+  // desktop run that shows the fault. Never for play.
   g_take_no_keep = TestKey("bulk_test_no_keep") != 0;
   if (g_take_no_keep) {
     ModLog("hand bulk    : test key bulk_test_no_keep=1, so the source of a "
@@ -5711,7 +5703,8 @@ void HandDirectInstallTable() {
 
 namespace {
 
-// THE PLAYER THAT A SCRIPT SEES (docs/god-view.md, section 16).
+// THE PLAYER THAT A SCRIPT SEES (docs/god-view.md, "The player that a script
+// sees").
 //
 // A script of the game asks about the camera to learn what the player does:
 // "is the camera less than 100 units from the scroll", "is the guide in the
@@ -5746,7 +5739,7 @@ namespace {
 //   the engine camera, the nearest point of the player goes in its place:
 //   the head, the Hand's point or the grip of a controller
 //   (near_math::PlayerDistance). A script that keeps the camera position to
-//   put the camera back after a cut scene gets the game's camera, as before.
+//   put the camera back after a cut scene gets the game's camera.
 // - script_view: the two field of view words give the view of the head
 //   (near_math::HeadSees) for the place of the thing, as the game's own word
 //   GetPosition 0x006F88A0 gives it. GameThingCanViewCamera runs with the
@@ -5911,7 +5904,7 @@ void __cdecl h_ScriptPosView() {
     v[i] = pop(machine, nullptr, &t[i]);
   }
   for (int i = 2; i >= 0; --i) push(machine, nullptr, v[i], t[i]);
-  // The game's word runs as before, and the answer of the head goes in the
+  // The game's word runs, and the answer of the head goes in the
   // place of its answer.
   o_ScriptPosView();
   int type = 0;
@@ -6070,8 +6063,8 @@ void HandDirectFrame() {
   g_scroll_count = 0;
   ++g_round;
   g_near_pick = false;
-  // On the table (docs/tabletop.md, 10.6), the Hand has a fixed length in
-  // the room, and the draw offers the whole island.
+  // On the table (docs/tabletop.md, "The hand on the table"), the Hand has a
+  // fixed length in the room, and the draw offers the whole island.
   const float table_size = TabletopHandSize();
   g_candidate_limit = table_size > 0.0f ? kMaxCandidates : kLifeCandidates;
   g_table_hand = g_table_hooked && table_size > 0.0f;
@@ -6208,9 +6201,8 @@ void HandDirectFrame() {
   g_real_distance = real;
   FarFrameStep(true);
   // The Hand is the size of the real hand at the world scale, and it never
-  // grows with the distance. A Hand that grew with the reach was the size
-  // of a couch in the first headset test. On the table the size gives
-  // table_hand_cm in the room at the table scale.
+  // grows with the distance, or it would be the size of a couch. On the table
+  // the size gives table_hand_cm in the room at the table scale.
   g_scale = table_size > 0.0f ? table_size : RealHandSize();
   // The pick on the table: the objects within twice the grab radius, and 5
   // units more, go to the pick. The word "seek" widens that to 50 cm of the
@@ -6279,7 +6271,7 @@ void HandDirectUnproject(const int32_t* screen, float* out) {
 // For controllers.cpp: the far limit of the reach, in world units.
 float HandDirectFarLimit() { return g_far_limit; }
 
-// For hand_glow.cpp (docs/hand.md, "The glow at the Hand's point"): the
+// For hand_glow.cpp (docs/hand-model.md, "The glow at the Hand's point"): the
 // point the Hand interacts from, the Hand's length in world units, the
 // interface hand mode (GInterface+0x3AC), whether the Hand holds an object,
 // the eye pass and the frame. The point is the target that the render pick
@@ -6340,7 +6332,7 @@ void HandDirectChooseNow() {
 // For hand_glow.cpp: hand_glow_idle, and its A/B key.
 bool HandDirectGlowIdle() { return g_glow_idle; }
 
-// For far_grab.cpp (docs/hand.md, "The leash from a distance"): the leash
+// For far_grab.cpp (docs/creature.md, "The leash from a distance"): the leash
 // click on the player's own Creature, as the game sends it after a short
 // press on the Creature (packet 0x5F, GGame::SetPacket). No press goes to the
 // game, so the Creature state does not start. False when the game would do
@@ -6404,7 +6396,7 @@ bool HandDirectExactFacts(float target[3], float* size, uint64_t* frame) {
   return true;
 }
 
-// For overlay.cpp (docs/hand.md, "Overlay renderer"): the game's Hand
+// For overlay.cpp (docs/hand-model.md, "Overlay renderer"): the game's Hand
 // position (CHand+0x78), and whether the controller places the Hand in this
 // frame. With the controller, the position is the target, the point that the
 // glow marks. False with no CHand.
@@ -6416,7 +6408,7 @@ bool HandDirectHandPosition(float out[3], bool* by_controller) {
   return true;
 }
 
-// For the grab of the world (M7): whether the pointing hand's grip may grab
+// For the grab of the world: whether the pointing hand's grip may grab
 // the world in place of a pick up. The Hand must be the controller's, in its
 // Normal state, empty, and over nothing it can hold, by the mod's own pick
 // and by the game's. These are from the last frame, which is the frame the
@@ -6454,7 +6446,7 @@ bool HandDirectClaimFree(const char** why) {
   return true;
 }
 
-// For the grip (controllers.cpp, docs/hand.md "The grip holds"): what the
+// For the grip (controllers.cpp, docs/grab.md, "The grip holds"): what the
 // grip needs to know of the Hand, read now, at the pump after the frame.
 // holding: the Holding state with an object that is no Miracle. settled: the
 // pick lock GInterface+0x38 is clear, so the game's pick up is over. spring:
@@ -6462,7 +6454,7 @@ bool HandDirectClaimFree(const char** why) {
 // holding starts. False when the controller did not place the Hand on the
 // last frame.
 //
-// THE BULK TAKE (docs/hand.md, "The bulk take"). While the game takes from a
+// THE BULK TAKE (docs/grab.md, "The bulk take"). While the game takes from a
 // pile, a field or a fish farm, the take runs only while the right button is
 // down, as a held mouse button. The Pot is in the Hand from the first turn,
 // so the machine saw a carry and let the button go up after 15 frames, which
@@ -6564,7 +6556,7 @@ void HandDirectPassDone(int eye) {
   if (eye == 1) g_active = false;
 }
 
-// For creature_command.cpp (docs/hand.md, "The Creature commands"): the
+// For creature_command.cpp (docs/creature.md, "The commands"): the
 // candidates of the last first eye pass, the 2D radius of an object, whether
 // the land hides a point from the eye of the aim, the class of an object, and
 // the body bone of a Creature.
@@ -6579,11 +6571,11 @@ bool HandDirectConeAt(int index, void** object, float position[3]) {
 
 float HandDirectRadius(void* object) { return Radius2D(object); }
 
-// For village.cpp (docs/hand.md, "An object in the Hand that goes onto a
+// For village.cpp (docs/grab.md, "An object in the Hand that goes onto a
 // thing"): the body of a candidate of the first eye pass as the choice of the
-// grip measures it (Measure), with the gap from a point to it in world units
-// (0 in the body), its middle, its radius and half its height. And whether
-// the game takes from a bulk source now.
+// grip measures it (Measure), with the gap from a point to it in world units (0
+// in the body), its middle, its radius and half its height. And whether the
+// game takes from a bulk source now.
 bool HandDirectConeBody(int index, const float point[3], float* gap,
                         float center[3], float* radius, float* half) {
   if (index < 0 || index >= g_candidate_count) return false;
@@ -6609,11 +6601,12 @@ bool HandDirectTakeRuns() {
   return g_face != nullptr && TakeObject(g_face) != nullptr;
 }
 
-// For miracle.cpp (docs/hand.md, "A miracle in the Hand"): world units in a
-// meter of the room now, the point of the real hand of this frame, and the
-// object of the next pick record. The record gets the target of a miracle
-// with a distance that the game keeps (near_math::RecordDistance), or no
-// object. False while the controller does not place the Hand.
+// For miracle.cpp (docs/miracles.md, "A miracle in the Hand in the plain
+// game"): world units in a meter of the room now, the point of the real hand of
+// this frame, and the object of the next pick record. The record gets the
+// target of a miracle with a distance that the game keeps
+// (near_math::RecordDistance), or no object. False while the controller does
+// not place the Hand.
 float HandDirectRoomUnits() { return RoomUnits(); }
 
 bool HandDirectRealPoint(float out[3]) {
@@ -6692,7 +6685,7 @@ bool HandDirectCreatureBody(void* creature, float out[3]) {
   return creature != nullptr && BodyPlace(creature, out) != 0;
 }
 
-// For forest_take.cpp (docs/hand.md, "Many trees from a forest"): the trees
+// For forest_take.cpp (docs/grab.md, "Many trees from a forest"): the trees
 // and the forests that the draw offered in this frame and that the Hand can
 // take, with the body of each. A tree in a hand is not in the list. And
 // whether an object is a tree of some kind.
@@ -6722,15 +6715,15 @@ bool HandDirectIsTree(void* object) {
   return object != nullptr && IsTreeObject(object);
 }
 
-// For hand_feel.cpp (docs/hand.md, "Hands that react to the world"): the body
-// of a candidate of the last first eye pass, as the choice measures it. kind
-// 0 is an upright cylinder from the point of the object, 1 a tree (the
-// cylinder of the choice, for a trunk and a crown), 2 the capsule of a
-// Creature and 3 the ball of a scroll, with its middle in base. kind 4 is
-// the box of the mesh of each other object that has one: base is its middle,
-// axis has its three axes of length 1 and half has half its sizes, as
-// BoxMiddle finds them. False for a forest, which is one object with many
-// trees, and for a body that is not known.
+// For hand_feel.cpp (docs/hand-model.md, "Hands that react to the world"): the
+// body of a candidate of the last first eye pass, as the choice measures it.
+// kind 0 is an upright cylinder from the point of the object, 1 a tree (the
+// cylinder of the choice, for a trunk and a crown), 2 the capsule of a Creature
+// and 3 the ball of a scroll, with its middle in base. kind 4 is the box of the
+// mesh of each other object that has one: base is its middle, axis has its
+// three axes of length 1 and half has half its sizes, as BoxMiddle finds them.
+// False for a forest, which is one object with many trees, and for a body that
+// is not known.
 bool HandDirectFeelBody(int index, void** object, float base[3], float* radius,
                         float* height, int* kind, float axis[9],
                         float half[3]) {
@@ -6971,7 +6964,7 @@ near_math::Gap GapFrom(const float point[3], const Candidate& c, int kind) {
 }
 
 // The census of a place of the plan: the nearest objects that a press acts on,
-// with the gap of the new body and of the cylinder of the build before.
+// with the gap of the new body and of the old cylinder.
 void PlanCensus(const float point[3], void* status, float units) {
   int shown[4] = {-1, -1, -1, -1};
   float gaps[4] = {1e30f, 1e30f, 1e30f, 1e30f};
@@ -7731,7 +7724,7 @@ bool HandDirectSeekPoint(float out[3]) {
 // For the fake controller's word "seekc": a point on the Creature, for the
 // stroke and slap tests. The game tells a Creature by the type field at +0x10
 // of the attribute block at Object+0x28 (1 for the Creature, the test of
-// fn_005D80C0 that gives hand mode 0x13). The desktop runs showed 1 for the
+// fn_005D80C0 that gives hand mode 0x13). The type is 1 for the
 // Creature, 6 for villagers and 28 for a building. Bit 0x10 of the byte at
 // Object+0x24, which the press action at 0x005D4960 tests, was not set on it.
 // The point is the object's origin, raised by half its 2D radius.

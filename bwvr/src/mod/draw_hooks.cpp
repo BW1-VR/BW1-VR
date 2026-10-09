@@ -204,7 +204,7 @@ const uintptr_t kSubtitleEnd = 0x0081E58C;
 // NOT in the list, and deliberately so: fn_00879930, reached from
 // GLandscape::Draw. That is the water surface, and it is drawn in screen space
 // at a constant depth of exactly the near plane, which is why it looked like a
-// screen space effect and why the interface shift used to drag it forward.
+// screen space effect, and why the interface shift must not move it.
 
 bool IsUiCaller(uint32_t address) {
   for (int i = 0; i < sizeof(kUiCallers) / sizeof(kUiCallers[0]); ++i) {
@@ -448,12 +448,8 @@ int g_paired_count = 0;
 // WHAT THIS BATCH IS, decided once by IsDuplicateWidget and read by everything
 // after it in the chain.
 //
-// These used to be one flag doing two jobs, which is why the hint size setting
-// did nothing. g_in_widget_band meant both "scale this" and "leave this out of
-// the interface shift", and it was only ever set in kHintKeepPinned. Head
-// tracking selects kHintKeepProjected, so in the mode the player actually runs
-// the scale was dead and the shift was live, which is a hint at full size with
-// the interface depth stacked on top of the Hand's own.
+// One flag for each job: the hint size, the place without the interface
+// depth, and the copy that is kept.
 bool g_widget_scale = false;  // a hint, so the hint size applies
 bool g_widget_flat = false;   // a hint, so the interface depth does not
 bool g_widget_hint = false;   // a hint copy that is being kept
@@ -853,9 +849,8 @@ bool IsDuplicateWidget(void* verts, uint32_t fvf, uint32_t count) {
 
 // Writes out where one batch landed, before the shift moves it.
 //
-// This has to sit outside the shift path. It used to live inside it, which
-// meant that setting the shift to zero, the very case worth inspecting, also
-// switched off the instrument.
+// This sits outside the shift path, so that a shift of zero, the case worth
+// inspecting, does not switch off the instrument.
 void DumpBatch(void* verts, uint32_t fvf, uint32_t count) {
   if (!g_dump || g_dumped >= kMaxDump) return;
   if (verts == nullptr || count == 0 || fvf != kExpectedFvf) return;
@@ -1231,12 +1226,13 @@ void SubtitlePlaceOut(void* verts, uint32_t count) {
 // SetupBox::Draw 0x00408340 in the exe. It is a sibling of the HelpText
 // callback, so the two never nest.
 //
-// Without this scope the hint rule ate the Options > Controls page. Each row
-// of that page draws its key icon through the CameraHelp quads (return
-// address 0x004477C0), the same code that draws the hint beside the Hand. So
-// every row became a hint band, the rows and the list box around them got the
-// hint size about the icons, and the list fell into small clusters. The
-// subtitle lift could also move a menu row away from its hit test.
+// Without this scope the hint rule would act on the Options > Controls page.
+// Each row of that page draws its key icon through the CameraHelp quads
+// (return address 0x004477C0), the same code that draws the hint beside the
+// Hand. So every row would be a hint band, the rows and the list box around
+// them would get the hint size about the icons, and the list would fall into
+// small clusters. The subtitle lift could also move a menu row away from its
+// hit test.
 //
 // Inside this scope a batch gets only the interface depth: no hint rule, no
 // hint size, no interface size and no subtitle lift.
@@ -1249,8 +1245,8 @@ uint64_t g_menu_batches = 0;
 void __stdcall h_SetupFinish(void* arg) {
   ++g_menu_depth;
   o_SetupFinish(arg);
-  // Rule 5 of docs/ui-layer.md, 2.3: the game's target is back at the end
-  // of each callback scope.
+  // Rule 5 of docs/ui-layer.md, "Rules for the switch": the game's target is
+  // back at the end of each callback scope.
   PanelRelease();
   --g_menu_depth;
 }
@@ -1299,20 +1295,20 @@ struct TooltipFlat {
 TooltipFlat g_tooltip_flat[kMaxTooltips];  // where each landed in pass 0
 int g_tooltip_flat_count = 0;
 
-// THE TOOLTIP AT THE HAND (docs/ui-layer.md, section 15). While the
-// controller places the Hand, the Hand is the real hand, 40 to 80 cm from the
-// eyes. The flat copy above has no disparity, so it shows at the far end of
+// THE TOOLTIP AT THE HAND (docs/ui-layer.md, "The tooltip at the Hand"). While
+// the controller places the Hand, the Hand is the real hand, 40 to 80 cm from
+// the eyes. The flat copy above has no disparity, so it shows at the far end of
 // the view and is double while the player looks at the hand, and at
 // ui_scale_pct 25 its text is a few pixels high. So with the direct hand a
 // tooltip goes to the Hand in each eye (HintAtHandPoint): the left eye scales
 // it about the Hand's point, and the right eye puts it at the same place from
 // its own Hand's point. It then has the Hand's disparity and shows at the
 // Hand's depth, at the game's layout. Its box is kHintHandCm of the room high
-// at that depth, so it reads like a label on the hand. The game draws its
-// Hand after the help, so the mesh hides a label on it. The point is at the
-// tip of the index finger, and the mesh lies from there back toward the
-// wrist, mostly up or down in the view (runs bk7 and bk10). So the label
-// moves kHintHandSideCm to the right of the game's place. ui_scale_pct,
+// at that depth, so it reads like a label on the hand. The game draws its Hand
+// after the help, so the mesh hides a label on it. The point is at the tip of
+// the index finger, and the mesh lies from there back toward the wrist, mostly
+// up or down in the view (runs bk7 and bk10). So the label moves
+// kHintHandSideCm to the right of the game's place. ui_scale_pct,
 // hint_scale_pct and hint_flat do not change it. With the mouse, nothing of
 // this runs.
 const float kHintHandCm = 2.5f;
@@ -1330,7 +1326,7 @@ float g_tooltip_offset[2] = {0.0f, 0.0f};
 float g_tooltip_hand_scale = 1.0f;
 uint64_t g_tooltips_at_hand = 0;
 
-// THE HINT CARD (hint_card.cpp, docs/controller-hints.md "The hint card").
+// THE HINT CARD (hint_card.cpp, docs/controller-hints.md, "The hint card").
 // While a controller owns the pointer, a tooltip does not draw in an eye
 // picture at all. Its words go to the card, which the headset shows as one
 // quad beside the wrist. One picture in the room cannot be double. The route is
@@ -1564,7 +1560,7 @@ void TooltipOut(void* verts, uint32_t count) {
 // 0 for a key cap. row_or_label is the row of the mouse picture (0 to 2), 3 for
 // no picture, or for a key cap a pointer to the wide string in the cap.
 //
-// CONTROLLER WORDS (step M8). While a controller owns the pointer, a hint with
+// CONTROLLER WORDS. While a controller owns the pointer, a hint with
 // a mouse picture becomes a key cap with the controller's word. The call is
 // changed here and then goes down the tooltip path below, so it is a single
 // unit like any tooltip: kept once in a pass, moved as a whole, drawn flat.
@@ -1821,7 +1817,8 @@ void ShiftOut(void* verts, uint32_t count) {
   }
 }
 
-// THE INTERFACE ON ITS OWN SURFACE (docs/ui-layer.md, 2.4).
+// THE INTERFACE ON ITS OWN SURFACE (docs/ui-layer.md, "Which batches go to the
+// panel").
 //
 // A panel batch is one of these, and nothing else:
 //
@@ -1950,7 +1947,8 @@ void NoteBounds(int scope, const void* verts, uint32_t fvf, uint32_t count) {
   }
 }
 
-// The blend and the tests of the batch just drawn (docs/ui-layer.md, 2.5).
+// The blend and the tests of the batch just drawn (docs/ui-layer.md, "A clear
+// background and the alpha").
 void NoteStates() {
   UiPanelStates s;
   GpuBridgePanelStates(&s);
@@ -2232,10 +2230,9 @@ bool UiDepthInstall(bool with_attribution) {
   ok &= Hook(bw::render::kDrawAndClip2D,
              reinterpret_cast<void*>(&h_DrawAndClip2D),
              reinterpret_cast<void**>(&o_DrawAndClip2D), "DrawAndClip2D");
-  // with_attribution is no longer what decides this. The hook also samples how
-  // near the world is, which the adaptive interface depth needs, so it goes in
-  // either way. A measurement that claimed it was expensive turned out to be
-  // comparing two different scenes.
+  // with_attribution does not decide this. The hook also samples how near the
+  // world is, which the adaptive interface depth needs, so it goes in either
+  // way.
   (void)with_attribution;
   ok &= Hook(bw::render::kDrawTriangle,
              reinterpret_cast<void*>(&h_DrawTriangle),
@@ -2296,7 +2293,7 @@ bool UiPanelHelpBounds(float bounds[4], uint32_t* render_w,
 }
 
 // The fallback of the subtitle card: the help text draws in the eye pictures
-// at a fixed depth in meters. 0 gives it the interface depth, as before.
+// at a fixed depth in meters. 0 gives it the interface depth.
 void UiDepthSetHelpDepth(float meters) { g_help_depth_m = meters; }
 
 uint64_t UiDepthTakeHelpFixed() {

@@ -1,4 +1,4 @@
-// The take from a forest (docs/hand.md, "Many trees from a forest"). The
+// The take from a forest (docs/grab.md, "Many trees from a forest"). The
 // plain game gives one tree for each press, and its Hand holds one object.
 // While the grip stays closed in a forest, the mod puts tree after tree in a
 // bundle of wood in the Hand.

@@ -121,8 +121,8 @@ bool g_device_hooked = false;
 // changes. The game does this when it starts full screen. To free the old
 // device, dxwrapper calls Release until the count is zero (ReleaseD9Device in
 // IDirectDrawX.cpp). That removes our references too, so a reference does not
-// keep the device alive. The bridge used to keep the first device only, and
-// its first call on that device after a rebuild crashed the game.
+// keep the device alive. A call on the old device after a rebuild crashes the
+// game.
 //
 // So a hook on the device's Release tells the bridge when the device is gone.
 // The bridge then drops everything it made on that device and calls none of
@@ -186,7 +186,8 @@ uint32_t g_start_format = 0;
 bool g_resume_wanted = false;
 uint32_t g_devices_lost = 0;
 
-// THE INTERFACE PANEL (docs/ui-layer.md, section 2).
+// THE INTERFACE PANEL (docs/ui-layer.md, "Drawing the interface to its own
+// target").
 //
 // The screen interface draws into a render target of its own. The mod
 // switches the Direct3D 9 target around those draws. Dd7to9 keeps its own
@@ -206,7 +207,7 @@ uint32_t g_panel_height = 0;
 IDirect3DTexture9* g_panel_shared = nullptr;
 IDirect3DSurface9* g_panel_shared_surface = nullptr;
 ID3D11Texture2D* g_panel_opened = nullptr;
-// The composite check of U1: the eye before the first panel batch (spare),
+// The composite check: the eye before the first panel batch (spare),
 // and the same picture with the panel batches drawn the game's way (check).
 IDirect3DSurface9* g_spare = nullptr;
 IDirect3DSurface9* g_check = nullptr;
@@ -969,8 +970,8 @@ void ReleasePanelTargets() {
 }
 
 // The panel pair, the size of the game's render target (rule 1 and 2 of
-// docs/ui-layer.md, 2.3). It is made at the first bind, and again when the
-// render target changes size.
+// docs/ui-layer.md, "Rules for the switch"). It is made at the first bind, and
+// again when the render target changes size.
 bool EnsurePanel(IDirect3DSurface9* game_target) {
   D3DSURFACE_DESC desc;
   if (FAILED(game_target->GetDesc(&desc))) return false;

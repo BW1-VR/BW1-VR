@@ -1,6 +1,6 @@
 // The Creature commands: the trigger commands the leashed Creature, and a
 // shake of the real hand takes the leash off. See creature_command.cpp and
-// docs/hand.md, "The Creature commands".
+// docs/creature.md, "The commands".
 #pragma once
 
 #include <stdint.h>

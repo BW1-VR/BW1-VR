@@ -1,7 +1,6 @@
 // Does any GDI drawing happen while the game is playing?
 //
-// This decides which modern backend the mod can use, so it is worth a
-// measurement rather than a guess.
+// The answer decides which modern backend can work.
 //
 // runblack.exe imports 13 functions from GDI32: CreateFontIndirectA, TextOutA,
 // SetTextColor, SetBkMode, SetBkColor, GetObjectA, SelectObject, DeleteObject,

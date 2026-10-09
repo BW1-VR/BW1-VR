@@ -1,6 +1,6 @@
 // The math of the Creature commands. Pure functions with no game state.
 // creature_command.cpp calls them, and test/controller_math checks them
-// (command_checks.h). See docs/hand.md, "The Creature commands".
+// (command_checks.h). See docs/creature.md, "The commands".
 #pragma once
 
 #include <math.h>
@@ -254,8 +254,8 @@ inline bool SentMarkShows(double sent_at, double now) {
   return sent_at > 0.0 && now >= sent_at && now - sent_at < kSentMarkS;
 }
 
-// THE TARGET OF A COMMAND IN THE AIM (docs/hand.md, "The live target of a
-// command"). With the leash on, the land is the first target of the trigger:
+// THE TARGET OF A COMMAND IN THE AIM (docs/creature.md, "The target of an
+// object"). With the leash on, the land is the first target of the trigger:
 // a press with no object in the aim sends the Creature to the land. So an
 // object must not take the aim easily. Three rules, each with a band so a
 // target at the border does not go on and off.

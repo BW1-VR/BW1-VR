@@ -1,14 +1,10 @@
 // Where the frame goes, outside the scene walk.
 //
 // The stereo report splits a frame into the wait, the two scene walks, the two
-// grabs, and everything else. Everything else is normally 0.2 ms, but the
-// worst frames put 34 ms in it:
+// grabs, and everything else. Everything else is normally 0.2 ms, but a bad
+// frame can put tens of milliseconds in it.
 //
-//     worst frame 43.22 ms = wait 0.02 + scene x2 8.30 + grab x2 0.79
-//                            + everything else 34.11
-//     game turn   worst 4.08 ms
-//
-// So the hitch is not the scene, and it is not the game turn. It is one of the
+// Such a hitch is not the scene, and it is not the game turn. It is one of the
 // other calls in the frame loop, or it is outside the loop altogether.
 //
 // GGame::Loop runs the whole game, not one frame, so it cannot be timed per

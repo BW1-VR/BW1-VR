@@ -1,10 +1,9 @@
 // Save the two eye images to disk, so stereo problems can be looked at.
 //
-// "The tooltips are duplicated" and "the particles are at the wrong depth"
-// are real reports, but they are hard to act on without seeing the two
-// pictures side by side. Anything that differs between the eyes by something
-// other than a horizontal shift cannot be fused, and that shows up at once in
-// a difference image.
+// A tooltip that looks double, or a particle at the wrong depth, is hard to
+// act on without seeing the two pictures side by side. Anything that differs
+// between the eyes by something other than a horizontal shift cannot be fused,
+// and that shows up at once in a difference image.
 //
 // Writes bwvr-eye-left-NNNNN.bmp and bwvr-eye-right-NNNNN.bmp beside
 // runblack.exe. Control it with bwvr-eye-frames.txt, one stereo frame number
@@ -198,7 +197,7 @@ void EyeCaptureSaveAs(const char* suffix, uint64_t stereo_frame, int eye,
          eye == 0 ? "left" : "right", suffix, ok ? path : "WRITE FAILED");
 }
 
-// The interface panel of U1 (docs/ui-layer.md), as bwvr-NAME-NNNNN.bmp.
+// The interface panel (docs/ui-layer.md), as bwvr-NAME-NNNNN.bmp.
 // style 0 keeps the alpha, 1 puts the panel over a checkerboard, and 2 is a
 // plain 24 bit picture.
 void EyeCaptureSaveUi(const char* name, uint64_t frame, int style,

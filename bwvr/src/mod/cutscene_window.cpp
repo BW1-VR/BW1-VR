@@ -2,11 +2,8 @@
 // room (docs/cutscene-window.md).
 //
 // WHY. A cut scene moves the camera, and camera motion that the head did not
-// make is not comfortable when the picture fills the view. Before this file
-// the mod held each shot and cut between the shots (script_camera.cpp), and
-// it hid the cinema bars. The player could not tell a cut scene from play,
-// and the shots lost the motion and the frame that the game gave them. A
-// picture that moves on a screen 2 m away is comfortable. So for the length
+// make is not comfortable when the picture fills the view. A picture that
+// moves on a screen 2 m away is comfortable. So for the length
 // of a cut scene the view becomes the stereoscopic window of play mode 1.
 //
 // THE SIGNAL. HelpSystem::SetWideScreen 0x005C6AD0 puts the cinema bars up
@@ -106,7 +103,7 @@ const uintptr_t kWideScreenShown = 0x00EB9950;
 const uintptr_t kSceneShape = 0x008C7A50;
 
 // cutscene_depth
-const int kDepthOff = 0;      // the stereo as before, with no limit
+const int kDepthOff = 0;      // the full stereo, with no limit
 const int kDepthNearest = 1;  // from the nearest thing in view
 const int kDepthFixed = 2;    // the worst case: the near plane of the game
 

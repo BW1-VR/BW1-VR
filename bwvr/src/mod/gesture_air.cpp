@@ -1,6 +1,5 @@
-// Gestures in the air (step M6): hold the draw button and draw a miracle's
-// gesture with the pointing hand. See docs/hand.md, section 5 and "M6 as
-// built".
+// Gestures in the air: hold the draw button and draw a miracle's gesture with
+// the pointing hand. See docs/miracles.md.
 //
 // HOW THE GAME READS A GESTURE. The game keeps a ring of the last 80 pointer
 // samples in the GestureSystem (GGame+0x25006C). Every move of the pointer
@@ -31,7 +30,7 @@
 // While the controller owns the pointer, the game's own samples of the
 // pointer are dropped. The Hand's pixel moves with the head and with the
 // reach, and a wave of the hand must not cast a miracle. With the mouse as
-// the owner, the game samples the pointer exactly as before.
+// the owner, the game samples the pointer as it does in the plain game.
 //
 // At the release the mod logs the path and the templates it fits, and clears
 // the ring, so that an old path cannot match later.
