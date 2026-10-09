@@ -277,10 +277,20 @@ def run_blender(blender, script, arguments, log_path):
                          % (script, result.returncode, log_path))
 
 
+def default_game():
+    """Return the game folder that dev.ps1 setup wrote down, or None."""
+    path = os.path.join(REPO, 'local', 'game-path.txt')
+    if not os.path.exists(path):
+        return None
+    with open(path, 'r', encoding='utf-8-sig') as handle:
+        return handle.readline().strip()
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--game', default=os.path.join(REPO, 'Black & White Game'),
-                        help='the Black & White folder')
+    parser.add_argument('--game', default=default_game(),
+                        help='the Black & White folder (default: the folder '
+                             'that dev.ps1 setup wrote down)')
     parser.add_argument('--out', default=os.path.join(REPO, 'media', 'hand'),
                         help='the folder for the files')
     parser.add_argument('--hand-cm', type=float, default=19.0,
@@ -294,6 +304,10 @@ def main():
     parser.add_argument('--no-blender', action='store_true',
                         help='write only the textures and the data file')
     args = parser.parse_args()
+    if not args.game:
+        raise SystemExit('No game folder is set. Run this first, at the root of '
+                         'the repo: .\\dev.ps1 setup -Game "<folder>". Or give '
+                         '--game.')
 
     hand = bw_hand.load(args.game)
     os.makedirs(args.out, exist_ok=True)

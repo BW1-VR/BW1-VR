@@ -266,12 +266,6 @@ moves while the Hand takes it. B10 is near it.
   `temple_run.ps1`, `miracle_run.ps1` in `bwvr/tools/desk/`) have not run
   from this repo. `-Box` of `hand_run.ps1` is a place of the start dialog
   at one render size.
-- **R3. Two scripts look for the game in the repo.**
-  `bwvr/tools/launch-vr.ps1` and the default of `--game` in
-  `bwvr/tools/hand_export/export.py` use a folder `Black & White Game` at
-  the root. `dev.ps1 play` does the work of the first one: remove it or
-  correct it. The second one runs with `--game "<folder>"`: make it read
-  `local\game-path.txt`.
 - **R4. The names of the symbol file.** `bwvr/tools/check_names.py --all`
   lists about 70 decorated names whose parameter classes are not those of
   the Mac symbol, with each class by name (for example an `int` for an
