@@ -1,4 +1,4 @@
-// The fingers and the world: the pure math. See docs/hand.md, "Hands that
+// The fingers and the world: the pure math. See docs/hand-model.md, "Hands that
 // react to the world". hand_feel.cpp uses it, and test/controller_math checks
 // it (feel_checks.h). Nothing here reads a global or touches the game.
 //
@@ -652,8 +652,7 @@ inline float WrapCurl(const FingerTable& table, const float radius[kSamples],
 //   game holds from the side, the body is the capsule on the axis of the
 //   object (a trunk, a villager). For each other object it is the ball that
 //   hand_exact.cpp puts at the palm.
-// - A finger that cannot touch the capsule stops on that ball, as in the
-//   builds before. The mod puts the middle of the ball on the axis, so a
+// - A finger that cannot touch the capsule stops on that ball. The mod puts the middle of the ball on the axis, so a
 //   large tree is some cm in front of the palm, and the hand is a cup under
 //   it.
 // - A finger that can touch neither takes the curl of the game's own hold.
@@ -663,8 +662,7 @@ inline float WrapCurl(const FingerTable& table, const float radius[kSamples],
 // The range is that of overlay_math::HoldRange: the grip takes the middle,
 // ring and little fingers from the rest curl to the hold, and the index
 // finger and the thumb stay near the hold when the trigger is open. Each
-// sample has the full radius of the finger here, as the hold of the builds
-// before has it. `touches` gets 1 for the capsule, 2 for the ball and 0 for
+// sample has the full radius of the finger here. `touches` gets 1 for the capsule, 2 for the ball and 0 for
 // no contact.
 inline void HoldRange(const FingerTable tables[kFingers],
                       const float finger_radius[kFingers],

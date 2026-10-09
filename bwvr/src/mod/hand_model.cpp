@@ -1,16 +1,15 @@
 // The hand model: the game's own hand mesh on both of the player's hands,
-// with the game's textures and the game's light. See docs/hand.md, "The
+// with the game's textures and the game's light. See docs/hand-model.md, "The
 // game's hand on both real hands".
 //
-// WHY. The mod's hands were a low poly test mesh. The hand of Black & White is
-// a large part of the charm of the game, so the mod now draws both hands with
-// the mesh of the game's own Hand.
+// WHY. The hand of Black & White is a large part of the charm of the game, so
+// the mod draws both hands with the mesh of the game's own Hand.
 //
 // THE FILES. Nothing of the game is in the mod. At the first frame with a
 // controller hand, this reads the three hand meshes from the game folder of
 // the player: Data\CreatureMesh\Hand_Boned_Base2.l3d, Good2 and Evil2. Each
 // has 141 vertices, 169 triangles, 22 bones and one texture of 256 by 256
-// (docs/hand.md, "The files of the Hand"). A file that is missing or not as
+// (docs/hand-model.md, "The files of the Hand"). A file that is missing or not as
 // the mod knows it gives a log line with the reason, and the low poly hands
 // stay.
 //
@@ -37,7 +36,7 @@
 // each frame, so the hands have the light of the game at each time of day.
 //
 // A HAND OF THE PLAYER. When bwvr-hand.glb is beside the mod, its mesh is the
-// mesh of the hands (hand_model_file.cpp, docs/hand.md, "A hand that the
+// mesh of the hands (hand_model_file.cpp, docs/hand-model.md, "A hand that the
 // player edited"). It keeps the bones and the textures of the game. A file
 // that does not fit gives a log line with the reason, and the mesh of the
 // game stays.
@@ -272,7 +271,7 @@ void LoadSettings() {
 
 // --- the L3D file ------------------------------------------------------------
 
-// One hand file, as pointers into its bytes. See docs/hand.md, "The files of
+// One hand file, as pointers into its bytes. See docs/hand-model.md, "The files of
 // the Hand".
 struct L3D {
   uint8_t* data = nullptr;

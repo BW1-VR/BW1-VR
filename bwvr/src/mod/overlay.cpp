@@ -1,10 +1,10 @@
 // The overlay renderer: the mod's own 3D meshes, drawn inside the game's
-// frame. See docs/hand.md, "Overlay renderer".
+// frame. See docs/hand-model.md, "Overlay renderer".
 //
-// WHY. The glow (hand_glow.cpp) showed that the mod can draw its own geometry
-// in each eye pass, at the right depth, against the game's depth buffer. This
-// file grows that into a small renderer for meshes: hand models first, and
-// later the controller models, rays and the rim of the table.
+// WHY. The glow (hand_glow.cpp) draws its own geometry in each eye pass, at
+// the right depth, against the game's depth buffer. This file is a small
+// renderer for meshes: hand models first, and later the controller models,
+// rays and the rim of the table.
 //
 // THE MESHES. Once a frame, OverlayFrame builds one list of triangles in
 // world space, with a lit color at each corner, and both eye passes draw that
@@ -53,7 +53,8 @@
 // player. With overlay=1 both hands draw, so the two right hands can be
 // compared.
 //
-// ONE PAIR OF HANDS (docs/hand.md, "One pair of hands"). With hand_hide_game=1
+// ONE PAIR OF HANDS (docs/hand.md, "The two real hands and
+// which one is the Hand"). With hand_hide_game=1
 // (the default) hand_exact.cpp hides the mesh of the game's Hand, and the
 // overlay draws both hands with overlay=0 too. Each hand has a pose
 // (overlay_math.h, THE POSES) that follows what the hand does:
@@ -81,21 +82,21 @@
 // target that is not valid. They are opaque, with the depth test and the
 // depth write on, as the hands are.
 //
-// THE MESH OF THE GAME (docs/hand.md, "The game's hand on both real hands").
+// THE MESH OF THE GAME (docs/hand-model.md, "The game's hand on both real hands").
 // With hand_model=1 (the default) the hands are the game's own hand mesh,
 // with its textures and its light (hand_model.cpp). This file still chooses
 // the pose and the curl of each finger, and the low poly hand below is the
 // hand of hand_model=0 and of a game folder with no hand files.
 //
-// THE FINGERS AND THE WORLD (docs/hand.md, "Hands that react to the world").
+// THE FINGERS AND THE WORLD (docs/hand-model.md, "Hands that react to the world").
 // After the curls of the pose are known, hand_feel.cpp changes them: a finger
 // bends on the land and against a body, the pointing hand opens toward a
 // target of the grip, and the hold pose closes on the body of the object in
 // the Hand. With hand_feel=0 the curls of the pose stay.
 //
 // THE FINGERS FROM OUTSIDE. OverlaySetFinger gives one finger of one hand a
-// curl and a spread for the frame, in place of the curl that the two steps
-// before gave. No file of the mod calls it now.
+// curl and a spread for the frame, in place of the curl that the poses give.
+// No file of the mod calls it.
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -130,7 +131,7 @@ int ControllersHandScalePct();
 // places the Hand.
 bool HandDirectHandPosition(float out[3], bool* by_controller);
 // hand_direct.cpp: the hand of a stroke of the Creature (0 none, 1 the flat
-// hand, 2 the index finger, 3 the hand of build 3918f87), and what the tickle
+// hand, 2 the index finger, 3 a fist while the grip is closed), and what the tickle
 // adds to each finger's curl.
 int HandDirectStrokeHand(float curl[5]);
 // hand_exact.cpp: the game's Hand is the pointing hand.
@@ -144,8 +145,8 @@ using overlay_math::Triangle;
 bool g_on = false;
 
 const int kHands = 2;
-// The tether of a far grab is a tube of one segment. The room of the ring
-// that the first build drew under a far target stays as spare room.
+// The tether of a far grab is a tube of one segment. The room of a ring
+// under a far target stays as spare room.
 const int kFarMaxTriangles = overlay_math::kRingMaxTriangles +
                              overlay_math::kTubeSides * 2;
 const int kMaxTriangles = kHands * overlay_math::kHandTriangles +
@@ -272,8 +273,7 @@ const float kFistOn = 0.85f;
 const float kFistOff = 0.60f;
 // The radius of a held body with no known size, in hand lengths.
 const float kHoldDefaultRadius = 0.20f;
-// The game's hand states that the poses use (docs/hand.md, "The state
-// machine").
+// The game's hand states that the poses use (docs/hand.md, "The state machine").
 const int kStateCamera = 2;
 const int kStateTug = 3;
 const int kStateHolding = 4;
@@ -455,8 +455,7 @@ int ChoosePose(int h, bool pointing, float squeeze, bool have_context,
       // a closed grip is no fist here: the player strokes with an open hand.
       // The flat hand for a Creature that is large against the hand, and the
       // index finger for a small one (hand_direct.cpp, TouchFrame).
-      // creature_stroke_hand=3 is the hand of build 3918f87: a fist while the
-      // grip is closed.
+      // creature_stroke_hand=3 is a fist while the grip is closed.
       float tickle[5];
       const int stroke = HandDirectStrokeHand(tickle);
       if (stroke == 3) {
@@ -771,9 +770,7 @@ void BuildCommand() {
 // THE TETHER OF A FAR GRAB (far_grab.cpp). After the lock, and while the game
 // takes from a far bulk source, a thin tube goes from the Hand's point to the
 // object. It draws with overlay=0 too. Nothing is drawn on the land under the
-// target: the halo of hand_glow.cpp shows the target, gold or red. The first
-// build drew a ring there too, and the headset test of 2026-10-03 found the
-// halo to be enough.
+// target: the halo of hand_glow.cpp shows the target, gold or red.
 void BuildFar() {
   g_far_triangles = 0;
   FarDraw d;

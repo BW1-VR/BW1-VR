@@ -1,12 +1,10 @@
-// Hands that react to the world. See docs/hand.md, "Hands that react to the
+// Hands that react to the world. See docs/hand-model.md, "Hands that react to the
 // world", and hand_feel_math.h for the rules and the math.
 //
-// WHY. Buck, 2026-10-04: "HL:A has really good interactions with the
-// environment, hands and fingers move as you hover over objects and stuff,
-// fingers flex when moving over shelves, or start grasping objects and door
-// handles when you get close". The hands of the mod had a pose from the
-// trigger, the grip and the state of the game's Hand, and nothing of the
-// world near them.
+// WHY. Hands that react to the world feel real: the fingers flex over a
+// shelf, and start to grasp an object or a door handle when the hand gets
+// close. The pose of a hand comes from the trigger, the grip and the state of
+// the game's Hand. This file adds the world near the hand.
 //
 // WHAT. overlay.cpp makes the curl of each finger from the pose. Then this
 // file changes the curls, in four parts, each with its own key:
@@ -733,7 +731,7 @@ bool HandFeelHoldRange(int hand, bool mesh, float length, float hold_radius,
   hf::HeldBody body, ball_body;
   float ball[3];
   float ball_radius = hold_radius > 0.0f ? hold_radius / length : 0.0f;
-  // The least ball of the builds before: a loose cup round a small object.
+  // The least ball: a loose cup round a small object.
   if (ball_radius < overlay_math::kHoldMinRadius) {
     ball_radius = overlay_math::kHoldMinRadius;
   }

@@ -1,20 +1,19 @@
 // Put the head on the camera the ENGINE builds, not on the matrices afterwards.
 //
-// The first attempt rewrote the world to camera matrix family inside the scene
-// walk, once per eye. Terrain, objects and shadows all followed the head
-// correctly, because they are projected through those matrices. The sea did
-// not: turning the head made the horizon swing and the water arc away. That
-// was reproduced on the desktop with an invented head and no headset, so it is
-// not a headset problem.
+// A change of the world to camera matrix family inside the scene walk, once
+// per eye, is not enough. Terrain, objects and shadows follow the head
+// correctly, because they are projected through those matrices. The sea does
+// not: turning the head makes the horizon swing and the water arc away. An
+// invented head shows this on the desktop with no headset.
 //
-// The reason is where the poke happens. GGame::ProcessGraphicsEngine runs
+// The reason is where such a change happens. GGame::ProcessGraphicsEngine runs
 // camera->Update() BEFORE GGame::Process3dEngine, and LH3DTech::UpdateCamera
 // builds the whole camera family, the culling cone, and whatever the water
 // grid is anchored to, from one position and one focus point. A poke inside
 // the scene walk arrives after all of that, so anything built earlier is still
 // looking the old way.
 //
-// So the head is applied at the source instead. LH3DTech::UpdateCamera is
+// So the head is applied at the source. LH3DTech::UpdateCamera is
 // hooked, and the position and focus it is given are moved before it runs.
 // Everything the engine derives is then derived from a camera that is already
 // looking where the player is looking, and nothing downstream has to be
@@ -24,9 +23,8 @@
 // position and focus, each an LHPoint of three floats, arriving in ecx and
 // edx.
 //
-// This cost a crash, and the lesson is worth keeping. The rule used for
-// ChangeFov was "C3 means the caller cleans, so __cdecl". That is true and
-// incomplete: a function whose arguments all arrive in registers also has
+// A wrong calling convention here crashes the game. The rule "C3 means the
+// caller cleans, so __cdecl" is true and incomplete: a function whose arguments all arrive in registers also has
 // nothing to clean, and also ends C3. The distinguishing evidence is at the
 // top of the function, not the bottom:
 //
@@ -37,25 +35,16 @@
 // So: read the ret to learn who cleans, and read the first few instructions to
 // learn where the arguments come from. Both, every time.
 //
-// FIVE CALLS A FRAME, NOT ONE. This is the fault that made the headset
-// unwearable, and it hid for a long time because it is invisible on a monitor.
-// The engine does not call UpdateCamera once a frame. The log counted it:
-//
-//     head camera  : 2250 camera updates, 2250 carried the head
-//
-// 2250 over 450 frames. One call places the main camera before the scene walk.
-// The other four happen INSIDE the walk, which this mod runs twice, once per
-// eye. Every one of them used to rewrite the frame's anchor and the frame's
-// leftover roll. So eye 0 read the roll, drew, and then the walk changed the
-// roll before eye 1 read it. The two eyes of one frame drew from different
-// cameras:
-//
-//     eye 0 roll  3.27 degrees      eye 1 roll  136.54 degrees
-//
-// The right eye's value climbed frame after frame and passed 90 degrees, which
-// is why looking up made the right eye invert and spin. The same state carries
-// the Hand, so the Hand landed in two places in one frame, which is the Hand
-// that looked doubled.
+// FIVE CALLS A FRAME, NOT ONE. The engine does not call UpdateCamera once a
+// frame. The log counts it: 2250 camera updates over 450 frames. One call
+// places the main camera before the scene walk. The other four happen INSIDE
+// the walk, which this mod runs twice, once per eye. If each of them rewrote
+// the frame's anchor and the frame's leftover roll, eye 0 would read the
+// roll, draw, and then the walk would change the roll before eye 1 read it.
+// The two eyes of one frame would draw from different cameras, the roll of
+// the right eye would climb past 90 degrees, and looking up would invert and
+// spin that eye. The same state carries the Hand, so the Hand would land in
+// two places in one frame.
 //
 // Every call still moves its camera, because the sub cameras need the head
 // too. Only the FIRST call of each frame records the frame's state. See
@@ -64,8 +53,8 @@
 // WHAT THIS CANNOT DO. A camera described by a position and a focus point has
 // no roll: there is nowhere to put it. So this carries yaw, pitch and the
 // player leaning about, and roll is left over for the per eye matrix. The
-// leftover is no longer measured by comparing vectors, which had a singularity
-// at the zenith. It is computed from the rotation this file composed, against
+// leftover is not measured by comparing vectors, which has a singularity at
+// the zenith. It is computed from the rotation this file composed, against
 // the rotation the engine is about to build. See RecordThisCall.
 
 #define WIN32_LEAN_AND_MEAN
@@ -102,7 +91,7 @@ const uintptr_t kBillboardHeadingOffset = 0x008C78D8;
 // head_pose.cpp
 bool HeadPoseCurrent(float matrix_out[9], float translation_out[3]);
 // tabletop.cpp: the table takes the main call of a frame. It gives the camera
-// to put the head on, and the gain for the lean. See docs/tabletop.md.
+// to put the head on, and the gain for the lean. See docs/tabletop.md, "The table camera".
 bool TabletopCamera(const float asked_position[3], const float asked_focus[3],
                     float position_out[3], float focus_out[3],
                     float* lean_gain);
@@ -376,11 +365,9 @@ void PlaceCamera(const float* position, const float* focus, bool intro,
 
   // THE BASIS COMES FROM THE ARGUMENTS, NOT FROM THE MATRIX.
   //
-  // The first version read the camera axes out of the world to camera matrix.
-  // That matrix was built from the PREVIOUS frame's already rotated camera, so
-  // the head rotation was applied on top of itself every frame and the camera
-  // span. The log caught it: one unchanging original direction producing a
-  // different result each frame.
+  // The world to camera matrix is built from the PREVIOUS frame's already
+  // rotated camera. A basis read from it would apply the head rotation on top
+  // of itself every frame, and the camera would spin.
   //
   // The arguments are the game's own camera, untouched, so a basis built from
   // them cannot accumulate.
@@ -436,14 +423,13 @@ void PlaceCamera(const float* position, const float* focus, bool intro,
   // looks around. The horizon is always level, because the room's up is the
   // world's up.
   //
-  // Two other orders were built and measured first, and both moved the world.
-  // L * H * P put the head outside the game's pitch P, so a head tilt rotated
-  // about the level forward axis while the camera looked 13 degrees below it,
-  // and the look direction swept sideways by 4.51 degrees for a 20 degree
-  // tilt. Splitting H, so its yaw went outside P and its pitch and roll went
-  // inside, fixed the look direction but left the same 4.51 degrees in the
-  // roll axis, and it still felt like sliding. Played in the headset side by
-  // side, this one was the only one that did not make the player ill.
+  // Two other orders move the world. L * H * P puts the head outside the
+  // game's pitch P, so a head tilt rotates about the level forward axis while
+  // the camera looks 13 degrees below it, and the look direction sweeps
+  // sideways by 4.51 degrees for a 20 degree tilt. Splitting H, so its yaw
+  // goes outside P and its pitch and roll go inside, fixes the look direction
+  // but leaves the same 4.51 degrees in the roll axis, which feels like
+  // sliding.
   //
   // The cost is that the player's straight ahead view is the horizon rather
   // than the island, and they look down at the land with their head, as they
@@ -483,9 +469,9 @@ void PlaceCamera(const float* position, const float* focus, bool intro,
   //
   // The lean arrives from head_pose.cpp already written in the levelled frame:
   // it is the head's offset from the recentre origin, turned by the inverse of
-  // the origin yaw. So it needs the levelled basis and nothing else. The first
-  // version also turned it by the head rotation, which meant leaning sideways
-  // while turned 90 degrees moved the camera forward instead of sideways.
+  // the origin yaw. So it needs the levelled basis and nothing else. The head
+  // rotation must not turn it: leaning sideways while turned 90 degrees would
+  // move the camera forward.
   float moved_position[3];
   for (int i = 0; i < 3; ++i) {
     moved_position[i] = position[i] + basis_level[i * 3 + 0] * lean[0] +
@@ -597,18 +583,17 @@ void PlaceCamera(const float* position, const float* focus, bool intro,
   //                             sets the CameraHelp hint from it.
   //   HandStateCamera::Update   drags the land relative to the focus.
   //   GCamera::Update           in some modes takes the stored camera back as
-  //                             its own starting point, so the head was fed
-  //                             into the game camera and put on again the
+  //                             its own starting point, so the head would
+  //                             feed into the game camera and go on again the
   //                             next frame.
   //   GScript::StoreCameraDetails, GScript::GetCameraFocus, Tree::PreDraw,
   //   and the sky and cloud module at 0x005E5CD0, which recomputes whenever
   //   the stored camera moves.
   //
-  // Under gravity lock the stored focus was a point in the air toward the
-  // horizon, so the hint for a held object, the land drag and the cloud layout
-  // were all worked out from the wrong place. This was not the whole of the
-  // red cross that the player saw beside the Hand. The larger part was the
-  // pointer the interface was given, in window pixels. See pointer_map.cpp.
+  // Under gravity lock a stored focus with the head is a point in the air
+  // toward the horizon, so the hint for a held object, the land drag and the
+  // cloud layout would be worked out from the wrong place. The pointer that
+  // the interface gets is in window pixels. See pointer_map.cpp.
   //
   // The renderer has already taken what it needs by the time this runs, so
   // the stored camera goes back to the one the game asked for.
@@ -693,30 +678,26 @@ void HeadCameraInstall() {
          g_installed ? "ok" : "FAILED");
 }
 
-// THE CAMERA SWAP THAT USED TO LIVE HERE IS GONE, AND THIS IS WHY.
+// ONE CAMERA FOR THE HAND AND FOR THE GAME.
 //
-// To stop the Hand sweeping the world when the player turned their head, the
-// game's own camera was swapped in around CHand::PrepareForDrawing, so the
-// cursor's ray was cast from where the GAME was looking. That placed the Hand
-// through one camera while everything else the game does with the cursor used
-// another: what the Hand is over, whether a drop is allowed, where a held
-// object goes. CHand::UpdateHeldObject was never inside the swap at all.
+// The game's own camera is not swapped in around CHand::PrepareForDrawing. A
+// swap would cast the cursor's ray from where the GAME looks. That would place
+// the Hand through one camera while everything else the game does with the
+// cursor used another: what the Hand is over, whether a drop is allowed,
+// where a held object goes. CHand::UpdateHeldObject is never inside such a
+// swap at all.
 //
 // Under gravity lock the two cameras differ by the game's whole downward
-// pitch, 12.9 degrees in the session that found this, so the disagreement was
-// permanent. It showed as a red cross beside the Hand, ground that span under
-// the Hand instead of dragging, and objects that would only drop near the
-// bottom edge of the screen, the one place where the player's own ray pointed
-// low enough to reach the ground.
+// pitch (12.9 degrees in one measure), so the disagreement is permanent. It
+// shows as a red cross beside the Hand, ground that spans under the Hand
+// instead of dragging, and objects that drop only near the bottom edge of the
+// screen.
 //
-// So now there is one camera, and the CURSOR moves instead. pointer_map.cpp
-// turns the cursor by the inverse of the head's rotation each frame, so the
-// Hand stays put in the room while every part of the game sees one camera and
-// one cursor that agree with each other.
-//
-// The red cross had a second cause, found later and still there after this
-// change: the interface was given the pointer in window pixels, not render
-// pixels. pointer_map.cpp describes it.
+// So there is one camera, and the CURSOR moves instead. pointer_map.cpp turns
+// the cursor by the inverse of the head's rotation each frame, so the Hand
+// stays put in the room while every part of the game sees one camera and one
+// cursor that agree with each other. The interface gets the pointer in render
+// pixels, not window pixels. pointer_map.cpp describes it.
 
 void HeadCameraSetHandAnchored(bool on) {
   g_hand_anchored = on;
@@ -731,8 +712,8 @@ bool HeadCameraHandAnchored() { return g_hand_anchored; }
 //
 // ROLL AND THE SEA ARE ONE CHOICE, NOT TWO. The scanline sea is drawn as
 // full width horizontal strips and cannot tilt, so with roll applied the land
-// rolls and the horizon does not. That was measured, not argued: at 20 degrees
-// of roll the land tilted correctly while the sea kept a horizontal horizon.
+// rolls and the horizon does not: at 20 degrees of roll the land tilts
+// correctly while the sea keeps a horizontal horizon.
 // So turning roll on turns the plainer sea on with it, which mod_main.cpp
 // does when it reads the settings.
 //

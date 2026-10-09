@@ -1,4 +1,4 @@
-// The pulses of the hands: the pure math. See docs/hand.md, "Haptics".
+// The pulses of the hands: the pure math. See docs/hand-model.md, "Haptics".
 // haptics.cpp uses it, and test/controller_math checks it (haptics_checks.h).
 //
 // ONE SET. Each pulse of the mod is one of the kinds below, so the hands feel

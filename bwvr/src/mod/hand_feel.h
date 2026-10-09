@@ -1,6 +1,6 @@
 // Hands that react to the world: the fingers bend on the land and against a
 // body, open toward a target of the grip, and close on the object in the
-// Hand. See hand_feel.cpp and docs/hand.md, "Hands that react to the world".
+// Hand. See hand_feel.cpp and docs/hand-model.md, "Hands that react to the world".
 
 #pragma once
 

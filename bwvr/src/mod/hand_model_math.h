@@ -2,7 +2,7 @@
 //
 // hand_model.cpp calls these with the mesh and the bones that it reads from
 // the game's own files, and test/controller_math calls them with a made up
-// hand. Nothing here reads a global or touches the game. See docs/hand.md,
+// hand. Nothing here reads a global or touches the game. See docs/hand-model.md,
 // "The game's hand on both real hands".
 //
 // TWO CONVENTIONS, as in hand_exact_math.h. A bone is a game matrix of 4 rows

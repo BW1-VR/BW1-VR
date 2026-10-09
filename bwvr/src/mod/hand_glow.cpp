@@ -1,4 +1,4 @@
-// The glow at the Hand's point. See docs/hand.md, "The glow at the Hand's
+// The glow at the Hand's point. See docs/hand-model.md, "The glow at the Hand's
 // point".
 //
 // WHY. With the direct hand the Hand is the player's real hand, one to one.
@@ -15,7 +15,7 @@
 //
 //   9                          take: the grip picks the object up
 //   0xD                        take: the grip takes from a pile, a field or
-//                              a fish farm (the bulk take, docs/hand.md)
+//                              a fish farm (the bulk take, docs/grab.md)
 //   0xF, 0x10, 0x13, 0x1C,     activate: the grip acts on something that the
 //   0x20, and 0x12 over an     Hand cannot take (a scroll, a house, the
 //   object that the game taps  Creature, a bubble, a leash)
@@ -30,8 +30,8 @@
 // the left press fn_005D1AB0 only grabs the land [V]. The grip also starts
 // the touch of the Creature (the game's hint there is "Interact" for the
 // right button). So the trigger acts on nothing at the Hand's point. The
-// first build showed the activate look in green, the color of the trigger.
-// It is gold now, a paler gold than the take look.
+// activate look is a paler gold than the take look, and not green, the
+// color of the trigger.
 //
 // Only while the controller places the Hand in the Normal or the Holding
 // state. With the mouse, or with hand_glow=0, nothing changes.
@@ -48,7 +48,7 @@
 // WHERE. At the end of the world in each eye pass: sky_detail.cpp calls
 // HandGlowDraw after the sun glare, at 0x0082F4C9 in LH3DRender::FinishFrame.
 // There the world and the sorted list are drawn and the depth buffer still
-// holds them, and the interface is not drawn yet (docs/tabletop.md, 4.4).
+// holds them, and the interface is not drawn yet (docs/tabletop.md, "Not built: the ring and the depth key").
 //
 // THE CAMERA. An item of the sorted list can leave the camera without the eye
 // offset (sky_detail.cpp, THE SUN GLARE). So the draw asks stereo.cpp for the
@@ -100,10 +100,10 @@ int HandDirectPressKind();
 // hand_direct.cpp: the eye pass and the frame, while the controller places the
 // Hand.
 bool HandDirectEyeFrame(int* eye, uint64_t* frame);
-// hand_direct.cpp, one target (docs/hand.md, "One target"): the choice of
+// hand_direct.cpp, one target (docs/grab.md, "One target"): the choice of
 // this frame is made now, in the first eye pass. The target of the grip at
 // the Hand's point, for its halo. And hand_glow_idle: 1 draws the glow also
-// with no target and while the Hand holds an object, as the builds before.
+// with no target and while the Hand holds an object.
 void HandDirectChooseNow();
 bool HandDirectNearTarget(float center[3], float* radius, float* half_height,
                           bool* acts);
@@ -562,7 +562,7 @@ void DrawHalo() {
   }
 }
 
-// THE HALO OF THE TARGET AT THE HAND (one target, docs/hand.md). The object
+// THE HALO OF THE TARGET AT THE HAND (one target, docs/grab.md). The object
 // that a press of the grip acts on has the halo of a far target: gold, or red
 // when the influence stops the press. So near and far are one system: the
 // object with the halo is the object of the grip. The halo is as large as the
@@ -740,8 +740,8 @@ void HandGlowDraw() {
   if (!g_on) return;
   const Look look = LookFor(HandDirectPressKind(), holding);
   // NO GLOW WITH NO TARGET (hand_glow_idle=0). The glow shows only while a
-  // press of the grip at this place acts on something. The pale blue glow of
-  // the builds before was there on each frame, so it said nothing.
+  // press of the grip at this place acts on something. With the value 1, the pale blue glow
+  // is there on each frame, so it says nothing.
   if ((look == kLookNothing || look == kLookHolding) &&
       !HandDirectGlowIdle()) {
     ++g_hidden[look];

@@ -1,9 +1,9 @@
 // A hand that the player edited: the mesh of bwvr-hand.glb beside the mod.
-// See docs/hand.md, "A hand that the player edited".
+// See docs/hand-model.md, "A hand that the player edited".
 //
-// WHY. The owner wants to add polygons to the hand of the game. The export
-// tool (tools/hand_export) gives him the hand as a Blender file, an FBX and a
-// GLB. He edits the mesh, keeps the 22 bones, and exports a glTF binary. This
+// WHY. A player can add polygons to the hand of the game. The export tool
+// (tools/hand_export) gives the hand as a Blender file, an FBX and a GLB. The
+// player edits the mesh, keeps the 22 bones, and exports a glTF binary. This
 // file reads it and gives the mesh to hand_model.cpp in place of the mesh of
 // the game.
 //

@@ -1,13 +1,8 @@
-// bwvr, the Black & White VR mod. Phase 1: the game on a screen in VR.
+// bwvr, the Black & White VR mod. The game in VR.
 //
-// The game loads this as ddraw.dll, it chains every DirectDraw export to the
-// real system DLL, and it hooks one engine function. At the end of each game
-// frame it reads the finished picture out of the render target and presents it
-// on a flat screen in the headset.
-//
-// This is deliberately the smallest possible VR build. No stereo, no head
-// tracked camera. It exists to prove the output chain against the real game,
-// and to measure what the readback costs.
+// The game loads this as ddraw.dll, and it chains every DirectDraw export to
+// the real system DLL. It hooks the engine, and it presents the game in the
+// headset with OpenXR.
 //
 // Settings live in bwvr.ini beside runblack.exe. With no file the defaults
 // apply, and with vr=0 the mod does nothing and the game runs normally.
@@ -79,11 +74,11 @@ void ControllersInstall();
 void ControllersSetDirect(const DirectHandSettings& direct);
 void ControllersSetGrab(const GrabSettings& grab);
 void ControllersSetGesture(const GestureSettings& gesture);
-// gesture_air.cpp: gestures drawn in the air (M6).
+// gesture_air.cpp: gestures drawn in the air.
 void GestureAirInstall();
-// world_grab.cpp: moving around by grabbing the world (M7).
+// world_grab.cpp: moving around by grabbing the world.
 void WorldGrabSetOptions(const GrabSettings& settings);
-// pointer_map.cpp: the land drag probe of stage G0.
+// pointer_map.cpp: the land drag probe.
 void PointerMapSetGrabProbe(bool on);
 // head_pose.cpp: a still lean of the invented head.
 void HeadPoseSetFakeLean(int right_cm, int up_cm, int forward_cm);
@@ -229,11 +224,10 @@ float g_separation = 0.0f;
 // Default 8, which puts the interface about 1.3 m away against a virtual
 // screen at 2 m.
 //
-// This used to default to 0 because shifting only DrawAndClip2D split the
-// interface: a checkbox ended up with its border at one depth and its fill at
-// another. The draw probe found the missing path. DrawAndClip draws flat
-// interface too, 3000 batches in the same 150 frames, and it was never moved.
-// draw_hooks.cpp now covers both, and refuses anything that is not flat.
+// A shift of DrawAndClip2D alone would split the interface: a checkbox would
+// get its border at one depth and its fill at another. DrawAndClip draws flat
+// interface too (3000 batches in 150 frames). draw_hooks.cpp moves both, and
+// refuses anything that is not flat.
 float g_ui_shift = 8.0f;
 bool g_freeze_time = true;
 bool g_move_camera_point = false;
@@ -320,7 +314,7 @@ int g_cloud_pole_pct = 25;
 bool g_cinema_bars = false;
 // The advisors stay where the player looked when they came.
 bool g_spirit_anchor = true;
-// Track 5, sound in the room. See docs/audio.md.
+// Sound in the room. See docs/audio.md.
 bool g_audio_head = true;
 bool g_audio_advisors = true;
 bool g_audio_trace = false;
@@ -355,7 +349,7 @@ bool g_overlay = false;
 // The teleport with a visible arc (teleport.cpp). See docs/god-view.md.
 TeleportSettings g_teleport;
 // The grab from a distance (far_grab.cpp), and the square root law of the
-// throw. See docs/hand.md, "The grab from a distance".
+// throw. See docs/grab.md, "The grab from a distance".
 FarGrabSettings g_far_grab;
 // The law of a throw and its log (throw_physics.cpp).
 int g_throw_law = 2;
@@ -431,9 +425,7 @@ void ReadSettings() {
 
   // No early return when the file is missing. GetPrivateProfileIntA gives
   // the fallback for a missing file as well as for a missing key, so the
-  // reads below are the one place a default lives. Two sets of defaults used
-  // to differ: a missing file gave a fixed eye separation and the pinned
-  // hint, which is not what the headset sessions tested.
+  // reads below are the one place a default lives.
   if (GetFileAttributesA(path) == INVALID_FILE_ATTRIBUTES) {
     ModLog("settings     : no bwvr.ini yet, so every setting is a default");
   }
@@ -472,7 +464,7 @@ void ReadSettings() {
   // PLAY MODE. One key picks how the game reaches the headset, because head
   // tracking and filling the view only make sense in these combinations.
   //   0  Immersive: the world is all around the player, and the head moves
-  //      the camera. Not a play mode now: play_mode=0 gives the God view.
+  //      the camera. Not a play mode: play_mode=0 gives the God view.
   //      This view stays for a story, while the God view stands aside, and
   //      for Ctrl F11, which turns the God view off and on.
   //   1  Stereoscopic window: a 3D screen in front of the player. The head
@@ -498,8 +490,8 @@ void ReadSettings() {
                                           {true, true, true, true}};
     int mode =
         static_cast<int>(GetPrivateProfileIntA("bwvr", "play_mode", 4, path));
-    // The God view replaced the immersive mode on 2026-10-02. An older
-    // bwvr.ini can still hold play_mode=0, and it gets the God view.
+    // play_mode=0 is the retired immersive mode. An older bwvr.ini can hold
+    // it, and it gets the God view.
     if (mode == 0) {
       ModLog("settings     : play_mode=0, the immersive mode, is now the God "
              "view, play mode 4");
@@ -552,8 +544,9 @@ void ReadSettings() {
     t.god_most_units = number("god_far_units_per_meter", 4000);
     // Where the player goes when the game puts its own camera at a place:
     // 1 follows the game, with the land point that the camera looks at
-    // god_spawn_ahead_cm in front of the head. 0 is the rule before. With
-    // test_keys=1, Ctrl and Numpad 0 change it (docs/god-view.md, 15).
+    // god_spawn_ahead_cm in front of the head. 0 keeps the camera of the game. With
+    // test_keys=1, Ctrl and Numpad 0 change it (docs/god-view.md, "The place at a
+    // camera of the game").
     t.god_spawn = number("god_spawn", 1);
     t.god_spawn_ahead_cm = number("god_spawn_ahead_cm", 50);
     t.test_keys = number("test_keys", 0) != 0;
@@ -575,7 +568,7 @@ void ReadSettings() {
   // sits in the same place in both eyes and reads flat, like a label.
   //
   // With head tracking it is the worst one to keep. A screen position is fixed
-  // relative to the camera, and the camera now turns with the head, so the
+  // relative to the camera, and the camera turns with the head, so the
   // pinned copy rides the player's look direction while the Hand stays where
   // it was put. So the default follows the head: mode 1 keeps the copy at the
   // Hand, which is the one that belongs to the world.
@@ -623,8 +616,8 @@ void ReadSettings() {
   // height, which is far too big in a headset. 25 read best in the headset.
   g_ui_scale_pct = GetPrivateProfileIntA("bwvr", "ui_scale_pct", 25, path);
   // Not in the launcher yet. The interface on its own surface: 1 shows it as
-  // quad layers in the room, 2 is the desktop test of step U1. See
-  // docs/ui-layer.md, section 10. A negative angle needs the cast.
+  // quad layers in the room, 2 is the desktop test. See
+  // docs/ui-layer.md, "Ini keys and the test key". A negative angle needs the cast.
   {
     UiPanelSettings& u = g_ui_panel;
     u.mode = static_cast<int>(GetPrivateProfileIntA("bwvr", "ui_panel", 0, path));
@@ -798,7 +791,7 @@ void ReadSettings() {
       GetPrivateProfileIntA("bwvr", "controller_swap_buttons", 0, path) != 0;
   g_controller_haptics =
       GetPrivateProfileIntA("bwvr", "controller_haptics", 1, path) != 0;
-  // Step M8: with a controller in use, the hints show its buttons. The profile
+  // With a controller in use, the hints show its buttons. The profile
   // key is a test key. It forces the words of one profile, for example
   // "valve/index_controller", instead of the profile the runtime reports.
   g_controller_hints =
@@ -828,7 +821,7 @@ void ReadSettings() {
                              sizeof(f.points), path);
     GetPrivateProfileStringA("bwvr", "fake_controller_left_points", "",
                              f.left_points, sizeof(f.left_points), path);
-    // Step M6: the templates the word "trace" steps through.
+    // The templates the word "trace" steps through.
     GetPrivateProfileStringA("bwvr", "fake_controller_gestures", "",
                              f.gestures, sizeof(f.gestures), path);
     f.gesture_cm = number("fake_controller_gesture_cm", 30);
@@ -842,12 +835,12 @@ void ReadSettings() {
     g_fake_mouse_y_pct[0] = number("fake_mouse_y_pct", 50);
     g_fake_mouse_x_pct[1] = number("fake_mouse_x2_pct", 50);
     g_fake_mouse_y_pct[1] = number("fake_mouse_y2_pct", 70);
-    // A still lean of the invented head, for the grab tests (M7).
+    // A still lean of the invented head, for the grab tests.
     g_fake_lean_cm[0] = number("fake_head_right_cm", 0);
     g_fake_lean_cm[1] = number("fake_head_up_cm", 0);
     g_fake_lean_cm[2] = number("fake_head_forward_cm", 0);
-    // The direct hand of step M3: 1 puts the Hand at the controller, 0 keeps
-    // the M2 pointer.
+    // The direct hand: 1 puts the Hand at the controller, 0 keeps the
+    // pointer.
     DirectHandSettings& d = g_direct_hand;
     d.mode = number("controller_hand", 1) != 0 ? 1 : 0;
     // The Hand is the real hand: one to one, the size of the real hand. The
@@ -857,9 +850,9 @@ void ReadSettings() {
     d.hand_cm = number("hand_real_cm", 19);
     d.scale_pct = number("hand_scale_pct", 100);
     d.reach_anchor_down_cm = number("hand_reach_anchor_down_cm", 20);
-    // Step M4: the throw.
+    // The throw.
     d.throw_gain_pct = number("throw_gain_pct", 150);
-    // The Creature by touch (docs/hand.md): the camera, the real speed of a
+    // The Creature by touch (docs/creature.md, "The Creature by touch"): the camera, the real speed of a
     // slap in m/s, the reach of the body past its radius, and the wait.
     d.creature_camera = number("creature_camera", 2);
     {
@@ -871,12 +864,12 @@ void ReadSettings() {
     }
     d.creature_touch_cm = number("creature_touch_cm", 5);
     d.creature_slap_wait = number("creature_slap_wait", 0) != 0;
-    // A glow at the point the Hand interacts from. See docs/hand.md.
+    // A glow at the point the Hand interacts from. See docs/hand-model.md, "The glow at the Hand's point".
     g_hand_glow = number("hand_glow", 1) != 0;
-    // The overlay renderer's test hand. See docs/hand.md, "Overlay renderer".
+    // The overlay renderer's test hand. See docs/hand-model.md, "Overlay renderer".
     g_overlay = number("overlay", 1) != 0;
     // The teleport: hold A to aim an arc, let go to go there. See
-    // docs/god-view.md, "The teleport". teleport=0 gives the old A jump.
+    // docs/god-view.md, "The teleport". teleport=0 keeps the jump of the A button.
     g_teleport.on = number("teleport", 1) != 0;
     g_teleport.reach_m = number("teleport_reach_m", 10);
     g_teleport.ring_cm = number("teleport_ring_cm", 11);
@@ -888,7 +881,7 @@ void ReadSettings() {
     g_far_grab.cone_deg = number("far_grab_cone_deg", 8);
     g_far_grab.pull_cmps = number("far_grab_pull", 80);
     // throw_law: 2 is the real flight of a thrown object (the default), 1
-    // is the square root law, and 0 is the old gain. See docs/hand.md, "The
+    // is the square root law, and 0 is the plain gain. See docs/throw.md, "The
     // throw physics". throw_log=1 logs each flight in full, and 2 also logs
     // each substep and each frame after the first contact.
     g_throw_law = number("throw_law", 2);
@@ -900,8 +893,8 @@ void ReadSettings() {
     g_throw_trees = number("throw_trees", 1) != 0;
     // throw_land: what a thrown object does after its first contact. 1 is
     // the time of the land with the low bounce and the brake, 2 is the low
-    // bounce and the brake in the time of the flight, 0 is the landing as
-    // it was. throw_land_rate_x10: the rate of the land times 10 (10 is the
+    // bounce and the brake in the time of the flight, 0 is the landing of
+    // the game. throw_land_rate_x10: the rate of the land times 10 (10 is the
     // game's own time). throw_bounce_pct: the share of its speed that a
     // bounce keeps, of the speed that the game gives it.
     // throw_land_brake_pct: the friction of the brake of the land, in
@@ -921,7 +914,8 @@ void ReadSettings() {
       g_far_grab.max_m = meters > 0.0 ? static_cast<float>(meters) : 0.0f;
     }
 
-    // Step M7: moving around by grabbing the world. See docs/grab-world.md.
+    // Moving around by grabbing the world. See docs/god-view.md, "Moving
+    // around: the grab and the mouse".
     GrabSettings& g = g_grab;
     // The player's choices: which grips grab, and what two hands do.
     g.on = number("grab_world", 1) != 0;
@@ -941,10 +935,10 @@ void ReadSettings() {
     g.release_pct = number("grab_release_pct", 50);
     g.limit = number("grab_limit", 3400);
     g.min_height = number("grab_min_height", 6);
-    // A test: the gain of the game's own land drag (stage G0).
+    // A test: the gain of the game's own land drag (the land drag probe).
     g.probe = number("grab_probe", 0) != 0;
 
-    // Step M6: drawing a gesture in the air. See docs/hand.md.
+    // Drawing a gesture in the air. See docs/miracles.md.
     g_gesture.button = number("gesture_button", 1);
     g_gesture.size_cm = number("gesture_size_cm", 30);
   }
@@ -1119,7 +1113,7 @@ void StartVrOnce() {
     if (g_fov_absolute_deg > 0.0f) {
       FovSetAbsolute(g_fov_absolute_deg / 57.29578f);
     }
-    // The engine's own camera carries the head by default now, because a
+    // The engine's own camera carries the head by default, because a
     // poke inside the scene walk arrives too late for anything the engine
     // built earlier in the frame, and the sea is one of those things.
     HeadCameraSetEnabled(g_head_tracking && g_head_camera);
@@ -1128,7 +1122,7 @@ void StartVrOnce() {
     if (g_tabletop) {
       TabletopSetOptions(g_table);
       TabletopInstall();
-      // The pick of the direct hand on the table (docs/tabletop.md, 10.6).
+      // The pick of the direct hand on the table (docs/tabletop.md, "The hand on the table").
       // The God view needs it too: zoomed out, a villager is a few pixels.
       if (g_controllers && g_direct_hand.mode == 1) HandDirectInstallTable();
     }
@@ -1255,8 +1249,8 @@ void __cdecl h_FinishFrame() {
   o_FinishFrame();
   UiBarsEnd(bars);
   ++g_frame;
-  // Rule 5 of docs/ui-layer.md, 2.3: the game's target is back before
-  // anything else runs.
+  // The rules for the switch (docs/ui-layer.md, "Rules for the switch"):
+  // the game's target is back before anything else runs.
   UiPanelAfterFinish(in_pass, g_frame);
   // The ears and the advisors. It latches itself to one run per frame.
   AudioFrame();
@@ -1303,8 +1297,8 @@ void __cdecl h_FinishFrame() {
 
   // The same GPU path the stereo passes use. Without it a menu at 2560x1440
   // costs 18.98 ms a frame just to read the picture back, and the readback is
-  // worse on this backend than it was on system DirectDraw, because the
-  // render target really does live in graphics memory now.
+  // worse on this backend than on system DirectDraw, because the render
+  // target lives in graphics memory.
   if (GpuBridgeReady()) {
     void* texture = GpuBridgeCaptureEye(0);
     if (texture != nullptr) {

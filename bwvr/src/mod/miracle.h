@@ -1,4 +1,4 @@
-// A miracle in the Hand (docs/hand.md, "A miracle in the Hand"). The Hand
+// A miracle in the Hand (docs/miracles.md). The Hand
 // with a miracle is the real hand, the cast has its target in the pick record
 // of the game, a shake or a button takes the miracle out of the Hand, and the
 // card says what each control does.

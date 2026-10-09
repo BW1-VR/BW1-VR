@@ -1,12 +1,11 @@
 // The exact Hand: the game's own Hand mesh on the player's real hand. See
 // docs/hand.md, "The exact Hand".
 //
-// WHY. The direct hand put the game's Hand at the controller, but only
-// roughly. The pose builder fn_0046E160 turns the Hand by the yaw of the screen
+// WHY. The pose builder fn_0046E160 turns the Hand by the yaw of the screen
 // ray and a gliding up vector, never by the controller. It puts the Hand's
 // point at the target, and the mesh's origin is the tip of the index finger,
-// so the whole Hand sat about one hand length in front of the real hand. A
-// blend after each change of state let the Hand glide for 0.13 s.
+// so the whole Hand would sit about one hand length in front of the real hand.
+// A blend after each change of state lets the Hand glide for 0.13 s.
 //
 // THE SEAM. Every Hand state builds a root matrix and then composes the
 // bones of its animation with it: fn_00839F10, cdecl (LHMatrix* pose, anim,
@@ -52,13 +51,14 @@
 // bones runs there, and a later feature (the glide of a far grab) can add its
 // own call with HandExactAddPrepareHook.
 //
-// ONE PAIR OF HANDS (docs/hand.md, "One pair of hands"). The player saw two
-// right hands that did not agree. Now the mod's hand is the hand, and the
-// game's Hand gives only its bones:
+// ONE PAIR OF HANDS (docs/hand.md, "The two real hands and
+// which one is the Hand"). Two right hands
+// that disagree would confuse the player, so the mod's hand is the hand, and
+// the game's Hand gives only its bones:
 //
 //   THE WRIST LOCK. The Holding animation moves the wrist bone itself (79
 //   degrees about the fingers, 14 cm), so the Hand turned away from the real
-//   hand with an object in it. The compose now gets a root that keeps the
+//   hand with an object in it. The compose gets a root that keeps the
 //   wrist bone at the file's wrist under the exact root, in each animation
 //   (hand_exact_math.h, WristLockRoot). A spell on a bone follows the real
 //   hand in each state.
@@ -71,7 +71,7 @@
 //   for the Hand's mesh when the call comes from CHand::Draw, while the
 //   controller places the Hand and the overlay drew the pointing hand in this
 //   frame. Each other part of CHand::Draw still runs. The mouse player sees
-//   the game's Hand as before.
+//   the game's Hand as the game draws it.
 //
 //   THE HELD OBJECT IN THE PALM. In the Holding state PrepareForDrawing puts
 //   the object's mesh at the Hand's point plus the hang offset (0x0046CA50 to
@@ -399,8 +399,8 @@ int BoneCount(const uint8_t* hand) {
 // that hid the Hand) cannot move. Then the blend ends at once, as
 // PrepareForDrawing does at 0.13 s, and the Hand does not glide from a stale
 // place. The same for an old pose that the game placed with its own root:
-// after a dialog box, such a pose was 27 cm from the real hand for one frame
-// (the player's log of 2026-10-03, frame 7563).
+// after a dialog box, such a pose can be 27 cm from the real hand for one
+// frame.
 //
 // The records hold the exact roots, not the roots of the wrist lock. The
 // lock puts a factor in front of the exact root that is the same for the old
@@ -748,13 +748,13 @@ float Radius2D(void* object) {
 
 // THE RADIUS OF THE BODY AT THE PALM. The 2D radius of a tree is the radius
 // of its crown, and the Hand holds a tree near its base. With that radius
-// the trunk of a large tree was 3 to 6 cm in front of the palm, and the
-// fingers were a cup under it (docs/hand.md, "Hands that react to the
+// the trunk of a large tree is 3 to 6 cm in front of the palm, and the
+// fingers make a cup under it (docs/hand-model.md, "Hands that react to the
 // world"). So a tree has the game's own hold radius, Object::GetHoldRadius
 // (slot 0x590): 0.2 times the 2D radius, the trunk [V Tree::GetHoldRadius
 // 0x0074B610]. Object::GetHoldType (slot 0x58C) gives 5 for a tree and a
 // dead tree. Each other object keeps its 2D radius. With hand_hold_trunk=0
-// a tree keeps it too, as in the builds before.
+// a tree keeps it too.
 const int kGetHoldType = 0x58C;
 const int kGetHoldRadius = 0x590;
 const int kHoldTypeTree = 5;
@@ -1070,7 +1070,7 @@ bool HandExactGetContext(HandExactContext* out) {
 
 bool HandExactHidesGame() { return g_installed && g_hide_live; }
 
-// For the leash (hand_direct.cpp, docs/hand.md, "The leash at the mod's
+// For the leash (hand_direct.cpp, docs/grab.md, "The leash at the mod's
 // hand"): the middle of the palm of the mod's hand in the world, from the
 // exact root of the last compose, with the frame and the Hand state of that
 // compose. It is the point where the ball of a held object touches the palm
@@ -1091,7 +1091,7 @@ bool HandExactPalm(float out[3], uint64_t* frame, int32_t* state) {
 
 bool HandExactTint() { return g_set.tint; }
 
-// For hand_feel.cpp (docs/hand.md, "Hands that react to the world"): the
+// For hand_feel.cpp (docs/hand-model.md, "Hands that react to the world"): the
 // object in the Hand as the mod placed it in the palm last (PlaceHeld): the
 // object, its origin in the world and the direction of its own up axis.
 // False when the mod does not place an object.

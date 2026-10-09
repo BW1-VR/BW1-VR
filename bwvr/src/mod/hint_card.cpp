@@ -6,7 +6,7 @@
 // rule that gave it one had a case where the two pictures did not agree: a
 // hint with no disparity while the eyes look at the hand, a hint at the Hand
 // in one state and at the edge of the view in the next, a hint behind the
-// Hand's mesh. Buck saw the hint double after each of those rules.
+// Hand's mesh. The player sees the hint double in each of those cases.
 //
 // WHAT. While a controller owns the pointer, no hint of the game draws in an
 // eye picture. draw_hooks.cpp gives each hint to this file as words. This
@@ -49,7 +49,7 @@
 //
 // THE KEYS of bwvr.ini:
 //
-//   hint_card=1          0 keeps the hints in the eye pictures, as before
+//   hint_card=1          0 keeps the hints in the eye pictures
 //   prompts=1            0 no prompts, 1 the first times, 2 always
 //   hint_card_size_pct   the size of the cards, 50 to 200, 100 by default
 //
@@ -471,7 +471,7 @@ void AddPrompts(Content cards[kHands], int context, bool first_show) {
       AddPrompt(cards, kWordGrab, L"Stroke or slap", kToneGrab);
       break;
     case kCtxLand:
-      // The control that moves the land: the trigger in the old immersive
+      // The control that moves the land: the trigger in the immersive
       // view, and the grip of the other hand in the God view and on the
       // table.
       if (TriggerDragsLand()) {

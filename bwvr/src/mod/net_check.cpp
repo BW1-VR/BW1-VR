@@ -1,5 +1,5 @@
-// The game's check for an internet connection (docs/intro.md, "The game
-// stops after the logos: the check for an internet connection").
+// The game's check for an internet connection (docs/intro.md, "The internet
+// check").
 //
 // LHMultiplayerR.dll has the function LHCheckForInternetConnection. The game
 // calls it on its main thread when the logo screens are over. The function
@@ -8,8 +8,8 @@
 // for the dial-up and VPN connections of the PC and for its modems. Each
 // call is an RPC with no time limit.
 // When the service does not answer, the game waits forever: its window keeps
-// the last logo, and Windows shows "not responding". This was seen on
-// 2026-10-07. The stack of the main thread was
+// the last logo, and Windows shows "not responding". The stack of the main
+// thread is then
 //
 //     LHMultiplayerR!LHCheckForInternetConnection
 //     rasapi32!RasEnumConnectionsA

@@ -1,5 +1,5 @@
-// The near plane of the game camera (docs/god-view.md, section 8, and
-// docs/backend.md, "The depth buffer").
+// The near plane of the game camera (docs/god-view.md, "Fog, detail and the near
+// plane", and docs/backend.md, "The depth buffer").
 //
 // LandFeature::GetNearClipping 0x005E2F30 has no arguments, gives the near
 // plane in st0 and ends with a plain ret. Its only caller is GCamera::Update

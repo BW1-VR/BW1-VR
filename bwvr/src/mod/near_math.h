@@ -1,4 +1,4 @@
-// The pick at the glow: the pure math. See docs/hand.md, "One point for each
+// The pick at the glow: the pure math. See docs/grab.md, "One point for each
 // interaction". hand_direct.cpp uses it, and test/controller_math checks it
 // (near_checks.h).
 //
@@ -100,7 +100,7 @@ inline float ScrollReach(float pick_reach, float scroll_reach) {
   return scroll_reach;
 }
 
-// THE DISTANCE FROM THE PLAYER (docs/god-view.md, section 16). A script of
+// THE DISTANCE FROM THE PLAYER (docs/god-view.md, "The player that a script sees"). A script of
 // the game measures the distance on the map from the camera to a thing, to
 // learn if the player came to look. The game measures with x and z only. In
 // the God view the player is the head and each hand that is tracked: the
@@ -195,7 +195,7 @@ inline float HeadViewInvTan(float game) {
   return game > 0.2f && game < 10.0f ? game : kHeadViewInvTan;
 }
 
-// THE POINT OF THE FLAT HAND (docs/hand.md, "The point of the flat hand").
+// THE POINT OF THE FLAT HAND (docs/creature.md, "The open hand").
 // The Hand acts from one point: the tip of the index finger. The flat hand of
 // a stroke touches with its palm, so its point is the palm: the glow shows
 // there, and the ray of the game's stroke goes through it. The palm of this
@@ -228,7 +228,7 @@ inline void PalmOffset(const float palm[3], const float stood_on[3],
   for (int i = 0; i < 3; ++i) out[i] = palm[i] - stood_on[i];
 }
 
-// A PRESS ON A SCROLL (docs/hand.md, "The click on a scroll"). The game taps
+// A PRESS ON A SCROLL (docs/village.md, "The scroll"). The game taps
 // a scroll only while the scroll is active. The scroll of a challenge is not
 // active until the player clicks it: a script of the game waits for the
 // click, and then it makes the scroll active and starts the challenge. So a
@@ -402,9 +402,9 @@ inline Gap TreeGap(const float point[3], const float base[3], float radius,
 // factor of 2 (SizeClass). In one step the nearer middle wins, so two trees
 // with crowns that meet share the room between them.
 //
-// The first build of this rule let a scroll in the reach win over each body.
-// Run hk4 showed the fault: the Creature stood 4 cm of the room from a scroll,
-// and a grip at the Creature tapped the scroll.
+// A scroll in the reach must not win over each body: a Creature that stands
+// 4 cm of the room from a scroll would lose a grip at the Creature to a tap
+// on the scroll.
 //
 // Each rule gives a full order, so the choice does not depend on the order of
 // the candidates.
@@ -502,7 +502,7 @@ inline HaloShape HaloEllipse(float axis_x, float axis_y, float radius_px,
   return out;
 }
 
-// THE HAND OF A STROKE (docs/hand.md, "The open hand on the Creature"). While
+// THE HAND OF A STROKE (docs/creature.md, "The open hand"). While
 // the Hand strokes the Creature, the mod's hand is open. Against a Creature
 // that is large for the hand it is the flat hand, and the palm touches.
 // Against a small one it is the index finger, and the tip touches. ratio is
@@ -512,11 +512,7 @@ inline HaloShape HaloEllipse(float axis_x, float axis_y, float radius_px,
 // takes the hand of the nearer limit (StrokeFingerAtStart).
 //
 // The limits are percent of the hand's length (creature_finger_below_pct and
-// creature_flat_above_pct). They were 80 and 120 until 2026-10-04, so a
-// stroke that started on a Creature as high as the hand is long got the
-// finger. Buck: "the creature was the size of my hand roughly but it was
-// still using fingertip to stroke it, maybe change the threshold by 25% or
-// so". So the limits are 60 and 90: three quarters of the ones before. A
+// creature_flat_above_pct). They are 60 and 90, so a stroke that starts on a
 // Creature that is three quarters of the hand or more starts with the flat
 // hand.
 const int kStrokeFingerBelowPct = 60;
@@ -582,7 +578,7 @@ inline float SlapSpeed(float grip_mps, float tip_mps) {
   return grip_mps > tip_mps ? grip_mps : tip_mps;
 }
 
-// THE LEASH CLICK (docs/hand.md, "The leash from a distance"). What a click
+// THE LEASH CLICK (docs/creature.md, "The leash from a distance"). What a click
 // on the Creature does to the leash, as the game's handler of packet 0x5F
 // has it (fn_005D06E0 and fn_005E7140) [V]:
 //

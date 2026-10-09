@@ -31,7 +31,7 @@ void HintCardLatchContext(int eye);
 void HintCardEndFrame();
 
 // The test key (Ctrl Shift F11 with ui_panel=0): the card, or the hints in
-// the eye pictures as before.
+// the eye pictures.
 void HintCardToggle();
 
 // Once a report window.

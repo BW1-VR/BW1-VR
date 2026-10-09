@@ -1,5 +1,5 @@
 // The hand model: the game's own hand mesh on both of the player's hands. See
-// docs/hand.md, "The game's hand on both real hands".
+// docs/hand-model.md, "The game's hand on both real hands".
 
 #pragma once
 

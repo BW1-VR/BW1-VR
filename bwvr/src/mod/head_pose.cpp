@@ -131,7 +131,7 @@ uint64_t HeadPoseOriginSerial() { return g_origin_serial; }
 
 // The recenter pose in the runtime's LOCAL space: the head center and the yaw
 // at the last recenter, as a quaternion x y z w. The interface panels hang
-// from it (docs/ui-layer.md, 4.5). False until the head has an origin.
+// from it (docs/ui-layer.md, "Recenter"). False until the head has an origin.
 bool HeadPoseOrigin(float position_out[3], float rotation_out[4]) {
   if (!g_have_origin) return false;
   for (int i = 0; i < 3; ++i) position_out[i] = g_origin_position[i];
@@ -239,8 +239,7 @@ void HeadPoseSetFake(bool on, float yaw_degrees, float pitch_degrees,
   if (on) {
     // An invented head is absolute, not recentered. Recentering takes the
     // first pose it sees as straight ahead, so a fixed fake yaw would cancel
-    // itself out exactly and every picture would look like yaw zero. That is
-    // what the first attempt did, and the two captures came back identical.
+    // itself out exactly and every picture would look like yaw zero.
     g_origin_rotation.x = 0.0f;
     g_origin_rotation.y = 0.0f;
     g_origin_rotation.z = 0.0f;
@@ -294,7 +293,7 @@ void HeadPoseFakeStep() {
          g_fake_roll * 57.29578f);
 }
 
-// A STILL LEAN AND A LOOK FOR THE INVENTED HEAD, for the grab tests (M7).
+// A STILL LEAN AND A LOOK FOR THE INVENTED HEAD, for the grab tests.
 //
 // The lean moves the head center by fake_head_right_cm, fake_head_up_cm and
 // fake_head_forward_cm. The look turns the head 30 degrees left and 20

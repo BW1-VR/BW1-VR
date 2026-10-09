@@ -1,4 +1,4 @@
-// The pulses of the hands. See haptics.cpp and docs/hand.md, "Haptics".
+// The pulses of the hands. See haptics.cpp and docs/hand-model.md, "Haptics".
 
 #pragma once
 

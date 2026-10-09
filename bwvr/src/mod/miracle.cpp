@@ -1,4 +1,4 @@
-// A MIRACLE IN THE HAND. See docs/hand.md, "A miracle in the Hand".
+// A MIRACLE IN THE HAND. See docs/miracles.md.
 //
 // WHAT THE GAME DOES [V, runblack.exe 1.42].
 // - A one-off seed (OneOffSpellSeed, a reward or a dispenser) is an object.
@@ -1218,8 +1218,7 @@ void MiracleSelect() {
   // draw. The draw offers an object in the aim only when the point of its
   // mesh, its feet, is in the cone of the far grab. The body of a Creature is
   // 7 units and more above its feet, so a Creature 50 cm of the room from the
-  // Hand had the aim on its body and was not offered (desktop runs mirO and
-  // mirP: "the draw did not offer"). Each player has one Creature at most
+  // Hand has the aim on its body and is not offered. Each player has one Creature at most
   // (GPlayer+0xA4C), and the mod knows its body with no draw.
   void* creatures[kPlayers] = {nullptr};
   for (int i = 0; i < kPlayers; ++i) {

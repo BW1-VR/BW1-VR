@@ -1,17 +1,14 @@
-// The pulses of the hands. See docs/hand.md, "Haptics".
+// The pulses of the hands. See docs/hand-model.md, "Haptics".
 //
-// ONE SET. Before this file each part of the mod sent its own pulse, with its
-// own amplitude and time: 1.0 for 100 ms at a hard slap, 0.6 for 80 ms when
-// an object came into the Hand. Now each pulse has a kind
-// (haptics_math::Kind), and the kind gives the amplitude and the time. Each
-// is short and none is more than 0.75, so the hands tick and do not buzz.
+// ONE SET. Each pulse has a kind (haptics_math::Kind), and the kind gives the
+// amplitude and the time. Each is short and none is more than 0.75, so the hands tick and do not buzz.
 //
 // ONLY WHAT THE PLAYER DID. A pulse follows an act of the player: a grip, a
 // slap, a stroke, a release, a new target under the hand or the aim. Nothing
 // pulses on its own.
 //
 // haptics_pct (100) scales the amplitude of each kind. 0 turns the pulses of
-// this file off. controller_haptics=0 turns each pulse off, as before. The
+// this file off. controller_haptics=0 turns each pulse off. The
 // pulses of the test keys do not go through this file, so they stay as they
 // are at each value.
 //

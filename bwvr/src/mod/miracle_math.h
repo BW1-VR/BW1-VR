@@ -1,5 +1,5 @@
-// A miracle in the Hand: the pure math. See docs/hand.md, "A miracle in the
-// Hand". miracle.cpp uses it, and test/controller_math checks it
+// A miracle in the Hand: the pure math. See docs/miracles.md.
+// miracle.cpp uses it, and test/controller_math checks it
 // (miracle_checks.h).
 
 #pragma once

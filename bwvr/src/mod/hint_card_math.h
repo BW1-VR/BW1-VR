@@ -292,7 +292,7 @@ inline bool CardsOverlap(const Card& a, float a_width, float a_height,
 // Two of them say a thing that the control does not do:
 //
 //   Code 1, the left button, "Move". The game means a drag of the land. The
-//   trigger drags the land only in the old immersive view. In the God view
+//   trigger drags the land only in the immersive view. In the God view
 //   and on the table the picture does not come from the game camera, so the
 //   drag moves nothing (comfort_camera.cpp, GodDragAfter): the grip of the
 //   other hand moves the land. With the leash on, the trigger commands the

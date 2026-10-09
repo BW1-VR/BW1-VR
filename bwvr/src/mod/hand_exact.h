@@ -1,5 +1,5 @@
-// What hand_exact.cpp gives to the overlay. See docs/hand.md, "One pair of
-// hands".
+// What hand_exact.cpp gives to the overlay. See
+// docs/hand.md, "The two real hands and which one is the Hand".
 
 #pragma once
 
