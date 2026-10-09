@@ -155,7 +155,8 @@ The left grip moves the ground up and down (section 5). With the grip closed,
 a hand that moves up raises the land by the same distance, and a hand that
 moves down lowers it. A raise is `G.y -= s * d`, where `d` is the rise of the
 hand in meters: every land point goes `d` up in the room, and the scale and
-the heading stay. The left stick has no job.
+the heading stay. The left stick does not move the ground: it opens the ring
+menu (`controllers.md`, "10. The ring").
 
 With the mouse, the game's two tilt keys move the ground in steps of 5 cm
 (`god_ground_step_cm`), one step for each press (`GodTiltKeys` in
@@ -670,7 +671,7 @@ in the room.
 | --- | --- |
 | Right stick forward or back | Zoom in or out one step |
 | Right stick left or right | Turn one step about the head |
-| Left stick | No job |
+| Left stick | Opens the ring menu and points at an item (`radial_menu_stick=1`) |
 | Left grip | Grab the land: pull to move it across, and up or down |
 | Y (left controller), or the left menu button | Esc: open the game menu (see below) |
 | Both grips | Turn and scale the land |
