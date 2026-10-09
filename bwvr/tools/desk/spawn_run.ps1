@@ -1,8 +1,7 @@
 # One desktop run of a new game with a choice of the start dialog, through
-# desk_run.ps1. For the agent "spawn", and for each agent that needs a run
-# with the Creature of before.
+# desk_run.ps1. -Choice keep gives a run with the Creature of the profile.
 #
-#   spawn_run.ps1 -Name sp3 -Dll <dll> -Choice keep -Seconds 110
+#   spawn_run.ps1 -Name x1 -Dll <dll> -Choice keep -Seconds 110
 #   spawn_run.ps1 -Name x1 -Dll <dll> -Choice keep -Steps "shot@3000+1" -Set "teleport=0;god_spawn=0"
 #
 # -Choice chooses the row of the start dialog:
@@ -29,7 +28,7 @@ param(
 )
 $sp = Split-Path -Parent $MyInvocation.MyCommand.Path
 # The points of the start dialog depend on the render size. dialog.ps1
-# measures a new size one time (one run of 45 s) and gives the points. The
+# measures a new size one time and gives the points. The
 # first pose (yaw 8, pitch 1) points at a row, and the second pose (yaw 8,
 # pitch -6) points at OK.
 . (Join-Path $sp 'dialog.ps1')

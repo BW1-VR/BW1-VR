@@ -1,5 +1,5 @@
-# Desktop runs of the agent "temple": the ray pointer in the rooms of the
-# Temple. See bwvr/docs/controllers.md, "The Temple with the controllers".
+# Desktop runs of the ray pointer in the rooms of the Temple. See
+# bwvr/docs/controllers.md, "The Temple".
 #
 #   temple_run.ps1 -Name tpl1 -Dll <dll> -Steps "<script>" -Set "<keys>" -Seconds 190
 #

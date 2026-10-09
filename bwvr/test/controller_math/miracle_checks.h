@@ -1,4 +1,4 @@
-// A MIRACLE IN THE HAND (docs/hand.md, "A miracle in the Hand").
+// A MIRACLE IN THE HAND (docs/miracles.md, "A miracle in the Hand").
 // main.cpp includes this file after Check and Near, just before main.
 #pragma once
 

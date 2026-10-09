@@ -4,7 +4,7 @@
 #         <bw_hand.blend> <output .glb>
 #
 # It makes an example of an edited hand, with the steps that the README gives
-# to the owner: open bw_hand.blend, merge the seams of the texture, cut each
+# to the person who edits the hand: open bw_hand.blend, merge the seams of the texture, cut each
 # triangle in four, and export a glTF binary with the settings of the menu.
 # The mod reads the result as bwvr-hand.glb.
 import sys

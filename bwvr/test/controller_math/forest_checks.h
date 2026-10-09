@@ -1,4 +1,4 @@
-// MANY TREES FROM A FOREST (docs/hand.md, "Many trees from a forest").
+// MANY TREES FROM A FOREST (docs/grab.md, "Many trees from a forest").
 // main.cpp includes this file after Check, Near, GripRun, Facts, GripStart and
 // GripFrames, just before main.
 #pragma once

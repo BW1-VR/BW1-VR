@@ -13,7 +13,7 @@
 # The output is the art of the game. It goes to media\hand, which git does not
 # track. Do not commit it and do not ship it.
 #
-# The format facts are in bwvr/docs/hand.md, "The files of the Hand".
+# The format facts are in bwvr/docs/hand-model.md, "The files of the Hand".
 import argparse
 import glob
 import json

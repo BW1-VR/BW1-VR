@@ -1,12 +1,11 @@
 # The points of the scripted controller for the start dialog of a new game,
-# for the render size of now. Dot-source this file.
+# for the current render size. Dot-source this file.
 #
 # The start dialog has one size in pixels and sits at the middle of the
 # render. The scripted controller gets its places in whole cm from the head.
 # How many pixels one cm is depends on the render size, and the render size
-# is the size that the launcher took from the headset of the last session.
-# So fixed points fit one render size only. They missed at 2560 by 1440, at
-# 2880 by 2880 and at 2208 by 2208 in turn.
+# is the size that the launcher took from the headset. So fixed points fit
+# one render size only.
 #
 # So one short run measures each new render size: the hand points at three
 # places in each of its two poses, the log of the mod gives the pixel of each
@@ -81,7 +80,7 @@ function Get-DialogPoints([string]$Choice) {
     return @{ Row = $row; Ok = $ok }
 }
 
-# One short run that measures the render size of now. It goes through
+# One short run that measures the current render size. It goes through
 # desk_run.ps1, so the idle wait, the lock and the guards are the same as for
 # each other run. True when the measure is in the file after it.
 function Invoke-DialogCalibration([string]$Dll) {
@@ -140,7 +139,7 @@ function Invoke-DialogCalibration([string]$Dll) {
     return $true
 }
 
-# True when the render size of now is measured. Makes the measure run when it
+# True when the current render size is measured. Makes the measure run when it
 # is not. The lines that the run prints go to the host, not to the result.
 function Confirm-DialogCalibration([string]$Dll) {
     if (Get-DialogCalibration) { return $true }

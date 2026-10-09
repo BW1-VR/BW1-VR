@@ -1,4 +1,4 @@
-// THE AIM RAY (docs/controllers.md, section 8).
+// THE AIM RAY (docs/controllers.md, "The aim ray").
 // main.cpp includes this file after Check and Near, just before main.
 #pragma once
 

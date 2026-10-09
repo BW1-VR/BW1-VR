@@ -94,9 +94,8 @@ inline void SubtitleCardChecks() {
   printf("\nThe subtitle card\n");
   using namespace subtitle_math;
 
-  // WHY THE SUBTITLES WENT APART, with the numbers of Buck's log of
-  // 2026-10-03: a render of 2880 pixels for 110 degrees, and eyes 65 mm
-  // apart.
+  // WHY THE SUBTITLES WENT APART, with the numbers of a render of 2880
+  // pixels for 110 degrees, and eyes 65 mm apart.
   const float focal = 1440.0f / tanf(55.0f * kDegrees);
   const float eyes = 0.065f;
   Near("the focal length of the render, px", focal, 1008.3, 0.2);
@@ -106,8 +105,8 @@ inline void SubtitleCardChecks() {
        DepthOfShift(focal, eyes, 8.0f), 4.096, 0.01);
   Check(DepthOfShift(focal, eyes, 0.0f) > 1e8f,
         "no shift puts them at a depth with no end", 1, 1);
-  // His log, frame 1078: the Hand's point at x 1245 in the left eye and 1091
-  // in the right eye, "0.43 m". That is a shift of 77 px in each eye.
+  // The Hand's point at x 1245 in the left eye and 1091 in the right eye is
+  // "0.43 m". That is a shift of 77 px in each eye.
   Near("the Hand's point of frame 1078 (154 px apart) is at 0.43 m",
        DepthOfShift(focal, eyes, 77.0f), 0.426, 0.01);
   Near("with the eyes on that Hand, the subtitles at 1.37 m are 6.0 degrees "

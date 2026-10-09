@@ -1,7 +1,6 @@
-# Desktop runs of the agent "miracles": a miracle in the Hand. See
-# bwvr/docs/hand.md, "A miracle in the Hand".
+# Desktop runs of a miracle in the Hand. See bwvr/docs/miracles.md.
 #
-#   miracle_run.ps1 -Name mA -Dll <dll> -Kind creature -Set "miracle_hand=0"
+#   miracle_run.ps1 -Name x1 -Dll <dll> -Kind creature -Set "miracle_hand=0"
 #
 # The start is the choice "Keep your old Creature" (spawn_run.ps1): no story,
 # and the Creature of the profile at the door of the Temple. The test key

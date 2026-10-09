@@ -1,4 +1,4 @@
-// THE HAND MODEL (docs/hand.md, "The game's hand on both real hands"): the
+// THE HAND MODEL (docs/hand-model.md, "The game's hand on both real hands"): the
 // bones of a pose, the place of the mesh on the hand, the skin, the hold, the
 // light and the look. main.cpp includes this file after Check and Near, just
 // before main.

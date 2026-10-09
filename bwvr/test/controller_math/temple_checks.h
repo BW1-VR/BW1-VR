@@ -1,6 +1,5 @@
-// THE POINTER IN A ROOM OF THE TEMPLE (docs/controllers.md, "The Temple with
-// the controllers"). main.cpp includes this file after Check and Near, just
-// before main.
+// THE POINTER IN A ROOM OF THE TEMPLE (docs/controllers.md, "The Temple").
+// main.cpp includes this file after Check and Near, just before main.
 #pragma once
 
 #include "../../src/mod/temple_math.h"

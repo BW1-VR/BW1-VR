@@ -1,5 +1,6 @@
-// ONE PAIR OF HANDS (docs/hand.md, "One pair of hands"): the poses of the
-// mod's hands, the held object in the palm, the wrist lock and the tint.
+// ONE PAIR OF HANDS (docs/hand.md, "The two real hands and which one is the
+// Hand", and docs/hand-model.md): the poses of the mod's hands, the held
+// object in the palm, the wrist lock and the tint.
 // main.cpp includes this file after Check and Near, just before main.
 #pragma once
 

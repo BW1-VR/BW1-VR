@@ -1,4 +1,4 @@
-// THE PICK AT THE GLOW (docs/hand.md, "One point for each interaction").
+// THE PICK AT THE GLOW (docs/grab.md, "One point for each interaction").
 // main.cpp includes this file after Check and Near, just before main.
 #pragma once
 
@@ -54,8 +54,8 @@ inline void NearChecks() {
     Near("4 cm of the room at 44.5 units a meter is 1.78 units",
          CmToUnits(4.0f, 44.5f), 1.78, 1e-4);
     Near("no scale gives no reach", CmToUnits(4.0f, 0.0f), 0.0, 1e-6);
-    // The log of 2026-10-03: a tree 11.38 units from the point was taken, at
-    // 100 units a meter and a reach of 11.40.
+    // A tree 11.38 units from the point, at 100 units a meter and a reach of
+    // 11.40.
     Check(11.38f < 0.6f * 3.2f * 5.9375f,
           "the old reach of 60 percent of the Hand took a tree 11.38 cm away",
           11.38, 11.40);
@@ -197,7 +197,7 @@ inline void NearChecks() {
   }
 }
 
-// ONE TARGET (docs/hand.md, "One target"): the bodies, the rule of the
+// ONE TARGET (docs/grab.md, "One target"): the bodies, the rule of the
 // choice, the distance in the pick record and the halo.
 inline void OneTargetChecks() {
   using namespace near_math;
@@ -257,7 +257,7 @@ inline void OneTargetChecks() {
     const float base[3] = {100.0f, 20.0f, 300.0f};
     const float r = 4.0f, h = 20.0f;
     // A corner of the cylinder: beside the trunk, near the land. The cylinder
-    // of the build before had it inside.
+    // of a plain cylinder would hold it inside.
     const float corner[3] = {103.5f, 21.0f, 300.0f};
     Near("the cylinder of the build before holds a point 3.5 units from the "
          "trunk at the land", BodyGap(corner, base, r, h).gap, 0.0, 1e-6);
@@ -392,9 +392,9 @@ inline void OneTargetChecks() {
           "touches", first, 1);
   }
 
-  // THE DISTANCE OF THE CHOICE IN THE PICK RECORD. The log of 2026-10-03: the
-  // tree at 1859.63 32.78 2621.32, the camera at 1897.31 85.03 2615.55, and
-  // the land under the pointer at 53.04 units.
+  // THE DISTANCE OF THE CHOICE IN THE PICK RECORD. The tree at
+  // 1859.63 32.78 2621.32, the camera at 1897.31 85.03 2615.55, and the land
+  // under the pointer at 53.04 units.
   {
     const double dx = 1897.31 - 1859.63, dy = 85.03 - 32.78,
                  dz = 2615.55 - 2621.32;
@@ -436,8 +436,8 @@ inline void OneTargetChecks() {
   }
 }
 
-// THE OPEN HAND ON THE CREATURE (docs/hand.md): the hand of a stroke, the
-// tickle and the speed of a slap.
+// THE OPEN HAND ON THE CREATURE (docs/creature.md, "The open hand"): the hand of a stroke,
+// the tickle and the speed of a slap.
 inline void StrokeChecks() {
   using namespace near_math;
   printf("\nThe open hand on the Creature\n");
@@ -476,8 +476,8 @@ inline void StrokeChecks() {
     Check(StrokeFinger(nan, true, lo, hi) && !StrokeFinger(nan, false, lo, hi),
           "a ratio that is not a number keeps the hand", 1, 1);
 
-    // THE START OF A STROKE, and the session of 2026-10-04: a Creature of
-    // size 0.22 (a body of 3.63 units) and a hand of 19 cm.
+    // THE START OF A STROKE: a Creature of size 0.22 (a body of 3.63 units)
+    // and a hand of 19 cm.
     Check(!StrokeFingerAtStart(3.63f / 13.2f / 0.19f, lo, hi),
           "at 13.2 units a meter the body is 1.45 of the hand: the flat hand",
           0, 0);
@@ -663,7 +663,7 @@ inline void StrokeChecks() {
   // THE POINT OF THE FLAT HAND: the palm.
   {
     const float tip[3] = {10.0f, 5.0f, 20.0f};
-    // The palm of the log: 12.1 cm from the tip at 13.2 units a meter.
+    // A palm offset: 12.1 cm from the tip at 13.2 units a meter.
     const float offset[3] = {-1.2f, -0.4f, 0.9f};
     float out[3];
     Check(PalmPoint(tip, offset, 1, true, true, out),
@@ -695,8 +695,8 @@ inline void StrokeChecks() {
   }
 
   // THE PALM DOES NOT FOLLOW THE POINT. The palm of the mod's hand is the
-  // point that the hand stands on and the offset c. The numbers are of run
-  // hs1: 11.4 cm of the room at 19.8 units a meter, 2.2569 units.
+  // point that the hand stands on and the offset c. The numbers are
+  // 11.4 cm of the room at 19.8 units a meter, 2.2569 units.
   {
     const float c[3] = {-0.38f, 2.2161f, -0.19f};
     const float length = sqrtf(c[0] * c[0] + c[1] * c[1] + c[2] * c[2]);
@@ -717,8 +717,8 @@ inline void StrokeChecks() {
     Near("after 30 frames with a still hand the point is one offset from "
          "the tip", sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]), length,
          1e-3);
-    // The first build: the mod's hand stood on the Hand's point, and the
-    // offset was from the tip of the controller.
+    // A model in which the mod's hand stands on the Hand's point, and the
+    // offset is from the tip of the controller.
     for (int i = 0; i < 3; ++i) stood[i] = point[i] = tip[i];
     for (int frame = 0; frame < 27; ++frame) {
       const float palm[3] = {stood[0] + c[0], stood[1] + c[1],

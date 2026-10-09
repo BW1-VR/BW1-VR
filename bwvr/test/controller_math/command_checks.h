@@ -1,4 +1,4 @@
-// THE CREATURE COMMANDS (docs/hand.md, "The Creature commands"): the shake of
+// THE CREATURE COMMANDS (docs/creature.md, "The commands"): the shake of
 // the real hand that takes the leash off, and what a release of the trigger
 // does. main.cpp includes this file after Check and Near, just before main.
 #pragma once
@@ -276,8 +276,7 @@ inline void CommandChecks() {
   Check(ReleaseLandAim(0.10, 0.0, true, true) == kLandAimRelease,
         "creature_command_hold_ms=0: each press uses the aim of the release",
         1, 1);
-  // The 16 short presses of the headset test of 2026-10-03 (82 to 242 ms)
-  // sent nothing with the old rule. Each one sends now.
+  // 16 short presses (82 to 242 ms). Each one sends the Creature.
   {
     const double taps[16] = {0.155, 0.142, 0.133, 0.133, 0.120, 0.201,
                              0.145, 0.242, 0.145, 0.145, 0.169, 0.110,
@@ -303,7 +302,7 @@ inline void CommandChecks() {
   Check(!SentMarkShows(10.0, 10.61), "the mark is gone after 610 ms", 0, 0);
 }
 
-// THE LIVE TARGET OF A COMMAND, AND THE DOUBLE PRESS (docs/hand.md, "The live
+// THE LIVE TARGET OF A COMMAND, AND THE DOUBLE PRESS (docs/creature.md, "The live
 // target of a command" and "The leash on an object").
 inline void LiveChecks() {
   using namespace command_math;
@@ -540,9 +539,8 @@ inline void LiveChecks() {
     r = ReleaseLive(2.0, hold, kShownNone, kShownNone, true, true);
     Check(r.command == kCommandNone, "a press that was stopped: nothing",
           r.command, kCommandNone);
-    // The three holds of the headset test of 2026-10-04 that sent nothing
-    // ("the aim left the target", 733, 2023 and 2012 ms) send the Creature
-    // to the land now.
+    // Three holds (733, 2023 and 2012 ms) where the aim left the target send
+    // the Creature to the land.
     const double holds[3] = {0.733, 2.023, 2.012};
     int sent = 0;
     for (int i = 0; i < 3; ++i) {

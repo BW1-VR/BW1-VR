@@ -1,4 +1,4 @@
-// THE GRAB FROM A DISTANCE (docs/hand.md, "The grab from a distance").
+// THE GRAB FROM A DISTANCE (docs/grab.md, "The grab from a distance").
 // main.cpp includes this file after Check and Near, just before main.
 #pragma once
 
@@ -91,7 +91,7 @@ inline void FarChecks() {
     s[0] = {true, 10.0f, 11.0f};
     pick = FarPickTarget(s, 2, 0, kFarSelectDeg, kFarKeepDeg, kFarSwitchDeg);
     Check(pick == 0, "a target of te 10 degrees is kept", pick, 0);
-    // A target that is no longer valid (nearer than the minimum) is lost.
+    // A target that is not valid (nearer than the minimum) is lost.
     s[0] = {false, 0.0f, 0.0f};
     pick = FarPickTarget(s, 2, 0, kFarSelectDeg, kFarKeepDeg, kFarSwitchDeg);
     Check(pick == -1, "a target that turned invalid is lost", pick, -1);

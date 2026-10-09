@@ -1,6 +1,5 @@
 # Waits for an idle PC (10 minutes, no game), then one desktop run of the
-# given DLL through desk_run.ps1, for the agent "hand". Gives up after
-# -Minutes.
+# given DLL through desk_run.ps1. Gives up after -Minutes.
 #
 #   hand_run.ps1 -Name hs1 -Dll <dll> -Kind one -Seconds 200
 #
@@ -9,7 +8,7 @@
 #          near_rule 1 and then 2 (near_test_flips), at the start place and
 #          at the store.
 #   fixed  The same places from -Points (cm from the head), with no seek, so
-#          the DLL of the build before runs the same test. -Steps gives the
+#          a DLL of an older build runs the same test. -Steps gives the
 #          script after the start dialog.
 param(
     [Parameter(Mandatory = $true)][string]$Name,
@@ -23,11 +22,11 @@ param(
     [int]$Minutes = 600
 )
 $sp = Split-Path -Parent $MyInvocation.MyCommand.Path
-# The start dialog at a render of 2560 by 1440.
+# The steps that close the start dialog.
 $dialog = 'point@400+1 trigger@440+8 pose2@500+1 point@520+1 trigger@560+8'
 # The two dialog points depend on the render size. dialog.ps1 measures a
-# new size one time and gives them. -Box is a place of the dialog at 2560 by
-# 1440 and is not corrected.
+# new size one time and gives them. -Box is a fixed place of the dialog (it
+# fits a render of 2560 by 1440), and dialog.ps1 does not correct it.
 . (Join-Path $sp 'dialog.ps1')
 if (-not (Confirm-DialogCalibration -Dll $Dll)) {
     'NOT RUN: the start dialog is not measured for this render size'
@@ -43,8 +42,8 @@ $extra = @{
     throw_log = 1; throw_law = 2; depth24 = 1; help_test = 1; fake_controller_front = 1
 }
 if ($Kind -eq 'one') {
-    # The first story ends near frame 3965 at 68 frames a second, so the
-    # script starts at frame 4600. First to the store of Land 1: four turns
+    # The first story ends before frame 4600, so the script starts there.
+    # First to the store of Land 1: four turns
     # right and six zoom steps out.
     $s = '-16,-50,55'
     $extra.fake_controller_points = "$d1 $d2 $s $s $s $s $s $s $s"

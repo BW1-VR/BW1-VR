@@ -1,5 +1,5 @@
 // THE BULK TAKE RULE, THE GRIP THAT OPENS AT ONCE AND THE RANGE OF A FAR GRAB
-// (docs/hand.md, "The bulk take", "The release at once" and "The grab from a
+// (docs/grab.md, "The bulk take" and "The grab from a
 // distance"). main.cpp includes this file after Check, Near, GripRun, Facts,
 // GripStart and GripFrames, just before main.
 #pragma once
@@ -81,9 +81,9 @@ inline void TakeRuleChecks() {
         "the next opening clicks to drop the bundle, and latches the throw", 1,
         1);
 
-  // NOTHING COLLECTS AFTER THE GRIP OPENS. The fault of 2026-10-03: the game
-  // did not end the take when the button went up, and it collected to the
-  // limit of 20000. The step now asks for the end.
+  // NOTHING COLLECTS AFTER THE GRIP OPENS. The game does not end the
+  // take when the button goes up, and it collects to the limit of 20000. The
+  // step asks for the end.
   GripStart(&run);
   GripFrames(&run, 1, true, empty);
   GripFrames(&run, 100, true, take);

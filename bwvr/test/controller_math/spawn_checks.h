@@ -1,5 +1,5 @@
 // THE PLACE OF THE GOD VIEW AT A CAMERA OF THE GAME (docs/god-view.md,
-// section 15): GodSpawn and HeadYaw of table_math.h.
+// "The place at a camera of the game"): GodSpawn and HeadYaw of table_math.h.
 // main.cpp includes this file after Check and Near, just before main.
 #pragma once
 

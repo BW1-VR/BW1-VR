@@ -1,4 +1,4 @@
-// THE THROW OF A REAL HAND (docs/hand.md, "The throw physics").
+// THE THROW OF A REAL HAND (docs/throw.md, "The throw physics").
 // main.cpp includes this file after Check and Near, just before main.
 #pragma once
 
@@ -57,9 +57,8 @@ inline double Mps(const float v[3]) {
 // gives the force of the contact: `spring` times the depth on the first step
 // in the land, and after that the force of the first depth plus 200 times
 // `spring2` times the change of the depth, never below 0. The values are for
-// each unit of mass, and those of a rock are 21.56 and 1.328 (the log of run
-// tbase0). ReboundFactor cuts the force as throw_physics.cpp does. The ball
-// falls on the land with the speed `down`. *up is the speed with which it
+// each unit of mass, and those of a rock are 21.56 and 1.328. ReboundFactor cuts the force as
+// throw_physics.cpp does. The ball falls on the land with the speed `down`. *up is the speed with which it
 // leaves the land the first time (0 when it stays), and *depth and *speed are
 // the depth of the point and the speed of the ball 20 s later.
 inline void BallOnLand(double down, float keep, double* up, double* depth,
@@ -561,8 +560,8 @@ inline void ThrowChecks() {
                                                 kReboundSoft), 1.0, 1e-6);
     Near("a part of 1 gives no cut", ReboundFactor(up, out, 1.0f,
                                                    kReboundSoft), 1.0, 1e-6);
-    // A ball on the contact of the game, at the speed of the landing of run
-    // tbase0 (26.5 units a second down).
+    // A ball on the contact of the game, at a landing speed of
+    // 26.5 units a second down.
     double game_up = 0.0, low_up = 0.0, depth = 0.0, speed = 0.0;
     double game_depth = 0.0, game_speed = 0.0;
     BallOnLand(26.5, 1.0f, &game_up, &game_depth, &game_speed);

@@ -3,10 +3,10 @@
 //
 // It compiles the real head_pose.cpp, the math of controllers.cpp
 // (controller_math.h) and the table math (table_math.h). It checks the
-// numbers of docs/controllers.md, section 5.5, tests 1 to 3, and a few more.
-// The overlay checks follow docs/hand.md, "Overlay renderer".
-// The table checks follow docs/tabletop.md, section 2.2. The head is a fake
-// head, so the origin is the identity at zero, and a fake hand in LOCAL space
+// numbers of docs/controllers.md, "Tests", and a few more.
+// The overlay checks follow docs/hand-model.md, "Overlay renderer".
+// The table checks follow docs/tabletop.md, "The table camera". The head is a
+// fake head, so the origin is the identity at zero, and a fake hand in LOCAL space
 // is a hand in the room. The direct hand checks move the head and keep the
 // hand still: the reach point, its factor and the drag ray must not change.
 //
@@ -143,7 +143,7 @@ struct Direct {
   float reach[3];
   float factor;
   float camera_dir[3];
-  float old_reach[3];  // the reach from the render eye, as M3 first did it
+  float old_reach[3];  // the reach from the render eye
 };
 
 const float kStart = 0.35f;
@@ -175,7 +175,7 @@ Direct DirectHand(const float game_position[3], const float room[9],
   return r;
 }
 
-// THE GRAB OF THE WORLD (M7).
+// THE GRAB OF THE WORLD.
 //
 // A camera over the island, a head and hands in the room, and the solve of
 // controller_math.h. The world point of a room point a is C + L * a, with L
@@ -592,7 +592,7 @@ void PointOnHead(const float head[9], const float origin[3], float right,
   }
 }
 
-// THE GESTURE PLANE (step M6). A square drawn in front of any head gives the
+// THE GESTURE PLANE. A square drawn in front of any head gives the
 // same pixels. A head that turns during the draw does not bend it. The size
 // follows gesture_size_cm.
 void GestureChecks() {
@@ -700,7 +700,7 @@ void GestureChecks() {
         "a curve stays within the tolerance", 0, 0);
 }
 
-// THE TABLE, docs/tabletop.md, section 2.2. The real head_pose.cpp gives the
+// THE TABLE, docs/tabletop.md, "The table camera". The real head_pose.cpp gives the
 // lean at the life size scale, and table_math.h puts it on the table the way
 // head_camera.cpp does: E = P0 + Lt * (lean * gain).
 void TableEye(const float origin[3], const float basis[9], int right_cm,
@@ -930,7 +930,8 @@ void TableChecks() {
   Near("and none of them is behind it", nearest, 1.0, 1e-5);
 }
 
-// THE CONTROLLERS ON THE TABLE, docs/tabletop.md, sections 10.6 to 10.8.
+// THE CONTROLLERS ON THE TABLE, docs/tabletop.md, "The hand on the table",
+// "Moving the table by the grips" and "The ears on the table".
 //
 // One head sample of the fake head with a lean in cm, as head_pose.cpp gives
 // it, and a fake hand at a point in cm from the recenter pose. The grip goes
@@ -1466,7 +1467,7 @@ void GodChecks() {
     Near("a hand that moves up moves no land across, units",
          Distance(panned.center, pose.center), 0.0, 1e-3);
 
-    // THE VERTICAL GRAB of the God view (docs/god-view.md, section 5): one
+    // THE VERTICAL GRAB of the God view (docs/god-view.md, "The grab of the land"): one
     // hand also moves the land up and down, one to one, from the press.
     {
       TablePose raised;
@@ -1707,8 +1708,8 @@ float FromRay(const float origin[3], const float dir[3], const float p[3]) {
   return sqrtf(off);
 }
 
-// THE MOUSE PAN OF THE GOD VIEW, docs/god-view.md, section 5. The land is
-// level at the height of the waist point, 45.5 units, with a hill of 60
+// THE MOUSE PAN OF THE GOD VIEW, docs/god-view.md, "The mouse pan". The land
+// is level at the height of the waist point, 45.5 units, with a hill of 60
 // units in one test. The mouse ray starts at the head of the press.
 void GodPanChecks() {
   using table_math::TablePose;
@@ -1829,7 +1830,7 @@ void GodPanChecks() {
   }
 }
 
-// The interface panels of docs/ui-layer.md, 4.3.
+// The interface panels of docs/ui-layer.md, "Normal placement".
 // THE TELEPORT (docs/god-view.md, "The teleport"): the arc, the hit, the move
 // of the God view and of the immersive camera, the tube and the ring.
 double Dist3(const float a[3], const float b[3]) {
@@ -2669,7 +2670,7 @@ void OverlayChecks() {
 
 }  // namespace
 
-// THE GRIP HOLDS (docs/hand.md, "The grip holds"). A small driver: one step a
+// THE GRIP HOLDS (docs/grab.md, "The grip holds"). A small driver: one step a
 // frame, with the facts of that frame.
 struct GripRun {
   GripHold hold;
@@ -2716,7 +2717,7 @@ void GripChecks() {
   const GripFacts held = Facts(true, true);
   const GripFacts spring = Facts(true, true, true);
 
-  // A take, a carry and a let go, as in run m4d: the object comes 9 frames
+  // A take, a carry and a let go: the object comes 9 frames
   // after the press, the pick lock clears 5 frames later, and the throw
   // spring shows 2 frames after the click's press.
   GripStart(&run);
@@ -2961,10 +2962,10 @@ void GripChecks() {
   Near("the latched swing throws at 4 m/s * 7.5 * 1.5 = 45 units/s",
        Length(sent), 45.0, 1e-2);
 
-  // THE POINT TOUCHES THE LAND. The first build held the point half the
-  // Hand's length over the land: a hand of 19 cm is size 0.19 * s / 3.2,
-  // and half of 3.2 times that is 9.5 cm of the room at every scale. Now it
-  // is 5 mm.
+  // THE POINT TOUCHES THE LAND. The old rule held the point half the Hand's
+  // length over the land: a hand of 19 cm is size 0.19 * s / 3.2, and half
+  // of 3.2 times that is 9.5 cm of the room at every scale. The point now
+  // comes to 5 mm.
   const float scales[3] = {7.5f, 100.0f, 1000.0f};
   for (int i = 0; i < 3; ++i) {
     const float s = scales[i];
@@ -2984,7 +2985,7 @@ void GripChecks() {
        0.005f), 3.0, 0.0);
 }
 
-// THE BULK TAKE (docs/hand.md, "The bulk take"). The game takes from a pile,
+// THE BULK TAKE (docs/grab.md, "The bulk take"). The game takes from a pile,
 // a field or a fish farm only while the right button is down. The Pot is in
 // the Hand from the first turn of the take.
 void BulkTakeChecks() {
@@ -2997,8 +2998,8 @@ void BulkTakeChecks() {
   // grip is the game's button.
   const GripFacts take = Facts(false, false, false, false, false);
 
-  // The cause: with the facts of a held object, the machine carried 15
-  // frames after the Pot came, and the button went up. That ended the take.
+  // With the facts of a held object, the machine carries 15 frames after the
+  // Pot comes, and the button goes up. That would end the take.
   GripStart(&run);
   GripFrames(&run, 1, true, empty);
   int e = GripFrames(&run, 16, true, locked);
@@ -3006,7 +3007,7 @@ void BulkTakeChecks() {
         "before the fix: the Pot in the Hand gave a carry and the button "
         "went up", run.out.button, 0);
 
-  // The fix: a close on a pile, the take for 200 frames, and an opening.
+  // A close on a pile, the take for 200 frames, and an opening.
   GripStart(&run);
   GripFrames(&run, 3, false, empty);
   GripFrames(&run, 1, true, empty);
@@ -3067,7 +3068,7 @@ void BulkTakeChecks() {
         run.hold.phase, kGripOpenHeld);
 }
 
-// THE HINT AT THE HAND (docs/ui-layer.md, section 15): the size of a tooltip
+// THE HINT AT THE HAND (docs/ui-layer.md, "The tooltip at the Hand"): the size of a tooltip
 // at the Hand's depth, and the same place from the Hand in both eyes.
 void HintHandChecks() {
   printf("\nThe hint at the Hand\n");
@@ -3089,7 +3090,7 @@ void HintHandChecks() {
        box, 2.5f), 3.0, 0.0);
 
   // The game drew the tooltip at the same pixels in both eyes. The Hand's
-  // point is 68 px apart in the two eyes (run bk2, 1 m).
+  // point is 68 px apart in the two eyes at 1 m.
   const float hand_l[2] = {1242.0f, 1309.0f};
   const float hand_r[2] = {1174.0f, 1309.0f};
   const float first_l[2] = {1448.0f, 1252.0f};
@@ -3112,7 +3113,7 @@ void HintHandChecks() {
        (far_l[0] - corner_l[0]), 100.0 * s1, 1e-3);
 }
 
-// THE CREATURE BY TOUCH (docs/hand.md, "The Creature by touch"): the body
+// THE CREATURE BY TOUCH (docs/creature.md, "The Creature by touch"): the body
 // capsule, the swept test, the speed of a slap as the game reads it, and the
 // place of the Creature panel.
 // The game's speed test: both points go onto the sphere around the eye at

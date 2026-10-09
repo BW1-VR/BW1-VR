@@ -1,4 +1,4 @@
-// THE VILLAGE WITH THE REAL HAND (docs/hand.md, "The village with the real
+// THE VILLAGE WITH THE REAL HAND (docs/village.md, "The village with the real
 // hand"). main.cpp includes this file after Check and Near, just before main.
 #pragma once
 

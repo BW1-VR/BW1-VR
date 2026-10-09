@@ -1,4 +1,4 @@
-// HANDS THAT REACT TO THE WORLD (docs/hand.md): the finger tables, the land
+// HANDS THAT REACT TO THE WORLD (docs/hand-model.md, "Hands that react to the world"): the finger tables, the land
 // patch, the free curl, the filter, the approach, the game's hold and the
 // wrap of a body in the hand. main.cpp includes this file after Check and
 // Near, just before main.

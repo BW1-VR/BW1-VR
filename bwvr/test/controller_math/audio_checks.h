@@ -1,5 +1,5 @@
-// SOUND IN THE ROOM (docs/audio.md, section 11). main.cpp includes this file
-// after Check and Near, just before main.
+// SOUND IN THE ROOM (docs/audio.md, "Tools and tests without a headset").
+// main.cpp includes this file after Check and Near, just before main.
 #pragma once
 
 #include <vector>

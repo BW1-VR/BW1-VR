@@ -1,4 +1,4 @@
-// HAPTICS (docs/hand.md, "Haptics"), and the leash from a distance.
+// HAPTICS (docs/hand-model.md, "Haptics"), and the leash from a distance.
 // main.cpp includes this file after Check and Near, just before main.
 #pragma once
 
@@ -267,7 +267,7 @@ inline void LeashChecks() {
           off[2], 37.0);
   }
 
-  // THE CREATURE AND A SCROLL (run hk4): the Creature stands 4 cm of the room
+  // THE CREATURE AND A SCROLL: the Creature stands 4 cm of the room
   // from a scroll, and the Hand's point is in its body.
   {
     const float touch = 1.0f, eps = 0.1f;

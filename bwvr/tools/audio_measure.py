@@ -4,7 +4,7 @@
 A desktop run has no listener. With audio_capture=1 the mod writes the stream
 that QMixer gives to the wave device, with the sound of the mod's own mixer
 in it, to bwvr-audio.wav (16 bit stereo). This script measures that file, so
-a change of the sound has a proof in numbers. See docs/audio.md, section 14.
+a change of the sound has a proof in numbers. See docs/audio.md, "Tools and tests without a headset".
 
 Usage:
     python audio_measure.py run.wav

@@ -1,6 +1,5 @@
-# Desktop runs of the agent "village": the totem of the Village Centre and the
-# miracle icons of the Worship Site. See bwvr/docs/hand.md, "The village with
-# the real hand".
+# Desktop runs of the totem of the Village Centre and the miracle icons of the
+# Worship Site. See bwvr/docs/village.md, "The village with the real hand".
 #
 #   village_run.ps1 -Name vilD -Dll <dll> -Kind miracle
 #   village_run.ps1 -Name vilE -Dll <dll> -Kind totem -Set "totem_hand=0"

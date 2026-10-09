@@ -1,7 +1,7 @@
 # Reads the Hand of Black & White from the game's own files: the three L3D
 # meshes, the animations of hh.HBN and the animation names of hndspec5.txt.
 #
-# The format facts are in bwvr/docs/hand.md, "The files of the Hand". Each
+# The format facts are in bwvr/docs/hand-model.md, "The files of the Hand". Each
 # function here follows the game's own code, and the comment gives the address.
 #
 # All matrices are 4 by 4 numpy arrays in the game's convention: a point is a

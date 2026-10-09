@@ -1,19 +1,17 @@
-# A desktop run that reaches the Creature of the player, for the agent "hand"
-# and for each agent that needs a Creature. See bwvr/docs/hand.md, "A
-# Creature in a desktop run".
+# A desktop run that reaches the Creature of the player. See
+# bwvr/docs/creature.md, "A Creature in a desktop run".
 #
-#   creature_recipe.ps1 -Name hkX -Dll <dll>
-#   creature_recipe.ps1 -Name hkY -Dll <dll> -Set "creature_stroke_hand=3"
-#   creature_recipe.ps1 -Name hkZ -Dll <dll> -Kind leash
+#   creature_recipe.ps1 -Name x1 -Dll <dll>
+#   creature_recipe.ps1 -Name x2 -Dll <dll> -Set "creature_stroke_hand=3"
+#   creature_recipe.ps1 -Name x3 -Dll <dll> -Kind leash
 #
 # The start: the choice "Keep your old Creature" of the start dialog (through
 # spawn_run.ps1 and desk_run.ps1). It gives a game with no story, and the
-# Creature of the profile stands at the door of the Temple. From the build
-# 8757f73 the God view goes to that door when the dialog closes (frame 571)
-# and the game camera has come to rest (near frame 675). The steps start at
-# frame 800. A zoom step at frame 700 came before the rest in run hkS, and
-# then the view stayed at the shore: "the player moved the view, so the move
-# of the game camera is dropped".
+# Creature of the profile stands at the door of the Temple. The God view goes
+# to that door when the dialog closes (frame 571) and the game camera has come
+# to rest (near frame 675). The steps start at frame 800. A zoom step before
+# the rest keeps the view at the shore: "the player moved the view, so the
+# move of the game camera is dropped".
 #
 # -Kind state (the default):
 #   Two zoom steps in (44 units a meter), so the Creature is in the view of
