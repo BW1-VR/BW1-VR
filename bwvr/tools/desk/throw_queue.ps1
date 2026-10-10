@@ -42,6 +42,7 @@ $dropFarRoll = "$dropBase pull@3207+3 aimfar@3290+1 grip@3294+60 pull@3304+3 sho
 $defs = @{
     treedrop = @{ Set = 'throw_land=1;release_fall_cm=15;far_test_thrown=1;far_test_no_trees=0;far_test_tree=1'; Steps = $dropFar; Seconds = 80; Points = $stillPoints }
     treedroproll = @{ Set = 'throw_land=1;release_fall_cm=15;far_test_thrown=1;far_test_no_trees=0;far_test_tree=1'; Steps = $dropFarRoll; Seconds = 80; Points = $stillPoints }
+    treerest = @{ Set = 'throw_land=1;release_fall_cm=15;far_test_thrown=1;far_test_no_trees=0;far_test_tree=1'; Steps = "$dropBase aimfar@3290+1 shot@3600+1 shot@5000+1"; Seconds = 80; Points = $stillPoints }
     treenear = @{ Set = 'throw_land=1;release_fall_cm=15;seek_thrown=1;far_test_no_trees=0;far_test_tree=1'; Steps = $dropRoll; Seconds = 100; Points = $stillPoints }
     dropnear = @{ Set = 'throw_land=1;release_fall_cm=15;seek_thrown=1'; Steps = $dropNear; Seconds = 80; Points = $stillPoints }
     droproll = @{ Set = 'throw_land=1;release_fall_cm=15;seek_thrown=1'; Steps = $dropRoll; Seconds = 80; Points = $stillPoints }

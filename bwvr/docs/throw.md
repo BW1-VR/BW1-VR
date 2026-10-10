@@ -16,6 +16,8 @@ object is in `grab.md`.
   get it. A time factor k makes the flight slower than real (`throw_slow_x10`).
 - From the first contact the rate of the game's steps goes down to 1 step in
   each substep. A low bounce and a brake make the object come to rest.
+- A tree that falls comes to rest in about 1 s after its first contact
+  (`throw_tree_settle`).
 - A still hand near the land sets the object down. A still hand higher up
   than `release_fall_cm` lets the object fall (see "The height of a
   release").
@@ -296,7 +298,8 @@ turns and steps, and the time that the steps took.
 - The last 0.1 to 0.2 s of a roll is not drawn: when the object comes to
   rest, the picture goes to the place of rest at once.
 - A Miracle and the objects that a thrown object pushes keep the game's time.
-- A flying tree is not tested in a desktop run or in the headset.
+- A flying tree is tested in a desktop run only for a fall from the Hand (see
+  "The landing of a tree"), and not in the headset.
 - Only a headset shows: whether a throw feels like a real throw at 7.5, 67
   and 400 units per meter, whether the top speed of 120 ms gives the throw
   that the player meant, whether a quick put down throws by accident (the 1
@@ -423,12 +426,14 @@ the pen, the rock slides until the land is flat.
 | `throw_land_rate_x10` | 10 | The rate of the land times 10, from 10 to 100. 10 is the game's own time. A rate above the rate of the flight changes nothing |
 | `throw_bounce_pct` | 50 | The share of its speed that a bounce keeps, of the speed that the game gives it. 100 is the game's bounce |
 | `throw_land_brake_pct` | 60 | The friction of the brake, in percent of the friction that the game has for the object. 0 is no brake |
+| `throw_tree_settle` | 1 | 1 lets a tree that falls turn down fast while it touches the land and is slow (see "The landing of a tree"). 0 keeps the game's turn. It acts with `throw_land` 1 or 2 and `throw_trees=1` |
 
 The keys are read from `bwvr.ini`. They are not in the launcher.
 
 **The test keys** (`test_keys=1`): the Pause key goes through the three
 landings: 1 (a long pulse of the pointing hand), then 2 (a pulse of middle
-length), then 0 (a short pulse), and 1 again. Ctrl with Numpad Plus makes the
+length), then 0 (a short pulse), and 1 again. Shift with Pause turns the
+settle of a tree on and off (see "The landing of a tree"). Ctrl with Numpad Plus makes the
 rate of the land lower by 0.25 (slower), and Ctrl with Numpad Divide makes it
 higher, from 1.0 to 10.0. Each press gives a log line. An object that touched
 the land before a press keeps its landing. The mod uses the Pause key for
@@ -475,6 +480,46 @@ catch up of the picture (`kCatchUp`).
   rate with Ctrl and Numpad Divide), whether the change of the rate shows at
   the first contact, and whether a thrown villager lives through a soft throw
   and dies from a hard one.
+
+## The landing of a tree
+
+A tree is a physics object with 16 points, a spring, a friction and a turn
+factor like a rock. A tree that falls lands on one corner of its body, and
+the contact gives it an angular momentum that is many times the cap of 1.5
+turns a second (`fn_007FE260` cuts the angular speed, not the momentum). So
+the tree turns at the cap with its center still, for as long as the turn
+factor of the game takes to wear the momentum down. A desktop run of a tree
+let go 45 cm over the land showed this with the game's own landing
+(`throw_land=0`), with the game's physics for the tree (`throw_trees=0`) and
+with the landing of the mod: the center stays at 1.5 units over the land, but
+the mesh point of the tree (its base) goes round and up and down by 2.6 units
+for 4 s or more, and the tree needs 5 s to leave the physics. The draw and
+the candidate place of the far grab follow the mesh point.
+
+**What the mod does.** With `throw_tree_settle=1` a tree that has touched the
+land, and whose center speed in the game's time is 6 units a second or less
+(`kSettleSpeed`), keeps only 0.001 of its turn in each second
+(`kSettleTurnKeep`, `TurnKeepAfterLanding` in `throw_math.h`). The mod sets the
+factor at `PhysOb+0x148` in each substep, as it does for the brake of the turn,
+and it gives the game's value back at the end of the flight. The speed test
+leaves the first bounce and a real roll alone. The mod writes nothing else into
+the physics object. In the desktop run the mesh point then moves 0.2 units or
+less from 0.9 s into the flight (0.3 s after the first contact), and the tree
+leaves the physics 1.7 s after the release, in place of 5.1 s. The log has a
+line when the settle starts.
+
+The settle acts on a flight of the mod. A tree with `throw_trees=0` or
+`throw_law` other than 2 keeps the game's physics, and `throw_land=0` keeps the
+game's landing. Rocks and other objects are not changed.
+
+**Open.**
+
+- The far target of a tree that was let go did not flicker in the desktop
+  runs, with the settle on or off. The aim keeps the tree, and the gaps in the
+  target were the near rule while the tree falls past the Hand. The tumble is
+  gone with the settle, so it can not move the candidate.
+- Only a headset shows whether a tree that stops this fast looks right, and
+  whether a rolling tree on a slope still rolls.
 
 ## The height of a release
 

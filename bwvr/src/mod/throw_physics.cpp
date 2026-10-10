@@ -213,6 +213,7 @@ int g_land = 1;
 float g_land_rate = 1.0f;
 float g_bounce = 0.5f;
 float g_brake = 0.6f;
+bool g_settle = true;      // throw_tree_settle: a tree that falls settles
 bool g_contact_hook = false;
 bool g_installed = false;
 bool g_said_multiplayer = false;
@@ -298,6 +299,10 @@ struct Flight {
   int cut_steps;
   float turn_keep;       // the game's turn factor of the object
   bool turn_changed;
+  // A tree that falls settles: see throw_math.h, kSettleTurnKeep.
+  bool tree;
+  bool settle;
+  bool settle_logged;
   // A release in the glide of a far fetch: the place of the picture at the
   // release, from the place in the Hand.
   bool has_lead;
@@ -722,13 +727,16 @@ void FirstContact(Flight* f, uint8_t* ob, int step) {
   if (!(f->brake >= 0.0f) || f->brake > 10.0f) f->brake = 0.0f;
   f->touch = 0.0;
   // The brake of the turn: the game's own factor of each step, made smaller.
-  if (f->brake > 0.0f) {
+  // A tree that settles also changes it in each substep (FlySubstep).
+  f->settle = f->tree && g_settle && f->land_mode != 0 && g_contact_hook;
+  if (f->brake > 0.0f || f->settle) {
     float* keep = reinterpret_cast<float*>(ob + kObTurnKeep);
-    const float most = powf(throw_math::kLandTurnKeep, throw_math::kSubstep);
-    if (*keep > most) {
+    const float land = throw_math::TurnKeepAfterLanding(
+        *keep, f->brake > 0.0f, false, false, 0.0f);
+    if (*keep > land || f->settle) {
       f->turn_keep = *keep;
       f->turn_changed = true;
-      *keep = most;
+      *keep = land;
     }
   }
   if (f->drag_off) {
@@ -863,6 +871,23 @@ int FlySubstep(Flight* f, uint8_t* ob) {
   if (f->contact && f->land_mode == 1) {
     f->scale = throw_math::LandRate(f->rate_flight, f->rate_land, f->touch,
                                     throw_math::kLandEase);
+  }
+  if (f->settle && f->turn_changed && f->count > 0) {
+    const float* velocity = reinterpret_cast<const float*>(ob + kObVelocity);
+    const float speed = controller_math::Length(velocity);
+    const bool touching = f->samples[f->count - 1].contact;
+    *reinterpret_cast<float*>(ob + kObTurnKeep) =
+        throw_math::TurnKeepAfterLanding(f->turn_keep, f->brake > 0.0f, true,
+                                         touching, speed);
+    if (touching && speed <= throw_math::kSettleSpeed && !f->settle_logged &&
+        g_flight_logs < kMaxFlightLogs) {
+      f->settle_logged = true;
+      ++g_flight_logs;
+      ModLog("hand throw   : the tree %p settles %.3f s into its flight: it "
+             "touches the land at %.2f units/s, so its turn keeps %.3f of "
+             "itself in a second (throw_tree_settle)", f->object, f->time,
+             speed, throw_math::kSettleTurnKeep);
+    }
   }
   int steps = throw_math::MiniSteps(f->scale, &f->remainder);
   if (hit) {
@@ -1138,7 +1163,8 @@ void PollLandKey() {
   const uint64_t frame = ControllersFrameCount();
   if (frame == last_frame) return;
   last_frame = frame;
-  const bool now = (GetAsyncKeyState(VK_PAUSE) & 0x8000) != 0;
+  const bool now = (GetAsyncKeyState(VK_PAUSE) & 0x8000) != 0 &&
+                   (GetAsyncKeyState(VK_SHIFT) & 0x8000) == 0;
   if (now && !down) {
     DWORD process = 0;
     const HWND window = GetForegroundWindow();
@@ -1157,6 +1183,38 @@ void PollLandKey() {
                    : "keeps the time of the flight, with the game's bounce "
                      "and no brake",
              g_land);
+    }
+  }
+  down = now;
+}
+
+// THE SETTLE OF A TREE IN THE HEADSET. With test_keys=1, Shift with Pause
+// turns the settle of a tree that falls on and off (throw_tree_settle). A
+// long pulse means on, a short pulse means off. A tree that touched the land
+// before the press keeps its state. Read once a frame, and only while a
+// window of the game is in front.
+void PollSettleKey() {
+  static uint64_t last_frame = 0;
+  static bool down = false;
+  if (!g_test_keys) return;
+  const uint64_t frame = ControllersFrameCount();
+  if (frame == last_frame) return;
+  last_frame = frame;
+  const bool now = (GetAsyncKeyState(VK_PAUSE) & 0x8000) != 0 &&
+                   (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
+  if (now && !down) {
+    DWORD process = 0;
+    const HWND window = GetForegroundWindow();
+    if (window != nullptr) GetWindowThreadProcessId(window, &process);
+    if (process == GetCurrentProcessId()) {
+      g_settle = !g_settle;
+      ControllersGesturePulse(0.5f, g_settle ? 0.30f : 0.06f);
+      ModLog("hand throw   : Shift Pause: a tree that falls now %s "
+             "(throw_tree_settle=%d)",
+             g_settle ? "settles: it turns down fast while it touches the "
+                        "land and is slow"
+                      : "keeps the game's turn after its landing",
+             g_settle ? 1 : 0);
     }
   }
   down = now;
@@ -1218,6 +1276,7 @@ void __cdecl h_DrawAll() {
   PollLawKey();
   PollFallKey();
   PollLandKey();
+  PollSettleKey();
   PollSlowKeys();
   DrawFlights();
   o_DrawAll();
@@ -1265,6 +1324,8 @@ void ThrowPhysicsSetSlow(int slow_x10, bool trees) {
   g_slow = static_cast<float>(slow_x10) / 10.0f;
   g_trees = trees;
 }
+
+void ThrowPhysicsSetSettle(bool settle) { g_settle = settle; }
 
 void ThrowPhysicsSetFall(int limit_cm) {
   if (limit_cm < 0) limit_cm = 0;
@@ -1533,6 +1594,7 @@ void ThrowPhysicsReleased(void* held) {
   f->phase = kHeld;
   f->object = held;
   f->frame0 = frame;
+  f->tree = tree;
   f->t0 = NowSeconds();
   f->s = plan.s;
   f->gs = plan.t.gravity;

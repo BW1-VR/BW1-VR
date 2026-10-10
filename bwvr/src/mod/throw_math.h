@@ -551,6 +551,36 @@ inline float ReboundFactor(const float force[3], const float velocity[3],
 // contact that part is kLandTurnKeep at most.
 const float kLandTurnKeep = 0.25f;
 
+// THE SETTLE OF A TREE. A tree that falls hits the land on one corner. The
+// contact gives it an angular momentum that is many times the cap of 1.5
+// turns a second, and the cap hides it: the tree turns at the cap, with its
+// center still, until the keep factor above has worn the momentum down. The
+// tree then needs 3 to 5 s to come to rest, and its mesh point goes round and
+// up and down all that time. So a tree that touches the land and has a center
+// speed of kSettleSpeed units a second or less (the game's time) keeps only
+// kSettleTurnKeep of its turn in each second. The speed test leaves the
+// first bounce and a real roll alone.
+const float kSettleSpeed = 6.0f;
+const float kSettleTurnKeep = 0.001f;
+
+// The turn factor of one step for an object after its first contact.
+// `game_keep` is the game's factor of the object. `brake_on` gives the land
+// keep, and `settle` the keep of the settle while the object touches and is
+// slow. The answer is never more than `game_keep`.
+inline float TurnKeepAfterLanding(float game_keep, bool brake_on, bool settle,
+                                  bool touching, float speed) {
+  float keep = game_keep;
+  if (brake_on) {
+    const float most = powf(kLandTurnKeep, kSubstep);
+    if (keep > most) keep = most;
+  }
+  if (settle && touching && speed <= kSettleSpeed) {
+    const float least = powf(kSettleTurnKeep, kSubstep);
+    if (keep > least) keep = least;
+  }
+  return keep;
+}
+
 inline void LandBrake(const float push[3], const float velocity[3],
                       float mass, float friction, float out[3]) {
   out[0] = out[1] = out[2] = 0.0f;

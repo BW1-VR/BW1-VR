@@ -41,10 +41,10 @@ is built, and no test has proven it.
   object that moves (`catch_moving`, `grab.md`): check the defaults (100 ms,
   8 cm) in a headset. The grab from a distance locks and fetches a rock
   that falls and a rock that flies in a desktop run. Still open:
-  - A dropped tree does not come to rest. It moves up and down about 2.6
-    units for more than 2 s, and its far target shows and hides each 20
-    to 35 frames. This is the probable cause of a tree that slides and
-    takes no interaction.
+  - A tree that is let go comes to rest in about 1 s now
+    (`throw_tree_settle`, `throw.md`, "The landing of a tree"). Not shown:
+    a far target that hides and shows by itself (not seen in a desktop
+    run), a tree thrown fast across the land, and the look in a headset.
   - A thrown object is no candidate for 9 to 16 frames after the release,
     while the mod draws it on its arc.
 - **B3. A fast grab of a rock breaks the rock at times.** The player closes

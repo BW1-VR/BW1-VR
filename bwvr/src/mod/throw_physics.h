@@ -31,6 +31,10 @@ void ThrowPhysicsSetSlow(int slow_x10, bool trees);
 // 0.25.
 void ThrowPhysicsSetLanding(int land, int rate_x10, int bounce_pct,
                             int brake_pct);
+// throw_tree_settle: 1 lets a tree that falls turn down fast while it touches
+// the land and is slow (docs/throw.md, "The landing of a tree"). 0 keeps the
+// game's turn.
+void ThrowPhysicsSetSettle(bool settle);
 // release_fall_cm: a hand that is still at the opening of the grip sets the
 // object down only when its point is this many cm of the room over the land
 // or less. Higher up the object falls. 0 sets it down at each height. With

@@ -386,7 +386,10 @@ or the tree leans, or the land is not dry, it says "Lower to plant. Open
 to drop" (or a line for the other cause), and the tree falls. Set
 tree_plant_hint=0 in bwvr.ini for the text of the game. A tree that comes
 from a distance leaves its roots pile at the roots, on the land. Set
-far_roots_at_tree=0 to leave the pile where the game puts it.
+far_roots_at_tree=0 to leave the pile where the game puts it. A tree that
+you drop or throw turns down fast when it lies on the land, so it comes to
+rest in about 1 s. Set throw_tree_settle=0 in bwvr.ini for the turn of the
+game.
 
 The game shows its hints, the amount that you take and the subtitles
 only when its own help options are on. If you see none of them, open

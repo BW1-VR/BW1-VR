@@ -632,6 +632,50 @@ inline void ThrowChecks() {
           "than with the game's bounce", depth, game_depth + 0.02);
   }
 
+  // THE SETTLE OF A TREE. The turn factor of one step after the first contact.
+  {
+    const float game = powf(0.728f, kSubstep);
+    const float land = powf(kLandTurnKeep, kSubstep);
+    const float settle = powf(kSettleTurnKeep, kSubstep);
+    Near("with no brake and no settle the game's factor stays",
+         TurnKeepAfterLanding(game, false, false, true, 0.0f), game, 1e-7);
+    Near("the brake of the land gives the land factor",
+         TurnKeepAfterLanding(game, true, false, true, 100.0f), land, 1e-7);
+    Near("a tree that touches the land and is slow gets the settle factor",
+         TurnKeepAfterLanding(game, true, true, true, kSettleSpeed), settle,
+         1e-7);
+    Near("a tree that is fast keeps the land factor",
+         TurnKeepAfterLanding(game, true, true, true, kSettleSpeed + 1.0f),
+         land, 1e-7);
+    Near("a tree in the air keeps the land factor",
+         TurnKeepAfterLanding(game, true, true, false, 0.0f), land, 1e-7);
+    Near("the settle works with no brake too",
+         TurnKeepAfterLanding(game, false, true, true, 1.0f), settle, 1e-7);
+    Near("a factor that is already lower stays",
+         TurnKeepAfterLanding(settle * 0.5f, true, true, true, 0.0f),
+         settle * 0.5, 1e-9);
+    // The turn of a tree with 30 times the cap of 3 pi radians a second
+    // comes below 0.5 radians a second (the game's rest test, T / 2) in less
+    // than 1 s with the settle. The game's factor needs 10 s or more.
+    const double start = 30.0 * 3.14159265 * 3.0;
+    double turn = start;
+    int steps = 0;
+    while (turn > 0.5 && steps < 100000) {
+      turn *= settle;
+      ++steps;
+    }
+    Check(steps * kSubstep < 1.0, "the settle brings a large turn to rest in "
+          "less than 1 s", steps * kSubstep, 1.0);
+    turn = start;
+    steps = 0;
+    while (turn > 0.5 && steps < 100000) {
+      turn *= game;
+      ++steps;
+    }
+    Check(steps * kSubstep > 10.0, "and the game's factor needs more than 10 s",
+          steps * kSubstep, 10.0);
+  }
+
   // THE BRAKE OF THE LAND. A block of the mass 2000 on the land, with the
   // game's gravity.
   {

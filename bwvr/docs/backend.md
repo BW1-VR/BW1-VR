@@ -1472,6 +1472,7 @@ in front. The mod reads the keys and never takes them from the game.
 | Ctrl Shift Page Up | `test_keys=1` | A holdable object up to 15 cm from the Hand's point is the target when nothing is nearer, or the pick reaches only `hand_pick_cm` (`hand_wide_pick_cm`, `grab.md`) |
 | Ctrl Insert | `test_keys=1` | The ring of the teleport: one size in the world, or one size in the room (`teleport_ring_mode`, `god-view.md`) |
 | Shift Scroll Lock | `test_keys=1` | A still hand high over the land lets the object fall, or sets it down at each height (`release_fall_cm`, `throw.md`) |
+| Shift Pause | `test_keys=1` | A tree that falls turns down fast on the land, or keeps the game's turn (`throw_tree_settle`, `throw.md`) |
 | Ctrl End | `test_keys=1` | The prompt of a target shows at once, or after its dwell (`prompt_timing`, `controller-hints.md`) |
 | Ctrl Home | `test_keys=1` | A target has one text on the hint card, or the hint of the game takes the place of the prompt (`hint_words`, `controller-hints.md`) |
 | Ctrl Numpad 5 | `test_keys=1` | The rule of a Creature command: 3, 2 or 1 (`creature_command_rule`, `creature.md`) |
