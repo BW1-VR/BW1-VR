@@ -836,6 +836,119 @@ inline void HintCardChecks() {
           "no target before gives no linger", 0.0, 0.0);
   }
 
+  // THE TAKE IN WORK: the context of the take stays from the close of the
+  // grip until the Hand holds the object.
+  {
+    const double recent = 0.15, limit = 1.0;
+    // The Hand is on an object, the grip closes, the Hand is on no target for
+    // 15 frames, and then it holds the object.
+    TakeKeep s;
+    TakeKeepOut o = TakeKeepStep(&s, true, false, false, false, false, 10.000,
+                                 recent, limit);
+    Check(!o.keep && !o.started, "an open grip on a take keeps nothing", 0.0,
+          0.0);
+    o = TakeKeepStep(&s, true, false, false, true, false, 10.011, recent,
+                     limit);
+    o = TakeKeepStep(&s, true, false, false, true, true, 10.022, recent, limit);
+    Check(o.keep && o.started, "the close of the grip on a take starts it",
+          1.0, 1.0);
+    int kept = 0, ends = 0;
+    for (int i = 0; i < 15; ++i) {
+      o = TakeKeepStep(&s, false, true, false, true, true, 10.033 + 0.011 * i,
+                       recent, limit);
+      kept += o.keep ? 1 : 0;
+      ends += o.ended != kTakeKeepNoEnd ? 1 : 0;
+    }
+    Check(kept == 15 && ends == 0,
+          "the take stays for each frame with no target", kept, 15.0);
+    // The Hand holds the object, and the game still gives the hint of the
+    // take for 6 frames.
+    kept = 0;
+    for (int i = 0; i < 6; ++i) {
+      o = TakeKeepStep(&s, false, false, true, true, true, 10.200 + 0.011 * i,
+                       recent, limit);
+      kept += o.keep ? 1 : 0;
+    }
+    Check(kept == 6, "the take stays while the game gives its old hint", kept,
+          6.0);
+    o = TakeKeepStep(&s, false, false, false, true, true, 10.270, recent, limit);
+    Check(!o.keep && o.ended == kTakeKeepContext,
+          "the object in the Hand with a new hint ends it", o.ended,
+          kTakeKeepContext);
+    o = TakeKeepStep(&s, false, true, false, false, true, 10.281, recent,
+                     limit);
+    Check(!o.keep && !o.started && o.ended == kTakeKeepNoEnd,
+          "and it does not start again while the grip stays closed", 0.0, 0.0);
+
+    // The context of the take is gone in the frame of the close: the prompt
+    // showed in the frame before.
+    TakeKeep late;
+    TakeKeepStep(&late, true, false, false, true, false, 20.000, recent, limit);
+    o = TakeKeepStep(&late, false, true, false, true, true, 20.011, recent,
+                     limit);
+    Check(o.keep && o.started,
+          "a close one frame after the take was there starts it", 1.0, 1.0);
+    // The grip opens before the Hand holds the object.
+    o = TakeKeepStep(&late, false, true, false, true, false, 20.050, recent,
+                     limit);
+    Check(!o.keep && o.ended == kTakeKeepOpened, "the open grip ends it",
+          o.ended, kTakeKeepOpened);
+
+    // The game does not take the object: the limit ends it.
+    TakeKeep refused;
+    TakeKeepStep(&refused, true, false, false, true, false, 30.000, recent,
+                 limit);
+    TakeKeepStep(&refused, false, true, false, true, true, 30.011, recent,
+                 limit);
+    o = TakeKeepStep(&refused, false, true, false, true, true, 30.900, recent,
+                     limit);
+    Check(o.keep, "it holds below the limit", 1.0, 1.0);
+    o = TakeKeepStep(&refused, false, true, false, true, true, 31.100, recent,
+                     limit);
+    Check(!o.keep && o.ended == kTakeKeepLimit, "the time limit ends it",
+          o.ended, kTakeKeepLimit);
+
+    // The grip closes on nothing: no prompt of a take showed.
+    TakeKeep nothing;
+    TakeKeepStep(&nothing, false, true, false, false, false, 40.000, recent,
+                 limit);
+    o = TakeKeepStep(&nothing, false, true, false, false, true, 40.011, recent,
+                     limit);
+    Check(!o.keep && !o.started, "a close on nothing keeps nothing", 0.0, 0.0);
+    // The prompt of a take showed long before the close.
+    TakeKeep old;
+    TakeKeepStep(&old, true, false, false, true, false, 50.000, recent, limit);
+    TakeKeepStep(&old, false, true, false, false, false, 50.011, recent, limit);
+    o = TakeKeepStep(&old, false, true, false, false, true, 50.400, recent,
+                     limit);
+    Check(!o.keep && !o.started,
+          "a close after the words of the take went keeps nothing", 0.0, 0.0);
+    // The grip closes while the Hand is on a different target, or holds an
+    // object.
+    TakeKeep other;
+    TakeKeepStep(&other, true, false, false, true, false, 60.000, recent,
+                 limit);
+    o = TakeKeepStep(&other, false, false, false, true, true, 60.011, recent,
+                     limit);
+    Check(!o.keep && !o.started,
+          "a close on a different context keeps nothing", 0.0, 0.0);
+    // An object in the Hand with the old hint of the game is no start.
+    TakeKeep carried;
+    TakeKeepStep(&carried, true, false, false, true, false, 65.000, recent,
+                 limit);
+    o = TakeKeepStep(&carried, false, false, true, true, true, 65.011, recent,
+                     limit);
+    Check(!o.keep && !o.started,
+          "a close with an object in the Hand keeps nothing", 0.0, 0.0);
+    // A grip that was closed before the take came is no close on the take.
+    TakeKeep held;
+    TakeKeepStep(&held, false, true, false, false, true, 70.000, recent, limit);
+    o = TakeKeepStep(&held, true, false, false, true, true, 70.011, recent,
+                     limit);
+    Check(!o.keep && !o.started,
+          "a grip that was closed before the take keeps nothing", 0.0, 0.0);
+  }
+
   // THE FADE: 0.15 s for the whole way, and it stops at 0 and 1.
   {
     float fade = 0.0f;

@@ -742,8 +742,9 @@ has a dwell, a hold time and a count (`kRules` in `hint_card.cpp`):
    show.
 
 **One text for one action.** The hint of the game for the button of a target
-comes some frames after the target. With `hint_words=1` (the default) the
-prompt of a target owns its button for as long as the target is there: the
+comes some frames after the target. With `hint_words` 1 or 2 (2 is the
+default) the prompt of a target owns its button for as long as the target is
+there: the
 hint of the game for that button does not show, so the words of the card do
 not change while the target and the action stay the same. The mod chooses its
 own prompt because it is there in the first frame and it names the action of
@@ -755,8 +756,36 @@ is the only text there when it came before the dwell of the prompt ended. With
 `hint_words=0` the hint of the game takes the place of the prompt in every
 context.
 
+**The take in work.** After the grip closes on an object to take, the game
+puts the Hand in its pick up state (state 3), and some frames later the Hand
+holds the object (9 frames in a desktop run). In state 3 the mod has no facts
+of the Hand, so the context is none. The game gives its hint of the take
+("Pick Up") in those frames, and for some frames more while the Hand already
+holds the object (6 in a desktop run). Then it gives the hint of the object in
+the Hand ("Drop").
+
+With `hint_words=2` the context of the take stays for those frames
+(`TakeKeepStep` in `hint_card_math.h`). So the card says "Grip Take" from the
+frame in which the target comes until the hint of the object in the Hand
+comes. The rule:
+
+1. It starts when the grip closes while the card has the prompt of the take,
+   or less than 0.15 s after that prompt showed (`kLingerSeconds`). A grip that
+   closes on nothing, or on a target with a different prompt, starts nothing.
+2. It holds while the Hand is on the object, and while the Hand is empty and
+   on no target. It also holds while the Hand has the object and the game
+   still gives the hint that the prompt owned.
+3. It ends when a different context comes, or when the grip opens. It also
+   ends 1.0 s after the close (`kTakeKeepSeconds`), when the game did not take
+   the object.
+
+The hints of the game for other buttons, and the hints with no button, show
+all through the take. With `hint_words=1` the hint of the game for the grip
+shows from the close of the grip until the hint of the object in the Hand
+comes.
+
 A hint of the game with no words (the text has no letter and no digit, for
-example "," or ".") never goes to the card with `hint_words=1`.
+example "," or ".") never goes to the card with `hint_words` 1 or 2.
 
 **The prompt of a target follows the target.** With `prompt_timing=1` (the
 default) rules 1 to 3 do not apply to a context about a thing that the Hand or
@@ -797,13 +826,14 @@ the help options of the game, so a player with "No ToolTips" sees them too.
 | `prompts` | 1 | 0 no prompts, 1 the first times, 2 always |
 | `hint_card_size_pct` | 100 | The size of the card, 50 to 200 |
 | `prompt_timing` | 1 | 1 the prompt of a target shows at once, stays while the target is there and shows each time. 0 the dwell, hold and count for all prompts (9.4) |
-| `hint_words` | 1 | 1 the prompt of a target owns its button and a hint of the game with no words does not show. 0 the hint of the game takes the place of the prompt, as it comes (9.4) |
+| `hint_words` | 2 | 1 the prompt of a target owns its button and a hint of the game with no words does not show. 2 is 1, and the prompt of a take also keeps the grip from the close of the grip until the Hand holds the object. 0 the hint of the game takes the place of the prompt, as it comes (9.4) |
 
 `hint_card.cpp` reads the keys itself, at the first frame. With `test_keys=1`
 and `ui_panel=0`, Ctrl Shift F11 switches between the card and the hints in the
 eye pictures, for a live comparison. With `test_keys=1`, Ctrl End switches
 `prompt_timing` between 1 (a long pulse in the pointing controller) and 0 (a
-short pulse). Ctrl Home switches `hint_words` the same way.
+short pulse). Ctrl Home changes `hint_words` from 2 to 1 to 0 and back: a long
+pulse for 2, a medium pulse for 1 and a short pulse for 0.
 
 ### 9.6 The log
 
@@ -816,6 +846,12 @@ short pulse). Ctrl Home switches `hint_words` the same way.
   the Hand is an object to take since frame M, so the card is K frames and T ms
   behind it (prompt_timing=1)`: one line each time the words of the pointing
   card change (400 lines at most). K is the wait of the player.
+- `hint card : frame N, the grip closed on an object to take. The prompt of the
+  take keeps the grip until the Hand holds the object ...`, and `hint card :
+  frame N, the prompt of the take let the grip go K frames after the close:
+  the context of the Hand is now an object in the Hand` (or `the grip opened`,
+  or `the time limit passed`): one line for the start and one for the end of
+  each take in work, with `hint_words=2` (60 lines at most).
 - `hint card : the hint "[Trigger] Move" of the game does not show: the trigger
   does not move the land here. The grip of the other hand moves it`: one time
   for each of the two false hints (9.9).
@@ -828,7 +864,10 @@ short pulse). Ctrl Home switches `hint_words` the same way.
   hints of the game that went to the cards, the frames with a false hint that
   did not show, the frames with words and no tracked hand, the frames that a
   card did not show because it was on the other hand, the changes of side, and
-  the prompts by context. `ui depth : N tooltip calls went to the hint card and
+  the prompts by context. The line of `hint_words` has the hints with no
+  words, the hints that a prompt owned, the closes of the grip on a take, and
+  the frames with no target in which the prompt of the take kept the grip.
+  `ui depth : N tooltip calls went to the hint card and
   did not draw in an eye picture`. `XrScreen` counts the quad layers of each
   card.
 

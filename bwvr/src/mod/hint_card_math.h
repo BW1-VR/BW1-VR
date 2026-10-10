@@ -445,6 +445,76 @@ inline bool LingerOpen(double last_target, double now, double linger) {
   return last_target > 0.0 && now >= last_target && now - last_target < linger;
 }
 
+// THE TAKE IN WORK. The grip closes on an object to take, and the game needs
+// some frames to put the object in the Hand (the pick up state of the Hand).
+// In those frames the Hand is on no target, so the context of the take is
+// gone, and the hint of the game for the grip ("Pick Up") would take the place
+// of the prompt "Take". The game also gives that hint for some more frames
+// while the Hand already holds the object. One action has one text. So the
+// context of the take stays from the close of the grip until the first of
+// these:
+//
+//   1. A context comes that is not the take and not the empty Hand over no
+//      target. The usual one is the object in the Hand. While the game still
+//      gives the hint of before the close for it (`stale`), the take stays.
+//   2. The grip opens.
+//   3. `limit` seconds passed since the close: the game did not take the
+//      object.
+//
+// It starts only when the grip closes while the prompt of the take shows, or
+// less than `recent` seconds after it showed (the card still has its words,
+// LingerOpen). So a grip that closes on nothing, or on a target with a
+// different prompt, changes nothing.
+enum TakeKeepEnd {
+  kTakeKeepNoEnd = 0,
+  kTakeKeepContext,  // a different context came
+  kTakeKeepOpened,   // the grip opened
+  kTakeKeepLimit     // the time limit passed
+};
+
+struct TakeKeep {
+  bool grip = false;      // the grip at the last step
+  double shown_at = 0.0;  // the last time the prompt of the take showed
+  bool on = false;
+  double since = 0.0;     // when the grip closed
+};
+
+struct TakeKeepOut {
+  bool keep;     // the context of this frame is the take
+  bool started;  // the grip closed on the take in this step
+  int ended;     // a TakeKeepEnd
+};
+
+// One frame. take: the Hand is on an object to take. empty: the Hand holds
+// nothing and is on no target. stale: the Hand holds an object, and the game
+// still gives the hint for the grip that the prompt of the take owned. shown:
+// the prompt of the take showed in the last frame. grip: the grip is closed.
+inline TakeKeepOut TakeKeepStep(TakeKeep* s, bool take, bool empty, bool stale,
+                                bool shown, bool grip, double now,
+                                double recent, double limit) {
+  TakeKeepOut out = {false, false, kTakeKeepNoEnd};
+  const bool closed = grip && !s->grip;
+  s->grip = grip;
+  if (shown) s->shown_at = now;
+  if (s->on) {
+    if (!take && !empty && !stale) {
+      out.ended = kTakeKeepContext;
+    } else if (!grip) {
+      out.ended = kTakeKeepOpened;
+    } else if (now - s->since > limit) {
+      out.ended = kTakeKeepLimit;
+    }
+    if (out.ended != kTakeKeepNoEnd) s->on = false;
+  } else if (closed && (take || empty) &&
+             LingerOpen(s->shown_at, now, recent)) {
+    s->on = true;
+    s->since = now;
+    out.started = true;
+  }
+  out.keep = s->on;
+  return out;
+}
+
 // The fade of the card: toward 1 while it shows and toward 0 while it does
 // not, in `seconds` for the whole way. The card does not move while it
 // fades.
