@@ -154,7 +154,7 @@ villager in the God view is 1 cm wide, and that needs a fine point.
 | Interaction | Where it takes its place from |
 | --- | --- |
 | The glow | The Hand's point (`g_target`) |
-| The pick up of an object, the take from a pile, a scroll, a house (`Choose`) | The nearest body within `hand_pick_cm` (4 cm of the room) of the Hand's point |
+| The pick up of an object, the take from a pile, a scroll, a house (`Choose`) | The nearest body within `hand_pick_cm` (4 cm of the room) of the Hand's point. For an object that the Hand can hold, the reach is `hand_wide_pick_cm` (15 cm) when no object that a press acts on is nearer ("The wide pick") |
 | The Creature | The capsule of its body about the Hand's point (see [creature.md](creature.md)) |
 | The grab from a distance | The aim ray of the pointing controller. It is off while an object is near the Hand's point |
 | A held object | The palm of the mod's hand (`overlay_math::HoldCenter`) |
@@ -368,6 +368,22 @@ that closes 7 cm from a tree must not move the world. The table hook offers
 each object in view within the larger of the two distances and 10 units more to
 the pick, so a near object is a candidate before the pixel is on it.
 
+**The wide pick.** An object that the Hand can hold, past `hand_pick_cm` and
+inside `hand_wide_pick_cm` (15 cm of the room), is the target of the grip when
+no object that a press acts on is nearer to the Hand's point
+(`near_math::WidePick`, the Creature counts as such an object). An object
+inside the reach of `hand_pick_cm` is chosen by the plain rules and wins over a
+wide one. A wide target shows as any near target does (the glow and the halo),
+and its closing of the grip is the plain pick up. The log has one line for each
+new wide target ("inside the wide reach"). A house, a scroll and a pile keep
+their reach. The far grab stays off while the object is within 10 cm, so each
+gap from 0 to 15 cm of a holdable object has a target, and past 15 cm the
+object is a far target when the aim is on it. The wide reach is the same
+from every side, so a hand at an object has the nearest object, and a far thing
+behind it is not taken. With `hand_wide_pick_cm=0` an object from
+`hand_pick_cm` to 15 cm is no target. The test key Ctrl Shift Page Up goes
+between 0 and the value (`test_keys=1`).
+
 **No band with no target.** The cone leaves out an object whose point is less
 than 35 cm of the room from the Hand's point (`kFarMinHandM`). With the rule
 on, the least distance of a far target is `far_grab_near_out_cm`
@@ -392,7 +408,9 @@ palm on purpose.
 ### The order of the targets
 
 1. An object within 4 cm of the Hand's point: the grip acts on it.
-2. An object within 10 to 15 cm of the Hand's point: no far target. The player
+2. An object that the Hand can hold, within 15 cm of the Hand's point, with no
+   nearer object that a press acts on: the grip takes it (the wide pick).
+   A house, a scroll or a pile from 4 to 15 cm: no far target. The player
    moves the Hand to the object.
 3. A far target in the cone: the grip takes it, collects from it or activates
    it.
@@ -443,6 +461,7 @@ put the leash on from a new game.
 | --- | --- | --- |
 | `near_rule` | 2 | 2 is one target. 1 is the nearest body within the reach, with the game's pick at the pixel for an object that is not near, and the search at the palm. 0 gives the pick of the first builds: a reach of 60 percent of the Hand's length, no tap choice, no rule of the near objects and no far touch |
 | `hand_pick_cm` | 4 | The reach of the pick from the Hand's point, in cm of the room. 1 to 20 |
+| `hand_wide_pick_cm` | 15 | The reach of the pick for an object that the Hand can hold, when no object that a press acts on is nearer, in cm of the room. 0 turns it off. 0 to 30. The test key Ctrl Shift Page Up goes between 0 and the value (`test_keys=1`) |
 | `hand_touch_cm` | 1 | The point touches a body when the gap is this or less, in cm of the room. 0 to `hand_pick_cm` |
 | `catch_moving` | 1 | 1 gives an object that moves a longer reach of the pick (see "A target that moves, floats or dies"). 0 gives each object the reach of `hand_pick_cm`. The test key Ctrl Page Up goes between the two (`test_keys=1`) |
 | `catch_lag_ms` | 100 | The time that the speed of the object counts for, in ms. 0 to 500 |
@@ -1042,9 +1061,7 @@ target, and the fetch puts it in the Hand while it moves.
   only this reach chose ("moves at"). The object that the Hand let go has the
   plain reach for `catch_grace_ms` after the release (`JustLetGo`), so a throw
   does not come back to the hand in the same closing of the grip. Only the
-  pick up has the extra reach: a scroll, a house and a pile keep theirs. The
-  gap between this reach and `far_grab_near_out_cm` (15 cm) is still a gap
-  with no target for a moving object, as for a still one.
+  pick up has the extra reach: a scroll, a house and a pile keep theirs.
 
 - **The lock follows the object.** `FarGrabTrack` takes the place of the locked
   object, the land under it and the influence there on each frame. The tether,

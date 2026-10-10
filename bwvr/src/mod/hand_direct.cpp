@@ -886,6 +886,10 @@ int g_catch_lag_ms = near_math::kCatchLagMs;
 int g_catch_cap_cm = near_math::kCatchCapCm;
 int g_catch_grace_ms = near_math::kCatchGraceMs;
 bool g_catch_key_down = false;
+int g_wide_cm = near_math::kWideCm;       // hand_wide_pick_cm
+bool g_wide_key_down = false;
+bool g_choice_wide = false;               // the choice is a wide pick
+void* g_wide_logged = nullptr;
 uint64_t g_catch_picks = 0;  // choices that the extra reach made, this window
 void* g_catch_logged = nullptr;
 bool g_far_touch = true;                    // far_touch
@@ -3038,7 +3042,8 @@ void SetRule(int rule) {
 void PollCatchKey() {
   if (!g_release_key) return;
   const bool down = (GetAsyncKeyState(VK_PRIOR) & 0x8000) != 0 &&
-                    (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
+                    (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0 &&
+                    (GetAsyncKeyState(VK_SHIFT) & 0x8000) == 0;
   const bool pressed = down && !g_catch_key_down;
   g_catch_key_down = down;
   if (!pressed) return;
@@ -3054,6 +3059,38 @@ void PollCatchKey() {
          g_catch_on != 0
              ? "An object that moves has a longer reach of the pick"
              : "Each object has the same reach, moving or still");
+}
+
+// The test key Ctrl Shift Page Up: hand_wide_pick_cm goes between its value
+// and 0 (the wide reach off). A long pulse for on and a short pulse for off.
+void PollWideKey() {
+  if (!g_release_key) return;
+  const bool down = (GetAsyncKeyState(VK_PRIOR) & 0x8000) != 0 &&
+                    (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0 &&
+                    (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
+  const bool pressed = down && !g_wide_key_down;
+  g_wide_key_down = down;
+  if (!pressed) return;
+  HWND window = GetForegroundWindow();
+  DWORD process = 0;
+  if (window != nullptr) GetWindowThreadProcessId(window, &process);
+  if (process != GetCurrentProcessId()) return;
+  static int saved = 0;
+  if (g_wide_cm > 0) {
+    saved = g_wide_cm;
+    g_wide_cm = 0;
+  } else {
+    g_wide_cm = saved > 0 ? saved : near_math::kWideCm;
+  }
+  g_wide_logged = nullptr;
+  ControllersGesturePulse(0.5f, g_wide_cm > 0 ? 0.30f : 0.08f);
+  ModLog("hand pick    : Ctrl, Shift and Page Up: hand_wide_pick_cm is %d now, "
+         "frame %llu. %s", g_wide_cm, g_frame,
+         g_wide_cm > 0
+             ? "A holdable object up to that gap is the target when nothing "
+               "is nearer"
+             : "The wide reach is off: a gap between the reach of the pick "
+               "and the far grab has no target");
 }
 
 void PollChoiceKey() {
@@ -4022,6 +4059,7 @@ void Choose() {
   g_scroll_near = -1;
   const bool was_blocked = g_near_blocked;
   g_near_blocked = false;
+  g_choice_wide = false;
   if (!g_active || g_face == nullptr || !HandEmpty()) return;
   // In the Creature state the pick keeps the Creature (KeepCreature).
   if (State(g_hand) == kStateCreature) return;
@@ -4034,6 +4072,9 @@ void Choose() {
       near_math::CmToUnits(static_cast<float>(g_near_out_cm), units);
   const float limit =
       (g_near_rule && near_out > reach ? near_out : reach) +
+      (g_near_rule && g_wide_cm > g_near_out_cm
+           ? near_math::CmToUnits(static_cast<float>(g_wide_cm - g_near_out_cm), units)
+           : 0.0f) +
       (g_catch_on != 0 ? near_math::CmToUnits(
                              static_cast<float>(g_catch_cap_cm), units)
                        : 0.0f);
@@ -4054,6 +4095,15 @@ void Choose() {
   float creature_gap = 1e30f;
   Measured chosen = {};
   float chosen_reach = reach, chosen_speed = 0.0f;
+  // THE WIDE PICK (near_math::WidePick): the nearest holdable object past the
+  // reach of the pick and inside the wide reach.
+  const float wide_reach =
+      g_near_rule ? near_math::CmToUnits(static_cast<float>(g_wide_cm), units)
+                  : 0.0f;
+  void* wide_object = nullptr;
+  float wide_position[3] = {0, 0, 0};
+  near_math::Gap wide_gap = {1e30f, 1e30f};
+  Measured wide_measured = {};
   // The nearest object that a press acts on, past the first cut too, for the
   // line of a press with no target.
   g_any_object = nullptr;
@@ -4097,6 +4147,14 @@ void Choose() {
         g_any_kind = kind;
       }
       if (!(m.target.gap.gap < (m.target.scroll ? scroll_reach : c_reach))) {
+        if (kind == near_math::kHold && !m.target.scroll &&
+            m.target.gap.gap < wide_reach &&
+            (wide_object == nullptr || m.target.gap.gap < wide_gap.gap)) {
+          wide_object = c.object;
+          wide_gap = m.target.gap;
+          wide_measured = m;
+          for (int k = 0; k < 3; ++k) wide_position[k] = c.position[k];
+        }
         continue;
       }
       // A scroll past the reach of the pick is the last choice (rule 5).
@@ -4142,7 +4200,15 @@ void Choose() {
       if (gap.gap < creature_gap) creature_gap = gap.gap;
       continue;
     }
-    if (!(gap.gap < c_reach)) continue;
+    if (!(gap.gap < c_reach)) {
+      if (kind == near_math::kHold && gap.gap < wide_reach &&
+          (wide_object == nullptr || gap.gap < wide_gap.gap)) {
+        wide_object = c.object;
+        wide_gap = gap;
+        for (int k = 0; k < 3; ++k) wide_position[k] = c.position[k];
+      }
+      continue;
+    }
     if (g_choice != nullptr &&
         !near_math::Beats(gap, kind, best, best_kind, eps)) {
       continue;
@@ -4154,6 +4220,28 @@ void Choose() {
     g_choice_gap = gap.gap;
     chosen_reach = c_reach;
     chosen_speed = c_reach > reach ? ObjectSpeedNow(c) : 0.0f;
+  }
+  if (g_choice == nullptr && wide_object != nullptr &&
+      near_math::WidePick(wide_gap.gap, reach, wide_reach, nearest, eps)) {
+    g_choice = wide_object;
+    chosen = wide_measured;
+    best = wide_gap;
+    best_kind = near_math::kHold;
+    for (int k = 0; k < 3; ++k) g_choice_position[k] = wide_position[k];
+    g_choice_gap = wide_gap.gap;
+    chosen_reach = wide_reach;
+    chosen_speed = 0.0f;
+    g_choice_wide = true;
+    if (g_wide_logged != g_choice) {
+      g_wide_logged = g_choice;
+      ModLog("hand pick    : the %s %p is %.1f cm of the room from the Hand's "
+             "point, past the reach of %d cm and inside the wide reach of %d "
+             "cm (hand_wide_pick_cm). No object is nearer, so it is the "
+             "target, frame %llu", ClassName(g_choice), g_choice,
+             g_choice_gap / units * 100.0f, g_pick_cm, g_wide_cm, g_frame);
+    }
+  } else if (g_choice == nullptr) {
+    g_wide_logged = nullptr;
   }
   // While a choice stands, the table hook keeps each other object from the
   // game's pick, the Creature too. A house beside the Creature must not do
@@ -4167,7 +4255,7 @@ void Choose() {
   // A choice that only the extra reach of a moving object made: one line for
   // each new object.
   if (g_choice != nullptr && best_kind == near_math::kHold &&
-      g_choice_gap >= reach && g_catch_logged != g_choice) {
+      !g_choice_wide && g_choice_gap >= reach && g_catch_logged != g_choice) {
     g_catch_logged = g_choice;
     ++g_catch_picks;
     ModLog("hand pick    : the %s %p moves at %.0f cm of the room a second, so "
@@ -4321,7 +4409,8 @@ void Choose() {
              units > 0.0f ? g_choice_gap / units * 100.0f : 0.0f,
              g_choice_touched ? "the point touches it, in"
                               : "the point does not touch it, in",
-             chosen.target.scroll && g_scroll_reach_cm > g_pick_cm
+             g_choice_wide ? g_wide_cm
+             : chosen.target.scroll && g_scroll_reach_cm > g_pick_cm
                  ? g_scroll_reach_cm
                  : g_pick_cm,
              g_choice_center[0], g_choice_center[1],
@@ -5066,7 +5155,10 @@ int __fastcall h_RightPress(void* self, void* unused) {
                     g_any_object, ClassName(g_any_object),
                     KindName(g_any_kind), g_any_gap * cm,
                     scroll && g_scroll_reach_cm > g_pick_cm ? g_scroll_reach_cm
-                                                            : g_pick_cm);
+                    : g_any_kind == near_math::kHold && g_near_rule &&
+                              g_wide_cm > g_pick_cm
+                        ? g_wide_cm
+                        : g_pick_cm);
         } else {
           sprintf_s(nearest, "The draw offered %d objects, and a press acts "
                              "on none of them", g_any_count);
@@ -5915,6 +6007,9 @@ void InstallNear() {
          "the plain reach for %d ms (catch_grace_ms). Ctrl and the Page Up key "
          "change catch_moving (test_keys=1)", g_catch_on, g_catch_lag_ms,
          g_catch_cap_cm, g_catch_grace_ms);
+  g_wide_cm = IniKey("hand_wide_pick_cm", near_math::kWideCm);
+  if (g_wide_cm < 0) g_wide_cm = 0;
+  if (g_wide_cm > 30) g_wide_cm = 30;
   g_near_in_cm = IniKey("far_grab_near_cm", near_math::kNearInCm);
   if (g_near_in_cm < 0) g_near_in_cm = 0;
   if (g_near_in_cm > 100) g_near_in_cm = 100;
@@ -6568,6 +6663,7 @@ void HandDirectFrame() {
   PollNearKey();
   PollChoiceKey();
   PollCatchKey();
+  PollWideKey();
   LogRelease();
   const bool active = want && g_hand != nullptr;
   g_owns = active;

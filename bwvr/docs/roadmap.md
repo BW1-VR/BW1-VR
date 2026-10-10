@@ -45,9 +45,6 @@ is built, and no test has proven it.
     units for more than 2 s, and its far target shows and hides each 20
     to 35 frames. This is the probable cause of a tree that slides and
     takes no interaction.
-  - An object from 4 cm to 15 cm from the Hand's point is no target at
-    all: the near pick reaches 4 cm (`hand_pick_cm`), and the grab from a
-    distance is off within 10 cm and comes back past 15 cm.
   - A thrown object is no candidate for 9 to 16 frames after the release,
     while the mod draws it on its arc.
 - **B3. A fast grab of a rock breaks the rock at times.** The player closes

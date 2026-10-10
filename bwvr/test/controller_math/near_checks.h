@@ -128,6 +128,29 @@ inline void NearChecks() {
           "gaps that agree to eps are a tie, and the middle decides", 1, 1);
   }
 
+  // THE WIDE PICK: every gap from 0 to 30 cm has a target or a far grab.
+  {
+    const float reach = CmToUnits(static_cast<float>(kPickCm), 100.0f);
+    const float wide = CmToUnits(static_cast<float>(kWideCm), 100.0f);
+    const float eps = CmToUnits(0.1f, 100.0f);
+    Check(!WidePick(2.0f, reach, wide, 2.0f, eps),
+          "inside the reach of the pick the plain rules choose", 0, 0);
+    Check(WidePick(4.0f, reach, wide, 4.0f, eps),
+          "at the reach of the pick the wide pick takes it", 1, 1);
+    Check(WidePick(9.0f, reach, wide, 9.0f, eps), "9 cm is the target", 1, 1);
+    Check(WidePick(14.9f, reach, wide, 14.9f, eps), "14.9 cm is the target", 1,
+          1);
+    Check(!WidePick(15.0f, reach, wide, 15.0f, eps),
+          "at the wide reach the far grab takes over", 0, 0);
+    Check(!WidePick(9.0f, reach, wide, 6.0f, eps),
+          "a nearer object that a press acts on keeps it", 0, 0);
+    Check(WidePick(9.0f, reach, wide, 8.95f, eps),
+          "a nearer object inside eps is a tie, the held object stays", 1, 1);
+    Check(!WidePick(9.0f, reach, 0.0f, 9.0f, eps), "0 is the wide pick off", 0,
+          0);
+    Check(kWideCm >= kNearOutCm, "the wide reach reaches the far grab", 1, 1);
+  }
+
   // NEAR OBJECTS WIN. The gaps are in units at 100 units a meter, so they
   // read as centimeters: off at 10, on again past 15.
   {

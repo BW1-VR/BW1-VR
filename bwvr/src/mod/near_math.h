@@ -645,6 +645,23 @@ inline bool BoneSane(float dx, float dz, float size) {
   return dx * dx + dz * dz <= reach * reach;
 }
 
+// THE WIDE PICK. Between the reach of the pick (hand_pick_cm) and the gap at
+// which the grab from a distance comes back, an object was no target: the pick
+// did not reach it, and the object itself kept the far grab off. So a holdable
+// object past the reach of the pick and inside the wide reach
+// (hand_wide_pick_cm, 0 is off) is the target when no object that a press acts
+// on is nearer than it (nearest is the least gap of them, the Creature too).
+// The wide reach is at least the gap at which the far grab comes back, so each
+// gap has a target. An object inside the reach of the pick is chosen by the
+// plain rules, and wins over a wide one.
+const int kWideCm = 15;  // hand_wide_pick_cm
+
+inline bool WidePick(float gap, float reach, float wide_reach, float nearest,
+                     float eps) {
+  if (!(wide_reach > reach)) return false;
+  return gap >= reach && gap < wide_reach && gap <= nearest + eps;
+}
+
 // NEAR OBJECTS WIN. The grab from a distance is off while an object that a
 // press acts on is near the point. It goes off when the gap is in_gap or
 // less, and it comes back when the gap is more than out_gap. Between the two
