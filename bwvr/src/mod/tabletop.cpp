@@ -53,8 +53,9 @@
 // pose, god_ground_down_cm below it, so the land under the player is at the
 // waist, and there is no edge: no cut, no disc, no key color. The scale goes
 // from the life size scale to the table scales. The right stick zooms about
-// the ground under the head, in steps or while it is held (god_zoom_smooth),
-// the other hand's grip raises and lowers the ground, and a snap turn turns
+// the land that the player looks at (god_zoom_about, GodZoomPoint), in steps
+// or while it is held (god_zoom_smooth). The other hand's grip raises and
+// lowers the ground, and a snap turn turns
 // the view about the head. Each step is used once, at the next main camera
 // call (ApplyGodSteps), and the smooth zoom changes the scale once a frame
 // there (ApplyGodZoomHold). The Hand is the real hand at the scale. The fog,
@@ -128,6 +129,9 @@ int TeleportJumpEvent();
 // number that the scripted controller counts.
 void ControllersGesturePulse(float amplitude, float seconds);
 uint64_t ControllersFrameCount();
+// hand_direct.cpp: the point of the real hand in the world, from the frame
+// before. False while no controller places the Hand.
+bool HandDirectRealPoint(float out[3]);
 
 namespace {
 
@@ -233,9 +237,9 @@ const float kGodGamePitch = 50.0f / 57.29578f;
 const float kGodGameRadius = 3000.0f;
 const float kMapCenter = 2560.0f;
 // A step of the ground keeps the land under the head between 10 cm and 2.5 m
-// below the head. A step that would go past a limit is refused. A zoom step
-// turns about the land under the head, with its height kept in the same
-// range, so a hill over the head goes down as the view zooms out.
+// below the head. A step that would go past a limit is refused. The level of
+// a zoom is the height of the land under the head, kept in the same range
+// (GodZoomPoint), so a hill over the head goes down as the view zooms out.
 const float kGroundNearest = 0.10f;
 const float kGroundFarthest = 2.50f;
 // No edge in the God view.
@@ -327,13 +331,24 @@ uint64_t g_serial = 0;
 // call uses: 1, -1 or 0 each. The scale of the last God view, which it keeps
 // when it is built again.
 int g_god_zoom = 0;
-// The check of a zoom step: the render head of the frame before the step, and
-// the scale after it. The frame after the step compares it with the render
-// head of the step frame.
+// THE POINT OF A ZOOM (GodZoomPoint): the point in the world, how far its
+// level is below the head, which point it is (zoom_math::PointKind), and how
+// far it is from the head across the room, in meters.
+struct ZoomPoint {
+  float pivot[3] = {0.0f, 0.0f, 0.0f};
+  float below = 0.0f;
+  int kind = 0;
+  float across = 0.0f;
+};
+// The check of a zoom step: the render head of the frame before the step, the
+// scale before and after it, and the point of the zoom. The frame after the
+// step compares them with the render head of the step frame.
 struct ZoomProbe {
   bool armed = false;
   float eye[3] = {0.0f, 0.0f, 0.0f};
+  float before = 1.0f;
   float scale = 1.0f;
+  float pivot[3] = {0.0f, 0.0f, 0.0f};
 } g_zoom_probe;
 int g_god_ground = 0;
 int g_god_turn = 0;
@@ -342,12 +357,22 @@ float g_god_turn_degrees = 45.0f;
 // the last main camera call, and fresh says that it asked. The rest is the
 // hold that runs: its direction, the scale and the land point under the head
 // at its start and after its last frame, the render head of the frame before
-// it, the time of its frames, and how many of them changed the scale.
+// it, the time of its frames, and how many of them changed the scale. point
+// is the point of the zoom at the start, with its place in the room then and
+// after the last frame. kept says that each frame of the hold uses that
+// point (god_zoom_about 1 and 2), so the point does not move while the head
+// turns. With god_zoom_about=0 each frame takes the land under the head
+// again.
 struct ZoomHold {
   float push = 0.0f;
   bool fresh = false;
   bool active = false;
   int direction = 0;
+  bool kept = false;
+  ZoomPoint point;
+  float point_start[3] = {0.0f, 0.0f, 0.0f};
+  float point_now[3] = {0.0f, 0.0f, 0.0f};
+  float sunk = 0.0f;  // how far ZoomClearHead put the land down, in meters
   float start_scale = 0.0f;
   float scale = 0.0f;
   float start_under[2] = {0.0f, 0.0f};
@@ -1257,27 +1282,131 @@ void MousePan(bool drag) {
   ++g_pan.moved;
 }
 
-// THE POINT OF A ZOOM, for a zoom step and for the smooth zoom: the land
-// point straight under the head. A zoom keeps this point of the world at its
-// place in the room, so the player keeps their place in the world. The
-// height of the point in the room goes into the range of a step of the
-// ground first, so a hill that stands over the head goes down as the view
-// zooms out. This is the one place that chooses the point. below is how far
-// the point is below the head, in meters of the room.
+// True for a point of a zoom that is not the land under the head.
+bool ZoomPointAway(const ZoomPoint& point) {
+  return point.kind == zoom_math::kPointLook ||
+         point.kind == zoom_math::kPointLookFar ||
+         point.kind == zoom_math::kPointHand;
+}
+
+// THE POINT OF A ZOOM, for a zoom step and for the smooth zoom
+// (docs/god-view.md, "The zoom"). A zoom keeps this point of the world at its
+// place in the room. This is the one place that chooses the point.
+//
+// ITS HEIGHT is the level of the zoom: the height of the land under the
+// head. So the land of that height keeps its height in the room, and the
+// ground stays where the player put it. The level goes into the range of a
+// step of the ground first, so a hill that stands over the head goes down as
+// the view zooms out.
+//
+// ITS PLACE ACROSS is the choice of god_zoom_about (zoom_math.h,
+// PointAcross). 0: under the head, so the player keeps their place in the
+// world. 1: the land point that the head looks at, so the thing in the
+// middle of the view stays there and only its size changes. The line of the
+// look is the forward direction of the head, the land test is the one of the
+// mouse pan (RayLand), and the point is at most god_zoom_about_far_cm from
+// the head. 2: the Hand's point. With 1 and 2 the head moves over the land
+// in a zoom, and the game camera follows it (TabletopGodGameCamera). A hill
+// at the new place of the head stays below the head (ZoomClearHead).
 void GodZoomPoint(const TablePose& pose, const float room[3],
-                  const float head[3], float pivot[3], float* below) {
+                  const float head[3], ZoomPoint* out) {
   float at[3];
   PoseWorld(pose, room, head, at);
   const float land = GroundAt(at[0], at[2]);
-  float in_room = GroundInRoom(pose, room, land);
-  const float top = head[1] - kGroundNearest;
-  const float bottom = head[1] - kGroundFarthest;
-  if (in_room > top) in_room = top;
-  if (in_room < bottom) in_room = bottom;
-  pivot[0] = at[0];
-  pivot[1] = pose.center[1] + (in_room - room[1]) * pose.scale;
-  pivot[2] = at[2];
-  *below = head[1] - in_room;
+  const float in_room =
+      zoom_math::ZoomLevel(GroundInRoom(pose, room, land), head[1],
+                           kGroundNearest, kGroundFarthest);
+  out->pivot[0] = at[0];
+  out->pivot[1] = pose.center[1] + (in_room - room[1]) * pose.scale;
+  out->pivot[2] = at[2];
+  out->below = head[1] - in_room;
+
+  float matrix[9], lean[3], forward[3], hand_world[3], hand[3], across[3];
+  const bool have_forward = HeadPoseCurrent(matrix, lean) &&
+                            zoom_math::HeadForward(matrix, forward);
+  // The Hand's point is a world point of the frame before. The view of that
+  // frame gives its place in the room.
+  const bool have_hand =
+      g_settings.god_zoom_about == zoom_math::kAboutHand &&
+      HandDirectRealPoint(hand_world);
+  if (have_hand) PoseRoom(Pose(), room, hand_world, hand);
+  // The line of the look goes in steps of 1 cm of the room, and of the step
+  // of the mouse pan at least.
+  float step = 0.01f * pose.scale;
+  if (step < kPanStepUnits) step = kPanStepUnits;
+  const auto height = [](float x, float z) { return GroundAt(x, z); };
+  out->kind = zoom_math::PointAcross(
+      g_settings.god_zoom_about, pose, room, head,
+      have_forward ? forward : nullptr, have_hand ? hand : nullptr,
+      g_settings.god_zoom_about_far_cm * 0.01f, step, height, across);
+  out->across = zoom_math::Across(head, across);
+  if (ZoomPointAway(*out)) {
+    zoom_math::PivotAt(pose, room, across, in_room, out->pivot);
+  }
+}
+
+// Which point a zoom got and why, for the log.
+void ZoomPointText(const ZoomPoint& point, char* out, size_t size) {
+  const int about = g_settings.god_zoom_about;
+  const float far_m = g_settings.god_zoom_about_far_cm * 0.01f;
+  switch (point.kind) {
+    case zoom_math::kPointLook:
+      sprintf_s(out, size, "the land that you look at, %.2f m across from "
+                "your head (god_zoom_about=%d)", point.across, about);
+      break;
+    case zoom_math::kPointLookFar:
+      sprintf_s(out, size, "the line of your look meets no land within %.2f "
+                "m, so the point of that line at %.2f m, %.2f m across from "
+                "your head (god_zoom_about=%d)", far_m, far_m, point.across,
+                about);
+      break;
+    case zoom_math::kPointLookNone:
+      sprintf_s(out, size, "your head has no direction, so the land under "
+                "your head (god_zoom_about=%d)", about);
+      break;
+    case zoom_math::kPointHand:
+      sprintf_s(out, size, "the Hand's point, %.2f m across from your head "
+                "(god_zoom_about=%d)", point.across, about);
+      break;
+    case zoom_math::kPointHandNone:
+      sprintf_s(out, size, "no controller places the Hand, so the land under "
+                "your head (god_zoom_about=%d)", about);
+      break;
+    default:
+      sprintf_s(out, size, "the land under your head (god_zoom_about=%d)",
+                about);
+      break;
+  }
+}
+
+// How far a world point moved in the room between two views, in cm.
+float MovedInRoomCm(const TablePose& from, const TablePose& to,
+                    const float room[3], const float world[3]) {
+  float a[3], b[3];
+  PoseRoom(from, room, world, a);
+  PoseRoom(to, room, world, b);
+  const float d[3] = {b[0] - a[0], b[1] - a[1], b[2] - a[2]};
+  return sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]) * 100.0f;
+}
+
+// A HILL UNDER THE HEAD AFTER A ZOOM. A zoom about a point that is not under
+// the head moves the head over the land, as a pan does. When the land at the
+// new place of the head is nearer than kGroundNearest below the head, all of
+// the land goes down to that limit (zoom_math.h, ClearHead), as it does when
+// the view goes to a place (PlaceGod). pose is the view that the zoom gave.
+// Returns how far the land went down, in meters of the room.
+float ZoomClearHead(TablePose* pose, const float room[3],
+                    const float head[3]) {
+  TablePose on_map = *pose;
+  for (int i = 0; i < 3; i += 2) on_map.center[i] = ClampMap(pose->center[i]);
+  float at[3];
+  PoseWorld(on_map, room, head, at);
+  const float y =
+      zoom_math::ClearHead(pose->center[1], GroundAt(at[0], at[2]), room[1],
+                           pose->scale, head[1], kGroundNearest);
+  const float down = (y - pose->center[1]) / pose->scale;
+  pose->center[1] = y;
+  return down;
 }
 
 // THE STEPS OF THE GOD VIEW, once a frame, at the main camera call: a snap
@@ -1314,44 +1443,62 @@ void ApplyGodSteps() {
   }
 
   if (zoom != 0) {
-    // The point of the zoom keeps its place in the room (GodZoomPoint).
-    float at[3], pivot[3], below = 0.0f;
+    // The point of the zoom keeps its place in the room (GodZoomPoint). It
+    // is taken one time for the step.
+    float at[3];
+    ZoomPoint point;
     PoseWorld(pose, room, head, at);
-    GodZoomPoint(pose, room, head, pivot, &below);
+    GodZoomPoint(pose, room, head, &point);
     const float step = 1.0f + g_settings.god_zoom_pct * 0.01f;
     const float ratio = zoom > 0 ? 1.0f / step : step;
     const float before = pose.scale;
-    const float used = GodZoomAbout(pose, pivot, ratio, GodLowest(),
+    const float used = GodZoomAbout(pose, point.pivot, ratio, GodLowest(),
                                     GodHighest(), &next);
     if (used != 1.0f) {
+      // The head moves over the land, and a hill there stays below it.
+      const float sunk =
+          ZoomPointAway(point) ? ZoomClearHead(&next, room, head) : 0.0f;
       if (GodLog()) {
+        char why[224], hill[128] = "";
+        ZoomPointText(point, why, sizeof(why));
+        if (sunk > 0.0005f) {
+          sprintf_s(hill, ". The land went %.1f cm down in the room, so the "
+                    "land under your head is %.0f cm below it",
+                    sunk * 100.0f, kGroundNearest * 100.0f);
+        }
+        ModLog("god view     : zoomed %s, %.1f to %.1f units per meter, about "
+               "the point at %.1f %.1f %.1f, %.2f m below your head: %s%s",
+               zoom > 0 ? "in" : "out", before, next.scale, point.pivot[0],
+               point.pivot[1], point.pivot[2], point.below, why, hill);
+      }
+      if (GodLog()) {
+        // The view that the step gives, with the center kept on the map.
+        TablePose to = next;
+        for (int i = 0; i < 3; i += 2) to.center[i] = ClampMap(to.center[i]);
         float after[3];
-        PoseWorld(next, room, head, after);
+        PoseWorld(to, room, head, after);
         const float gone = sqrtf((after[0] - at[0]) * (after[0] - at[0]) +
                                  (after[2] - at[2]) * (after[2] - at[2]));
-        const float place = sqrtf((next.center[0] - pose.center[0]) *
-                                      (next.center[0] - pose.center[0]) +
-                                  (next.center[2] - pose.center[2]) *
-                                      (next.center[2] - pose.center[2]));
-        ModLog("god view     : zoom check, the land under your head was at %.1f "
-               "%.1f and is at %.1f %.1f, %.2f cm of the room apart. The "
-               "recenter place moves %.2f cm of the room, and the head is "
-               "%.0f cm right and %.0f cm forward of it",
-               at[0], at[2], after[0], after[2], gone / next.scale * 100.0f,
-               place / next.scale * 100.0f, head[0] * 100.0f,
-               head[2] * 100.0f);
+        const float place = sqrtf((to.center[0] - pose.center[0]) *
+                                      (to.center[0] - pose.center[0]) +
+                                  (to.center[2] - pose.center[2]) *
+                                      (to.center[2] - pose.center[2]));
+        ModLog("god view     : zoom check, the point of the zoom moved %.2f cm "
+               "in the room. The land under your head was at %.1f %.1f and "
+               "is at %.1f %.1f, %.2f cm of the room apart. The recenter "
+               "place moves %.2f cm of the room, and the head is %.0f cm "
+               "right and %.0f cm forward of it",
+               MovedInRoomCm(pose, to, room, point.pivot), at[0], at[2],
+               after[0], after[2], gone / to.scale * 100.0f,
+               place / to.scale * 100.0f, head[0] * 100.0f, head[2] * 100.0f);
       }
       g_zoom_probe.armed = HeadCameraTableEye(g_zoom_probe.eye);
+      g_zoom_probe.before = before;
       g_zoom_probe.scale = next.scale;
+      for (int i = 0; i < 3; ++i) g_zoom_probe.pivot[i] = point.pivot[i];
       pose = next;
       moved = true;
       Help(kHelpZoom, kInputWheel);
-      if (GodLog()) {
-        ModLog("god view     : zoomed %s, %.1f to %.1f units per meter, about "
-               "the land at %.0f %.0f %.0f, %.2f m below your head",
-               zoom > 0 ? "in" : "out", before, pose.scale, pivot[0],
-               pivot[1], pivot[2], below);
-      }
     } else {
       ++g_god_refused;
       if (GodLog()) {
@@ -1448,8 +1595,9 @@ double Seconds() {
 
 // THE END OF A HOLD of the smooth zoom: the stick came back, or the view
 // cannot zoom. A request that waits is dropped. One log line gives the scale
-// at the start and at the end, the time of the frames of the hold, and how
-// far the land point under the head and the render head moved across. The
+// at the start and at the end, the time of the frames of the hold, which
+// point the zoom kept and how far that point moved in the room, and how far
+// the land point under the head and the render head moved across. The
 // numbers are the ones of the last frame of the hold, so the view of now is
 // not read. The check of ApplyGodZoomHold starts.
 //
@@ -1488,17 +1636,31 @@ void StopZoomHold(const char* cause, bool view_stays) {
   }
   const float ux = g_hold.under[0] - g_hold.start_under[0];
   const float uz = g_hold.under[1] - g_hold.start_under[1];
+  float point_off = 0.0f;
+  for (int i = 0; i < 3; ++i) {
+    const float d = g_hold.point_now[i] - g_hold.point_start[i];
+    point_off += d * d;
+  }
+  char hill[128] = "";
+  if (g_hold.sunk > 0.0005f) {
+    sprintf_s(hill, " The land went %.1f cm down in the room, so the land "
+              "under your head is %.0f cm below it.", g_hold.sunk * 100.0f,
+              kGroundNearest * 100.0f);
+  }
   ModLog("god view     : the smooth zoom stopped (%s). It zoomed %s from %.2f "
          "to %.2f units per meter, which is %.2f zoom steps. The stick was "
          "held for %.3f s, and the scale changed on %llu of %llu frames%s. "
-         "The land under your head was at %.1f %.1f and is at %.1f %.1f, "
-         "%.2f cm of the room apart, and %s.", cause,
+         "The point of the zoom at %.1f %.1f %.1f moved %.2f cm in the "
+         "room.%s The land under your head was at %.1f %.1f and is at %.1f "
+         "%.1f, %.2f cm of the room apart, and %s.", cause,
          g_hold.direction > 0 ? "in" : "out", g_hold.start_scale,
          g_hold.scale,
          zoom_math::Steps(g_hold.start_scale, g_hold.scale,
                           1.0f + g_settings.god_zoom_pct * 0.01f),
          g_hold.seconds, g_hold.moved, g_hold.frames,
          at_limit ? ", and the zoom is at its limit" : "",
+         g_hold.point.pivot[0], g_hold.point.pivot[1], g_hold.point.pivot[2],
+         sqrtf(point_off) * 100.0f, hill,
          g_hold.start_under[0], g_hold.start_under[1], g_hold.under[0],
          g_hold.under[1],
          g_hold.scale > 0.0f
@@ -1510,8 +1672,13 @@ void StopZoomHold(const char* cause, bool view_stays) {
 // THE SMOOTH ZOOM (god_zoom_smooth=1, docs/god-view.md, "The zoom"), once a
 // frame, at the main camera call. While the stick holds a zoom, the scale
 // changes by the ratio of the time of this frame (zoom_math.h), about the
-// point of a zoom step (GodZoomPoint), between the limits of the scale. The
-// pump of the controllers asks again before each frame
+// point of a zoom step (GodZoomPoint), between the limits of the scale. With
+// god_zoom_about 1 and 2 the hold takes the point one time, at its start, and
+// keeps that point of the world. So the point does not move while the head
+// turns a little. With god_zoom_about=0 each frame takes the land under the
+// head again.
+//
+// The pump of the controllers asks again before each frame
 // (TabletopGodZoomHold). A frame with no request changes nothing, so the zoom
 // stops in the frame in which the stick comes back, and nothing glides. The
 // scale changes here only, so each reader of a frame gets one scale.
@@ -1520,11 +1687,14 @@ void StopZoomHold(const char* cause, bool view_stays) {
 // does on each update in which its own camera zooms (0x0045C38E). There is no
 // blink.
 //
-// THE GAME CAMERA. The point of the zoom is the place of the game camera
-// (god_camera_at=1), so a hold does not move that place. The version of the
-// view goes up on the first frame that changes the scale, as for a zoom
-// step, and one more time at the end of the hold (StopZoomHold). So the game
-// camera is written at most two times for a hold, and not on each frame.
+// THE GAME CAMERA. With god_zoom_about=0 the point of the zoom is the place
+// of the game camera (god_camera_at=1), so a hold does not move that place.
+// The version of the view goes up on the first frame that changes the scale,
+// as for a zoom step, and one more time at the end of the hold
+// (StopZoomHold). So the game camera is written at most two times for a
+// hold, and not on each frame. With a point that the hold keeps, the head
+// moves over the land in each frame. The version then goes up on each frame
+// that changes the scale, as for a grab, so the game camera follows the head.
 //
 // The log has one line for the start of a hold, one for its end, and one for
 // the check kHoldCheckFrames frames later: the scale and the render head
@@ -1571,16 +1741,22 @@ void ApplyGodZoomHold(double frame_seconds) {
   if (g_hold.active && direction != g_hold.direction) {
     StopZoomHold("the stick went the other way", true);
   }
-  float room[3], head[3], under[3], pivot[3], below = 0.0f;
+  float room[3], head[3], under[3];
   TableRoom(room);
   HeadRoom(head);
   const TablePose pose = Pose();
   PoseWorld(pose, room, head, under);
-  GodZoomPoint(pose, room, head, pivot, &below);
+  ZoomPoint point = g_hold.point;
+  if (!g_hold.active || !g_hold.kept) GodZoomPoint(pose, room, head, &point);
   const float step = 1.0f + g_settings.god_zoom_pct * 0.01f;
   if (!g_hold.active) {
     g_hold.active = true;
     g_hold.direction = direction;
+    g_hold.kept = g_settings.god_zoom_about != zoom_math::kAboutHead;
+    g_hold.point = point;
+    PoseRoom(pose, room, point.pivot, g_hold.point_start);
+    for (int i = 0; i < 3; ++i) g_hold.point_now[i] = g_hold.point_start[i];
+    g_hold.sunk = 0.0f;
     g_hold.start_scale = g_hold.scale = pose.scale;
     g_hold.start_under[0] = g_hold.under[0] = under[0];
     g_hold.start_under[1] = g_hold.under[1] = under[2];
@@ -1589,11 +1765,16 @@ void ApplyGodZoomHold(double frame_seconds) {
     g_hold.frames = g_hold.moved = 0;
     g_hold_check.frames_left = 0;
     if (GodLog()) {
+      char why[224];
+      ZoomPointText(point, why, sizeof(why));
       ModLog("god view     : the smooth zoom starts to zoom %s at %.2f units "
-             "per meter, about the land at %.0f %.0f %.0f, %.2f m below your "
-             "head. A full push changes the scale %.2f times in %d ms.",
-             direction > 0 ? "in" : "out", pose.scale, pivot[0], pivot[1],
-             pivot[2], below, step, g_settings.god_zoom_smooth_ms);
+             "per meter, about the point at %.1f %.1f %.1f, %.2f m below "
+             "your head: %s. %sA full push changes the scale %.2f times in "
+             "%d ms.",
+             direction > 0 ? "in" : "out", pose.scale, point.pivot[0],
+             point.pivot[1], point.pivot[2], point.below, why,
+             g_hold.kept ? "The hold keeps this point of the world. " : "",
+             step, g_settings.god_zoom_smooth_ms);
     }
   }
   const float seconds = zoom_math::FrameSeconds(frame_seconds, kHoldFrameCap);
@@ -1602,21 +1783,24 @@ void ApplyGodZoomHold(double frame_seconds) {
   ++g_hold.frames;
   g_hold.seconds += seconds;
   TablePose next;
-  const float used = GodZoomAbout(pose, pivot, ratio, GodLowest(),
+  const float used = GodZoomAbout(pose, point.pivot, ratio, GodLowest(),
                                   GodHighest(), &next);
   // At a limit of the scale, or in a frame with no time, nothing moves.
   if (used == 1.0f) return;
+  // The head moves over the land, and a hill there stays below it.
+  if (g_hold.kept) g_hold.sunk += ZoomClearHead(&next, room, head);
   for (int i = 0; i < 3; i += 2) g_center[i] = ClampMap(next.center[i]);
   g_center[1] = next.center[1];
   g_scale = next.scale;
   Derive();
   ++g_serial;
-  if (g_hold.moved == 0) ++g_god_version;
+  if (g_hold.moved == 0 || g_hold.kept) ++g_god_version;
   ++g_hold.moved;
   g_hold.scale = g_scale;
   PoseWorld(Pose(), room, head, under);
   g_hold.under[0] = under[0];
   g_hold.under[1] = under[2];
+  PoseRoom(Pose(), room, g_hold.point.pivot, g_hold.point_now);
   Help(kHelpZoom, kInputWheel);
 }
 
@@ -1847,6 +2031,24 @@ bool Hook(uintptr_t address, void* replacement, void** original,
 
 void SetFloat(Patch& p, float value) { p.wanted = Bits(value); }
 
+// What god_zoom_about is now, for the start of the log and for the test key.
+void LogZoomAbout(const char* tag) {
+  const int about = g_settings.god_zoom_about;
+  char what[160];
+  if (about == zoom_math::kAboutLook) {
+    sprintf_s(what, "the land point that you look at, at most %d cm from "
+              "your head (god_zoom_about_far_cm)",
+              g_settings.god_zoom_about_far_cm);
+  } else if (about == zoom_math::kAboutHand) {
+    sprintf_s(what, "the Hand's point");
+  } else {
+    sprintf_s(what, "the land point under your head");
+  }
+  ModLog("%s: god_zoom_about=%d. A zoom keeps %s at its place in the room%s",
+         tag, about, what,
+         g_settings.test_keys ? ". Ctrl, Shift and Delete change it" : "");
+}
+
 }  // namespace
 
 void TabletopSetOptions(const TabletopSettings& settings) {
@@ -1867,6 +2069,13 @@ void TabletopSetOptions(const TabletopSettings& settings) {
   if (g_settings.god_zoom_smooth_ms < 100) g_settings.god_zoom_smooth_ms = 100;
   if (g_settings.god_zoom_smooth_ms > 5000) {
     g_settings.god_zoom_smooth_ms = 5000;
+  }
+  g_settings.god_zoom_about = zoom_math::About(g_settings.god_zoom_about);
+  if (g_settings.god_zoom_about_far_cm < 50) {
+    g_settings.god_zoom_about_far_cm = 50;
+  }
+  if (g_settings.god_zoom_about_far_cm > 1000) {
+    g_settings.god_zoom_about_far_cm = 1000;
   }
   if (g_settings.god_step_cm < 1) g_settings.god_step_cm = 1;
   if (g_settings.god_step_cm > 50) g_settings.god_step_cm = 50;
@@ -1948,6 +2157,7 @@ void TabletopInstall() {
              "zoom step%s",
              g_settings.test_keys ? ". Ctrl, Shift and Insert change it" : "");
     }
+    LogZoomAbout("god view     ");
     return;
   }
   Hook(kBlockCull, reinterpret_cast<void*>(&h_BlockCull),
@@ -2068,16 +2278,39 @@ bool TabletopCamera(const float asked_position[3], const float asked_focus[3],
         TabletopGodZoomSmoothToggle();
       }
     }
+    // The test god_zoom_about_test: the test key acts at one frame.
+    if (g_settings.god_zoom_about_test > 0 &&
+        ControllersFrameCount() ==
+            static_cast<uint64_t>(g_settings.god_zoom_about_test)) {
+      static bool done = false;
+      if (!done) {
+        done = true;
+        TabletopGodZoomAboutCycle();
+      }
+    }
     if (g_zoom_probe.armed) {
       g_zoom_probe.armed = false;
       float eye[3];
       if (HeadCameraTableEye(eye) && GodLog()) {
         const float dx = eye[0] - g_zoom_probe.eye[0];
         const float dz = eye[2] - g_zoom_probe.eye[2];
+        // The point of the zoom from the drawn head, in the room, before and
+        // after the step.
+        float off = 0.0f;
+        for (int i = 0; i < 3; ++i) {
+          const float was = (g_zoom_probe.pivot[i] - g_zoom_probe.eye[i]) /
+                            g_zoom_probe.before;
+          const float is = (g_zoom_probe.pivot[i] - eye[i]) /
+                           g_zoom_probe.scale;
+          off += (is - was) * (is - was);
+        }
         ModLog("god view     : zoom check, the drawn head moved %.2f cm of the "
-               "room over the step (%.0f %.0f before, %.0f %.0f after)",
+               "room over the land in the step (%.1f %.1f before, %.1f %.1f "
+               "after). The point of the zoom moved %.2f cm from the drawn "
+               "head in the room.",
                sqrtf(dx * dx + dz * dz) / g_zoom_probe.scale * 100.0f,
-               g_zoom_probe.eye[0], g_zoom_probe.eye[2], eye[0], eye[2]);
+               g_zoom_probe.eye[0], g_zoom_probe.eye[2], eye[0], eye[2],
+               sqrtf(off) * 100.0f);
       }
     }
     if (!g_have_table) {
@@ -2707,6 +2940,23 @@ void TabletopGodZoomSmoothToggle() {
              ? "The stick zooms while it is held, and the zoom stops when the "
                "stick comes back"
              : "One push of the stick is one zoom step");
+}
+
+// THE TEST KEY of god_zoom_about (Ctrl, Shift and Delete, with test_keys=1).
+// The point of a zoom goes from the land that the head looks at (1) to the
+// land under the head (0), to the Hand's point (2) and back. The pointing
+// controller gives a short pulse for 0, a medium pulse for 1 and a long pulse
+// for 2. A hold of the smooth zoom that runs stops, and a stick that is still
+// pushed starts a new hold with the new point.
+void TabletopGodZoomAboutCycle() {
+  if (!g_installed || !g_settings.god || !g_settings.test_keys) return;
+  g_settings.god_zoom_about = zoom_math::NextAbout(g_settings.god_zoom_about);
+  StopZoomHold("the test key changed the point of the zoom", true);
+  const int about = g_settings.god_zoom_about;
+  ControllersGesturePulse(0.5f, about == zoom_math::kAboutHand   ? 0.40f
+                                : about == zoom_math::kAboutLook ? 0.24f
+                                                                 : 0.08f);
+  LogZoomAbout("test key     ");
 }
 
 bool TabletopGodTurn(int direction, float degrees) {

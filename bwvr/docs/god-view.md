@@ -39,11 +39,11 @@ sets the flags of each mode.
 - **The map.** The land under the recenter pose sits `god_ground_down_cm`
   (60) below the head. There is no edge, no key color and no sea disc: the
   normal sky and sea go to the horizon.
-- **The zoom** changes the scale about the land point under the head, so the
-  player keeps their place in the world, and the ground under them keeps its
-  height. It goes from the life size scale (7.5 units per meter) to 4000, in
-  steps of 1.5 times. With `god_zoom_smooth=1` the stick zooms while it is
-  held, with no steps.
+- **The zoom** changes the scale about the land point that the player looks
+  at (`god_zoom_about`, 1), so the thing in the middle of the view stays where
+  it is and only its size changes. The ground keeps its height. It goes from
+  the life size scale (7.5 units per meter) to 4000, in steps of 1.5 times.
+  With `god_zoom_smooth=1` the stick zooms while it is held, with no steps.
 - **The ground height** goes up and down with the left grip: the hand pulls
   the land up and down one to one. The mouse player has steps of 5 cm (the
   tilt keys). The view never follows the land up or down by itself.
@@ -114,27 +114,67 @@ the land. The player moves the ground with the left grip.
 ## 2. The zoom
 
 One zoom step multiplies the scale by 1.5 (`god_zoom_step_pct`, 50), or
-divides it by 1.5. It turns about the land point straight under the head:
+divides it by 1.5. A zoom keeps one point of the world at its place in the
+room:
 
 ```
-W  = the land point under the head (the head's x and z, the land height)
+W  = the point of the zoom
 s' = s * ratio,  kept between 7.5 and god_far_units_per_meter
 G' = W + (s' / s) * (G - W)
 ```
 
-`W` keeps its world point and its room point, so the player keeps their place
-in the world, and the land under them keeps its height in the room. A land
-point off to the side comes nearer when the view zooms out. The heading does
-not change. The game camera keeps its place in a zoom step too
-(section 7), so the game logic, the sound and the detail keep their
-distances to the player.
+`W` keeps its world point and its room point. A land point that is `d` from
+`W` in the room is `d * s / s'` from it after the zoom, so the land comes
+nearer to `W` when the view zooms out. The heading does not change. The game
+camera stays over the land under the head (section 7), so the game logic, the
+sound and the detail keep their distances to the player.
+
+**The point of the zoom.** `god_zoom_about` chooses where `W` is across the
+room. `GodZoomPoint` in `tabletop.cpp` is the one place that chooses the
+point, for a step and for the smooth zoom. `PointAcross` in `zoom_math.h` has
+the rule.
+
+| `god_zoom_about` | The point | What the player sees |
+| --- | --- | --- |
+| 1, the default | The land point that the head looks at | The thing in the middle of the view stays where it is, and only its size changes |
+| 0 | The land point straight under the head | The player keeps their place in the world. Each thing in front of the player comes 1.5 times nearer in a step out and goes 1.5 times away in a step in. That can look like a move forward or back |
+| 2 | The Hand's point of the pointing hand | The land at the hand stays at the hand |
+
+- **1, the look.** The line of the look starts at the middle of the head and
+  goes along the forward direction of the head. The point is the first land
+  on that line. The land test is the one of the mouse pan (`RayLand`), in
+  steps of 1 cm of the room and of 2 units at least. The test stops
+  `god_zoom_about_far_cm` (300) from the head. When the line meets no land
+  before that (a look at the sky or at the horizon), the point is the point
+  of the line at that distance. So the point is at most 3 m across from the
+  head, and a look straight up gives the land under the head. The two cases
+  meet at the limit, so a small turn of the head never makes a jump of the
+  point. A head with no direction gives the land under the head.
+- **2, the Hand.** The point is the Hand's point (`HandDirectRealPoint`) of
+  the frame before. While no controller places the Hand (the mouse has the
+  pointer, or a dialog box is up), the point is the land under the head.
+- **The level.** The height of `W` is the same for each value: the height of
+  the land under the head. Land of that height keeps its height in the room,
+  so the ground stays where the player put it (section 3). Only the place of
+  `W` across the room changes with the key. On a slope the land point that
+  the player looks at is higher or lower than the level, and it goes up or
+  down in a zoom by that height times the change of the scale.
+- **The head moves over the land** with 1 and 2. In a step in, the land under
+  the head goes away from `W` by half of its distance to `W`. In a step out it
+  comes nearer by a third of that distance. A look at the horizon and a step
+  in thus move the land 1.5 m under the player. The game camera follows the
+  head (section 7).
+- **A hill at the new place of the head.** When the land under the new place
+  of the head is nearer than 10 cm below the head, all of the land goes down
+  until it is 10 cm below (`ZoomClearHead`), as it does when the view goes to
+  a place (section 15). The log line of the zoom says so.
 
 **A hill over the head.** At the life size scale a hill of 100 units is 13 m
-high. A pan can bring one over the head. So the height of `W` in the room is
-first kept between 10 cm and 2.5 m below the head, the range of a ground step
-(section 3). Each zoom step out then brings the hill top 1.5 times nearer to
-that height. After 14 steps out at the life size scale, a hill top 12.73 m
-over the head is 5.6 cm under it.
+high. A pan can bring one over the head. So the level is first kept between
+10 cm and 2.5 m below the head, the range of a ground step (section 3). With
+`god_zoom_about=0`, each zoom step out then brings the hill top 1.5 times
+nearer to that height. After 14 steps out at the life size scale, a hill top
+12.73 m over the head is 5.6 cm under it.
 
 **The limits.** 7.5 units per meter is the life size scale of
 `head_units_per_meter_x10`. At 4000 an arm of 70 cm reaches 2800 units, which
@@ -154,6 +194,16 @@ tutorial"). While the switch is off, a push or a click does nothing, the
 controller gives no pulse, and the log says why. A step that the view takes
 sends the game's zoom event, 0x304.
 
+The log has two lines for a step, and one more for a check in the next
+frame. They give the point of the zoom and why it is that point, how far the
+point moved in the room, and how far the land under the head moved:
+
+```
+god view     : zoomed in, 100.0 to 66.7 units per meter, about the point at 2052.0 37.6 2489.7, 0.44 m below your head: the land that you look at, 0.77 m across from your head (god_zoom_about=1)
+god view     : zoom check, the point of the zoom moved 0.00 cm in the room. The land under your head was at 1977.5 2468.3 and is at 2002.3 2475.4, 38.75 cm of the room apart. The recenter place moves 53.73 cm of the room, and the head is 30 cm right and 40 cm forward of it
+god view     : zoom check, the drawn head moved 38.75 cm of the room over the land in the step (1977.5 2468.3 before, 2002.3 2475.4 after). The point of the zoom moved 0.00 cm from the drawn head in the room.
+```
+
 **The smooth zoom.** With `god_zoom_smooth=1` the stick changes the scale
 while it is held, and the zoom stops in the frame in which the stick comes
 back. Nothing glides after that, and a stick at rest moves nothing. The ratio
@@ -171,9 +221,12 @@ one zoom step (`god_zoom_step_pct`) in that time, and a small push is slow.
 The change is a ratio, so the zoom feels the same at each scale, and it
 follows the time and not the frame rate. `zoom_math.h` holds these functions.
 
-- **The point** is the point of a zoom step: the land point under the head,
-  with the rule for a hill over the head. `GodZoomPoint` in `tabletop.cpp` is
-  the one place that chooses it, for a step and for the smooth zoom.
+- **The point** is the point of a zoom step (`god_zoom_about`), with the
+  rule for a hill over the head. With 1 and 2 the hold takes the point one
+  time, at its start, and keeps that point of the world. So the point does
+  not move while the head turns a little. With 0 each frame takes the land
+  under the head again. The rule for a hill at the new place of the head acts
+  on each frame.
 - **The limits** are the limits of a step. At a limit the scale stops, the
   stick still counts as held, and the other direction zooms at once.
 - **Once a frame.** The pump of the controllers asks the view again before
@@ -197,11 +250,13 @@ follows the time and not the frame rate. `zoom_math.h` holds these functions.
   `CameraHelpAccumulator::Trigger` `0x00449040` drops a trigger while its
   flag at `+0x0A` is set. So a tutorial step that waits for a zoom hears the
   first frame of a hold. A frame at a limit sends no event.
-- **The game camera.** The point of the zoom is the place of the game camera,
-  so a hold does not move that place. The version of the view goes up on the
-  first frame of a hold that changes the scale and one more time at its end,
-  so `GodAfter` writes the game camera at most two times for a hold (section
-  7).
+- **The game camera.** With `god_zoom_about=0` the point of the zoom is the
+  place of the game camera, so a hold does not move that place. The version
+  of the view goes up on the first frame of a hold that changes the scale and
+  one more time at its end, so `GodAfter` writes the game camera at most two
+  times for a hold (section 7). With 1 and 2 the head moves over the land in
+  each frame. The version then goes up on each frame that changes the scale,
+  as for a grab, so the game camera follows the head.
 - **No blink and no cue.** The blink of a step and the sound of a zoom step
   (`audio.md`) do not come with the smooth zoom. The controller gives one
   pulse at the start of a hold.
@@ -212,13 +267,20 @@ and a short pulse for 0. A stick that is pushed at that moment must come back
 before it zooms. The test `god_zoom_test_toggle=N` does the same at frame `N`
 of the controllers, for a desktop run.
 
+With `test_keys=1`, Ctrl, Shift and Delete change `god_zoom_about` from 1 to
+0, to 2 and back to 1 while the game runs. The pointing controller gives a
+short pulse for 0, a medium pulse for 1 and a long pulse for 2. A hold of the
+smooth zoom that runs stops, and a stick that is still pushed starts a new
+hold with the new point. The test `god_zoom_about_test=N` does the same at
+frame `N` of the controllers, for a desktop run.
+
 The log has one line for the start of a hold, one for its end, and one for a
 check 30 frames later:
 
 ```
-god view     : the smooth zoom starts to zoom in at 100.00 units per meter, about the land at 1890 29 2490, 0.60 m below your head. A full push changes the scale 1.50 times in 500 ms.
-god view     : the smooth zoom stopped (the stick asks for no zoom now). It zoomed in from 100.00 to 58.77 units per meter, which is 1.31 zoom steps. The stick was held for 0.655 s, and the scale changed on 45 of 45 frames. The land under your head was at 1890.4 2490.0 and is at 1890.4 2490.0, 0.00 cm of the room apart, and the drawn head moved 0.00 cm of the room.
-god view     : smooth zoom check, 30 frames after the stop the scale is 58.77 units per meter, and it was 58.77 at the stop. The drawn head moved 0.00 cm of the room in those frames.
+god view     : the smooth zoom starts to zoom in at 100.00 units per meter, about the point at 1996.0 29.5 2520.3, 0.60 m below your head: the land that you look at, 1.10 m across from your head (god_zoom_about=1). The hold keeps this point of the world. A full push changes the scale 1.50 times in 500 ms.
+god view     : the smooth zoom stopped (the stick asks for no zoom now). It zoomed in from 100.00 to 54.75 units per meter, which is 1.49 zoom steps. The stick was held for 0.743 s, and the scale changed on 45 of 45 frames. The point of the zoom at 1996.0 29.5 2520.3 moved 0.00 cm in the room. The land under your head was at 1890.4 2490.0 and is at 1938.2 2503.7, 90.79 cm of the room apart, and the drawn head moved 90.79 cm of the room.
+god view     : smooth zoom check, 30 frames after the stop the scale is 54.75 units per meter, and it was 54.75 at the stop. The drawn head moved 0.00 cm of the room in those frames.
 ```
 
 ## 3. The ground height
@@ -573,15 +635,18 @@ write:
 - The focus is the land point under the head (`god_camera_at`, 1), kept
   within 3000 units of the map center. With `god_camera_at=0` it is the land
   under the waist point, the recenter place. The place is taken once for each
-  move of the view. A zoom step keeps the land point under the head, so it
-  keeps the game camera in its place too. The recenter place moves in a zoom
-  step when the head is off the recenter place.
+  move of the view. With `god_zoom_about=0` a zoom keeps the land point under
+  the head, so it keeps the game camera in its place too. With 1 and 2 the
+  head moves over the land in a zoom, and the game camera goes with it. The
+  recenter place moves in a zoom when the head is off the recenter place.
 - The camera is 400 units from it, 50 degrees above, along the heading of the
   view.
 
 It moves only when the player moves the view: once for each step, on each
-frame of a grab, and at the start and at the end of a hold of the smooth zoom
-(section 2). It does not follow the head, because `GCamera::Update` sets
+frame of a grab, and in a hold of the smooth zoom (section 2). A hold that
+moves the head over the land writes it on each frame, and a hold that does
+not writes it at its start and at its end. It does not follow the head when
+the view is still, because `GCamera::Update` sets
 its moving flag for a camera that changes, and the interface then clears the
 gesture trail. It does not undo the game's own moves of its camera either. At
 the build the game camera stays where the game put it, and the view goes to
@@ -748,7 +813,7 @@ in the room.
 
 | Input | In the God view |
 | --- | --- |
-| Right stick forward or back | Zoom in or out one step. With `god_zoom_smooth=1`, zoom while the stick is held |
+| Right stick forward or back | Zoom in or out one step, about the land that the head looks at (`god_zoom_about`). With `god_zoom_smooth=1`, zoom while the stick is held |
 | Right stick left or right | Turn one step about the head |
 | Left stick | Opens the ring menu and points at an item (`radial_menu_stick=1`) |
 | Left grip | Grab the land: pull to move it across, and up or down |
@@ -802,6 +867,9 @@ section 5.6.
 | `god_zoom_smooth` | 0 | The zoom of the stick (section 2). 0: one step for each push. 1: the smooth zoom, which changes the scale while the stick is held. Ctrl, Shift and Insert change it with `test_keys=1` |
 | `god_zoom_smooth_ms` | 500 | The top rate of the smooth zoom: the time in which a full push changes the scale by one zoom step, 100 to 5000 |
 | `god_zoom_test_toggle` | 0 | A test with no key press: at this frame of the controllers the test key of `god_zoom_smooth` acts. 0 is never |
+| `god_zoom_about` | 1 | The point that a zoom keeps at its place in the room (section 2). 1: the land point that the head looks at. 0: the land point under the head. 2: the Hand's point. Ctrl, Shift and Delete change it with `test_keys=1` |
+| `god_zoom_about_far_cm` | 300 | With `god_zoom_about=1`, the point is at most this far from the head, 50 to 1000 |
+| `god_zoom_about_test` | 0 | A test with no key press: at this frame of the controllers the test key of `god_zoom_about` acts. 0 is never |
 | `god_ground_step_cm` | 5 | One ground step, 1 to 50 |
 | `god_far_units_per_meter` | 4000 | The farthest zoom, 10 to 8000 |
 | `god_spawn` | 1 | 1: the player goes where the game puts its own camera (section 15). 0: the view is built at the start, a load and the end of a story only, with the focus under the recenter pose |
@@ -843,8 +911,8 @@ The launcher removes these keys from `bwvr.ini` when it saves.
 | File | What it holds |
 | --- | --- |
 | `src/mod/table_math.h` | `GodRoom`, `PoseWorld`, `PoseRoom`, `GroundInRoom`, `ScaleAbout`, `GodZoomAbout`, `GodZoom`, `GodRaise`, `GodTurn`, `GameCameraOver`, `RayLevel`, `RayLand`, `GodSpawn`, `CameraLookPoint` and `HeadYaw`, as pure functions |
-| `src/mod/zoom_math.h` | The smooth zoom: the share of the top rate for a push (`StickShare`), the time of a frame (`FrameSeconds`) and the ratio of a frame (`FrameRatio`), as pure functions |
-| `src/mod/tabletop.cpp`, `tabletop.h` | The God view in the table state: the place at a game camera (`PlaceGod`, `ApplyGodSpawn`), the steps (`ApplyGodSteps`), the point of a zoom (`GodZoomPoint`), the smooth zoom (`TabletopGodZoomHold`, `ApplyGodZoomHold`), the mouse pan (`MousePan`), the camera switches and events, the hook on `GGame::ClearMap`, the values that follow the scale, the Hand's size, the ears and the game camera it wants |
+| `src/mod/zoom_math.h` | The smooth zoom: the share of the top rate for a push (`StickShare`), the time of a frame (`FrameSeconds`) and the ratio of a frame (`FrameRatio`). The point of a zoom: its place across the room for each value of `god_zoom_about` (`PointAcross`), the level (`ZoomLevel`), the point in the world (`PivotAt`) and the rule for a hill at the new place of the head (`ClearHead`). All are pure functions |
+| `src/mod/tabletop.cpp`, `tabletop.h` | The God view in the table state: the place at a game camera (`PlaceGod`, `ApplyGodSpawn`), the steps (`ApplyGodSteps`), the point of a zoom (`GodZoomPoint`, `ZoomClearHead`), the smooth zoom (`TabletopGodZoomHold`, `ApplyGodZoomHold`), the mouse pan (`MousePan`), the camera switches and events, the hook on `GGame::ClearMap`, the values that follow the scale, the Hand's size, the ears and the game camera it wants |
 | `src/mod/near_plane.cpp` | The near plane hook, for the God view, the table and the immersive view |
 | `src/mod/teleport.cpp`, `teleport.h`, `aim_smooth.h` | The teleport: the states, the arc and the hit on the CPU, the refusals, the mouse double click, the aim filter, the log (section 14) |
 | `src/mod/comfort_camera.cpp` | The game camera write (`GodAfter`), the watch of the game's own camera moves (`WatchBefore`, `WatchAfterGame`, `WatchEnd`), the turn, the wheel, the tilt keys (`GodTiltKeys`), the game camera after a land drag (`GodDragBefore`, `GodDragAfter`), the write of the grab on the game camera (`ComfortCameraGrabMove`) and the log of the camera events (`h_Help`) |
@@ -876,6 +944,22 @@ checks the pure functions at 7.5, 100 and 2000 units per meter:
   head keeps its room point, and the heading stays. After the stick is back
   the view does not change in 30 frames. A hold stops at each limit and never
   passes it, and a zoom step is the zoom about the land point under the head.
+- The point of a zoom (`zoom_checks.h`), with a head 30 cm right and 40 cm
+  forward of the recenter place: the direction of a head from the real
+  `head_pose.cpp`, the level, and the rule for a hill at the new place of the
+  head. `god_zoom_about=0` gives the point under the head. With 1, a look 20
+  degrees down at flat land gives the land point on the line of the look,
+  1.511 m across from the head. A hill in front of the flat land is found
+  first. A look at the sky, a level look and a look straight up give the
+  point of the line at 3 m. A line that meets the land at 2.99 m and a line
+  that meets it at 3.01 m give points 1 cm apart. A head with no direction
+  gives the point under the head. With 2, the Hand's point is the point, and
+  with no Hand it is the point under the head. A step in and a step out about
+  the looked-at land and about the Hand's point keep that point at its room
+  point within 0.01 cm. The land of the level keeps its height, the land
+  under the head moves a half and a third of the distance to the point, and
+  the step back puts it under the head again. The point of a hold keeps its
+  room point while the head turns 9 degrees.
 - A ground step raises every land point 5 cm in the room and not across, and a
   step down puts it back.
 - A snap turn keeps the head's world point, and a turn of 90 degrees right
@@ -931,7 +1015,28 @@ render size, because the recipes depend on it.
 - The menu button: the fake Y sends Esc ("the menu button sends Esc"), the box
   opens, and the game places the Hand while it is up. A second Y sends one
   more Esc and the menu stays, as `CanESCOut` says.
+- The point of a zoom: `spawn_run.ps1 -Choice keep` with a head 30 cm right
+  and 40 cm forward of the recenter place (`fake_head_right_cm`,
+  `fake_head_forward_cm` and the word `lean@780+2400`),
+  `god_zoom_about_test=1200` and the steps `stick_up@800+10 stick_down@860+10
+  look@920+900 shot@960+1 stick_up@1000+10 shot@1040+1 stick_down@1080+10
+  shot@1120+1 stick_up@1240+10 stick_down@1300+10`. The first step has a
+  level head: the log must give the point of the line of the look at 3 m, and
+  a move of the land under the head of 150 cm. The steps with the word `look`
+  must give "the land that you look at", a point of the zoom that moved 0.00
+  cm in the room and from the drawn head, and a move of the land under the
+  head of half or a third of the distance to the point. The same thing is in
+  the middle of the three eye pictures. After the test key the steps must
+  give "the land under your head" and a move of 0.00 cm. For the Hand, set
+  `god_zoom_about=2`, give a point of the hand with `-Points` and the word
+  `point@900+1`, and step in and out: the log must give "the Hand's point"
+  with the same world point for the two steps. For the smooth zoom, set
+  `god_zoom_smooth=1` and hold `stick_up@1000+45 stick_down@1100+45` in a
+  `look@920+520`, and `stick_up@1420+45` across the end of the look: each
+  hold must give a point of the zoom that moved 0.00 cm in the room, also
+  when the head turns back in the hold.
 - The smooth zoom: `spawn_run.ps1 -Choice keep` with `god_zoom_smooth=1`,
+  `god_zoom_about=0`,
   `god_zoom_test_toggle=1720`, a head 30 cm right and 40 cm forward of the
   recenter place (`fake_head_right_cm`, `fake_head_forward_cm` and the word
   `lean@780+1100`) and the steps `stick_up@800+45 stick_down@900+90
@@ -994,6 +1099,16 @@ and the camera events (0x304 for a wheel click and 0x308 for a land drag).
   and whether the dead zone of 30 percent fits a real stick. No run has shown
   a push with the zoom switch off, a small push, or the key Ctrl, Shift and
   Insert with a real key.
+- **The point of the zoom** (section 2). A headset test must show whether a
+  zoom about the land that the head looks at (`god_zoom_about=1`) still looks
+  like a move forward or back, against 0 and 2 (Ctrl, Shift and Delete). The
+  line of the look is the forward direction of the head, and the eyes of a
+  player can look lower than that. The limit of 3 m, the move of the land
+  under the player with a look at the horizon, and the small rise and fall of
+  the looked-at land on a slope also need the headset. No run has shown the
+  Hand's point with no controller, a hill at the new place of the head, the
+  mouse wheel with the look, or the key with a real key. These have the math
+  test only.
 - **Needs the headset:** the ground height of 60 cm, the zoom step of 1.5
   times, the start scale of 100, the Hand at the life size scale near the
   eyes with the near plane of 5 cm, the look of the land and the clouds at
@@ -1104,7 +1219,8 @@ r0  = the room height of the land under H, kept 0.10 m to 2.5 m under the head
 G'  = (G.x + T.x - H.x, ground(T) - (r0 - Tg.y) * s, G.z + T.z - H.z)
 ```
 
-The land under the head keeps its height in the room, as the zoom does. If the
+The land under the head keeps its height in the room. That height is also
+the level of a zoom (section 2). If the
 waist point kept its height, a hill could come up through the head. The head
 goes over `T` within 0.01 units.
 

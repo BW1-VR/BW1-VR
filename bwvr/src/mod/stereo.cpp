@@ -176,6 +176,7 @@ void TabletopToggle();
 void TabletopGodSpawnToggle();
 void TabletopGodCameraAtToggle();
 void TabletopGodZoomSmoothToggle();
+void TabletopGodZoomAboutCycle();
 void TabletopReport();
 bool TabletopSweeping();
 // world_grab.cpp: moving around by grabbing the world.
@@ -545,6 +546,9 @@ bool GameHasFocus() {
 //               the game camera again (god_spawn, tabletop.cpp)
 //   Ctrl Shift Insert  the stick of the God view zooms in steps, or while it
 //               is held (god_zoom_smooth, tabletop.cpp)
+//   Ctrl Shift Delete  the point that a zoom of the God view keeps in the
+//               room: the land that the head looks at, the land under the
+//               head, or the Hand's point (god_zoom_about, tabletop.cpp)
 //
 // With play_mode=3, the tabletop mode, or play_mode=4, the God view, one
 // more for everyone:
@@ -564,10 +568,11 @@ bool GameHasFocus() {
 // values chosen. The ini keys stay, except the ones the launcher rewrites on
 // every save. See launcher.cpp, kRetiredKeys.
 void PollHotkeys() {
-  static bool down[5] = {false, false, false, false, false};
-  const int keys[5] = {VK_F11, VK_F12, VK_NUMPAD0, VK_NUMPAD1, VK_INSERT};
-  bool now[5];
-  for (int i = 0; i < 5; ++i) {
+  static bool down[6] = {false, false, false, false, false, false};
+  const int keys[6] = {VK_F11,     VK_F12,    VK_NUMPAD0,
+                       VK_NUMPAD1, VK_INSERT, VK_DELETE};
+  bool now[6];
+  for (int i = 0; i < 6; ++i) {
     now[i] = (GetAsyncKeyState(keys[i]) & 0x8000) != 0;
   }
   const bool shift = (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
@@ -618,10 +623,16 @@ void PollHotkeys() {
     if (g_test_keys && now[4] && !down[4] && ctrl && shift) {
       TabletopGodZoomSmoothToggle();
     }
+    // An A/B of the point of a zoom in the God view (docs/god-view.md, "The
+    // zoom"). Ctrl and Delete with no Shift is the key of the choice of a far
+    // target (hand_direct.cpp).
+    if (g_test_keys && now[5] && !down[5] && ctrl && shift) {
+      TabletopGodZoomAboutCycle();
+    }
   }
   // Kept up to date without focus too, so a key that is already down when
   // the game comes to the front does not count as a new press.
-  for (int i = 0; i < 5; ++i) down[i] = now[i];
+  for (int i = 0; i < 6; ++i) down[i] = now[i];
 }
 
 // THE HEAD TRACKING SETUP, once. The render has to cover what the headset asks for,

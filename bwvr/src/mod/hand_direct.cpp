@@ -3095,8 +3095,10 @@ void PollWideKey() {
 
 void PollChoiceKey() {
   if (!g_release_key) return;
+  // Shift must be up: Ctrl, Shift and Delete is the key of god_zoom_about.
   const bool down = (GetAsyncKeyState(VK_DELETE) & 0x8000) != 0 &&
-                    (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
+                    (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0 &&
+                    (GetAsyncKeyState(VK_SHIFT) & 0x8000) == 0;
   const bool pressed = down && !g_choice_key_down;
   g_choice_key_down = down;
   if (!pressed) return;

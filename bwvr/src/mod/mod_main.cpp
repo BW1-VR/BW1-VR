@@ -551,6 +551,15 @@ void ReadSettings() {
     t.god_zoom_smooth = number("god_zoom_smooth", 0);
     t.god_zoom_smooth_ms = number("god_zoom_smooth_ms", 500);
     t.god_zoom_test_toggle = number("god_zoom_test_toggle", 0);
+    // The point that a zoom keeps in the room: 1 is the land point that the
+    // head looks at, at most god_zoom_about_far_cm from the head. 0 is the
+    // land point under the head, and 2 is the Hand's point. With test_keys=1,
+    // Ctrl, Shift and Delete change it, and the test god_zoom_about_test does
+    // the same at one frame of the controllers (docs/god-view.md, "The
+    // zoom").
+    t.god_zoom_about = number("god_zoom_about", 1);
+    t.god_zoom_about_far_cm = number("god_zoom_about_far_cm", 300);
+    t.god_zoom_about_test = number("god_zoom_about_test", 0);
     t.god_step_cm = number("god_ground_step_cm", 5);
     t.god_most_units = number("god_far_units_per_meter", 4000);
     // Where the player goes when the game puts its own camera at a place:

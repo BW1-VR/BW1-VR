@@ -39,7 +39,9 @@ param(
     [int]$Lines = 160
 )
 $sp = Split-Path -Parent $MyInvocation.MyCommand.Path
-$keys = 'far_test_influence=1;grab_hand=1;far_grab_max_m=0'
+# The zoom steps of these recipes keep the land under the head in its place
+# (god_zoom_about=0).
+$keys = 'god_zoom_about=0;far_test_influence=1;grab_hand=1;far_grab_max_m=0'
 $points = '0,-30,60 14,-32,56 -12,-31,58 10,-30,62 -6,-32,54 4,-31,64 0,-30,60 12,-31,58'
 $pre = 'stick_up@800+10 stick_up@830+10 look@860+5000 point@900+1 '
 if ($Kind -eq 'totem') {

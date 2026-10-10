@@ -79,16 +79,15 @@ is built, and no test has proven it.
   see) or a fault of the plain game. Try the same steps in the plain game.
   The logs of a session with this fault are on the owner's PC, in
   `local\logs\2026-10-07\`.
-- **B7. The zoom seems to move the view forward and back.** In a headset
-  a change of the zoom looked like a move forward or back. A desktop run
-  does not show it: with the head 50 cm from the place of the recenter,
-  the land point under the head stays where it is at each zoom step. The
-  game camera did move with each step, and it stands over the land under
-  the head now (`god_camera_at`). Check in a headset whether the move is
-  still there. If it is, a guess: the zoom is about the point under the
-  head, and the player looks at the land in front, which then slides
-  nearer or away. An idea for that case: the zoom is about the land point
-  that the player looks at, or about the Hand.
+- **B7. The zoom seems to move the view forward and back.** A zoom keeps
+  the land point that the player looks at in its place, so only the size of
+  that land changes (`god_zoom_about=1`, `god-view.md`, section 2). Desktop
+  runs show it. Check in a headset whether a change of the zoom still looks
+  like a move forward or back. The test key (Ctrl, Shift and Delete) gives
+  the zoom about the land under the head (0) and about the Hand (2) for a
+  comparison. Then choose the default and the limit of the look
+  (`god_zoom_about_far_cm`). The line of the look is the forward direction
+  of the head, and the eyes can look lower than that.
 - **B8. The advisors are very large at times.** For example the good
   advisor is very large while he points at a quest scroll, and then he
   goes back to the normal size. A guess: the game uses a size in the world

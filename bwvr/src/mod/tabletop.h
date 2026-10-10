@@ -33,6 +33,13 @@ struct TabletopSettings {
   int god_zoom_smooth = 0;       // god_zoom_smooth: 0 the steps, 1 smooth
   int god_zoom_smooth_ms = 500;  // god_zoom_smooth_ms: one step, a full push
   int god_zoom_test_toggle = 0;  // god_zoom_test_toggle: a test, see below
+  // The point that a zoom keeps in the room (docs/god-view.md, "The zoom"):
+  // 0 is the land point under the head, 1 is the land point that the head
+  // looks at, and 2 is the Hand's point. With 1, the point is at most
+  // god_zoom_about_far_cm from the head.
+  int god_zoom_about = 1;        // god_zoom_about: 0 head, 1 look, 2 Hand
+  int god_zoom_about_far_cm = 300;  // god_zoom_about_far_cm: the limit of 1
+  int god_zoom_about_test = 0;   // god_zoom_about_test: a test, see below
   int god_step_cm = 5;           // god_ground_step_cm: one ground step
   int god_most_units = 4000;     // god_far_units_per_meter: the farthest zoom
   // Where the player goes when the game puts its own camera at a place
@@ -118,6 +125,13 @@ bool TabletopGodZoomHold(float push);
 // smooth zoom. The test god_zoom_test_toggle=N does the same at frame N of
 // the controllers, with no key press, for a desktop run.
 void TabletopGodZoomSmoothToggle();
+
+// The test key of god_zoom_about (Ctrl, Shift and Delete, with test_keys=1):
+// the point of a zoom goes from the land that the head looks at (1) to the
+// land under the head (0), to the Hand's point (2) and back. The test
+// god_zoom_about_test=N does the same at frame N of the controllers, with no
+// key press, for a desktop run.
+void TabletopGodZoomAboutCycle();
 
 // True while the table or the God view is on, also while it stands aside.
 bool TabletopIsOn();

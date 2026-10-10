@@ -44,7 +44,9 @@ param(
     [int]$Seconds = 65
 )
 $sp = Split-Path -Parent $MyInvocation.MyCommand.Path
-$keys = 'seek_plan=creature;far_test_creature=1;far_test_influence=1;grab_hand=1;' +
+# The zoom steps of this recipe keep the land under the head in its place
+# (god_zoom_about=0), so the Creature stays in front of the head.
+$keys = 'god_zoom_about=0;seek_plan=creature;far_test_creature=1;far_test_influence=1;grab_hand=1;' +
         'far_grab_max_m=0;fake_controller_rots=-112,1,0 8,1,0'
 if ($Set -ne '') { $keys = "$keys;$Set" }
 if ($Kind -eq 'leash') {
