@@ -119,18 +119,17 @@ moves while the Hand takes it.
 - **P4. A choice of control scheme, the default of the zoom, and a two
   hand grab as in Deisim.**
   - A choice of control scheme: more options, so that each player chooses
-    how the controls work. For example: the zoom in steps or smooth, the
-    turn in steps or smooth, and the grab of the world with one hand or
-    with two. Many of these are ini keys, which a player does not see. Find
-    where the player chooses them (the launcher, or a menu in the game),
-    and keep the scheme of now as the default.
+    how the controls work. The launcher offers the turn in steps, the zoom
+    in steps or smooth, the center of the zoom, and the grip that grabs the
+    world (`launcher.md`, "Moving around" and "Controllers"). Not built: a
+    smooth turn with the stick, and a choice in the game (the launcher
+    runs before the game). Keep the scheme of now as the default.
   - The default of the zoom: the stick zooms in steps of 1.5 times, and
     `god_zoom_smooth=1` gives a smooth zoom while the stick is held
-    (`god-view.md`, section 2). Only an ini key chooses it. Compare the two
-    in a headset with the test key (Ctrl, Shift and Insert), set the top
-    rate (`god_zoom_smooth_ms`), and choose the default. Then give the
-    player the choice in the place of the first point. This goes with B7:
-    the point of the zoom is in one function (`GodZoomPoint`).
+    (`god-view.md`, section 2). Compare the two in a headset with the test
+    key (Ctrl, Shift and Insert), set the top rate (`god_zoom_smooth_ms`),
+    and choose the default. This goes with B7: the point of the zoom is in
+    one function (`GodZoomPoint`).
   - A two hand grab as in Deisim: the player holds both grips, and the
     hands make the world smaller or larger and turn it. The mod has a
     version of this (`god-view.md`): both grips turn the land about up and

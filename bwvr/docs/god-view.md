@@ -871,10 +871,10 @@ section 5.6.
 | `god_ground_down_cm` | 60 | The ground below the head at the last recenter, 10 to 200 |
 | `god_units_per_meter` | 100 | The scale at the first start |
 | `god_zoom_step_pct` | 50 | One zoom step changes the scale by this percent, 5 to 300 |
-| `god_zoom_smooth` | 0 | The zoom of the stick (section 2). 0: one step for each push. 1: the smooth zoom, which changes the scale while the stick is held. Ctrl, Shift and Insert change it with `test_keys=1` |
+| `god_zoom_smooth` | 0 | The zoom of the stick (section 2). 0: one step for each push. 1: the smooth zoom, which changes the scale while the stick is held. The launcher row "Zoom with the stick". Ctrl, Shift and Insert change it with `test_keys=1` |
 | `god_zoom_smooth_ms` | 500 | The top rate of the smooth zoom: the time in which a full push changes the scale by one zoom step, 100 to 5000 |
 | `god_zoom_test_toggle` | 0 | A test with no key press: at this frame of the controllers the test key of `god_zoom_smooth` acts. 0 is never |
-| `god_zoom_about` | 1 | The point that a zoom keeps at its place in the room (section 2). 1: the land point that the head looks at. 0: the land point under the head. 2: the Hand's point. Ctrl, Shift and Delete change it with `test_keys=1` |
+| `god_zoom_about` | 1 | The point that a zoom keeps at its place in the room (section 2). 1: the land point that the head looks at. 0: the land point under the head. 2: the Hand's point. The launcher row "Center of the zoom". Ctrl, Shift and Delete change it with `test_keys=1` |
 | `god_zoom_about_far_cm` | 300 | With `god_zoom_about=1`, the point is at most this far from the head, 50 to 1000 |
 | `god_zoom_about_test` | 0 | A test with no key press: at this frame of the controllers the test key of `god_zoom_about` acts. 0 is never |
 | `god_ground_step_cm` | 5 | One ground step, 1 to 50 |

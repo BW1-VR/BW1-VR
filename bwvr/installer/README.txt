@@ -129,10 +129,11 @@ fingers that follow the trigger and the grip only.
 
   Stick up, down      Zoom in or out one step. Push again for the
                       next step. The land that you look at stays where
-                      it is, and its size changes. Set god_zoom_about=0
-                      in bwvr.ini to keep the land under you in its
-                      place. Set god_zoom_smooth=1 to zoom while you
-                      hold the stick.
+                      it is, and its size changes. In the launcher,
+                      "Center of the zoom" chooses a different point
+                      (key god_zoom_about), and "Zoom with the stick"
+                      gives a zoom while you hold the stick (key
+                      god_zoom_smooth).
   Stick left, right   Turn one step. You stay where you are.
   Left grip           Grab the land and pull it to move. Pull up to
                       raise the land. Pull down to lower it. The land

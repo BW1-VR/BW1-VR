@@ -141,6 +141,8 @@ move the camera in steps.
 | Setting | Default | What it does |
 | --- | --- | --- |
 | Turn in steps | 45 degrees | Key `snap_turn`, index 0 to 3: off, 30, 45, 90 degrees. A push of the right stick to the left or the right, a drag sideways with the middle mouse button, or a turn key, turns you in one step. You stay where you are. The middle mouse button does not tilt the camera. Off gives the smooth turn and tilt of the game. |
+| Zoom with the stick | In steps | Key `god_zoom_smooth`, a value. 0 In steps: one push of the right stick forward or back is one zoom step. 1 Smooth: the zoom changes while the stick is held, and it stops when the stick is let go (`god-view.md`, section 2). |
+| Center of the zoom | The land you look at | Key `god_zoom_about`, a value. The point that stays where it is in a zoom with the stick. 1 The land that the head looks at. 0 The land under the head. 2 The Hand's point (`god-view.md`, section 2). |
 | Blink when you jump or turn | off | Key `blink`, index 0 to 2: off, short (0.1 seconds), long (0.2 seconds). Black after a jump, a turn and a story camera cut. |
 
 ### Controllers

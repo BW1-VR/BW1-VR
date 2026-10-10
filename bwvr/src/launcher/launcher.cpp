@@ -141,6 +141,17 @@ const Setting kSettings[] = {
      "mouse button, or press a turn key, to turn in one step. You stay "
      "where you are. The middle mouse button does not tilt the camera. Off "
      "gives the smooth turn and tilt of the game."},
+    {kValues, "god_zoom_smooth", "Zoom with the stick", "In steps=0|Smooth=1",
+     0,
+     "In steps: one push of the right stick forward or back is one zoom "
+     "step. Smooth: the zoom changes while you hold the stick. It stops when "
+     "you let the stick go."},
+    {kValues, "god_zoom_about", "Center of the zoom",
+     "The land you look at=1|The land under you=0|Your Hand=2", 1,
+     "The point that stays where it is when you zoom with the stick. The "
+     "land you look at: the thing in the middle of your view keeps its place "
+     "and changes its size. The land under you: you keep your place on the "
+     "land. Your Hand: the land at your Hand keeps its place."},
     // Not offered. These four keys act on the camera of the game. In the
     // God view the mod moves the view in cuts and in its own zoom steps,
     // and a story shows in a window in the room, so the defaults are the
