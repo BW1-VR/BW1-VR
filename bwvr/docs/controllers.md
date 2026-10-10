@@ -899,19 +899,33 @@ which the player gets the Hand changes with the frame rate. The test key
 N on count from the frame at which the controller first places the Hand after
 frame 1000. That frame is N. The steps before N keep their frames, so the
 clicks of the start dialog stay where they are. The log gives the shift and
-the seconds from the start of the game process. The frame of `aim_test_keys`
-counts the same way.
+the seconds from the start of the game process.
+
+A test key that acts at a frame of its own counts the same way, so a recipe
+keeps the distance between its steps and its test keys with each start of a
+run: `aim_test_keys`, `near_test_flips`, `text_click_test`,
+`miracle_test_seeds`, `miracle_test_cancel`, `village_test_site`,
+`village_test_workshop`, `village_test_scaffolds`, `village_test_census` and
+`village_test_chants`. A frame of such a key from N on counts from the frame
+at which the controller first places the Hand, and a frame before N keeps its
+number (`ControllersTestFrame` in `controllers.cpp`, and the pure header
+`script_frame_math.h` with its checks in `script_frame_checks.h`). Without
+`fake_controller_play_frame` each key has its own frame. The keys
+`aim_test_touch`, `creature_command_test` and the `temple_test_*` keys with a
+frame do not count this way: they have the frame of the game.
 
 `fake_controller_play_after=M` gives a different frame than 1000. A run that
 starts in a test save has no start dialog and no first story: the controller
-places the Hand some frames after the click on "Continue Game" of the Main
-Menu. The run scripts give such a run `fake_controller_play_after=60`. The
-steps from frame N on then come sooner than their numbers, and the log says
-how many frames sooner. With M at 1000 or more, a script keeps its frames
-when the Hand comes before frame N.
+places the Hand some frames after the Main Menu of the start closes
+(`backend.md`, "A test save"). The run scripts give such a run
+`fake_controller_play_after=60`. The steps from frame N on then come sooner
+than their numbers, and the log says how many frames sooner. With M at 1000
+or more, a script keeps its frames when the Hand comes before frame N.
 
 The clicks of the start dialog turn the pose of the fake hand. So a preset on
-the fake hand must start after the dialog (`aim_test_touch=N`).
+the fake hand must start after the dialog (`aim_test_touch=N`). In a run with
+a test save, N is a frame after the Main Menu closed: the run scripts give
+110.
 
 ## 5. The controls and the keys
 
@@ -1992,8 +2006,9 @@ faces the player, on a wall that is turned 40 degrees and at the edge of a
 near box (the depth comes to rest), the kinds of a control, and the buttons.
 
 Desktop runs use `temple_run.ps1` (the God view, `fake_controller=2`, the
-start choice "Keep your old Creature", the game window behind). The ring item
-`enter` goes into the Temple. Seen in runs [R]:
+game window behind). A run starts in the test save `temple`, or with
+`-NewGame` in a new game with the start choice "Keep your old Creature". The
+ring item `enter` goes into the Temple. Seen in runs [R]:
 
 - The ray at rest ends on the thing: the point under the pointer is within
   about 0.5 cm of the ray on the pool, the scroll of the hall and the pictures
@@ -2021,7 +2036,8 @@ start choice "Keep your old Creature", the game window behind). The ring item
 
 `temple_run.ps1 -SaveTest` reads the slots of the profile before the run. It
 starts only when the slots 0 to 13 are all empty, and it removes the empty
-folder of the new slot after the profile guard has taken its files away.
+folder of the new slot after the profile guard has taken its files away. It
+always starts in a new game.
 
 ### 11.9 Not done, not proven, and what needs the headset
 

@@ -60,6 +60,7 @@
 #include "hand_exact_math.h"
 #include "miracle.h"
 #include "radial_menu.h"
+#include "script_frame_math.h"
 #include "temple.h"
 #include "temple_math.h"
 #include "text_click.h"
@@ -865,14 +866,8 @@ bool g_fake_deactivate = false;
 
 // The frame that a step of the script compares with its own frames.
 uint64_t StepFrame(const ScriptStep& step) {
-  if (g_script_play <= 0 ||
-      step.start < static_cast<uint64_t>(g_script_play)) {
-    return g_frame;
-  }
-  return g_script_shift_known
-             ? static_cast<uint64_t>(static_cast<int64_t>(g_frame) -
-                                     g_script_shift)
-             : 0;
+  return script_frame_math::Counted(g_frame, step.start, g_script_play,
+                                    g_script_shift_known, g_script_shift);
 }
 
 // The word "aimtemple": the hand stays where it is, and its aim turns to the
@@ -909,10 +904,10 @@ void UpdateScript() {
       g_frame > static_cast<uint64_t>(g_script_play_after) &&
       DirectHandNow() && g_pointer_owned && g_point.have_grip) {
     g_script_shift_known = true;
-    g_script_shift = static_cast<int64_t>(g_frame) - g_script_play;
     // With fake_controller_play_after at 1000 or more, a script keeps its
     // frames when the Hand comes before frame N: the shift is then 0.
-    if (g_script_shift < 0 && g_script_play_after >= 1000) g_script_shift = 0;
+    g_script_shift =
+        script_frame_math::Shift(g_frame, g_script_play, g_script_play_after);
     ModLog("controllers  : the controller places the Hand after frame %d at "
            "frame %llu. The steps of the script from frame %d on are %lld "
            "frames %s (fake_controller_play_frame), %.1f s after the start "
@@ -4063,6 +4058,18 @@ void ControllersGrabPulse(int hands, float amplitude, float seconds) {
 
 // How many frames the controllers have seen.
 uint64_t ControllersFrameCount() { return g_frame; }
+
+// For a test key with a frame of its own (village_test_site,
+// miracle_test_seeds, text_click_test, near_test_flips and others): the number
+// that the key compares with its frame, when the frame of now is `frame`. With
+// fake_controller_play_frame, a key frame from the play frame on counts as a
+// step of the script counts it. So such a key and the steps of one recipe
+// keep their distance when the run starts in a test save. Without the key of
+// the script, the number is `frame`.
+uint64_t ControllersTestFrame(uint64_t key_frame, uint64_t frame) {
+  return script_frame_math::Counted(frame, key_frame, g_script_play,
+                                    g_script_shift_known, g_script_shift);
+}
 
 // For the land drag probe: the pointing grip and the head in the
 // room, from the last frame. False when the controller does not own the Hand.

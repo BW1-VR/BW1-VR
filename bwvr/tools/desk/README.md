@@ -83,8 +83,8 @@ calls it. It keeps these rules, and a new script must keep them too:
 | `make_test_save.ps1` | Makes a test save: a saved game that the game writes at the end of a test run. See "A fast start" |
 | `idle_seconds.ps1` | The time since the last input. A large number while the owner's "test now" flag holds |
 | `desk_state.ps1` | Reads the place of the real cursor, the window in front and the idle time |
-| `game.ps1` | Gives the game folder (`local\game-path.txt`), and stops a run on a game folder where the launcher never ran. Gives the shared folder, reads the "test now" flag, and tests the output of a script for a verdict line. Gives the folder of the test saves and the folder of the profile that the game uses, and reads the time of a frame from a run log |
-| `dialog.ps1` | Measures the start dialog for a render size, and gives the dialog points and the point of "Continue Game" in the Main Menu |
+| `game.ps1` | Gives the game folder (`local\game-path.txt`), and stops a run on a game folder where the launcher never ran. Gives the shared folder, reads the "test now" flag, and tests the output of a script for a verdict line. Gives the folder of the test saves, the test save that a script starts in, the length of a run in a test save, and the folder of the profile that the game uses. Reads the time of a frame from a run log |
+| `dialog.ps1` | Measures the start dialog for a render size, and gives the dialog points. Gives the way through the Main Menu of a run in a test save |
 | `verify_build.ps1` | The three runs before a merge |
 | `exit_run.ps1` | A run in which the game ends by itself, and the check of its end |
 | `aim_run.ps1`, `aim_queue.ps1` | The far fetch, the aim presets, the teleport |
@@ -107,7 +107,8 @@ this: for a render size that it has not seen, it makes one run of 45 s in
 which the hand points at six places, reads the pixel of each from the log,
 and keeps the result in `local\dialog-calibration.json`. Each run script
 takes its dialog points from there. You do nothing for it. It happens one
-time for each new render size.
+time for each new render size. A run in a test save has no start dialog, and
+it needs no measure (see "A run with a test save").
 
 `verify_build.ps1` and the scripts that it calls are the maintained set.
 
@@ -118,22 +119,27 @@ log that show the result. The header comment of each script has its
 parameters. The frames of a recipe fit a game that runs at about 60 frames a
 second.
 
-| Script | The start of the game | The kinds and what they do | A run takes |
+Each script starts its runs in a test save (see "A fast start"). `-NewGame`
+gives the start of a new game, and `-Save <name>` a different test save with
+the same state. The table has the test save, the row of the start dialog
+that `-NewGame` uses, and the length of a run in the test save.
+
+| Script | The start: the test save, and the row with `-NewGame` | The kinds and what they do | A run takes |
 | --- | --- | --- | --- |
-| `hand_run.ps1` | "Skip straight to the Creature select" (`one`, `creature`, `fixed`), "Keep your old Creature" (`old`) | `one`: the grip in the air, at a scroll and at the crown of a tree, with `near_rule` 1 and 2. With `near_rule` 2 the grip at the scroll takes the rock beside it and sets it down. `old`: the grip on the Creature, strokes and slaps. `creature`: the choice of a Creature at the Creature select. `fixed`: places from `-Points` and steps from `-Steps` | 163 s, 223 s for `creature` |
-| `throw_queue.ps1 -Runs <names>` | "Skip straight to the Creature select" | A far fetch at the pen and a throw (`land`, `base`, `early`, `tree`, `sea`), the same at a different scale (`landout`, `landin`), a release with a still hand (`fall`, `fallold`), the same with a tree that the hand holds upright or turns by 30 degrees (`treeset`, `treelean`), and a new grip on an object that falls, flies or rolls (the names with `drop`, `fly` and `roll`) | 80 to 112 s each |
-| `aim_queue.ps1 -Runs <names>` | "Skip straight to the Creature select" | The aim presets and the trim (`aim2`), a fetch of a thrown rock over the sea and from the sea (`move2`, `move1b`), a Creature command with the leash counted as on (`cmd1b`), and the teleport at three scales (`ring1`, `ring0`) | 75 to 103 s each |
-| `creature_recipe.ps1` | "Keep your old Creature" | `state`: the Creature state, strokes and a slap. `leash`: the leash on and off. `stay`: the stay from a distance. `tie`: the leash tied to an object, and the walk of the Creature to it. `click`: a text of the game that waits for a click, with the leash on and with the Hand off the view (`text_click`) | 65 to 75 s |
-| `village_run.ps1` | "Keep your old Creature" | `miracle`: a miracle from an icon of the Worship Site (`-Icon 3` is Food). `totem`, `charge`. `store`, `tree` and `job`: wood, a tree and a villager at the Village Store. `throw`: a thrown villager. `scaffold`, `build`, `site`, `probe`, `workshop` | 60 to 100 s |
-| `miracle_run.ps1` | "Keep your old Creature" | `creature`, `throw`, `cancel`, `place`, `shield`: a miracle from a seed that the test key `miracle_test_seeds` makes. `-Seeds` gives other seed types, and `-Steps` other steps | 75 s |
-| `temple_run.ps1` | "Keep your old Creature" | The ring item `enter`, and then the steps of `-Steps` in the Temple. `-NoEnter` stays on the land. `-SaveTest` makes a save, and starts only when the profile has no saved game in the slots 0 to 13 | 190 s |
+| `hand_run.ps1` | `pen`, "Skip straight to the Creature select" (`one`, `creature`, `fixed`). `temple`, "Keep your old Creature" (`old`) | `one`: the grip in the air, at a scroll and at the crown of a tree, with `near_rule` 1 and 2. With `near_rule` 2 the grip at the scroll takes the rock beside it and sets it down. `old`: the grip on the Creature, strokes and slaps. `creature`: the choice of a Creature at the Creature select. `fixed`: places from `-Points` and steps from `-Steps` | 44 s for `one`, 142 s for `old`, 202 s for `creature` |
+| `throw_queue.ps1 -Runs <names>` | `pen`, "Skip straight to the Creature select" | A far fetch at the pen and a throw (`land`, `base`, `early`, `tree`, `sea`), the same at a different scale (`landout`, `landin`), a release with a still hand (`fall`, `fallold`), the same with a tree that the hand holds upright or turns by 30 degrees (`treeset`, `treelean`), and a new grip on an object that falls, flies or rolls (the names with `drop`, `fly` and `roll`) | 31 to 63 s each |
+| `aim_queue.ps1 -Runs <names>` | `pen`, "Skip straight to the Creature select" | The aim presets and the trim (`aim2`), a fetch of a thrown rock over the sea and from the sea (`move2`, `move1b`), a Creature command with the leash counted as on (`cmd1b`), and the teleport at three scales (`ring1`, `ring0`) | 26 to 54 s each |
+| `creature_recipe.ps1` | `temple`, "Keep your old Creature" | `state`: the Creature state, strokes and a slap. `leash`: the leash on and off. `stay`: the stay from a distance. `tie`: the leash tied to an object, and the walk of the Creature to it. `click`: a text of the game that waits for a click, with the leash on and with the Hand off the view (`text_click`) | 42 to 62 s |
+| `village_run.ps1` | `temple`, "Keep your old Creature" | `miracle`: a miracle from an icon of the Worship Site (`-Icon 3` is Food). `totem`, `charge`. `store`, `tree` and `job`: wood, a tree and a villager at the Village Store. `throw`: a thrown villager. `scaffold`, `build`, `site`, `probe`, `workshop` | 31 to 63 s |
+| `miracle_run.ps1` | `temple`, "Keep your old Creature" | `creature`, `throw`, `cancel`, `place`, `shield`: a miracle from a seed that the test key `miracle_test_seeds` makes. `-Seeds` gives other seed types, and `-Steps` other steps | 44 to 57 s |
+| `temple_run.ps1` | `temple`, "Keep your old Creature" | The ring item `enter`, and then the steps of `-Steps` in the Temple. `-NoEnter` stays on the land. `-SaveTest` makes a save, and starts only when the profile has no saved game in the slots 0 to 13. It always starts in a new game | 180 s, or `-Seconds` |
 
 What these scripts need:
 
-- The profile of the game needs a Creature for each start with "Keep your
-  old Creature".
-- `dialog.ps1` gives the points of the start dialog to each script, also the
-  point of the fourth box for `hand_run.ps1 -Kind old`.
+- The profile of the game needs a Creature for the test save `temple`, and
+  for each start with "Keep your old Creature".
+- `dialog.ps1` gives the points of the start dialog to each run of a new
+  game, also the point of the fourth box for `hand_run.ps1 -Kind old`.
 - A miracle that pours (Water, Food, Wood and Lightning) stays in the Hand
   after the pour. A recipe with more than one seed must take it out of the
   Hand (a tap of B) before it takes the next seed.
@@ -167,7 +173,7 @@ each number for its own start and the load of the land.
 | --- | --- | --- | --- |
 | A new game, the row `select` | The start dialog, then the first story: the doors and the walk to the Creature pens | At the frame at which the player gets the Hand (frame 3430 to 3750) | 63 |
 | A new game, the row `keep` | The start dialog, then the game camera goes to the door of the Temple | At frame 800 | 22 |
-| A test save, `-Save <name>` | The Main Menu over the loaded game, and one click on "Continue Game" | At the frame at which the controller places the Hand (about frame 81) | 11 |
+| A test save, `-Save <name>` | The Main Menu over the loaded game, which the mod closes at frame 70 (a test key) | At the frame at which the controller places the Hand (frame 70) | 11 |
 
 ### The logos
 
@@ -212,14 +218,17 @@ itself". The last line is `SAVE MADE` or `SAVE NOT MADE`.
 A different name makes a save of your own: give `-Choice` (a row of the start
 dialog), `-Frame` and, for script words before the save, `-Steps`.
 
-`verify_build.ps1` makes `pen` and `temple` when they are not there. Make a
-test save again after a change of the game folder or of the profile: the save
-`temple` has the Creature of the profile in it.
+`verify_build.ps1` and each script of one area make `pen` or `temple` when
+the save that they start in is not there (`Confirm-BwvrTestSave` in
+`game.ps1`). When that run does not make the save, the script starts in a new
+game and says so. Make a test save again after a change of the game folder or
+of the profile: the save `temple` has the Creature of the profile in it.
 
 ### A run with a test save
 
-`desk_run.ps1`, `aim_run.ps1`, `spawn_run.ps1` and `creature_recipe.ps1` have
-the parameter `-Save <name>`. Such a run does this:
+`desk_run.ps1`, `aim_run.ps1` and `spawn_run.ps1` have the parameter `-Save
+<name>`, and with no `-Save` they start a new game. Each script of one area
+starts in its test save by default. Such a run does this:
 
 1. `desk_run.ps1` takes the lock and makes each copy of a run, as for each
    other run.
@@ -229,21 +238,25 @@ the parameter `-Save <name>`. Such a run does this:
 3. It starts the game with no `-NEWGAME`. The game then loads the saved game
    of slot 20 by itself. The game has no word of the command line that loads
    a saved game (`docs/backend.md`, "A test save").
-4. The game opens its Main Menu over the loaded game. The scripted controller
-   clicks "Continue Game" at frame 70 (`dialog.ps1` has the place of the
-   button and the script words).
+4. The game opens its Main Menu over the loaded game, and it waits there for
+   the button "Continue Game". At frame 70 the mod does what the button does
+   (the test key `menu_skip_test_frame=70`, `docs/backend.md`, "A test
+   save"). The run has no click, so it needs no place of a button and no
+   measure of the render size. `Get-BwvrMenuStart` in `dialog.ps1` gives the
+   keys and the script words.
 5. The steps of the recipe start. With `fake_controller_play_frame=N`, the
    steps from frame N on count from the frame at which the controller first
    places the Hand after frame 60 (`fake_controller_play_after`). So a recipe
    of a new game keeps its steps and its points, and the frames in the log
-   are less than the frames of the recipe.
+   are less than the frames of the recipe. A test key of the recipe that acts
+   at a frame counts the same way (`docs/controllers.md`, 4.3).
 6. After the run, the profile guard takes each file of the test save out of
    the profile and puts each file of the player back.
 
 The run has the test key `registry_test_guard=1`. In each start the game
 writes the values of the profile to the registry, and it writes the key
-bindings of the profile when "Continue Game" closes the Main Menu. Each
-number is the number that it read. In play the game also writes the
+bindings of the profile when the Main Menu closes. Each number is the number
+that it read. In play the game also writes the
 alignment of the player (`LoveBuckets`) each 600 game turns. With the key, the
 mod drops each write of the game to its keys of the registry, and the log
 names each one: 17 in the start, 99 key bindings, and each write in play.
@@ -252,16 +265,31 @@ The lines of the log that show a good start:
 ```
 registry test: the game writes the registry value "timestarted" (type 4, 4 bytes, number 355) in the key Software\Lionhead Studios Ltd\Black & White\LHMultiplayer\Profiles\<profile>. The mod drops the write
 game start   : the saved game is loaded, frame 0. The game loaded the saved game of slot 20, and it opens its Main Menu over it (game mode 0, land 1), 9.6 s after the start of the game process. In the start the mod dropped 17 writes of the game to its keys of the registry, and 41 writes of the process to other keys passed
-controllers  : the controller places the Hand after frame 60 at frame 81. The steps of the script from frame 2750 on are 2669 frames sooner (fake_controller_play_frame), 11.5 s after the start of the game process
+game start   : test key menu_skip_test_frame: the mod does what the button "Continue Game" of the Main Menu does (PauseGame(0), DialogBoxBase::Hide, FrontEnd::SetCursorOff), so the loaded game plays with no click, frame 70, 11.3 s after the start of the game process
+controllers  : the controller places the Hand after frame 60 at frame 70. The steps of the script from frame 2750 on are 2680 frames sooner (fake_controller_play_frame), 11.3 s after the start of the game process
 ```
 
 When the load fails, the game starts a new game, and the line `game start`
 says "a new game starts". `verify_build.ps1` tests for the line `game start`
 and for the line `controllers`.
 
-A key of a recipe with a frame of its own does not count from the play frame:
-`aim_test_touch`, `text_click_test`, `miracle_test_seeds`, `village_test_site`
-and others. Give such a key a frame that fits the run.
+Two keys of the recipes are on from a frame of the game, and that frame is
+before the play frame: `aim_test_touch` and `creature_command_test`. They do
+not count from the play frame. `aim_queue.ps1` gives them the frame 110 in a
+test save, which is after the Main Menu. In a new game it gives 700 and 1000,
+which are after the start dialog. A `temple_test_*` key with a frame has the
+frame of the game too.
+
+**The length of a run.** A recipe of `aim_queue.ps1` or `throw_queue.ps1`
+has its length in a new game, and a run in the test save `pen` is 49 s
+shorter. For the other scripts `Get-BwvrSaveSeconds` in `game.ps1` gives the
+length from the last step of the recipe: 12 s for the start, the frames from
+the play frame to the last step at 40 frames a second, and 4 s. A kind of
+`creature_recipe.ps1` that ends with a stay of the Creature (`state`, `leash`,
+`stay`) runs 10 s more: the mod watches the Creature for 10 s after a stay,
+and then the log says if it left its place. `-Seconds` gives a different
+length. A recipe of your own must end late enough for its last line of the
+log.
 
 The rules of a test save:
 
@@ -274,29 +302,47 @@ The rules of a test save:
   the game to its keys there.
 - A test save is not in the repo.
 
-The place of "Continue Game" is measured at a render of 2208 by 2208 only.
-The measure of `dialog.ps1` gives the point for a different render size, but
-no run has shown the click there.
+A DLL of a build that does not have the test key `menu_skip_test_frame` gets
+a click on "Continue Game" in its place (`Get-BwvrMenuStart` reads the DLL
+for the name of the key). The place of that button is measured at a render of
+2208 by 2208 only. The measure of `dialog.ps1` gives the point for a
+different render size, but no run has shown the click there.
 
 ### Which script uses which start
 
-| Script | The start | What a start in a test save needs |
-| --- | --- | --- |
-| `verify_build.ps1`, the run `aim2` | The test save `pen` | Nothing. The run is 30 s long |
-| `verify_build.ps1`, the run `tland` | A new game, `select` | This run keeps the first story: the cut scene window, the story camera and the God view after a story need one run. The run is 112 s long |
-| `verify_build.ps1`, the run `vc` | The test save `temple` | Nothing. The run is 42 s long |
-| `creature_recipe.ps1` | A new game, `keep`. With `-Save temple`: that test save | `-Kind state` is shown by a run. `-Kind leash`, `stay` and `tie` have the parameter, and no run has shown them. `-Kind click` has no `-Save`: `text_click_test` has frames of its own |
-| `aim_queue.ps1` | A new game, `select` | `-Save pen` for `aim_run.ps1`, `aim_test_touch=110` in place of 700 for `aim2`, `ring1` and `ring0`, and a length for each run. The steps count from the play frame |
-| `throw_queue.ps1` | A new game, `select` | A parameter `-Save` that goes to `aim_run.ps1`, and a length for each run. The steps count from the play frame |
-| `hand_run.ps1 -Kind one`, `creature`, `fixed` | A new game, `select` | The steps have fixed frames from 4600 on, and `near_test_flips` has frames of its own. They need `fake_controller_play_frame`, or new frames. `-Kind creature` is for the choice of a Creature at the pens: the save `pen` has that state |
-| `hand_run.ps1 -Kind old` | A new game, `keep` | The script makes its own dialog words and calls `desk_run.ps1`. It needs the click on "Continue Game" in place of those words, `-Save temple`, and `fake_controller_play_frame=700` for its steps, which have fixed frames from 700 on |
-| `village_run.ps1`, `miracle_run.ps1` | A new game, `keep` | The steps start at frame 800, and the test keys have frames of their own (`village_test_site=870`, `village_test_scaffolds=1@930`, `village_test_workshop=905`, `miracle_test_seeds=2@930`). Those keys must count from the play frame as the script does, or they need new frames |
-| `temple_run.ps1` | A new game, `keep` | `-Save temple` for `spawn_run.ps1` and `fake_controller_play_frame=800`: the step into the Temple is at frame 820. The steps in a room come after the guide of the hall, which has a length in seconds, so they need new frames. `-SaveTest` writes a saved game of its own, so it stays with a new game |
-| `exit_run.ps1` | A new game, with the start dialog up | Nothing: it tests the end of the game |
+The table has the start of each script, and the length of a run in a new
+game (`-NewGame`) and in the test save. The play frame is the frame of the
+recipe that counts as the frame at which the controller first places the
+Hand in the loaded game (`fake_controller_play_frame`).
 
-A new game with `keep` costs 22 s and a test save 11 s, so a run of
-`village_run.ps1`, `miracle_run.ps1` or `temple_run.ps1` can be about 11 s
-shorter. A run with `select` can be about 51 s shorter.
+| Script | The start | The play frame | A run in a new game | A run in the test save |
+| --- | --- | --- | --- | --- |
+| `verify_build.ps1`, the run `aim2` | The test save `pen` | 2750 | 79 s | 30 s |
+| `verify_build.ps1`, the run `tland` | A new game, `select` | 2750 | 112 s | This run keeps the first story: the cut scene window, the story camera and the God view after a story need one run |
+| `verify_build.ps1`, the run `vc` | The test save `temple` | 800 | 65 s | 42 s |
+| `aim_queue.ps1` | The test save `pen` | 2750 | 75 to 103 s, 518 s for the six runs | 26 to 54 s, 224 s for the six runs |
+| `throw_queue.ps1` | The test save `pen` | 2750 | 80 to 112 s, 2104 s for the 22 runs | 31 to 63 s, 1026 s for the 22 runs |
+| `hand_run.ps1 -Kind one` | The test save `pen` | 4600 | 163 s | 44 s |
+| `hand_run.ps1 -Kind creature` | The test save `pen` | 4600 | 223 s | 202 s |
+| `hand_run.ps1 -Kind fixed` | The test save `pen` | 4600 | 163 s | 16 s and the time of `-Steps` |
+| `hand_run.ps1 -Kind old` | The test save `temple` | 700 | 163 s | 142 s |
+| `creature_recipe.ps1` | The test save `temple` | 800 | 65 to 80 s, 350 s for the five kinds | 42 to 62 s, 257 s for the five kinds |
+| `village_run.ps1` | The test save `temple` | 800 | 60 to 100 s, 809 s for the twelve kinds | 31 to 63 s, 457 s for the twelve kinds |
+| `miracle_run.ps1` | The test save `temple` | 800 | 75 s, 375 s for the five kinds | 44 to 57 s, 247 s for the five kinds |
+| `temple_run.ps1` | The test save `temple` | 800 | 190 s | 180 s |
+| `temple_run.ps1 -SaveTest` | A new game, `keep` | | 190 s | This run keeps the new game: its check reads the slots of the profile, and a run in a test save has the files of the test save in slot 20 |
+| `exit_run.ps1` | A new game, with the start dialog up | | 150 s | This run tests the end of the game, and it needs no state of the game |
+
+The start in the test save `pen` is 49 s shorter than the start of a new game
+with `select`, and the start in the test save `temple` is 10 s shorter than
+the start with `keep`. A run of `hand_run.ps1 -Kind old`, `-Kind creature` or
+`temple_run.ps1` is long because its steps are long.
+
+No recipe of `throw_queue.ps1` needs the first story. Each one needs the
+Hand, the rock at the pen (or a tree) and the land, and the test save `pen`
+has them. `verify_build.ps1` gives its run `tland` the new game
+(`throw_queue.ps1 -NewGame`), because that one run of the check keeps the
+story.
 
 ## The shared folder
 

@@ -545,7 +545,7 @@ and the record of `VirtualDesktop.LibOVRRT32_1.dll`.
 ### A test save
 
 A desktop run can start in a saved game that a test run made
-(`tools/desk/README.md`, "A fast start"). The mod has four test aids for it.
+(`tools/desk/README.md`, "A fast start"). The mod has five test aids for it.
 `[V]` is from the disassembly, `[R]` from a run.
 
 **How the game starts [V].** `ScanParameters` (`0x00641AA0`) knows no word
@@ -567,6 +567,24 @@ Menu over the loaded game before its first frame (`0x0054CF58`, `0x0054D086`).
 The game waits there, and "Continue Game" starts the play. A load in play is
 not a way for a test: the game then runs `GGame::Close`, which writes the
 profile to the registry.
+
+**The Main Menu of the start [V].** `GGame::Loop` sets
+`FrontEnd::StartupMenuActive` (`0x00CD0B03`) and shows
+`FrontEnd::MainMenuDialog` (`0x00CD065C`). The procedure of that dialog
+(`0x00540041`) pauses the game when the menu opens (`PauseGame(1)`). For the
+button "Continue Game" it does four things, at `0x005400D1`: `PauseGame(0)`
+(`0x0054AE20`), `DialogBoxBase::Hide()` (`0x00513640`), the flag
+`StartupMenuActive` to 0, and `FrontEnd::SetCursorOff()` (`0x0053C470`). Each
+of the three functions is static and takes no object.
+
+**`menu_skip_test_frame=N`.** At frame N of the scene, `game_start.cpp` does
+those four things itself, when the game mode is 0 and the flag of the menu is
+set. The loaded game then plays with no click, so a run in a test save needs
+no place of a button on the screen, and it does not depend on the render
+size. The log has one line `game start   : test key menu_skip_test_frame`.
+When the menu is not up at that frame, the mod does nothing and the line says
+so. The key is 0 by default, and a player gets the menu. The run scripts give
+70 (`tools/desk/dialog.ps1`).
 
 **The registry in the start [R].** In each start, with a new game or with a
 load, the game writes the values of the profile to the registry before its
@@ -1330,11 +1348,13 @@ Three traps:
   one or two pixels between samples: a word `move_right` of the test mouse for
   one frame, with `fake_mouse_step_px=1`.
 
-To reach gameplay without a headset, use a script of `bwvr/tools/desk/`. A run
-starts the game with `-NEWGAME`, and the scripted controller closes the start
-dialog. `spawn_run.ps1 -Choice keep` gives a game with no story. A run with
-`-Save <name>` starts in a test save, which a test run made ("A test save").
-A test never loads a saved game of the player.
+To reach gameplay without a headset, use a script of `bwvr/tools/desk/`. The
+scripts of one area start in a test save, which a test run made ("A test
+save"): the game is at the Creature pens after the first story, or at the
+door of the Temple with no story. With `-NewGame` a run starts the game with
+`-NEWGAME`, and the scripted controller closes the start dialog.
+`spawn_run.ps1 -Choice keep` gives a new game with no story. A test never
+loads a saved game of the player.
 
 ## Moving around
 
@@ -1742,9 +1762,9 @@ the real mouse, and it never brings a window to the front. The tools:
 
 - The scripted controller (`fake_controller`, `fake_controller_script`) holds the
   buttons of a controller and steps its hands (`controllers.md`, section 4). It
-  also closes the start dialog of a new game, and it clicks "Continue Game" in
-  the Main Menu of a run with a test save: `tools/desk/dialog.ps1` gives the
-  points for the render size.
+  also closes the start dialog of a new game: `tools/desk/dialog.ps1` gives
+  the points for the render size. In a run with a test save the test key
+  `menu_skip_test_frame` closes the Main Menu ("A test save").
 - The test mouse (`fake_mouse_script`) moves the pointer and presses the left
   button inside the mod (`god-view.md`, section 10).
 - The scripts of `bwvr/tools/desk/` start the game with these keys, put the
@@ -1867,6 +1887,7 @@ keys that the launcher sets.
 | `exit_shutdown` | 1 | 1: the mod shuts down on the exit path of the game. 0: in `DllMain`. See "The end of the mod" |
 | `exit_test_frame` | 0 | A test key of the desktop runs: the frame at which the game ends by itself. See "The test of the end" |
 | `registry_test_guard` | 0 | A test key of the desktop runs. 1: from the start of the mod, the mod drops each write of the game to its keys of the registry, and the log names each one. See "A test save" |
+| `menu_skip_test_frame` | 0 | A test key of the desktop runs: the frame at which the mod closes the Main Menu that the game opens over a saved game that it loads at its start, as the button "Continue Game" does. 0 is off. The launcher removes the key from `bwvr.ini` on each save. See "A test save" |
 | `window_width`, `window_height` | 0 | A forced window size |
 | `snap_turn`, `blink`, `instant_jumps`, `camera_glide` | 2, 0, 1, 0 | See "Moving around" |
 | `zoom_step` | 2 | See "Zoom in steps" |

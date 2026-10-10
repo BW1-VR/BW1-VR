@@ -1335,9 +1335,10 @@ flight (the lock follows it), the same for a rock that flies over the sea, a
 fetch of a rock from the sea 1.8 s after its first contact with the water
 (its point is then 0.5 units under the sea plane), and the end of a lock when
 the game deletes the object. Desktop runs (God view, `fake_controller=2`,
-Land 1, `-NEWGAME`) use the dialog recipe of [god-view.md](god-view.md),
-section 12, then the pen. The steps count from the frame at which the first
-story ends (`fake_controller_play_frame=2750`, `aim_queue.ps1` and
+Land 1) start at the pen, in the test save `pen`. With `-NewGame` they start
+in a new game, with the dialog recipe of [god-view.md](god-view.md), section
+12, and the first story. The steps count from the frame at which the player
+gets the Hand (`fake_controller_play_frame=2750`, `aim_queue.ps1` and
 `throw_queue.ps1` in `bwvr/tools/desk`).
 
 **Not shown in a run:** a villager beside a tree (the start of Land 1 has no villager in view, so the runs use a rock and a tree), a locked target that drifts out of the

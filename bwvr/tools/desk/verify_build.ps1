@@ -61,7 +61,7 @@ if (-not $NewGame) {
 
 # aim2. The fake hand is a Touch controller from the frame of aim_test_touch.
 # In a new game that frame is after the start dialog. In a test save it is
-# after the click on "Continue Game".
+# after the Main Menu of the start.
 $aimSet = 'fake_controller_front=1;fake_controller_play_frame=2750;aim_test_keys=3260;aim_pitch_deg=-0.5;aim_yaw_deg=0.25'
 $aimSteps = 'point@2990+1 aimfar@3000+1 shot@3040+1 grip@3060+90 pull@3100+3 pull@3170+3 point@3200+1 a@3215+30 shot@3230+1'
 if ($save.pen) {
@@ -69,11 +69,12 @@ if ($save.pen) {
 } else {
     & (Join-Path $sp 'aim_run.ps1') -Name "aim2$Tag" -Dll $Dll -Set "$aimSet;aim_test_touch=700" -Steps $aimSteps -Seconds 79 -Minutes 150 | Select-Object -Last 3
 }
-& (Join-Path $sp 'throw_queue.ps1') -Dll $Dll -Runs land -Tag $Tag -Minutes 150 -More 'fake_controller_front=1' | Select-Object -Last 3
+# tland keeps the first story, so it starts in a new game (-NewGame).
+& (Join-Path $sp 'throw_queue.ps1') -Dll $Dll -Runs land -Tag $Tag -Minutes 150 -More 'fake_controller_front=1' -NewGame | Select-Object -Last 3
 if ($save.temple) {
     & (Join-Path $sp 'creature_recipe.ps1') -Name "vc$Tag" -Dll $Dll -Minutes 150 -Seconds 42 -Save $save.temple | Select-Object -Last 4
 } else {
-    & (Join-Path $sp 'creature_recipe.ps1') -Name "vc$Tag" -Dll $Dll -Minutes 150 | Select-Object -Last 4
+    & (Join-Path $sp 'creature_recipe.ps1') -Name "vc$Tag" -Dll $Dll -Minutes 150 -NewGame | Select-Object -Last 4
 }
 
 function Lines($run, $pattern, $first) {
@@ -94,7 +95,7 @@ function Lines($run, $pattern, $first) {
 $ok = $true
 # A run in a test save must also have two lines of the log: the game loaded
 # the saved game (and not a new game), and the script came to its steps after
-# the click on "Continue Game". For vc it must have the Creature state too:
+# the Main Menu of the start closed. For vc it must have the Creature state too:
 # the pattern "creature" is in the log of each run.
 $loaded = '^game start   : the saved game is loaded'
 $played = '^controllers  : the controller places the Hand after frame \d+ at frame \d+'
@@ -111,7 +112,7 @@ foreach ($check in @(
         if ($start) { "the start: the test save '$($check.Save)'. $($start.Line.Substring(15, [Math]::Min(120, $start.Line.Length - 15)))" }
         else { $ok = $false; "MISSING in $($check.Run): the game did not load the test save '$($check.Save)'" }
         if ($play) { $play.Matches[0].Value.Substring(15) }
-        else { $ok = $false; "MISSING in $($check.Run): the script did not come to its steps in the test save '$($check.Save)'. Did the click on 'Continue Game' miss the button?" }
+        else { $ok = $false; "MISSING in $($check.Run): the script did not come to its steps in the test save '$($check.Save)'. Did the Main Menu of the start stay up? See the line 'menu_skip_test_frame' of the log" }
         if ($check.MustSave -and -not (Select-String -Path $log -Pattern $check.MustSave -Quiet)) { $ok = $false; "MISSING in $($check.Run): $($check.MustSave)" }
     }
 }

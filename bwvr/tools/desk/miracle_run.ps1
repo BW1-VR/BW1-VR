@@ -2,9 +2,21 @@
 #
 #   miracle_run.ps1 -Name x1 -Dll <dll> -Kind creature -Set "miracle_hand=0"
 #
-# The start is the choice "Keep your old Creature" (spawn_run.ps1): no story,
-# and the Creature of the profile at the door of the Temple. The test key
-# miracle_test_seeds makes one-off seeds on the land under the Hand.
+#   miracle_run.ps1 -Name x2 -Dll <dll> -Kind throw -NewGame
+#
+# THE START. The run starts in the test save "temple" (README.md, "A fast
+# start"): no story, and the Creature of the profile at the door of the
+# Temple. When the save is not there, one run makes it. The steps and the
+# frames of miracle_test_seeds count from frame 800 as the frame at which the
+# controller first places the Hand in the loaded game
+# (fake_controller_play_frame=800), so each frame in the log is about 730
+# less than the frame of the step. -NewGame gives a new game with the choice
+# "Keep your old Creature" (spawn_run.ps1): the same state. -Save gives a
+# different test save with that state. With no -Seconds, a new game runs 75 s,
+# and a run in a test save ends 4 s after its last step.
+#
+# The test key miracle_test_seeds makes one-off seeds on the land under the
+# Hand.
 #
 # -Kind creature: a seed of Creature Strong (16). A short press of the grip
 #   makes it active. A press over bare land, a press with the aim on the
@@ -24,9 +36,14 @@ param(
     [string]$Set = '',
     [string]$Steps = '',
     [string]$Seeds = '',
-    [int]$Seconds = 75
+    [int]$Seconds = 0,
+    [string]$Save = 'temple',
+    [switch]$NewGame
 )
 $sp = Split-Path -Parent $MyInvocation.MyCommand.Path
+. (Join-Path $sp 'game.ps1')
+$start = ''
+if (-not $NewGame) { $start = Confirm-BwvrTestSave $Save $Dll }
 # The zoom steps of these recipes keep the land under the head in its place
 # (god_zoom_about=0).
 $keys = 'god_zoom_about=0;far_test_creature=1;far_test_influence=1;grab_hand=1;far_grab_max_m=0'
@@ -87,9 +104,18 @@ if ($Kind -eq 'throw') {
     }
 }
 $keys = "$keys;miracle_test_seeds=$Seeds"
+if ($start) {
+    # In a test save the steps and the frames of the seeds count from the
+    # frame at which the controller first places the Hand, as frame 800. The
+    # start is 10 s shorter than the start of a new game.
+    $keys = "fake_controller_play_frame=800;$keys"
+    if ($Seconds -le 0) { $Seconds = Get-BwvrSaveSeconds $Steps 800 65 }
+} elseif ($Seconds -le 0) {
+    $Seconds = 75
+}
 if ($Set -ne '') { $keys = "$keys;$Set" }
 & (Join-Path $sp 'spawn_run.ps1') -Name $Name -Dll $Dll -Choice keep -Steps $Steps `
-    -Points $points -Set $keys -Seconds $Seconds
+    -Points $points -Set $keys -Seconds $Seconds -Save $start
 # spawn_run.ps1 gave up: no run, so no log of this run to read.
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 $log = Join-Path $sp "desk-$Name\bwvr.log"

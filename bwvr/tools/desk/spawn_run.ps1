@@ -21,8 +21,9 @@
 # -Save <name>: the run starts in a test save and not in a new game
 #    (README.md, "A fast start"). The run has no start dialog, so -Choice
 #    does nothing. The game opens its Main Menu over the loaded game, and the
-#    script clicks "Continue Game" there (dialog.ps1 gives the point and the
-#    words). Then come -Steps and -Points. With fake_controller_play_frame=N
+#    test key menu_skip_test_frame of the mod closes it (dialog.ps1 gives the
+#    keys and the words. A DLL of a build without that key gets a click on
+#    "Continue Game"). Then come -Steps and -Points. With fake_controller_play_frame=N
 #    in -Set, the steps from frame N on count from the frame at which the
 #    controller first places the Hand after frame 60
 #    (fake_controller_play_after). A key of -Set with a frame of its own
@@ -65,13 +66,20 @@ while ((Get-Date) -lt $deadline) {
     $idle = [int](& (Join-Path $sp 'idle_seconds.ps1'))
     $running = [bool](Get-Process runblack -ErrorAction SilentlyContinue)
     if ($idle -ge 620 -and -not $running) {
-        if (-not (Confirm-DialogCalibration -Dll $Dll)) { Start-Sleep -Seconds 30; continue }
+        # A test save has no start dialog. The game opens its Main Menu over
+        # the loaded game, and Get-BwvrMenuStart gives the words, the one
+        # point and the keys that get the run through it. Only a click on
+        # "Continue Game" needs the measure of the render size.
+        $menu = $null
+        if ($Save -ne '') { $menu = Get-BwvrMenuStart $Dll }
+        if (-not $menu -or $menu.Measure) {
+            if (-not (Confirm-DialogCalibration -Dll $Dll)) { Start-Sleep -Seconds 30; continue }
+        }
         $dp = Get-DialogPoints $Choice
         if ($Save -ne '') {
-            # A test save has no start dialog. The script clicks "Continue
-            # Game" of the Main Menu.
-            $dialog = $script:MenuContinueWords
-            $first = Get-MenuContinuePoint
+            if ($menu.Measure) { $menu.Point = Get-MenuContinuePoint }
+            $dialog = $menu.Words
+            $first = $menu.Point
         } elseif ($Choice -eq 'normal') {
             $dialog = 'pose2@500+1 point@520+1 trigger@560+8'
             $first = $dp.Ok
@@ -88,7 +96,7 @@ while ((Get-Date) -lt $deadline) {
             fake_controller_points = ("$first $Points").Trim()
             fake_controller_script = ("$dialog $Steps").Trim()
         }
-        if ($Save -ne '') { $extra.fake_controller_play_after = 60 }
+        if ($Save -ne '') { foreach ($k in $menu.Ini.Keys) { $extra[$k] = $menu.Ini[$k] } }
         foreach ($pair in $Set.Split(';')) {
             if ($pair -match '^\s*([^=\s]+)\s*=\s*(.*)$') { $extra[$Matches[1]] = $Matches[2] }
         }

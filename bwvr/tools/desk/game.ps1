@@ -93,6 +93,43 @@ function Get-BwvrTestSave([string]$Name) {
     return $null
 }
 
+# The test save that a run script starts in: the name when the save is there.
+# When it is not there, one run of make_test_save.ps1 makes it (the saves
+# "pen" and "temple" have a recipe there). Empty when the save was not made:
+# the run script then starts in a new game. The lines go to the host, not to
+# the result.
+function Confirm-BwvrTestSave([string]$Name, [string]$Dll, [int]$Minutes = 115) {
+    if (Get-BwvrTestSave $Name) { return $Name }
+    Write-Host "the test save '$Name' is not there: one run makes it"
+    & (Join-Path $PSScriptRoot 'make_test_save.ps1') -Name $Name -Dll $Dll -Minutes $Minutes |
+        Select-Object -Last 1 | ForEach-Object { Write-Host $_ }
+    if (Get-BwvrTestSave $Name) { return $Name }
+    Write-Host "the test save '$Name' was not made, so the run starts in a new game"
+    return ''
+}
+
+# The length in seconds of a run in a test save, from the steps of its recipe.
+# The controller places the Hand about 12 s after the start of the game
+# process, and that frame is the play frame of the recipe. The last step
+# comes (its frame - the play frame) frames later. The number is for a game
+# that runs at 40 frames a second or more, with 4 s after the last step. A
+# word "look" holds a state to the end of the run, so only its start counts.
+# -More gives frames of test keys that come after the last step. -Most is the
+# length that the same recipe has in a new game, less the seconds that the
+# start in the test save is shorter: the result is never more than that.
+function Get-BwvrSaveSeconds([string]$Steps, [int]$PlayFrame, [int]$Most = 0, [int[]]$More = @()) {
+    $last = $PlayFrame
+    foreach ($m in [regex]::Matches($Steps, '([a-z_0-9]+)@(\d+)\+(\d+)')) {
+        $end = [int]$m.Groups[2].Value
+        if ($m.Groups[1].Value -ne 'look') { $end += [int]$m.Groups[3].Value }
+        if ($end -gt $last) { $last = $end }
+    }
+    foreach ($f in $More) { if ($f -gt $last) { $last = $f } }
+    $seconds = 12 + [int][Math]::Ceiling(($last - $PlayFrame) / 40.0) + 4
+    if ($Most -gt 0 -and $seconds -gt $Most) { $seconds = $Most }
+    return $seconds
+}
+
 # The folder of the profile that the game uses: Profiles\<folder> of the game
 # folder. The game keeps the name of that profile in the registry, which a
 # test only reads. The folder has the name with a "_" before each character.

@@ -60,6 +60,7 @@ bool ControllerDirectMotion(float reach_room[3], float grip_room[3],
                             float room[9]);
 void ControllersGesturePulse(float amplitude, float seconds);
 uint64_t ControllersFrameCount();
+uint64_t ControllersTestFrame(uint64_t key_frame, uint64_t frame);
 bool ControllersSecondButton();
 // head_pose.cpp: game units in a real meter.
 float HeadPoseScale();
@@ -792,7 +793,12 @@ void PollKey() {
 
 void TestSeeds() {
   for (int i = 0; i < g_test_seed_count; ++i) {
-    if (g_test_seeds[i].frame != g_frame) continue;
+    // The frame of a seed counts as a step of the script counts it
+    // (fake_controller_play_frame).
+    if (ControllersTestFrame(g_test_seeds[i].frame, g_frame) !=
+        g_test_seeds[i].frame) {
+      continue;
+    }
     float at[3];
     bool by_controller = false;
     if (!HandDirectHandPosition(at, &by_controller)) {
@@ -918,7 +924,9 @@ void CancelFrame(const Facts& f, bool have) {
     g_button_was = down;
   }
   for (int i = 0; i < g_test_cancel_count; ++i) {
-    if (g_test_cancels[i] == g_frame && miracle) {
+    if (ControllersTestFrame(g_test_cancels[i], g_frame) ==
+            g_test_cancels[i] &&
+        miracle) {
       AskCancel("the test key miracle_test_cancel");
     }
   }

@@ -63,6 +63,7 @@ extern void ModLog(const char* format, ...);
 
 // controllers.cpp
 uint64_t ControllersFrameCount();
+uint64_t ControllersTestFrame(uint64_t key_frame, uint64_t frame);
 void ControllersGesturePulse(float amplitude, float seconds);
 // hand_direct.cpp
 bool HandDirectRealPoint(float out[3]);
@@ -1074,17 +1075,24 @@ void TestWorkshop(uint8_t* face) {
          *reinterpret_cast<const int32_t*>(town + kTownWorkshops), g_frame);
 }
 
+// True at the frame of a test key. The frame counts as a step of the script
+// counts it (fake_controller_play_frame).
+bool TestFrameIsNow(uint64_t key_frame) {
+  return key_frame != 0 &&
+         ControllersTestFrame(key_frame, g_frame) == key_frame;
+}
+
 void TestKeys(uint8_t* face) {
-  if (g_test_site != 0 && g_test_site == g_frame) TestSite(face);
-  if (g_test_workshop != 0 && g_test_workshop == g_frame) TestWorkshop(face);
-  if (g_test_scaffold_count > 0 && g_test_scaffold_frame == g_frame) {
+  if (TestFrameIsNow(g_test_site)) TestSite(face);
+  if (TestFrameIsNow(g_test_workshop)) TestWorkshop(face);
+  if (g_test_scaffold_count > 0 && TestFrameIsNow(g_test_scaffold_frame)) {
     TestScaffolds(face);
   }
   for (int i = 0; i < g_test_census_count; ++i) {
-    if (g_test_census[i] == g_frame) Census(face);
+    if (TestFrameIsNow(g_test_census[i])) Census(face);
   }
   for (int i = 0; i < g_test_chant_count; ++i) {
-    if (g_test_chants[i].frame != g_frame) continue;
+    if (!TestFrameIsNow(g_test_chants[i].frame)) continue;
     uint8_t* towns[kMaxTowns];
     const int count = Towns(face, towns);
     int sites = 0;

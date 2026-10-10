@@ -571,6 +571,7 @@ const char* const kRetiredKeys[] = {
     "village_test_workshop", "pointer_leave_cursor", "cursor_trace",
     "exit_test_frame", "registry_test_guard", "intro_skip_test_frame",
     "fake_controller_play_frame", "fake_controller_play_after",
+    "menu_skip_test_frame",
     // Settings that the launcher offered before. Each has one right answer
     // in a headset, and the mod's default is that answer. The other
     // settings that are not offered now (the sizes and the depth of the

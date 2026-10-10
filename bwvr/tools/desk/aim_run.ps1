@@ -6,8 +6,10 @@
 #
 # -Save <name>: the run starts in a test save and not in a new game
 #    (README.md, "A fast start"). The run has no start dialog. The game opens
-#    its Main Menu over the loaded game, and the script clicks "Continue
-#    Game" there (dialog.ps1 gives the point and the words). Then come
+#    its Main Menu over the loaded game, and the test key
+#    menu_skip_test_frame of the mod closes it (dialog.ps1 gives the keys and
+#    the words. A DLL of a build without that key gets a click on "Continue
+#    Game"). Then come
 #    -Steps, and the points are the points of -Points after its first two.
 #    With fake_controller_play_frame=N in -Set, the steps from frame N on
 #    count from the frame at which the controller first places the Hand after
@@ -41,20 +43,31 @@ if ($Save -ne '' -and -not (Get-BwvrTestSave $Save)) {
 # dialog.ps1 gives them (it measures a new size one time), and they take the
 # place of the first two points of -Points.
 . (Join-Path $sp 'dialog.ps1')
+# A test save has no start dialog. The game opens its Main Menu over the
+# loaded game, and Get-BwvrMenuStart gives the words, the one point and the
+# keys that get the run through it.
+$menu = $null
+if ($Save -ne '') { $menu = Get-BwvrMenuStart $Dll }
 function Set-DialogPoints {
     $rest = @($Points.Split(' ') | Where-Object { $_ -ne '' } | Select-Object -Skip 2)
+    if ($Save -ne '') {
+        # Only a click on "Continue Game" needs the measure of the render
+        # size.
+        if ($menu.Measure) {
+            if (-not (Confirm-DialogCalibration -Dll $Dll)) { return $false }
+            $menu.Point = Get-MenuContinuePoint
+        }
+        $extra.fake_controller_points = (@($menu.Point) + $rest) -join ' '
+        return $true
+    }
     if (-not (Confirm-DialogCalibration -Dll $Dll)) { return $false }
-    # A test save has no start dialog. Its first point is the button
-    # "Continue Game" of the Main Menu.
-    if ($Save -ne '') { $extra.fake_controller_points = (@(Get-MenuContinuePoint) + $rest) -join ' '; return $true }
     $dp = Get-DialogPoints 'select'
     $extra.fake_controller_points = (@($dp.Row, $dp.Ok) + $rest) -join ' '
     return $true
 }
 
 $dialog = 'point@400+1 trigger@440+8 pose2@500+1 point@520+1 trigger@560+8'
-# In a test save the script clicks "Continue Game" of the Main Menu.
-if ($Save -ne '') { $dialog = $script:MenuContinueWords }
+if ($Save -ne '') { $dialog = $menu.Words }
 if ($Steps -eq '') {
     $Steps = 'shot@2900+1 point@2990+1 aimfar@3000+1 shot@3050+1 grip@3100+101 pull@3140+3 shot@3185+1 point@3200+1 shot@3215+1 point@3300+1 a@3320+50 shot@3350+1 aimfar@3400+1 grip@3460+101 pull@3500+3 shot@3545+1 point@3560+1'
 }
@@ -71,7 +84,7 @@ $extra = @{
     fake_controller_points = $Points
     fake_controller_script = "$dialog $Steps"
 }
-if ($Save -ne '') { $extra.fake_controller_play_after = 60 }
+if ($Save -ne '') { foreach ($k in $menu.Ini.Keys) { $extra[$k] = $menu.Ini[$k] } }
 foreach ($pair in $Set.Split(';')) {
     if ($pair -match '^\s*([^=\s]+)\s*=\s*(.*)$') { $extra[$Matches[1]] = $Matches[2] }
 }

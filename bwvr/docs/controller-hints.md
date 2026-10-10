@@ -1203,9 +1203,11 @@ clicks, `TriggerMayCommand`, `PressMayStart`, the frames of the test key, and
 `text_click=0`.
 
 The desktop run is `creature_recipe.ps1 -Kind click` in `bwvr/tools/desk`
-(the start "Keep your old Creature", the God view). The leash goes on, and
-the test makes the game say help text 1275 with mode 1 at the frames 960 and
-1500. The advisor speaks the line, and the text is in the picture.
+(the God view, in the test save `temple`, or with `-NewGame` the start "Keep
+your old Creature"). The leash goes on, and the test makes the game say help
+text 1275 with mode 1 at the frames 960 and 1500. The advisor speaks the
+line, and the text is in the picture. The frames here are the frames of the
+recipe. In a run in the test save, a frame of the log is about 730 less.
 
 | Step | `text_click=1` | `text_click=0` |
 | --- | --- | --- |

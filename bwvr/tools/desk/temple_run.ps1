@@ -3,15 +3,29 @@
 #
 #   temple_run.ps1 -Name tpl1 -Dll <dll> -Steps "<script>" -Set "<keys>" -Seconds 190
 #
-# The start is the choice "Keep your old Creature" (spawn_run.ps1). The ring
-# item "enter" goes into the Temple at frame 850: the hall, and its guide.
-# The guide has a length in seconds, so the frame of its end depends on the
-# frame rate: between frame 2700 and frame 3250. The ring does not open while
-# a guide plays, so put the first step of -Steps after frame 3350. The script
-# waits for an idle PC (10 minutes, no game) and then makes one run through
-# spawn_run.ps1 and desk_run.ps1. It reads the settings of the game in the
-# registry before and after the run, and it says if a value changed. It
-# writes nothing there.
+#   temple_run.ps1 -Name tpl3 -Dll <dll> -NewGame
+#
+# THE START. The run starts in the test save "temple" (README.md, "A fast
+# start"): no story, and the game camera at rest at the door of the Temple.
+# When the save is not there, one run makes it. The steps count from frame
+# 800 as the frame at which the controller first places the Hand in the
+# loaded game (fake_controller_play_frame=800), so the frames of -Steps are
+# the same for each start, and each frame in the log is about 730 less than
+# the frame of the step. -NewGame gives a new game with the choice "Keep your
+# old Creature" (spawn_run.ps1): the same state. -Save gives a different test
+# save with that state. A run in a test save is 10 s shorter (180 s with no
+# -Seconds). -SaveTest keeps the new game: its check reads the slots of the
+# profile, and a run in a test save has the files of the test save in slot
+# 20 of the profile.
+#
+# The ring item "enter" goes into the Temple at frame 850: the hall, and its
+# guide. The guide has a length in seconds, so the frame of its end depends
+# on the frame rate: between frame 2700 and frame 3250. The ring does not
+# open while a guide plays, so put the first step of -Steps after frame 3350.
+# The script waits for an idle PC (10 minutes, no game) and then makes one
+# run through spawn_run.ps1 and desk_run.ps1. It reads the settings of the
+# game in the registry before and after the run, and it says if a value
+# changed. It writes nothing there.
 #
 # With no -Steps the run stays in the hall. The ring of the Temple goes to a
 # room: the left stick in the direction of the item for 60 frames, and the
@@ -29,24 +43,33 @@ param(
     [string]$Steps = '',
     [string]$Points = '20,-30,35',
     [string]$Set = '',
-    [int]$Seconds = 190,
+    [int]$Seconds = 0,
     [int]$Minutes = 170,
     [string]$Pattern = '',
     [switch]$NoEnter,
-    [switch]$SaveTest
+    [switch]$SaveTest,
+    [string]$Save = 'temple',
+    [switch]$NewGame
 )
 $sp = Split-Path -Parent $MyInvocation.MyCommand.Path
+. (Join-Path $PSScriptRoot 'game.ps1')
+$start = ''
+if (-not $NewGame -and -not $SaveTest) { $start = Confirm-BwvrTestSave $Save $Dll $Minutes }
 $enter = 'lstick_up@820+60 lstick_left@820+60 ltrigger@850+6'
 # -NoEnter: the run stays on the land (the taps on the door and the posts).
 if ($NoEnter) { $enter = '' }
 $keys = 'grab_hand=1'
+# In a test save the steps count from the frame at which the controller first
+# places the Hand, as frame 800. The start is 10 s shorter than the start of
+# a new game.
+if ($start) { $keys = "fake_controller_play_frame=800;$keys" }
+if ($Seconds -le 0) { $Seconds = if ($start) { 180 } else { 190 } }
 if ($Set -ne '') { $keys = "$keys;$Set" }
 # -SaveTest: the run makes a save in the Save Game Room. The slots of a
 # player are 0 to 13, and the test takes one that has no saved game. So the
 # run starts only when the profile has none of those slots, and the list of
 # the slots must be the same after the run (the profile guard of
 # desk_run.ps1 puts the files back).
-. (Join-Path $PSScriptRoot 'game.ps1')
 # The first profile of the game folder that has saved games.
 $saves = Get-ChildItem -LiteralPath (Join-Path (Get-BwvrGame) 'Profiles') -Directory |
     ForEach-Object { Join-Path $_.FullName 'Saved Games' } |
@@ -75,7 +98,7 @@ while ((Get-Date) -lt $deadline -and -not $done) {
         # RUN DONE or GAVE UP of spawn_run.ps1 is not shown: this script
         # gives its own.
         $o = & (Join-Path $sp 'spawn_run.ps1') -Name $Name -Dll $Dll -Choice keep `
-            -Steps ("$enter $Steps").Trim() -Points $Points -Set $keys -Seconds $Seconds -Minutes 1 -WaitMinutes 45
+            -Steps ("$enter $Steps").Trim() -Points $Points -Set $keys -Seconds $Seconds -Minutes 1 -WaitMinutes 45 -Save $start
         $o | Where-Object { "$_" -cnotmatch '^(RUN DONE|GAVE UP)' }
         if (Test-BwvrVerdict $o 'RUN DONE') {
             $after = RegText

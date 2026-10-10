@@ -60,6 +60,8 @@
 extern void ModLog(const char* format, ...);
 // controllers.cpp: one pulse of the pointing controller.
 void ControllersGesturePulse(float amplitude, float seconds);
+// controllers.cpp: the number that a test key with a frame compares with it.
+uint64_t ControllersTestFrame(uint64_t key_frame, uint64_t frame);
 
 namespace {
 
@@ -250,7 +252,11 @@ void TextClickFrame(uint64_t frame) {
   g_frame = frame;
   PollKey();
   for (int i = 0; i < g_test_count; ++i) {
-    if (g_test_frames[i] == frame) g_test_pending = true;
+    // The frame of the key counts as a step of the script counts it
+    // (fake_controller_play_frame).
+    if (ControllersTestFrame(g_test_frames[i], frame) == g_test_frames[i]) {
+      g_test_pending = true;
+    }
   }
   const uint8_t* const help = Help();
   g_flag = help != nullptr &&

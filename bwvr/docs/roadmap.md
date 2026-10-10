@@ -351,11 +351,3 @@ moves while the Hand takes it.
   only, and each session imports the exe into a new temporary project, so
   it has none of the names that `bwvr/tools/re.ps1` gives. It fits when it
   can open a project that is there, or take a symbol file, on Windows.
-- **R7. The area scripts start in a new game.** `verify_build.ps1` starts
-  two of its three runs in a test save, 11 s after the start of the game
-  and not 22 s or 63 s. `aim_queue.ps1`, `throw_queue.ps1`, `hand_run.ps1`,
-  `village_run.ps1`, `miracle_run.ps1` and `temple_run.ps1` still start in
-  a new game. `bwvr/tools/desk/README.md`, "Which script uses which start",
-  says what each one needs: a parameter `-Save`, and for some of them test
-  keys that count from the play frame as the script does. The place of
-  "Continue Game" in the Main Menu is measured at one render size only.

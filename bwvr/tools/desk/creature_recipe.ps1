@@ -10,13 +10,23 @@
 #   creature_recipe.ps1 -Name x7 -Dll <dll> -Kind click
 #   creature_recipe.ps1 -Name x8 -Dll <dll> -Kind click -Set "text_click=0"
 #
-# The start: the choice "Keep your old Creature" of the start dialog (through
-# spawn_run.ps1 and desk_run.ps1). It gives a game with no story, and the
-# Creature of the profile stands at the door of the Temple. The God view goes
-# to that door when the dialog closes (frame 571) and the game camera has come
-# to rest (near frame 675). The steps start at frame 800. A zoom step before
-# the rest keeps the view at the shore: "the player moved the view, so the
-# move of the game camera is dropped".
+#   creature_recipe.ps1 -Name x9 -Dll <dll> -Kind leash -NewGame
+#
+# THE START. The run starts in the test save "temple" (README.md, "A fast
+# start"): a game with no story, in which the Creature of the profile stands
+# at the door of the Temple and the game camera is at rest there. When the
+# save is not there, one run makes it. The steps count from frame 800 as the
+# frame at which the controller first places the Hand in the loaded game
+# (fake_controller_play_frame=800), so each frame in the log is about 730
+# less than the frame of the step. -Save gives a different test save with
+# that state.
+#
+# -NewGame gives a new game with the choice "Keep your old Creature" of the
+# start dialog (through spawn_run.ps1 and desk_run.ps1): the state above. The
+# God view goes to the door of the Temple when the dialog closes (frame 571)
+# and the game camera has come to rest (near frame 675). The steps start at
+# frame 800. A zoom step before the rest keeps the view at the shore: "the
+# player moved the view, so the move of the game camera is dropped".
 #
 # -Kind state (the default):
 #   Two zoom steps in (44 units a meter), so the Creature is in the view of
@@ -77,14 +87,13 @@
 #   hint card    : ... the game gives its prompt    the prompt of that wait on the card
 #   haptics      : ...                              the pulses
 #
-# -Save <name>: the run starts in a test save and not in a new game
-#   (README.md, "A fast start"). The save must have the state of the start
-#   above: the test save "temple" has it. The steps and the points are the
-#   same. The steps count from frame 800 as the frame at which the controller
-#   first places the Hand in the loaded game (fake_controller_play_frame=800),
-#   so each frame in the log is about 720 less than in a run of a new game.
-#   -Kind click has no -Save: its test key text_click_test has frames of its
-#   own.
+# The frames of the test key text_click_test (-Kind click) count from frame
+# 800 as the steps do, so they are the same in a test save and in a new game.
+#
+# -Seconds: the length of the run. With no -Seconds, a new game runs 65 s (75
+# s for -Kind tie, 80 s for -Kind click). A run in a test save ends 4 s after
+# its last step, or 14 s after it for a kind that ends with a stay (state,
+# leash, stay): the log says 10 s after a stay if the Creature left its place.
 #
 # spawn_run.ps1 waits for an idle PC (10 minutes, no game) and gives up after
 # -Minutes. The last line of the output is RUN DONE (exit code 0) or GAVE UP
@@ -94,21 +103,29 @@ param(
     [Parameter(Mandatory = $true)][string]$Dll,
     [string]$Kind = 'state',
     [string]$Set = '',
-    [int]$Seconds = 65,
+    [int]$Seconds = 0,
     [int]$Minutes = 115,
-    [string]$Save = ''
+    [string]$Save = 'temple',
+    [switch]$NewGame
 )
 $sp = Split-Path -Parent $MyInvocation.MyCommand.Path
 . (Join-Path $sp 'game.ps1')
-if ($Save -ne '' -and $Kind -eq 'click') { 'NOT RUN: -Kind click has no -Save, because its test key text_click_test has frames of its own'; exit 7 }
+$start = ''
+if (-not $NewGame) { $start = Confirm-BwvrTestSave $Save $Dll $Minutes }
 # The zoom steps of this recipe keep the land under the head in its place
 # (god_zoom_about=0), so the Creature stays in front of the head.
 $keys = 'god_zoom_about=0;seek_plan=creature;far_test_creature=1;far_test_influence=1;grab_hand=1;' +
         'far_grab_max_m=0;fake_controller_rots=-112,1,0 8,1,0'
 # In a test save the steps count from the frame at which the controller first
 # places the Hand, as frame 800.
-if ($Save -ne '') { $keys = "fake_controller_play_frame=800;$keys" }
+if ($start) { $keys = "fake_controller_play_frame=800;$keys" }
 if ($Set -ne '') { $keys = "$keys;$Set" }
+# The length of a run in a new game.
+$new = 65
+# After a stay the mod watches the Creature for 10 s, and then the log says
+# if the Creature left its place. A kind that ends with a stay runs these
+# seconds after its last step.
+$watch = 10
 # The points of the word "point", after the two points of the start dialog.
 $points = '0,-30,60'
 if ($Kind -eq 'stay') {
@@ -124,7 +141,8 @@ if ($Kind -eq 'stay') {
     $steps = 'look@800+1200 point@860+1 aimfar@890+1 shot@900+1 grip@910+6 shot@950+1 ' +
              'trigger@980+6 aimfar@1060+1 grip@1080+6 aimfar@1160+1 grip@1180+300'
 } elseif ($Kind -eq 'click') {
-    if ($Seconds -lt 80) { $Seconds = 80 }
+    $new = 80
+    $watch = 0
     # The keys of -Set come after these in the list, so -Set can give a
     # different text or different frames.
     $keys = "text_click_test=960,1500;text_click_test_text=1275;$keys"
@@ -133,9 +151,10 @@ if ($Kind -eq 'stay') {
              'aimfar@1250+1 trigger@1300+6 point@1560+1 shot@1600+1 trigger@1700+6 shot@1800+1'
 } elseif ($Kind -eq 'tie') {
     # The second press of the trigger comes 17 frames after the first one: a
-    # double press. The walk takes about 1500 frames, so the run is 75 s
-    # long or more.
-    if ($Seconds -lt 75) { $Seconds = 75 }
+    # double press. The walk takes about 1500 frames, so a new game runs
+    # 75 s or more.
+    $new = 75
+    $watch = 0
     $steps = 'look@800+2600 point@860+1 aimfar@890+1 grip@910+6 aimcmd@1000+1 shot@1010+1 ' +
              'trigger@1020+6 trigger@1037+6 seek@1100+1 seek@1400+1 seek@1700+1 seek@2000+1 ' +
              'seek@2300+1 seek@2600+1 shot@2610+1'
@@ -147,8 +166,15 @@ if ($Kind -eq 'stay') {
              'rot@1460+1 rot@1530+1 slap@1580+1 slap@1660+1 ' +
              'point@1800+1 aimfar@1830+1 shot@1840+1 grip@1850+300'
 }
+if ($start) {
+    # The start in a test save is 10 s shorter than the start of a new game,
+    # so the run is never longer than the run in a new game less 10 s.
+    if ($Seconds -le 0) { $Seconds = [Math]::Min((Get-BwvrSaveSeconds $steps 800) + $watch, $new - 10) }
+} elseif ($Seconds -lt $new) {
+    $Seconds = $new
+}
 $o = & (Join-Path $sp 'spawn_run.ps1') -Name $Name -Dll $Dll -Choice keep -Steps $steps `
-    -Points $points -Set $keys -Seconds $Seconds -Minutes $Minutes -Save $Save
+    -Points $points -Set $keys -Seconds $Seconds -Minutes $Minutes -Save $start
 # The RUN DONE of spawn_run.ps1 is not shown: this script gives it as its
 # last line, after the lines of the log.
 $o | Where-Object { "$_" -cnotmatch '^RUN DONE' }

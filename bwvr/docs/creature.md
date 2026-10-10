@@ -1234,7 +1234,12 @@ The math tests are in `bwvr/test/controller_math/` and run with
 Two scripts in `bwvr/tools/desk/` reach the Creature of the player:
 
 - `creature_recipe.ps1` runs the Creature state, strokes and a slap. It uses
-  `spawn_run.ps1` and `desk_run.ps1`.
+  `spawn_run.ps1` and `desk_run.ps1`. It starts in the test save `temple`
+  (`tools/desk/README.md`, "A fast start"), which a run with the start of the
+  next item made at frame 800. The steps count from frame 800 as the frame at
+  which the controller first places the Hand in the loaded game, so a frame
+  of the log is about 730 less than the frame of the step. `-NewGame` gives
+  the start of the next item.
 - `spawn_run.ps1` starts a game with the choice "Keep your old Creature" in
   the start dialog. That game has no story, and the Creature of the profile
   stands at the door of the Temple. The God view goes to that door when the

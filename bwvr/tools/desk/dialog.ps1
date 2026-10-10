@@ -22,16 +22,26 @@ $script:DialogRowY = @{ normal = -64; select = -20; skip = 23; keep = 67 }
 $script:DialogRowX = -143
 $script:DialogOkX = -147
 $script:DialogOkY = 113
-# The button "Continue Game" of the Main Menu, in pixels from the middle of
-# the render. The game opens that menu over the saved game that it loads at
-# its start (a run with a test save). The button is 436 pixels wide and 60
-# high. Measured at 2208 by 2208.
+# THE MAIN MENU OF A RUN IN A TEST SAVE. The game opens its Main Menu over the
+# saved game that it loads at its start, and it waits there for the button
+# "Continue Game". A run gets through the menu in one of two ways, and
+# Get-BwvrMenuStart gives the way for a DLL:
+# 1. The test key menu_skip_test_frame of the mod. At that frame the mod does
+#    what the button does. The run needs no click and no place on the screen,
+#    so it does not depend on the render size. The hand points at a place
+#    that is not a button, and then it goes to its second pose, as it does
+#    after the clicks of the start dialog.
+# 2. A click on the button, for a DLL of a build that does not have the test
+#    key. The button is 436 pixels wide and 60 high, and its middle is 122
+#    pixels above the middle of the render (measured at 2208 by 2208). The
+#    hand in its first pose points at the button and the trigger clicks. The
+#    point comes from the measure of the start dialog for the render size.
 $script:MenuContinueX = 0
 $script:MenuContinueY = -122
-# The script words that click "Continue Game": the hand in its first pose
-# points at the button, the trigger clicks, and then the hand goes to its
-# second pose, as it does after the clicks of the start dialog.
 $script:MenuContinueWords = 'point@40+1 trigger@70+8 pose2@100+1'
+$script:MenuSkipWords = 'point@40+1 pose2@100+1'
+$script:MenuSkipFrame = 70
+$script:MenuSkipPoint = '0,0,100'
 
 # The six places of the measure run, in cm: three for the first pose (it
 # points at a row), then three for the second pose (it points at OK).
@@ -99,6 +109,27 @@ function Get-MenuContinuePoint {
     $size = Get-BwvrRenderSize
     if (-not $cal -or -not $size) { return $null }
     return (ConvertTo-DialogPoint $cal.pose1 ($size[0] / 2.0 + $script:MenuContinueX) ($size[1] / 2.0 + $script:MenuContinueY))
+}
+
+# True when a DLL of the mod has the test key menu_skip_test_frame: the name
+# of the key is in the file.
+function Test-BwvrMenuSkip([string]$Dll) {
+    try { $text = [System.Text.Encoding]::ASCII.GetString([System.IO.File]::ReadAllBytes($Dll)) } catch { return $false }
+    return $text.Contains('menu_skip_test_frame')
+}
+
+# What a run in a test save needs to get through the Main Menu, for a DLL:
+# the script words, the first point of the scripted hand, the ini keys, and
+# whether the point needs the measure of the render size. In each of the two
+# ways the controller places the Hand after frame 60, and that frame is the
+# play frame of a recipe (fake_controller_play_after).
+function Get-BwvrMenuStart([string]$Dll) {
+    if (Test-BwvrMenuSkip $Dll) {
+        $ini = @{ menu_skip_test_frame = $script:MenuSkipFrame; fake_controller_play_after = 60 }
+        return @{ Words = $script:MenuSkipWords; Point = $script:MenuSkipPoint; Measure = $false; Ini = $ini }
+    }
+    $ini = @{ fake_controller_play_after = 60 }
+    return @{ Words = $script:MenuContinueWords; Point = (Get-MenuContinuePoint); Measure = $true; Ini = $ini }
 }
 
 # One short run that measures the current render size. It goes through

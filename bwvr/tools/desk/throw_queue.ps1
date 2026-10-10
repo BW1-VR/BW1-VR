@@ -2,18 +2,37 @@
 # waits for an idle PC and no game, and then through desk_run.ps1.
 #
 #   throw_queue.ps1 -Dll <dll> -Runs base,land -Tag 1
+#   throw_queue.ps1 -Dll <dll> -Runs land -NewGame
+#
+# THE START. Each run starts in the test save "pen" (README.md, "A fast
+# start"): the Creature pens of Land 1 after the first story. Each recipe
+# needs only the Hand, the rock at the pen (or a tree) and the land, and the
+# save has them. No recipe tests the story. When the save is not there, one
+# run makes it. -NewGame gives each run a new game with the row "Skip straight
+# to the Creature select" and the first story: verify_build.ps1 uses it for
+# its run "tland", which is the one run that keeps the story. -Save gives a
+# different test save with that state.
+#
+# Seconds is the length of a run in a new game, in which the player gets the
+# Hand about 63 s after the start of the run. In a test save the controller
+# places the Hand about 12 s after the start, so the run is 49 s shorter.
 param(
     [Parameter(Mandatory = $true)][string]$Dll,
     [string[]]$Runs = @('base'),
     [string]$Tag = '',
     [int]$Minutes = 170,
-    [string]$More = ''
+    [string]$More = '',
+    [string]$Save = 'pen',
+    [switch]$NewGame
 )
 $sp = Split-Path -Parent $MyInvocation.MyCommand.Path
 . (Join-Path $sp 'game.ps1')
+$start = ''
+if (-not $NewGame) { $start = Confirm-BwvrTestSave $Save $Dll $Minutes }
 $common = 'fake_controller_play_frame=2750;intro_skip_test_frame=5;throw_log=2'
 # The first two points are the points of the start dialog. aim_run.ps1 puts
-# them in for the current render size.
+# them in for the current render size. In a test save it puts the point of
+# "Continue Game" in their place.
 $points = '0,0,100 0,0,100 -10,-10,60 -10,-4,66 -10,-10,60 -10,-4,66'
 # A far fetch of the rock at the pen and a throw of about 3 m/s onto the slope.
 # Then, after the rock is at rest, a second fetch and a second throw. The
@@ -100,8 +119,16 @@ foreach ($run in $Runs) {
     $name = "t$run$Tag"
     $set = "$common;$($d.Set)"
     if ($More -ne '') { $set = "$set;$More" }
-    "=== $name $(Get-Date -Format s)"
-    $o = & (Join-Path $sp 'aim_run.ps1') -Name $name -Dll $Dll -Set $set -Steps $d.Steps -Points $(if ($d.Points) { $d.Points } else { $points }) -Seconds $d.Seconds -Minutes $Minutes
+    # The start of a run in a test save is 49 s shorter than the start of a
+    # new game with the first story.
+    $seconds = $d.Seconds
+    $from = @{}
+    if ($start) {
+        $seconds = $d.Seconds - 49
+        $from.Save = $start
+    }
+    "=== $name $(Get-Date -Format s), $(if ($start) { "the test save '$start'" } else { 'a new game' }), $seconds s"
+    $o = & (Join-Path $sp 'aim_run.ps1') -Name $name -Dll $Dll -Set $set -Steps $d.Steps -Points $(if ($d.Points) { $d.Points } else { $points }) -Seconds $seconds -Minutes $Minutes @from
     $o
     if (-not (Test-BwvrVerdict $o 'RUN DONE')) { "QUEUE STOPPED at $name"; exit 2 }
 }

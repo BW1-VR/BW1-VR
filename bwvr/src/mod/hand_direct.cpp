@@ -203,6 +203,8 @@ bool ControllersFarRay(float origin[3], float direction[3],
 bool ControllersFarAllowed(const char** why);
 // controllers.cpp: a pulse on the pointing hand.
 void ControllersGesturePulse(float amplitude, float seconds);
+// controllers.cpp: the number that a test key with a frame compares with it.
+uint64_t ControllersTestFrame(uint64_t key_frame, uint64_t frame);
 // head_pose.cpp: the head center in the room, in units at the life size scale.
 bool HeadPoseHeadInRoom(float translation_out[3]);
 
@@ -3145,9 +3147,12 @@ void PollChoiceKey() {
 
 void PollNearKey() {
   // The test key near_test_flips: the rule changes between 1 and 2 at each
-  // frame of the list.
+  // frame of the list. A frame counts as a step of the script counts it
+  // (fake_controller_play_frame).
   for (int i = 0; i < g_rule_flip_count; ++i) {
-    if (g_rule_flips[i] != g_frame) continue;
+    if (ControllersTestFrame(g_rule_flips[i], g_frame) != g_rule_flips[i]) {
+      continue;
+    }
     SetRule(g_rule == 2 ? 1 : 2);
     ModLog("hand pick    : test key near_test_flips: near_rule is %d from "
            "frame %llu", g_rule, g_frame);

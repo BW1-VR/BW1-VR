@@ -3399,6 +3399,7 @@ void CreatureChecks() {
 #include "temple_checks.h"
 #include "tree_plant_checks.h"
 #include "text_click_checks.h"
+#include "script_frame_checks.h"
 #include "zoom_checks.h"
 
 int main() {
@@ -3786,6 +3787,7 @@ int main() {
   zoom_checks::ZoomChecks();
   stay_checks::StayChecks();
   text_click_checks::TextClickChecks();
+  script_frame_checks::ScriptFrameChecks();
 
   printf("\n%d checks, %d failed\n", g_checks, g_failures);
   return g_failures == 0 ? 0 : 1;
