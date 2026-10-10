@@ -1366,8 +1366,10 @@ void HintCardEndFrame() {
 static void PollTimingKey() {
   static bool was = false;
   if (!g_test_keys) return;
+  // Shift must be up: Ctrl, Shift and End is the key of hand_pinch.
   const bool down = (GetAsyncKeyState(VK_END) & 0x8000) != 0 &&
-                    (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
+                    (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0 &&
+                    (GetAsyncKeyState(VK_SHIFT) & 0x8000) == 0;
   const bool pressed = down && !was;
   was = down;
   if (!pressed) return;

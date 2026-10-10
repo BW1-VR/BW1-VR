@@ -175,16 +175,6 @@ moves while the Hand takes it.
 - **P12. Ideas from Half-Life: Alyx** that are not built are in
   `research-hla.md`, for the far grab, the teleport, the hands, the hints,
   the sound and comfort.
-- **P13. A pinch for a small thing.** When the object is small against the
-  Hand (the player is zoomed out, or the object is small), the Hand holds
-  it between the thumb and the index finger, and not in the fist. The mod
-  chooses the pose from the size of the object and the size of the Hand at
-  the scale of now. The object then sits at the tips of the two fingers,
-  and not in the palm (`hand.md` has the rule that puts a held object in
-  the palm). Find first which poses the game has for a hold
-  (`hand-model.md`, "The hold pose of the game"). Give it an ini key with
-  the hold of now as one value. It is a small thing that makes the Hand
-  feel better.
 
 ### Built, and not proven or not finished
 

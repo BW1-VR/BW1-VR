@@ -393,15 +393,29 @@ inline void Turn(const float d[9], const float v[3], float out[3]) {
 //
 // grip is the grip point that goes with the Hand's point (the point less the
 // tip offset), so a Hand that the land test lifted lifts the object too.
-inline void HoldOrigin(const float grip[3], const float rotation[9],
-                       float length, bool left, float radius,
-                       const float hang[3], const float d[9], float out[3]) {
-  float local[3], middle[3], half[3];
-  overlay_math::HoldCenter(length > 0.0f ? radius / length : 0.0f, local);
+inline void HoldOriginAt(const float grip[3], const float rotation[9],
+                         float length, bool left, const float local[3],
+                         const float hang[3], const float d[9], float out[3]) {
+  float middle[3], half[3];
   overlay_math::PlacePoint(grip, rotation, length, left, local, middle);
   const float h[3] = {0.5f * hang[0], 0.5f * hang[1], 0.5f * hang[2]};
   Turn(d, h, half);
   for (int i = 0; i < 3; ++i) out[i] = middle[i] + half[i];
+}
+
+// The same, with the middle of the ball at the palm (the fist) or, with
+// `pinch` from 0 to 1, moved toward a point of the hand frame between the tips
+// of the thumb and of the index finger (pinch_math.h).
+inline void HoldOrigin(const float grip[3], const float rotation[9],
+                       float length, bool left, float radius,
+                       const float hang[3], const float d[9], float out[3],
+                       float pinch = 0.0f, const float point[3] = nullptr) {
+  float local[3];
+  overlay_math::HoldCenter(length > 0.0f ? radius / length : 0.0f, local);
+  if (pinch > 0.0f && point != nullptr) {
+    for (int i = 0; i < 3; ++i) local[i] += pinch * (point[i] - local[i]);
+  }
+  HoldOriginAt(grip, rotation, length, left, local, hang, d, out);
 }
 
 // THE SETTLE. On the first frame in the hand the object is where the game put

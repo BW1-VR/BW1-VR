@@ -122,8 +122,10 @@ land, each finger bends until it rests on it. When your finger tip
 comes to a thing that the grip can take, the hand takes the form of
 the thing: a claw for a villager, an open hand for a tree. In your
 hand the fingers close on the thing, and a tree lies with its trunk
-on your palm. Set hand_feel=0 in bwvr.ini for fingers that follow
-the trigger and the grip only.
+on your palm. A small thing, for example a rock or a mushroom when you
+are zoomed out, is held between your thumb and your index finger. Set
+hand_pinch=0 in bwvr.ini to hold it in your fist. Set hand_feel=0 for
+fingers that follow the trigger and the grip only.
 
   Stick up, down      Zoom in or out one step. Push again for the
                       next step.

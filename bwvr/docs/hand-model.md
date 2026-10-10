@@ -873,6 +873,45 @@ the 2D radius of the crown, the trunk would be several centimeters in front
 of the palm. Each other object keeps its 2D radius: a rock that is wide and
 flat must not go into the palm.
 
+**The pinch** (`hand_pinch`, `pinch_math.h`). A small object is held between
+the tip of the thumb and the tip of the index finger, and not in the fist.
+
+- The size. The object is as large as the larger of the diameter of its
+  body (the ball of `hand_exact.cpp`) and its height, in world units. The
+  hand is 1 hand length long, so a zoom out makes an object smaller against
+  it. The pinch starts when the size is less than 0.16 hand lengths (3 cm for
+  a hand of 19 cm) and ends when it is more than 0.20. Between the two limits
+  the pose of the frame before stays, so a zoom step at the limit does not
+  flip it.
+- Which objects. The hold types 1 (an object with no rule of its own) and 6
+  (a mobile object, a crop, and the rocks and mushrooms that the player takes)
+  [V `Object::GetHoldType`, "The hold pose of the game"]. A tree (5), a
+  villager and an animal (7) and a miracle (2, 3) keep the pose of their hold:
+  a tree is as large as the hand, and a villager hangs in the hand by its
+  body, so the tips of two fingers do not fit them.
+- The pose. The search takes the tips of the thumb and of the index finger
+  of the mesh for each curl and spread of the thumb and each curl of the
+  index finger (`pinch_math::Solve`). It takes the triple at which the tips
+  are the diameter of the ball apart, the index finger is near 0.45 of a curl,
+  and the point between the tips is in front of the palm. The thumb has one
+  curl and one spread at its base, and it cannot turn toward the palm, so
+  the tips meet where the index finger is curled 0.55 to 0.75, near the base of
+  the palm. The thumb goes to curl 0.4 to 0.6 with a spread of -0.2 to -0.3
+  rad. The middle, ring and little fingers go to 0.35. The game's own pose
+  `can_pickup` has a thumb that turns at its base, and the mod does not.
+- The place. The ball of the body goes from the palm to the point between the
+  tips (`hand_exact.cpp`, `HoldOrigin`), so the object is seen between the
+  tips. The throw starts from there.
+- The change. The weight of the pinch goes from 0 to 1, and back, in 0.15 s
+  with a smooth start and end. The object moves with it in the frame of the
+  hand, a few cm in 0.15 s, and the hand does not move. At a zoom step the
+  object also changes its size against the hand: the mod does not make that
+  motion, the zoom does. A new object starts with the fist and goes to the
+  pinch in the same 0.15 s as the glide of 0.12 s from the place that the game
+  gave.
+- With `hand_model=0` (the low poly hand has no thumb turn), `hand_feel=0` and
+  `hand_pinch=0` the hold is the fist.
+
 **The bodies** (`hand_feel_bodies`, off). At the end of the world of the first
 eye pass, the mod takes the bodies near each hand from the candidates of the
 pick. The fingers of the next frame use them.
@@ -915,14 +954,16 @@ make, so it is off.
 | `hand_feel_bodies` | 0 | The fingers bend against a body near the hand |
 | `hand_feel_pulse` | 1 | A faint pulse when a finger first meets the land or a body |
 | `hand_hold_trunk` | 1 | A tree in the Hand has its trunk at the palm. 0 puts it at the radius of its crown |
+| `hand_pinch` | 1 | A small object in the Hand is held between the thumb and the index finger. 0 holds it in the fist |
 | `hand_feel_idle` | 0 | The idle wave of a relaxed hand |
 | `hand_feel_test_toggle` | | Test key. Frame numbers. At each one hand feel goes off or on, as the test key of the keyboard does |
 | `hand_feel_log` | 0 | Test key. A log line for each hand each so many frames |
 
 The keys are read from `bwvr.ini` at the start. They are not in the
 launcher. With `test_keys=1`, **Ctrl, Shift and the minus key of the number
-pad** turn hand feel off and on while the game runs. The pointing controller
-gives a long pulse for on and a short pulse for off.
+pad** turn hand feel off and on while the game runs, and **Ctrl, Shift and
+End** turn the pinch off and on. The pointing controller gives a long pulse
+for on and a short pulse for off.
 
 ### The log
 
@@ -989,6 +1030,10 @@ units a meter):
 - In the Holding state a rock, a tree, a pig, a mobile object and a villager
   each get their hold pose. The tree lies with its trunk on the palm and
   its thumb out.
+- A mushroom of 1 cm in the Hand at 100 units a meter is held between the
+  thumb and the index finger, and the same mushroom at a zoom in of seven steps
+  (5.6 cm, 0.30 of the hand) is in the fist. At a zoom out it goes back to the
+  pinch below 0.16, and the log has one line for each change of the pose.
 - The pulse comes once at the first contact of a finger, and not while a hand
   stays on the land.
 - The cost is under 0.03 ms a frame on the CPU, less than 0.1 % of a frame.
@@ -1009,6 +1054,8 @@ units a meter):
   cell, and a finger can go through a thin ridge.
 - The bodies are those of the frame before, so a finger is one frame late
   against a thing that moves.
+- The pinch needs the mesh of the hand model: the low poly hand has no thumb
+  turn, so it keeps the fist.
 - The thumb has one curl. It bends on the land and against a body as a
   finger does, but it does not go round an object.
 
@@ -1049,6 +1096,12 @@ the pulse feels like.
    tree or the Creature?
 9. With `hand_feel_idle=1`: is the slow wave of the fingers wanted? It is
    motion that the player did not make.
+10. Take a small rock or mushroom, and zoom out and in with the object in the
+    Hand (`hand_pinch=0` and Ctrl, Shift and End give the fist). Is the
+    pinch a pinch, and not a claw? The thumb cannot turn toward the palm, so
+    the tips meet near the base of the palm with the index finger curled
+    0.55 to 0.75. Does the object glide at the change, and is the limit of
+    0.16 to 0.20 hand lengths right?
 
 ## The glow at the Hand's point
 

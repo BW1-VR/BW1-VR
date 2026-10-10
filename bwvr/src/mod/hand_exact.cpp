@@ -118,6 +118,11 @@ bool ControllersExactRotation(float rotation[9], bool* left);
 // and 0 otherwise.
 float TabletopViewScale();
 float HeadPoseScale();
+// hand_feel.cpp: the weight of the pinch (0 the fist, 1 the pinch) for the
+// object in the Hand, once a frame, and the point between the tips of the
+// thumb and of the index finger in the hand frame, in hand lengths.
+float HandFeelPinch(void* held, uint64_t frame, float body_radius,
+                    float hand_length, float units_per_cm, float point[3]);
 
 namespace {
 
@@ -844,8 +849,16 @@ void PlaceHeld(uint8_t* hand) {
       memcpy(d, same, sizeof(d));
     }
     float origin[3];
+    // The fist has the ball at the palm. A small object has the pinch, and
+    // the ball moves toward the point between the two tips with its weight.
+    const float table_scale = TabletopViewScale();
+    const float cm = (table_scale > 0.0f ? table_scale : HeadPoseScale()) *
+                     0.01f;
+    float pinch_point[3] = {0.0f, 0.0f, 0.0f};
+    const float pinch = HandFeelPinch(held, frame, g_hold.radius, length, cm,
+                                      pinch_point);
     hx::HoldOrigin(grip, rotation, length, left, g_hold.radius, hang, d,
-                   origin);
+                   origin, pinch, pinch_point);
     // THE SETTLE: from the place that the game gave on the first frame.
     if (fresh) {
       const float gap[3] = {matrix[9] - origin[0], matrix[10] - origin[1],

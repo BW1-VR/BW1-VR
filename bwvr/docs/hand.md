@@ -835,6 +835,11 @@ the object), the mod writes the object's mesh matrix (`Object+0x40`, then
   palm in 0.12 s, in the frame of the hand, so there is no jump when the
   Holding state starts.
 - The place is made once a frame, and both eye passes write the same matrix.
+- A small object (the hold types 1 and 6, less than 0.16 hand lengths across)
+  goes to the point between the tips of the thumb and of the index finger,
+  and not to the palm (`hand_pinch`, [hand-model.md](hand-model.md), "Hands
+  that react to the world"). The ball moves between the two places in
+  0.15 s in the frame of the hand.
 - The glide of a far grab and the first frames of a throw run after this.
   The glide ends at the place in the palm, and a throw starts from it.
 
@@ -902,6 +907,7 @@ game's own: the trigger and the grip do not bend the game's fingers.
 | `hand_hide_game` | 1 | 1 hides the mesh of the game's Hand while the controller places it, and the overlay draws both hands. 0 draws the game's Hand too |
 | `hand_hold_palm` | 1 | 1 puts the held object in the palm of the mod's hand. 0 leaves it at the Hand's point |
 | `hand_hold_turn` | 1 | 1 turns the held object with the hand |
+| `hand_pinch` | 1 | 1 holds a small object between the thumb and the index finger (hand-model.md). 0 puts each object in the palm |
 | `hand_left_mesh` | 0 | Does nothing. The hand model draws the left hand |
 | `fake_controller_rots` | | Test key. `yaw,pitch,roll` in degrees, separated by spaces. The script word `rot` turns the fake right hand to the next one |
 

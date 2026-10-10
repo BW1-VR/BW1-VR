@@ -51,6 +51,7 @@
 #include "hand_feel_math.h"
 #include "hand_model.h"
 #include "haptics.h"
+#include "pinch_math.h"
 
 extern void ModLog(const char* format, ...);
 
@@ -72,6 +73,9 @@ const char* HandDirectClass(void* object);
 bool HandExactHeld(void** object, float origin[3], float up[3]);
 // overlay.cpp: the pixel of the index tip of a hand in the left eye.
 bool OverlayTipPixel(int hand, float out[2]);
+// overlay.cpp: a request for the curl and the spread of one finger.
+void OverlaySetFinger(int hand, int finger, float curl, float spread,
+                      float weight);
 // tabletop.cpp: the God view or the table owns the view.
 bool TabletopOwnsView();
 // controllers.cpp: a pulse on the pointing hand, and the frame count that the
@@ -93,6 +97,7 @@ struct Settings {
   bool bodies = false;
   bool pulse = true;
   bool idle = false;
+  bool pinch = true;
   bool test_keys = false;
   int pick_cm = near_math::kPickCm;
   uint64_t toggle_frames[16];
@@ -195,6 +200,28 @@ struct HoldCache {
 };
 HoldCache g_hold;
 
+// THE PINCH of the object in the Hand (HandFeelPinch). The tips of the thumb
+// and of the index finger for the hand model in use, the pose that brings
+// them to the object, and the weight of the pinch against the fist.
+struct PinchState {
+  bool have_table = false;
+  bool mesh = false;
+  pinch_math::Table table;
+  pinch_math::Pose pose;
+  float solved_gap = -1.0f;
+  void* object = nullptr;
+  uint64_t frame = 0;         // of hand_exact.cpp, for the latch
+  uint64_t feel_frame = 0;    // of this file, for the age
+  int64_t ticks = 0;
+  bool want = false;
+  float weight = 0.0f;        // 0 to 1 in time, before the ease
+  bool live = true;           // the test key
+  bool key_down = false;
+};
+PinchState g_pinch;
+int g_pinch_logs = 0;
+const int kMaxPinchLogs = 40;
+
 // For the log and the report.
 uint64_t g_frame = 0;
 int g_meet_logs = 0;
@@ -270,6 +297,7 @@ void LoadSettings() {
     g_set.bodies = key("hand_feel_bodies", 0) != 0;
     g_set.pulse = key("hand_feel_pulse", 1) != 0;
     g_set.idle = key("hand_feel_idle", 0) != 0;
+    g_set.pinch = key("hand_pinch", 1) != 0;
     g_set.test_keys = key("test_keys", 0) != 0;
     g_set.pick_cm = key("hand_pick_cm", near_math::kPickCm);
     if (g_set.pick_cm < 1) g_set.pick_cm = 1;
@@ -299,16 +327,19 @@ void LoadSettings() {
          "the form of a target of the grip: %s. The fingers close on the "
          "object in the Hand with the game's hold pose: %s. The fingers bend "
          "against a body: %s. A pulse when a hand first meets a surface: %s. "
-         "The idle wave: %s. The filter is %.0f ms%s",
+         "The idle wave: %s. A small object in the Hand is held in a pinch: "
+         "%s. The filter is %.0f ms%s",
          g_set.land ? "yes" : "no (hand_feel_land=0)",
          g_set.approach ? "yes" : "no (hand_feel_approach=0)",
          g_set.hold ? "yes" : "no (hand_feel_hold=0)",
          g_set.bodies ? "yes (hand_feel_bodies=1)" : "no",
          g_set.pulse ? "yes" : "no (hand_feel_pulse=0)",
          g_set.idle ? "yes (hand_feel_idle=1)" : "no",
+         g_set.pinch ? "yes" : "no (hand_pinch=0)",
          hf::kFilterSeconds * 1000.0f,
          g_set.test_keys ? ". Ctrl, Shift and the minus key of the number pad "
-                           "turn it off and on"
+                           "turn it off and on, and Ctrl, Shift and End "
+                           "turn the pinch off and on"
                          : "");
 }
 
@@ -366,6 +397,27 @@ float VirtualFloat(void* object, int slot) {
   const float value =
       reinterpret_cast<VirtualFloatFn>(table[slot / 4])(object, nullptr);
   return value > 0.0f && value < 2000.0f ? value : 0.0f;
+}
+
+// The hold types that a pinch can hold: an object with no rule of its own
+// (1), and a mobile object, a crop or a rock (6).
+bool PinchType(int type) {
+  return type == hf::kHoldAbove || type == hf::kHoldMobile;
+}
+
+// The pinch of this frame, or false when there is none: the weight with its
+// ease, and the curls of the thumb and the index finger at which the tips meet.
+bool PinchNow(float* weight, float* thumb_curl, float* thumb_spread,
+              float* index_curl) {
+  if (g_pinch.object == nullptr || g_frame > g_pinch.feel_frame + 2 ||
+      !(g_pinch.weight > 0.0f) || !g_pinch.pose.ok) {
+    return false;
+  }
+  *weight = pinch_math::Ease(g_pinch.weight);
+  *thumb_curl = g_pinch.pose.thumb_curl;
+  *thumb_spread = g_pinch.pose.thumb_spread;
+  *index_curl = g_pinch.pose.index_curl;
+  return true;
 }
 
 const char* HoldName(int type) {
@@ -518,6 +570,26 @@ void HandFeelFrame() {
     if (g_set.toggle_frames[i] == g_frame) Toggle("hand_feel_test_toggle");
   }
   if (!g_set.test_keys) return;
+  // Ctrl, Shift and End: the pinch for a small object goes off and on.
+  {
+    const bool pinch_down = (GetAsyncKeyState(VK_END) & 0x8000) != 0 &&
+                            (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0 &&
+                            (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
+    const bool pinch_pressed = pinch_down && !g_pinch.key_down;
+    g_pinch.key_down = pinch_down;
+    if (pinch_pressed) {
+      HWND front = GetForegroundWindow();
+      DWORD owner = 0;
+      if (front != nullptr) GetWindowThreadProcessId(front, &owner);
+      if (owner == GetCurrentProcessId()) {
+        g_pinch.live = !g_pinch.live;
+        ControllersGesturePulse(0.5f, g_pinch.live ? 0.30f : 0.08f);
+        ModLog("hand feel    : Ctrl, Shift and End: a small object in the Hand "
+               "is held %s, frame %llu",
+               g_pinch.live ? "in a pinch" : "in the fist", g_frame);
+      }
+    }
+  }
   const bool down = (GetAsyncKeyState(VK_SUBTRACT) & 0x8000) != 0 &&
                     (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0 &&
                     (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
@@ -617,6 +689,16 @@ void HandFeelCurls(const HandFeelHand& in,
                                   hf::kFilterSeconds);
     if (fabsf(state.add[f]) < 1e-4f && want[f] == pose[f]) state.add[f] = 0.0f;
     curls[f] = hf::Clamp01(pose[f] + state.add[f]);
+  }
+  // THE PINCH. The thumb and the index finger go to the curls at which their
+  // tips meet at the object, and the thumb turns at its base.
+  if (in.holding && in.mesh) {
+    float weight, thumb_curl, thumb_spread, index_curl;
+    if (PinchNow(&weight, &thumb_curl, &thumb_spread, &index_curl)) {
+      curls[0] = pinch_math::Mix(curls[0], thumb_curl, weight);
+      curls[1] = pinch_math::Mix(curls[1], index_curl, weight);
+      OverlaySetFinger(in.hand, 0, curls[0], thumb_spread * weight, 1.0f);
+    }
   }
   if (in_what == hf::kInLand) ++g_in_land;
   if (in_what == hf::kInBody) ++g_in_body;
@@ -804,8 +886,121 @@ bool HandFeelHoldRange(int hand, bool mesh, float length, float hold_radius,
     g_hold.body = body;
   }
   *out = g_hold.range;
+  // The pinch takes the thumb and the index finger to the curls at which the
+  // tips meet, and the other three fingers curl a little.
+  float weight, thumb_curl, thumb_spread, index_curl;
+  if (mesh && PinchNow(&weight, &thumb_curl, &thumb_spread, &index_curl)) {
+    out->hi[0] = out->lo[0] = pinch_math::Mix(out->hi[0], thumb_curl, weight);
+    out->hi[1] = out->lo[1] = pinch_math::Mix(out->hi[1], index_curl, weight);
+    for (int f = 2; f < hf::kFingers; ++f) {
+      out->hi[f] = pinch_math::OtherHold(out->hi[f], weight);
+      if (out->lo[f] > out->hi[f]) out->lo[f] = out->hi[f];
+    }
+  }
   CountTicks(Now() - start);
   return true;
+}
+
+// THE PINCH (hand_pinch, docs/hand-model.md, "The pinch"). hand_exact.cpp asks
+// once a frame, when it places the object in the Hand. The answer is the weight
+// of the pinch against the fist, 0 to 1, and the point between the tips of
+// the thumb and of the index finger in the hand frame, in hand lengths. The
+// weight goes up and down in kBlendSeconds, so a change at a zoom step moves
+// the object in the frame of the hand and does not jump. Only an object of the
+// hold type 1 (an object with no rule of its own) and 6 (a mobile object, a
+// crop, some rocks) is pinched. A tree, a villager, an animal and a miracle
+// keep the pose of their hold.
+float HandFeelPinch(void* held, uint64_t frame, float body_radius,
+                    float hand_length, float units_per_cm, float point[3]) {
+  LoadSettings();
+  PinchState& p = g_pinch;
+  if (held == nullptr || IsBadReadPtr(held, sizeof(void*))) return 0.0f;
+  if (p.object == held && p.frame == frame) {
+    for (int k = 0; k < 3; ++k) point[k] = p.pose.point[k];
+    return pinch_math::Ease(p.weight);
+  }
+  const int64_t now = Now();
+  float dt = 0.0f;
+  // A new object, or the same address after a pause: a new hold.
+  const bool fresh = p.object != held || g_frame > p.feel_frame + 5;
+  if (!fresh && p.ticks != 0) {
+    dt = static_cast<float>(Ms(now - p.ticks)) * 0.001f;
+    if (dt > 0.05f) dt = 0.05f;
+  }
+  if (fresh) {
+    p.object = held;
+    p.want = false;
+    p.weight = 0.0f;
+    p.solved_gap = -1.0f;
+    p.pose = pinch_math::Pose();
+  }
+  p.frame = frame;
+  p.feel_frame = g_frame;
+  p.ticks = now;
+  bool want = false;
+  float size = 0.0f;
+  int type = 0;
+  void** vtable = *static_cast<void***>(held);
+  if (!IsBadReadPtr(vtable, kGetHoldRadius + sizeof(void*))) {
+    type = reinterpret_cast<VirtualIntFn>(vtable[kGetHoldType / 4])(held,
+                                                                    nullptr);
+  }
+  const float height = VirtualFloat(held, kGetHeight);
+  size = 2.0f * body_radius > height ? 2.0f * body_radius : height;
+  const bool active = g_set.on && g_set.pinch && g_live && p.live &&
+                      hand_length > 0.0f && PinchType(type) &&
+                      HandModelActive();
+  if (active) {
+    if (!p.have_table) {
+      pinch_math::Fill(
+          [](float curl, float spread, float out[3]) {
+            float joints[hf::kPoints][3];
+            HandModelFingerJoints(0, curl, spread, joints);
+            for (int k = 0; k < 3; ++k) out[k] = joints[hf::kPoints - 1][k];
+          },
+          [](float curl, float out[3]) {
+            float joints[hf::kPoints][3];
+            HandModelFingerJoints(1, curl, 0.0f, joints);
+            for (int k = 0; k < 3; ++k) out[k] = joints[hf::kPoints - 1][k];
+          },
+          &p.table);
+      p.have_table = true;
+      p.solved_gap = -1.0f;
+    }
+    const float gap = 2.0f * body_radius / hand_length;
+    if (fabsf(gap - p.solved_gap) > 0.002f) {
+      pinch_math::Solve(p.table, gap, &p.pose);
+      p.solved_gap = gap;
+    }
+    want = p.pose.ok && pinch_math::Wanted(size, hand_length, p.want);
+  }
+  if ((fresh || want != p.want) && g_pinch_logs < kMaxPinchLogs) {
+    ++g_pinch_logs;
+    const float per_cm = units_per_cm > 0.0f ? 1.0f / units_per_cm : 0.0f;
+    ModLog("hand feel    : the Hand holds %p (%s), frame %llu. The object is "
+           "%.1f cm of the room across (the body %.1f cm, the height %.1f cm) "
+           "and the hand is %.1f cm long, so the size is %.2f of the hand. "
+           "The pinch starts below %.2f and ends above %.2f. The pose is %s%s. "
+           "Thumb curl %.2f, thumb spread %.2f rad, index curl %.2f, the tips "
+           "%.2f hand lengths apart, %.2f %.2f %.2f of the hand frame "
+           "between them. The tips %s",
+           held, HandDirectClass(held), g_frame, size * per_cm,
+           2.0f * body_radius * per_cm, height * per_cm,
+           hand_length * per_cm, hand_length > 0.0f ? size / hand_length : 0.0f,
+           pinch_math::kEnterRatio, pinch_math::kLeaveRatio,
+           want ? "the pinch" : "the fist",
+           active ? ""
+                  : (!PinchType(type)
+                         ? " (this hold type has its own pose)"
+                         : " (the pinch is off)"),
+           p.pose.thumb_curl, p.pose.thumb_spread, p.pose.index_curl,
+           p.pose.gap, p.pose.point[0], p.pose.point[1], p.pose.point[2],
+           p.pose.ok ? "can meet" : "cannot meet");
+  }
+  p.want = want;
+  p.weight = pinch_math::Step(p.weight, want, dt);
+  for (int k = 0; k < 3; ++k) point[k] = p.pose.point[k];
+  return pinch_math::Ease(p.weight);
 }
 
 void HandFeelSnapshot() {

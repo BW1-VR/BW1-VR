@@ -42,6 +42,14 @@ void HandFeelCurls(const HandFeelHand& hand,
 bool HandFeelHoldRange(int hand, bool mesh, float length, float hold_radius,
                        overlay_math::PoseRange* out);
 
+// hand_exact.cpp, once a frame when it places the object in the Hand: the
+// weight of the pinch for a small object (0 the fist, 1 the pinch), and the
+// point between the tips of the thumb and of the index finger in the hand
+// frame, in hand lengths. body_radius is the radius of the ball of the body
+// in world units, and units_per_cm gives the size of the room.
+float HandFeelPinch(void* held, uint64_t frame, float body_radius,
+                    float hand_length, float units_per_cm, float point[3]);
+
 // overlay.cpp, at the end of the world of the first eye pass: the bodies near
 // each hand, from the objects that the game drew. The next frame uses them.
 void HandFeelSnapshot();

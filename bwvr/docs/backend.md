@@ -1479,6 +1479,7 @@ in front. The mod reads the keys and never takes them from the game.
 | Ctrl Page Down | `test_keys=1` | The card says what the opening of the grip does with a tree, or shows the text of the game (`tree_plant_hint`, `grab.md`) |
 | Ctrl Shift Page Down | `test_keys=1` | The roots pile of a tree from a distance stands at the roots, or on the way of the glide (`far_roots_at_tree`, `grab.md`) |
 | Ctrl Shift Home | `test_keys=1` | A dip of the squeeze in the first 300 ms of a press does not open the grip, or the fast fall opens it at any time (`grip_press_guard`, `grab.md`) |
+| Ctrl Shift End | `test_keys=1` | A small object in the Hand is held in a pinch between the thumb and the index finger, or in the fist (`hand_pinch`, `hand-model.md`) |
 
 The launcher shows `test_keys` as "Test keys", in a group named "Testing". It is off
 by default.

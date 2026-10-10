@@ -3393,6 +3393,7 @@ void CreatureChecks() {
 #include "ring_checks.h"
 #include "teleport_checks.h"
 #include "feel_checks.h"
+#include "pinch_checks.h"
 #include "temple_checks.h"
 #include "tree_plant_checks.h"
 
@@ -3774,6 +3775,7 @@ int main() {
   forest_checks::ForestChecks();
   forest_checks::ForestGripChecks();
   feel_checks::FeelChecks();
+  pinch_checks::PinchChecks();
   temple_checks::TempleChecks();
   tree_plant_checks::TreePlantChecks();
 
