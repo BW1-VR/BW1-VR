@@ -62,6 +62,15 @@ The game shows its logos when it starts. To skip them, press a
 trigger or A, B, X or Y on a controller. Esc and a mouse click skip
 them too.
 
+The setting "Intro in stereo" is off at first. With it, the Lionhead
+logo is in 3D around you. Your view goes between the orbs on the path
+of the game, and then back to the place from which the logo shows.
+The view does not turn: you look where your head looks. The menu
+button skips the logo. This setting is a test. If the motion is not
+comfortable, set intro_motion=2 in bwvr.ini: the orbs are then a model
+in front of you, and the room stays still. intro_motion=0 gives a
+still view of the logo.
+
 
 THE SETTINGS
 ------------

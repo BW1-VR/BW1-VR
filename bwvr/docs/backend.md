@@ -1825,6 +1825,9 @@ in front. The mod reads the keys and never takes them from the game.
 | Shift Home | `test_keys=1` | An advisor at a place of the world has the size for the eye that it has at its usual place, or the size of the game (`spirit_world_size`, `tabletop.md`) |
 | Shift End | `test_keys=1` | A grip that stays closed on the far Creature makes it stay and a short grip changes the leash when it opens, or each grip changes the leash when it closes (`creature_hold_stay`, `creature.md`, section 5.3). Ctrl must be up |
 | Shift Insert | `test_keys=1` | The prompt of a text that waits for a click shows in each view and the trigger is that click, or the prompt has the rule of each other hint of the left button (`text_click`, `controller-hints.md`, section 10). Ctrl must be up |
+| Shift Page Up | `test_keys=1` | While the Lionhead logo plays in stereo: the motion of the view steps through 1, 2, 3 and 0. With 1 the camera goes along the path of the game and does not turn, with 2 the orbs are a model in a room that stays still, with 3 the camera of the game turns the view, with 0 the camera is still. One short pulse for each unit of the value and one long pulse for 0 (`intro_motion`, `intro.md`). Ctrl must be up |
+| Shift Page Down | `test_keys=1` | While the Lionhead logo plays in stereo: each eye has its own trails, or each eye pass draws over the picture of the other eye and each orb shows two times (`intro_eye_trails`, `intro.md`). Ctrl must be up |
+| Shift Delete | `test_keys=1` | While the Lionhead logo plays in stereo: the mark beside the logo has the depth of the logo, or the same pixel in each eye (`intro_text_place`, `intro.md`). Ctrl must be up |
 
 The launcher shows `test_keys` as "Test keys", in a group named "Testing". It is off
 by default.
@@ -1836,6 +1839,10 @@ and F12 have no game action. The game also reads a held Ctrl as its zoom and a h
 Shift as its tilt, and both together start its zoom to the Hand. Each of those acts
 on a mouse move, so the recenter key holds none of them. A test key that holds Shift
 or Ctrl is pressed with the mouse at rest.
+
+The game ends the Lionhead logo on each key that goes down. The three test keys of
+the logo do not end it: while one of their keys is down, the mod clears the last key
+of the game after each frame (`intro.md`, "The test keys").
 
 The ini keys of the settled choices stay, so a test can set a value by hand:
 

@@ -107,9 +107,10 @@ const Setting kSettings[] = {
     //  "units, which keeps what your eyes see and what your neck feels the same "
     //  "size."},
     {kBool, "intro_vr", "Intro in stereo", nullptr, 0,
-     "Shows the Lionhead logo at the start of the game in 3D around you. The "
-     "menu button skips it. It is not finished: some things show double, and "
-     "the logo does not move. Off shows the intro flat."},
+     "Shows the Lionhead logo at the start of the game in 3D around you. Your "
+     "view moves through the orbs on the path of the game, and it does not "
+     "turn: you look where your head looks. The menu button skips it. This "
+     "setting is a test. Off shows the intro flat."},
 
     // Not offered: the sizes and the depth of the interface in the eye
     // pictures have settled defaults. With controllers the hints and the
@@ -571,7 +572,8 @@ const char* const kRetiredKeys[] = {
     "village_test_workshop", "pointer_leave_cursor", "cursor_trace",
     "exit_test_frame", "registry_test_guard", "intro_skip_test_frame",
     "fake_controller_play_frame", "fake_controller_play_after",
-    "menu_skip_test_frame",
+    "menu_skip_test_frame", "intro_motion_test_seconds",
+    "intro_push_test_px",
     // Settings that the launcher offered before. Each has one right answer
     // in a headset, and the mod's default is that answer. The other
     // settings that are not offered now (the sizes and the depth of the

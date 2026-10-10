@@ -113,6 +113,15 @@ void CutsceneWindowProbeBatch(const void* verts, uint32_t count,
 // place the Hand.
 bool HandGlowEyePoint(int eye, float* x, float* y, float* meters);
 
+// intro_vr.cpp: the flat text and the boxes of the Lionhead logo in stereo.
+// IntroFlatOn is true when a flat batch from `caller` comes in an eye pass
+// of the intro and must get a place in the scene. IntroFlatVertex gives one
+// corner its pixel, and it is false when the place is not in front of the
+// camera. IntroFlatDone counts the batch.
+bool IntroFlatOn(uint32_t caller);
+bool IntroFlatVertex(float* x, float* y);
+void IntroFlatDone(bool drawn);
+
 namespace {
 
 // The log of where the help lands (below, after the tooltips).
@@ -2048,6 +2057,10 @@ float HelpShift(int scope) {
   return g_eye == 0 ? shift : -shift;
 }
 
+// The corners of a flat batch of the Lionhead logo in stereo, as they came.
+float g_saved_intro_x[kMaxShiftVertices];
+float g_saved_intro_y[kMaxShiftVertices];
+
 // Both clip hooks run the same chain. Each step saves what it changes and is
 // undone in reverse order after the draw, because the engine may use the
 // vertices again.
@@ -2055,6 +2068,32 @@ void DrawInterface(DrawAndClipFn original, D3DPRIMITIVETYPE type,
                    uint32_t fvf, void* verts, uint32_t count, uint16_t* idx,
                    uint32_t n) {
   DumpBatch(verts, fvf, count);
+  // THE LIONHEAD LOGO IN STEREO (intro_vr.cpp, docs/intro.md). The effect
+  // draws a text and boxes flat, after its orbs. Each corner gets the pixel
+  // of its place on the plane of the logo for the camera of this eye pass,
+  // so the batch has the depth of the logo and stays beside it. A batch
+  // with a corner that is not in front of the camera is not drawn.
+  if (verts != nullptr && fvf == kExpectedFvf && count > 0 &&
+      count <= kMaxShiftVertices && IsUiCaller(g_caller) &&
+      IntroFlatOn(g_caller)) {
+    bool in_front = true;
+    uint8_t* vertex = static_cast<uint8_t*>(verts);
+    for (uint32_t i = 0; i < count; ++i, vertex += kVertexStride) {
+      float* p = reinterpret_cast<float*>(vertex);
+      g_saved_intro_x[i] = p[0];
+      g_saved_intro_y[i] = p[1];
+      if (in_front && !IntroFlatVertex(&p[0], &p[1])) in_front = false;
+    }
+    if (in_front) original(type, fvf, verts, count, idx, n);
+    vertex = static_cast<uint8_t*>(verts);
+    for (uint32_t i = 0; i < count; ++i, vertex += kVertexStride) {
+      float* p = reinterpret_cast<float*>(vertex);
+      p[0] = g_saved_intro_x[i];
+      p[1] = g_saved_intro_y[i];
+    }
+    IntroFlatDone(in_front);
+    return;
+  }
   // A menu gets only the interface depth. See h_SetupFinish. The flags are
   // cleared here because IsDuplicateWidget does not run, and the last batch
   // may have set them.

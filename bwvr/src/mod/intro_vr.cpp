@@ -18,19 +18,62 @@
 //      back, so both eyes show the same moment.
 //   4. After the pair: end the headset frame.
 //
+// THE MOTION (intro_motion, docs/intro.md "The motion"). In the effect the
+// orbs stay at their places, and the camera of the game moves: it goes
+// around the logo between the orbs, then back to a rest pose in front of the
+// logo, then through the logo. The mod takes the place of that camera and
+// gives it one fixed heading, so the path does not turn the view: the head
+// of the player has the only turn. intro_motion_math.h has the cameras of
+// each value of the key.
+//
+// With intro_motion=2 a frame has two cameras. The call at 0x005F934B gets
+// the camera of the room, which stays at the rest pose and draws the sky.
+// RunAlexFX calls LHMouse::UpdateDeltaPos at 0x005F95DC, after the sky and
+// before it moves and draws the orbs. The hook of that function
+// (input_watch.cpp) calls IntroMouseCall, and it places the camera of the
+// orbs there.
+//
 // WHAT "STOPPED" MEANS. RunAlexFX reads LH3DTech::g_delta_time twice: at
-// 0x005F9050 for the effect clock, and at 0x005F96F0 for the spring, the
-// damping and the push. LH3DRender::StartFrame writes g_delta_time in
-// between, from the tick count, so setting it before the call is not enough.
-// h_StartFrame writes it again when StartFrame returns, for the call at
-// 0x005F933E only. The first eye gets the real frame time in both places. The
-// second eye gets zero in both places, so nothing moves.
+// 0x005F9050 for the effect clock, and at 0x005F96F0 for the spring and the
+// damping. LH3DRender::StartFrame writes g_delta_time in between, from the
+// tick count, so setting it before the call is not enough. h_StartFrame
+// writes it again when StartFrame returns, for the call at 0x005F933E only.
+// The first eye gets the real frame time in both places. The second eye gets
+// zero in both places, so the clock, the spring and the damping stop.
+//
+// THE PUSH DOES NOT STOP WITH THE TIME. While the smoothed mouse motion at
+// 0x00D37CB0 and 0x00D37CB4 is not zero, the effect puts each orb near the
+// pointer at a new place (0x005F991A), with no frame time in it. So a second
+// eye pass with a smoothed motion moves those orbs after the first eye drew
+// them. For the second eye the mod sets the smoothed motion to zero, and its
+// call of LHMouse::UpdateDeltaPos does not read the mouse. The push code
+// then does not run, and the motion that the mouse made in that time stays
+// in the device for the next frame (intro_push_once).
 //
 // Three more values change on each call and are not scaled by time: the
-// smoothed mouse motion at 0x00D37CB0 and 0x00D37CB4, the push strength at
-// 0x00D34A8C, and the C runtime random seed (each sprite gets a random angle
-// from rand). The second eye starts from the values the first eye ended with,
-// and they go back after it, so the game sees one step for each frame.
+// smoothed mouse motion, the speed of the effect clock at 0x00D34A8C (the
+// mouse wheel changes it), and the C runtime random seed (each sprite gets a
+// random angle from rand). The second eye starts from the values the first
+// eye ended with, and they go back after it, so the game sees one step for
+// each frame.
+//
+// THE TRAILS. The effect does not clear its picture. It sets
+// LH3DRender::g_mode_cleaning to 2, and it draws the sky with an alpha of
+// 160 of 255 over the picture of the frame before. So each thing that moves
+// in the picture has a trail. The two eye passes share one render target, so
+// with no help an eye pass draws over the picture of the other eye, and each
+// eye sees each orb two times: at its own place, and weaker at the place
+// that the orb has for the other eye. gpu_bridge.cpp keeps the last picture
+// of each eye. Before an eye pass the mod puts the keep of that eye in the
+// render target, and after the pass it takes the new picture
+// (intro_eye_trails).
+//
+// THE FLAT TEXT AND THE BOXES. After the orbs the effect draws a text and
+// boxes at a place of the picture (the mark "TM" beside the logo, a name
+// under it, the logos of two makers of hardware). They have no place in the
+// scene, so each eye gets them at the same pixel: no depth, and they go with
+// the head. IntroFlatVertex gives each corner the pixel of its place on the
+// plane of the logo (intro_text_place). draw_hooks.cpp calls it.
 //
 // EVERY DOUBT FALLS BACK TO THE FLAT INTRO. With intro_vr off nothing is
 // hooked. With it on, the code checks the bytes at every address it uses. A
@@ -42,11 +85,13 @@
 #include <intrin.h>
 #include <math.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <string.h>
 
 #include "MinHook.h"
 #include "../common/bw_addresses.h"
 #include "../vr/xr_screen.h"
+#include "intro_motion_math.h"
 
 extern void ModLog(const char* format, ...);
 
@@ -71,6 +116,7 @@ void HeadPoseStripRoll(const float in[4], float out[4]);
 void HeadPoseRecenter();
 // head_camera.cpp
 void HeadCameraIntroFrame();
+void HeadCameraIntroPlace(const float* position, const float* focus);
 float HeadCameraRoll();
 bool HeadCameraRollEnabled();
 bool HeadCameraEnabled();
@@ -85,12 +131,17 @@ void FrameSourceEnd();
 bool FrameSourceSize(uint32_t* width, uint32_t* height);
 bool GpuBridgeReady();
 void* GpuBridgeCaptureEye(int eye);
+bool GpuBridgeKeepTake(int eye);
+bool GpuBridgeKeepGive(int eye);
+void GpuBridgeKeepFree();
+uint64_t GpuBridgeKeepCopies();
 bool EyeCaptureWanted(uint64_t stereo_frame);
 void EyeCaptureArmNow(uint64_t stereo_frame);
 void EyeCaptureSave(uint64_t stereo_frame, int eye, const void* pixels,
                     int pitch, uint32_t width, uint32_t height);
 // controllers.cpp
 void ControllersFrame();
+void ControllersGesturePulse(float amplitude, float seconds);
 
 namespace {
 
@@ -101,6 +152,9 @@ const uintptr_t kFrameCameraCall = 0x005F934B;  // and UpdateCamera, every frame
 // The intro has two other camera calls. One builds the effect (0x005F8A84).
 // The head does not go on it.
 const uintptr_t kBuildCameraCall = 0x005F8A84;
+// RunAlexFX calls LHMouse::UpdateDeltaPos, after the sky and before the orbs.
+const uintptr_t kMouseCall = 0x005F95DC;
+const uintptr_t kMouseUpdateDeltaPos = 0x007E4810;
 const uintptr_t kGetPtd = 0x007D232B;         // __cdecl, the C runtime data
 
 // The effect's own state, in the game's data section.
@@ -108,14 +162,19 @@ const uintptr_t kDoneFlag = 0x00D37CC8;       // byte, the effect has ended
 const uintptr_t kClock = 0x00D37CCC;          // float, the effect clock
 const uintptr_t kMouseLagX = 0x00D37CB0;      // int, smoothed mouse motion
 const uintptr_t kMouseLagY = 0x00D37CB4;
-const uintptr_t kPushStrength = 0x00D34A8C;   // float
+// float, 0.1 to 1: the effect clock gets the frame time times this. The
+// effect sets it to 1 when it builds, and the mouse wheel changes it.
+const uintptr_t kClockSpeed = 0x00D34A8C;
 const uintptr_t kParticles = 0x00D34A98;      // pointer to 0x34 byte records
+const uintptr_t kHomes = 0x00D34A94;          // pointer, 3 floats for each orb
+const int kOrbs = 0x1000;
 const int kSeedOffset = 0x14;                 // _holdrand in the runtime data
-
-// Numbers for the still camera, in the units of the logo. Measured with
-// intro_probe. See docs/intro.md.
-const float kStillPosition[3] = {0.0f, 0.0f, 100.0f};
-const float kStillFocus[3] = {0.0f, 0.0f, 0.0f};
+// LHMouse: the motion that LHMouse::UpdateDeltaPos sums, and the pointer.
+const uintptr_t kMouseMotionX = 0x00E852E4;
+const uintptr_t kPointerX = 0x00E852C0;
+// LHKeyboard + 0x108: the scan code of the last key that went down. DoLogo
+// ends the logo when it is not 0 after a frame.
+const uintptr_t kLastKey = 0x00E85474;
 
 // The pictures of the intro are saved under numbers that the scene never
 // uses, so a run that shows both does not overwrite one with the other.
@@ -129,10 +188,18 @@ typedef void*(__cdecl* GetPtdFn)();
 
 // The settings.
 bool g_on = false;             // intro_vr
-bool g_still = true;           // intro_still: hold the camera still
+int g_motion = intro_motion::kPath;  // intro_motion
+int g_speed_pct = 100;         // intro_speed_pct: the speed of the effect clock
 float g_distance_m = 3.0f;     // intro_distance_cm: the logo plane, from the head
+float g_model_distance_m = 2.0f;  // intro_model_distance_cm, intro_motion=2
+bool g_eye_trails = true;      // intro_eye_trails: each eye has its trails
+bool g_text_place = true;      // intro_text_place: the flat text has a place
+bool g_push_once = true;       // intro_push_once: one push for each frame
 bool g_controller = true;      // intro_controller: the aim moves the pointer
-bool g_probe = false;          // intro_probe: log the game's camera
+bool g_probe = false;          // intro_probe: log the cameras each second
+bool g_test_keys = false;      // test_keys
+int g_motion_test_ms = 0;      // intro_motion_test_seconds, a test
+int g_push_test_px = 0;        // intro_push_test_px, a test
 
 bool g_installed = false;
 bool g_gave_up = false;
@@ -154,6 +221,28 @@ float g_scale = 0.0f;          // units per meter in the intro, 0 until known
 float g_saved_scale = 0.0f;    // the scale of the world, put back at the end
 bool g_scale_swapped = false;
 bool g_view_ready = false;
+
+// THE CAMERAS OF THE PAIR. The first eye pass works them out from the camera
+// that the game asks for, and the second eye pass uses them as they are.
+bool g_have_cameras = false;
+bool g_two_cameras = false;    // the orbs have a camera of their own
+float g_game_position[3] = {0, 0, 0};
+float g_game_focus[3] = {0, 0, 0};
+float g_room_position[3] = {0, 0, 0};
+float g_room_focus[3] = {0, 0, 0};
+float g_orb_position[3] = {0, 0, 0};
+float g_orb_focus[3] = {0, 0, 0};
+int g_part_logged = -1;        // the part of the path that the log has
+DWORD g_motion_test_tick = 0;
+int g_key_pulses = 0;          // pulses of a test key that are not given yet
+DWORD g_key_pulse_tick = 0;
+
+// The flat batches of the effect.
+intro_motion::View g_flat_view = {0.0f, 0.0f, 0.0f, 0.0f};
+uint64_t g_flat_placed = 0;
+uint64_t g_flat_dropped = 0;
+bool g_flat_said = false;
+bool g_no_keep_said = false;
 
 // Bookkeeping.
 uint64_t g_pairs = 0;
@@ -216,6 +305,7 @@ bool CodeIsWhatWeExpect() {
   }
   if (!CallsTarget(kFrameCameraCall, kUpdateCamera) ||
       !CallsTarget(kBuildCameraCall, kUpdateCamera) ||
+      !CallsTarget(kMouseCall, kMouseUpdateDeltaPos) ||
       !CallsTarget(kStartFrameCall, bw::render::kStartFrame)) {
     ModLog("intro        : the calls inside RunAlexFX are not where expected, "
            "no hook");
@@ -223,6 +313,12 @@ bool CodeIsWhatWeExpect() {
   }
   if (IsBadReadPtr(reinterpret_cast<void*>(kGetPtd), 1) ||
       IsBadWritePtr(reinterpret_cast<void*>(kClock), sizeof(float)) ||
+      IsBadWritePtr(reinterpret_cast<void*>(kClockSpeed), sizeof(float)) ||
+      IsBadWritePtr(reinterpret_cast<void*>(kMouseLagX), sizeof(int32_t) * 2) ||
+      IsBadWritePtr(reinterpret_cast<void*>(kMouseMotionX),
+                    sizeof(int32_t) * 2) ||
+      IsBadWritePtr(reinterpret_cast<void*>(kPointerX), sizeof(int32_t) * 2) ||
+      IsBadWritePtr(reinterpret_cast<void*>(kLastKey), sizeof(uint32_t)) ||
       IsBadWritePtr(reinterpret_cast<void*>(kDoneFlag), 1) ||
       IsBadWritePtr(DeltaTime(), sizeof(uint32_t)) ||
       IsBadWritePtr(GameTimeInc(), sizeof(uint32_t))) {
@@ -243,6 +339,7 @@ void RestoreScale() {
 void GiveUp(const char* why) {
   if (g_gave_up) return;
   g_gave_up = true;
+  GpuBridgeKeepFree();
   g_eye = -1;
   g_pass_delta_valid = false;
   g_active_tick = 0;
@@ -314,24 +411,218 @@ void UpdateHead() {
   }
 }
 
-// The scale of the room for the intro, from the distance of the camera to the
-// logo. A logo of about 2.5 m at g_distance_m from the head.
-void ChooseScale(const float position[3], const float focus[3]) {
-  const float dx = focus[0] - position[0];
-  const float dy = focus[1] - position[1];
-  const float dz = focus[2] - position[2];
-  const float distance = sqrtf(dx * dx + dy * dy + dz * dz);
-  if (!(distance > 1.0f) || !(g_distance_m > 0.1f)) return;
-  g_scale = distance / g_distance_m;
+const char* MotionText(int mode) {
+  switch (mode) {
+    case intro_motion::kStill:
+      return "the camera stays at the rest pose";
+    case intro_motion::kPath:
+      return "the camera goes along the path of the game and does not turn";
+    case intro_motion::kModel:
+      return "the orbs are a model in front of the player, and the room "
+             "stays still";
+    default:
+      return "the camera of the game, with its turns";
+  }
 }
 
-void SwapScale() {
-  if (g_scale_swapped || !(g_scale > 0.0f)) return;
-  g_saved_scale = HeadPoseScale();
-  HeadPoseSetScale(g_scale);
+// The scale of the room for the intro, from the distance in meters between
+// the head and the plane of the logo at the rest pose. The model has a
+// distance of its own. A logo is not life size, so the scale of the world
+// goes back when the intro ends.
+void ApplyScale() {
+  const float want = intro_motion::UnitsPerMeter(
+      g_motion == intro_motion::kModel ? g_model_distance_m : g_distance_m);
+  if (!(want > 0.0f)) return;
+  if (g_scale_swapped && want == g_scale) return;
+  const float was = HeadPoseScale();
+  if (!g_scale_swapped) g_saved_scale = was;
   g_scale_swapped = true;
-  ModLog("intro        : the room is %.1f units per meter here, was %.1f",
-         g_scale, g_saved_scale);
+  g_scale = want;
+  HeadPoseSetScale(want);
+  ModLog("intro        : the room is %.1f units per meter here, was %.1f. The "
+         "plane of the logo is %.2f m from the head at the rest pose",
+         want, was, intro_motion::kRestDistance / want);
+}
+
+// The first stereo frame of the intro: the speed of the effect clock, and
+// the size of the logo for the log.
+void FirstPair() {
+  if (g_speed_pct != 100) {
+    const float speed = intro_motion::ClockSpeed(g_speed_pct);
+    *reinterpret_cast<float*>(kClockSpeed) = speed;
+    ModLog("intro        : intro_speed_pct=%d: the clock of the effect gets "
+           "%.2f of the frame time, so the path and the fades take %.0f s "
+           "and not %.0f s", g_speed_pct, speed,
+           intro_motion::kEndClock / 1.1f / speed,
+           intro_motion::kEndClock / 1.1f);
+  }
+  const float* homes = *reinterpret_cast<const float* const*>(kHomes);
+  if (homes != nullptr && !IsBadReadPtr(homes, sizeof(float) * 3 * kOrbs)) {
+    const float width = intro_motion::LogoWidth(homes, kOrbs);
+    const float scale = g_scale > 0.0f ? g_scale : HeadPoseScale();
+    ModLog("intro        : the logo is %.1f units wide on its plane, and "
+           "that plane is %.0f units from the rest pose: %.2f m wide at "
+           "%.2f m", width, intro_motion::kRestDistance, width / scale,
+           intro_motion::kRestDistance / scale);
+  }
+}
+
+// One step of intro_motion, for the test key and for the test of a desktop
+// run. The pointing controller gives one short pulse for each unit of the
+// new value, and one long pulse for 0.
+void StepMotion(const char* who) {
+  g_motion = intro_motion::NextMode(g_motion);
+  g_key_pulses = g_motion;
+  g_key_pulse_tick = GetTickCount();
+  if (g_motion == 0) ControllersGesturePulse(0.5f, 0.40f);
+  ModLog("test key     : %s: intro_motion is %d now (%s), clock %.2f", who,
+         g_motion, MotionText(g_motion), *Clock());
+  // The log gets the cameras of the new value at once.
+  g_part_logged = -1;
+}
+
+// One switch of intro_eye_trails, for its test key. The keeps start again,
+// so a keep from before the switch does not come back.
+void SwitchTrails(const char* who) {
+  g_eye_trails = !g_eye_trails;
+  GpuBridgeKeepFree();
+  ModLog("test key     : %s: intro_eye_trails is %d now (%s), clock %.2f", who,
+         g_eye_trails ? 1 : 0,
+         g_eye_trails ? "each eye pass draws over the last picture of the "
+                        "same eye"
+                      : "each eye pass draws over the last picture in the "
+                        "render target, which is the picture of the other "
+                        "eye",
+         *Clock());
+}
+
+// THE A/B KEYS (test_keys=1), read one time for each stereo frame of the
+// intro, and only while a window of the game is in front. Shift with Page Up
+// steps intro_motion. Shift with Page Down switches intro_eye_trails, and
+// Shift with Delete switches intro_text_place: a long pulse for 1 and a
+// short pulse for 0. Ctrl must be up for each of them.
+void PollKeys() {
+  static bool was_motion = false;
+  static bool was_trails = false;
+  static bool was_text = false;
+  if (g_key_pulses > 0 && GetTickCount() >= g_key_pulse_tick) {
+    --g_key_pulses;
+    g_key_pulse_tick = GetTickCount() + 250;
+    ControllersGesturePulse(0.5f, 0.08f);
+  }
+  if (!g_test_keys) return;
+  const bool lone_shift = (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0 &&
+                          (GetAsyncKeyState(VK_CONTROL) & 0x8000) == 0;
+  const bool motion = lone_shift && (GetAsyncKeyState(VK_PRIOR) & 0x8000) != 0;
+  const bool trails = lone_shift && (GetAsyncKeyState(VK_NEXT) & 0x8000) != 0;
+  const bool text = lone_shift && (GetAsyncKeyState(VK_DELETE) & 0x8000) != 0;
+  const bool motion_pressed = motion && !was_motion;
+  const bool trails_pressed = trails && !was_trails;
+  const bool text_pressed = text && !was_text;
+  was_motion = motion;
+  was_trails = trails;
+  was_text = text;
+  if (!motion_pressed && !trails_pressed && !text_pressed) return;
+  DWORD process = 0;
+  const HWND window = GetForegroundWindow();
+  if (window != nullptr) GetWindowThreadProcessId(window, &process);
+  if (process != GetCurrentProcessId()) return;
+  if (motion_pressed) StepMotion("Shift and Page Up");
+  if (trails_pressed) {
+    SwitchTrails("Shift and Page Down");
+    ControllersGesturePulse(0.5f, g_eye_trails ? 0.24f : 0.08f);
+  }
+  if (text_pressed) {
+    g_text_place = !g_text_place;
+    ControllersGesturePulse(0.5f, g_text_place ? 0.24f : 0.08f);
+    ModLog("test key     : Shift and Delete: intro_text_place is %d now "
+           "(%s), clock %.2f", g_text_place ? 1 : 0,
+           g_text_place ? "the flat text and the boxes of the effect are on "
+                          "the plane of the logo"
+                        : "the flat text and the boxes have the same pixel "
+                          "in each eye",
+           *Clock());
+  }
+}
+
+// A key that goes down ends the logo: DoLogo tests the last key after each
+// frame. While a key of the A/B keys is down, the mod clears the last key,
+// so a press of a test key does not end the logo.
+void KeepLogoForTestKey() {
+  if (!g_test_keys) return;
+  if ((GetAsyncKeyState(VK_SHIFT) & 0x8000) == 0 &&
+      (GetAsyncKeyState(VK_PRIOR) & 0x8000) == 0 &&
+      (GetAsyncKeyState(VK_NEXT) & 0x8000) == 0 &&
+      (GetAsyncKeyState(VK_DELETE) & 0x8000) == 0) {
+    return;
+  }
+  *reinterpret_cast<uint32_t*>(kLastKey) = 0;
+}
+
+// A test of a desktop run (intro_motion_test_seconds): each N seconds of the
+// stereo intro the mod does what the test key of intro_motion does.
+void MotionTest() {
+  if (g_motion_test_ms <= 0) return;
+  const DWORD now = GetTickCount();
+  if (g_motion_test_tick == 0) {
+    g_motion_test_tick = now + g_motion_test_ms;
+  } else if (now >= g_motion_test_tick) {
+    g_motion_test_tick = now + g_motion_test_ms;
+    StepMotion("intro_motion_test_seconds (a test, no key went down)");
+  }
+}
+
+float Distance(const float a[3], const float b[3]) {
+  const float dx = a[0] - b[0], dy = a[1] - b[1], dz = a[2] - b[2];
+  return sqrtf(dx * dx + dy * dy + dz * dz);
+}
+
+// One line with the cameras of the pair: where the mod draws from, the
+// direction, and where the logo is from there.
+void LogCameras(const char* what) {
+  float look[3];
+  const float reach = Distance(g_room_focus, g_room_position);
+  for (int i = 0; i < 3; ++i) {
+    look[i] = reach > 1e-4f ? (g_room_focus[i] - g_room_position[i]) / reach
+                            : 0.0f;
+  }
+  char orbs[160] = "";
+  if (g_two_cameras) {
+    _snprintf_s(orbs, sizeof(orbs), _TRUNCATE, " The orbs have a camera of "
+                "their own, at %.3f %.3f %.3f, with the same direction.",
+                g_orb_position[0], g_orb_position[1], g_orb_position[2]);
+  }
+  ModLog("intro        : clock %.2f, %s. The game asks for the camera at "
+         "%.3f %.3f %.3f, looking at %.3f %.3f %.3f. With intro_motion=%d "
+         "the mod draws from %.3f %.3f %.3f, looking along %.3f %.3f %.3f.%s "
+         "From the camera of the orbs the logo is %.1f degrees from straight "
+         "ahead and %.1f units away", *Clock(), what, g_game_position[0],
+         g_game_position[1], g_game_position[2], g_game_focus[0],
+         g_game_focus[1], g_game_focus[2], g_motion, g_room_position[0],
+         g_room_position[1], g_room_position[2], look[0], look[1], look[2],
+         orbs, intro_motion::LogoAngleDeg(g_orb_position, g_orb_focus),
+         Distance(g_orb_position, intro_motion::kLogo));
+}
+
+// The log of the path: one line when a new part of the path starts, and with
+// intro_probe one line for each second of the effect clock.
+void LogPath() {
+  static const char* const kPartText[4] = {
+      "the camera of the game goes around the logo, between the orbs",
+      "the camera of the game leaves the orbit and goes to the rest pose",
+      "the camera of the game is at the rest pose",
+      "the camera of the game goes through the logo"};
+  const int part = intro_motion::Part(*Clock());
+  const int second = static_cast<int>(*Clock());
+  if (part != g_part_logged) {
+    g_part_logged = part;
+    g_clock_logged = second;
+    LogCameras(kPartText[part]);
+  } else if (g_probe && second != g_clock_logged && g_probe_lines < 120) {
+    g_clock_logged = second;
+    ++g_probe_lines;
+    LogCameras("one second of the clock later");
+  }
 }
 
 // One eye pass: run the effect once with the state of that eye.
@@ -340,6 +631,9 @@ void RunEye(int eye, uint32_t delta, uint32_t game_time_inc) {
   g_camera_seen = false;
   g_camera_built = false;
   g_eye_sent = false;
+  // The effect draws over the picture that is in the render target. That
+  // must be the last picture of this eye. See "THE TRAILS" at the top.
+  if (g_eye_trails) GpuBridgeKeepGive(eye);
   *DeltaTime() = delta;
   *GameTimeInc() = game_time_inc;
   g_pass_delta = delta;
@@ -357,6 +651,43 @@ void ProbeParticle(const char* when, float clock) {
   const float* p = reinterpret_cast<const float*>(records + 0x34 * 100);
   ModLog("intro        : pair %llu %s clock %.4f particle 100 at %.3f %.3f "
          "%.3f", g_pairs, when, clock, p[0], p[1], p[2]);
+}
+
+// With intro_probe, for a pair that has a picture of each eye: the pixel of
+// some orbs for the camera of this eye pass, as LH3DTech::ProjectPoint gives
+// it. The pictures must have an orb at each of these pixels.
+void ProbeOrbs() {
+  const uint8_t* records = *reinterpret_cast<uint8_t* const*>(kParticles);
+  const bw::tech::InfoTransform* info =
+      reinterpret_cast<const bw::tech::InfoTransform*>(
+          bw::tech::kInfoTransform);
+  if (records == nullptr || IsBadReadPtr(records, 0x34 * kOrbs) ||
+      IsBadReadPtr(info, sizeof(*info))) {
+    return;
+  }
+  const intro_motion::View view = {info->half_res_x, info->half_res_y,
+                                   info->inv_half_tan_fov_x,
+                                   info->inv_half_tan_fov_y};
+  const float* m = reinterpret_cast<const float*>(bw::tech::kWorldToCamera);
+  const float near_plane =
+      *reinterpret_cast<const float*>(bw::tech::kNearPlane);
+  // The first 8 of each 97th orb that have a pixel in the picture.
+  int lines = 0;
+  for (int orb = 100; orb < kOrbs && lines < 8; orb += 97) {
+    const float* p = reinterpret_cast<const float*>(records + 0x34 * orb);
+    const float depth = p[0] * m[2] + p[1] * m[5] + p[2] * m[8] + m[11];
+    float x = 0.0f, y = 0.0f;
+    if (!intro_motion::Project(m, view, p, near_plane, &x, &y)) continue;
+    if (x < 0.0f || y < 0.0f || x > view.half_res_x * 2.0f ||
+        y > view.half_res_y * 2.0f) {
+      continue;
+    }
+    ++lines;
+    ModLog("intro        : pair %llu %s eye, orb %d at %.3f %.3f %.3f is "
+           "%.2f units in front of the eye, at the pixel %.1f %.1f",
+           g_pairs, g_eye == 0 ? "left" : "right", orb, p[0], p[1], p[2],
+           depth, x, y);
+  }
 }
 
 void LogPair() {
@@ -405,12 +736,16 @@ void RunPair() {
     // does the same at its first frame.
     StereoIntroPrepareView(g_to_headset);
   }
-  if (g_scale > 0.0f) SwapScale();
+  // A change of intro_motion counts from this frame on, for both eyes.
+  PollKeys();
+  MotionTest();
+  ApplyScale();
   UpdateHead();
   HeadCameraIntroFrame();
   // The hands of this frame, for the pointer. Buttons stay off. See
   // IntroBlocksButtons.
   if (g_controller) ControllersFrame();
+  if (g_pairs == 1) FirstPair();
 
   // The menu button on either controller ends the intro on purpose.
   if (g_to_headset) {
@@ -437,6 +772,7 @@ void RunPair() {
   const bool log_particles = g_probe && (g_pairs <= 4 || g_pairs % 600 == 0);
   const float clock_before = *Clock();
 
+  g_have_cameras = false;
   RunEye(0, delta, saved_inc);
   if (log_particles) ProbeParticle("after the left eye", *Clock());
   const bool missed0 = !g_camera_seen || !g_camera_built;
@@ -448,16 +784,23 @@ void RunPair() {
     const uint32_t seed_after = seed != nullptr ? *seed : 0;
     const int32_t lag_x = *reinterpret_cast<int32_t*>(kMouseLagX);
     const int32_t lag_y = *reinterpret_cast<int32_t*>(kMouseLagY);
-    const float strength = *reinterpret_cast<float*>(kPushStrength);
+    const float speed = *reinterpret_cast<float*>(kClockSpeed);
     if (seed != nullptr) *seed = seed_before;
+    // No smoothed motion and no new motion (IntroMouseCall): the second eye
+    // pass does not push the orbs. See the top of the file.
+    if (g_push_once) {
+      *reinterpret_cast<int32_t*>(kMouseLagX) = 0;
+      *reinterpret_cast<int32_t*>(kMouseLagY) = 0;
+    }
     RunEye(1, 0, 0);
     if (seed != nullptr) *seed = seed_after;
     *reinterpret_cast<int32_t*>(kMouseLagX) = lag_x;
     *reinterpret_cast<int32_t*>(kMouseLagY) = lag_y;
-    *reinterpret_cast<float*>(kPushStrength) = strength;
+    *reinterpret_cast<float*>(kClockSpeed) = speed;
     missed1 = !g_camera_seen || !g_camera_built;
     if (log_particles) ProbeParticle("after the right eye", *Clock());
   }
+  KeepLogoForTestKey();
   *GameTimeInc() = saved_inc;
   QueryPerformanceCounter(&t_calls1);
 
@@ -510,13 +853,19 @@ void __cdecl h_RunAlexFx(int mode) {
     const bool ran = g_pairs > 0;
     g_eye = -1;
     g_active_tick = 0;
+    GpuBridgeKeepFree();
     if (ran) LogPair();
     RestoreScale();
     o_RunAlexFx(mode);
     if (ran) {
       HeadPoseRecenter();
-      ModLog("intro        : ended after %llu stereo frames, %llu flat frames",
-             g_pairs, g_flat_frames);
+      ModLog("intro        : ended after %llu stereo frames, %llu flat "
+             "frames, with intro_motion=%d. %llu flat batches (a text or a "
+             "box, one for each eye pass) got a place on the plane of the "
+             "logo, and %llu were not drawn: their place was behind the "
+             "camera. The keeps of the eye pictures made %llu copies",
+             g_pairs, g_flat_frames, g_motion, g_flat_placed, g_flat_dropped,
+             GpuBridgeKeepCopies());
     }
     return;
   }
@@ -535,7 +884,11 @@ void __cdecl h_RunAlexFx(int mode) {
 
 }  // namespace
 
-// For head_camera.cpp: is this call the still camera of an eye pass?
+void IntroCameraBuilt();
+
+// For head_camera.cpp: is this call the camera call of an eye pass of the
+// intro? Then out_position and out_focus get the camera of the room for
+// intro_motion, in place of the camera that the game asks for.
 bool IntroCameraPose(uintptr_t caller, const float* position,
                      const float* focus, float* out_position,
                      float* out_focus) {
@@ -548,27 +901,94 @@ bool IntroCameraPose(uintptr_t caller, const float* position,
     return false;
   }
   g_camera_seen = true;
-  if (g_probe && g_eye == 0) {
-    const int second = static_cast<int>(*Clock());
-    if (second != g_clock_logged && g_probe_lines < 120) {
-      g_clock_logged = second;
-      ++g_probe_lines;
-      ModLog("intro        : clock %.2f, the game asks for the camera at "
-             "%.3f %.3f %.3f, looking at %.3f %.3f %.3f", *Clock(),
-             position[0], position[1], position[2], focus[0], focus[1],
-             focus[2]);
-    }
+  if (g_eye == 0 || !g_have_cameras) {
+    // THE CAMERAS OF THIS PAIR, worked out one time. The game asks for the
+    // same camera in the second eye pass, because its clock stands still
+    // there.
+    memcpy(g_game_position, position, sizeof(g_game_position));
+    memcpy(g_game_focus, focus, sizeof(g_game_focus));
+    g_two_cameras = intro_motion::Cameras(
+        g_motion, g_game_position, g_game_focus, g_room_position,
+        g_room_focus, g_orb_position, g_orb_focus);
+    g_have_cameras = true;
+    LogPath();
   }
-  if (g_still) {
-    memcpy(out_position, kStillPosition, sizeof(float) * 3);
-    memcpy(out_focus, kStillFocus, sizeof(float) * 3);
-  } else {
-    // The game's own camera. The scale of the room still comes from it.
-    memcpy(out_position, position, sizeof(float) * 3);
-    memcpy(out_focus, focus, sizeof(float) * 3);
-    if (!(g_scale > 0.0f)) ChooseScale(position, focus);
+  // This call gets the camera of the room. It draws the sky.
+  memcpy(out_position, g_room_position, sizeof(float) * 3);
+  memcpy(out_focus, g_room_focus, sizeof(float) * 3);
+  return true;
+}
+
+// For input_watch.cpp: a call of LHMouse::UpdateDeltaPos. In an eye pass of
+// the intro the effect makes one, after the sky and before it moves and
+// draws the orbs. So this is the place for the camera of the orbs, when they
+// have one of their own. True when the call must not read the mouse: the
+// second eye pass moves no orb (see the top of the file).
+bool IntroMouseCall(uintptr_t caller) {
+  if (g_eye < 0 || caller != kMouseCall + 5) return false;
+  if (g_two_cameras && g_have_cameras) {
+    HeadCameraIntroPlace(g_orb_position, g_orb_focus);
+    IntroCameraBuilt();
+  }
+  return g_eye == 1 && g_push_once;
+}
+
+// For input_watch.cpp: the same call has read the mouse. A test of a desktop
+// run (intro_push_test_px): the first eye pass gets a motion of the mouse
+// that no hand made, and the pointer is in the middle of the picture, on the
+// logo. The second eye pass gets the same pointer and no motion, as from a
+// real mouse.
+void IntroMouseRead(uintptr_t caller) {
+  if (g_push_test_px == 0 || g_eye < 0 || caller != kMouseCall + 5) return;
+  const bw::tech::InfoTransform* info =
+      reinterpret_cast<const bw::tech::InfoTransform*>(
+          bw::tech::kInfoTransform);
+  if (IsBadReadPtr(info, sizeof(*info))) return;
+  int32_t* pointer = reinterpret_cast<int32_t*>(kPointerX);
+  pointer[0] = static_cast<int32_t>(info->half_res_x);
+  pointer[1] = static_cast<int32_t>(info->half_res_y);
+  if (g_eye == 0) *reinterpret_cast<int32_t*>(kMouseMotionX) += g_push_test_px;
+}
+
+// For draw_hooks.cpp: a flat batch of the interface code comes in an eye
+// pass of the intro. True when each of its corners must get its place on the
+// plane of the logo (IntroFlatVertex). `caller` is the code that draws it.
+bool IntroFlatOn(uint32_t caller) {
+  if (g_eye < 0 || !g_text_place) return false;
+  const bw::tech::InfoTransform* info =
+      reinterpret_cast<const bw::tech::InfoTransform*>(
+          bw::tech::kInfoTransform);
+  if (IsBadReadPtr(info, sizeof(*info))) return false;
+  g_flat_view.half_res_x = info->half_res_x;
+  g_flat_view.half_res_y = info->half_res_y;
+  g_flat_view.inv_half_tan_x = info->inv_half_tan_fov_x;
+  g_flat_view.inv_half_tan_y = info->inv_half_tan_fov_y;
+  if (!g_flat_said) {
+    g_flat_said = true;
+    ModLog("intro        : the effect draws a flat batch (a text or a box) "
+           "from 0x%08X, clock %.2f. Each corner gets its place on the plane "
+           "of the logo (intro_text_place=1)", caller, *Clock());
   }
   return true;
+}
+
+// One corner of that batch: from its pixel in the picture of the rest camera
+// to its pixel for the camera of this eye pass. False when its place is not
+// in front of that camera: then the batch is not drawn.
+bool IntroFlatVertex(float* x, float* y) {
+  const float* m = reinterpret_cast<const float*>(bw::tech::kWorldToCamera);
+  const float near_plane =
+      *reinterpret_cast<const float*>(bw::tech::kNearPlane);
+  return intro_motion::PlaceFlat(m, g_flat_view, near_plane, x, y);
+}
+
+// For draw_hooks.cpp: the batch was drawn at its place, or it was not drawn.
+void IntroFlatDone(bool drawn) {
+  if (drawn) {
+    ++g_flat_placed;
+  } else {
+    ++g_flat_dropped;
+  }
 }
 
 // For head_camera.cpp: the engine has built the camera of this eye pass, with
@@ -615,6 +1035,16 @@ bool IntroFinishFrame() {
     }
   }
   const bool want = EyeCaptureWanted(kCaptureBase + g_pairs);
+  if (want && g_probe) ProbeOrbs();
+  // The picture of this eye is finished. Its keep gets it: the next pass of
+  // this eye draws over it.
+  if (g_eye_trails && !GpuBridgeKeepTake(g_eye) && !g_no_keep_said) {
+    g_no_keep_said = true;
+    ModLog("intro        : there is no keep for the picture of each eye (the "
+           "mod does not have the Direct3D 9 device of the backend, or a "
+           "copy failed). So each eye pass draws over the picture of the "
+           "other eye, and each orb shows two times in each eye");
+  }
   if ((g_to_headset && !sent) || want) {
     int pitch = 0;
     uint32_t width = 0, height = 0;
@@ -644,16 +1074,31 @@ bool IntroBlocksButtons() {
 
 void IntroSetScreen(bwvr::XrScreen* screen) { g_screen = screen; }
 
-void IntroSetOptions(bool on, bool still, int distance_cm, bool controller,
-                     bool probe) {
+void IntroSetOptions(bool on, int motion, int speed_pct, int distance_cm,
+                     int model_distance_cm, bool eye_trails, bool text_place,
+                     bool push_once, bool controller, bool probe,
+                     bool test_keys) {
   g_on = on;
-  g_still = still;
-  g_distance_m = distance_cm > 0 ? distance_cm * 0.01f : 3.0f;
+  g_motion = intro_motion::ClampMode(motion);
+  g_speed_pct = speed_pct < 10 ? 10 : speed_pct > 100 ? 100 : speed_pct;
+  g_distance_m = distance_cm > 10 ? distance_cm * 0.01f : 3.0f;
+  g_model_distance_m =
+      model_distance_cm > 10 ? model_distance_cm * 0.01f : 2.0f;
+  g_eye_trails = eye_trails;
+  g_text_place = text_place;
+  g_push_once = push_once;
   g_controller = controller;
   g_probe = probe;
-  if (still) {
-    ChooseScale(kStillPosition, kStillFocus);
-  }
+  g_test_keys = test_keys;
+}
+
+// The tests of a desktop run. `motion_seconds`: each N seconds of the intro
+// in stereo, the mod steps intro_motion as its test key does.
+// `push_pixels`: each frame gets that motion of the mouse to the right, with
+// the pointer in the middle of the picture.
+void IntroSetTests(int motion_seconds, int push_pixels) {
+  g_motion_test_ms = motion_seconds > 0 ? motion_seconds * 1000 : 0;
+  g_push_test_px = push_pixels;
 }
 
 void IntroInstall() {
@@ -678,7 +1123,29 @@ void IntroInstall() {
     return;
   }
   g_installed = true;
-  ModLog("intro        : on, %s camera, logo plane %.2f m away, controller %s",
-         g_still ? "still" : "the game's", g_distance_m,
-         g_controller ? "on" : "off");
+  ModLog("intro        : on. intro_motion=%d: %s. The plane of the logo is "
+         "%.2f m from the head at the rest pose (%.2f m for the model of "
+         "intro_motion=2), the clock of the effect runs at %d percent, "
+         "intro_eye_trails=%d, intro_text_place=%d, intro_push_once=%d, "
+         "controller %s",
+         g_motion, MotionText(g_motion), g_distance_m, g_model_distance_m,
+         g_speed_pct, g_eye_trails ? 1 : 0, g_text_place ? 1 : 0,
+         g_push_once ? 1 : 0, g_controller ? "on" : "off");
+  if (g_test_keys) {
+    ModLog("intro        : test_keys=1: while the logo plays in stereo, Shift "
+           "and Page Up step intro_motion, Shift and Page Down switch "
+           "intro_eye_trails, and Shift and Delete switch intro_text_place. "
+           "These keys do not end the logo");
+  }
+  if (g_motion_test_ms > 0) {
+    ModLog("intro        : test key intro_motion_test_seconds: each %d s of "
+           "the logo in stereo the mod steps intro_motion, as its test key "
+           "does", g_motion_test_ms / 1000);
+  }
+  if (g_push_test_px != 0) {
+    ModLog("intro        : test key intro_push_test_px: each frame of the "
+           "logo in stereo gets a motion of the mouse of %d counts to the "
+           "right that no hand made, with the pointer in the middle of the "
+           "picture", g_push_test_px);
+  }
 }

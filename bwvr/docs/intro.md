@@ -14,27 +14,29 @@ from the code and not confirmed by a run.
   and does not use `GGame::Process3dEngine`. Without the mod's stereo hook, the
   mod shows it flat.
 - The other startup videos are Bink files. They are pre-rendered and stay flat.
-- With `intro_vr=1`, the mod runs `RunAlexFX` one time for each eye, with a
-  still camera at the final angle and the head tracked. A controller moves the
-  mouse pointer that pushes the particles. `intro_vr` is off by default: in a
-  headset some things show double, and nothing moves with the still camera.
+- With `intro_vr=1`, the mod runs `RunAlexFX` one time for each eye, with the
+  head tracked. The view goes along the camera path of the game and does not
+  turn (`intro_motion=1`). Each eye has its own trails, and the mark beside the
+  logo has the depth of the logo. `intro_vr` is off by default: no headset
+  session has checked this state.
 - A press of a trigger or of A, B, X or Y skips the logos and the intro (the
   skip, `intro_skip`, on by default).
 - The mod answers the game's check for an internet connection itself, so a PC
   whose Windows service `RasMan` does not answer can start the game
   (`net_check`).
 
-Source files: `src/mod/intro_vr.cpp` (the stereo intro), `src/mod/intro_skip.cpp`
-and `intro_skip_math.h` (the skip), `src/mod/net_check.cpp` (the internet
-check), with small parts in `head_camera.cpp`, `stereo.cpp`, `mod_main.cpp` and
-`controllers.cpp`.
+Source files: `src/mod/intro_vr.cpp` and `intro_motion_math.h` (the stereo
+intro), `src/mod/intro_skip.cpp` and `intro_skip_math.h` (the skip),
+`src/mod/net_check.cpp` (the internet check), with small parts in
+`head_camera.cpp`, `input_watch.cpp`, `draw_hooks.cpp`, `gpu_bridge.cpp`,
+`stereo.cpp`, `mod_main.cpp` and `controllers.cpp`.
 
 ## Section map
 
 | Section | Subject |
 | --- | --- |
 | What runs at startup | The four steps of the start of the game |
-| How the logo draws | `RunAlexFX` frame by frame |
+| How the logo draws | `RunAlexFX` frame by frame: the camera path, the clock, the sky, the trails |
 | How the mouse pushes the particles | The reads and the maths of the push |
 | Why the intro is flat without the hook | What the mod does when `intro_vr=0` |
 | The intro in stereo | The design and the code that is built |
@@ -68,89 +70,158 @@ make them 3D.
 The step 4 movie `intro.bik` is not a part of the start. A script plays it
 inside the first story, and the skip does not touch it.
 
+`GGame::Loop` starts one sound before it calls `DoLogo` (sound effect `0xA0`,
+`0x0054D046`) and stops it after the call [V]. So the sound of the logo has its
+own length. It does not follow the clock of the effect.
+
 ## How the logo draws [V unless marked]
 
 Each mode 1 call does all of this in one function:
 
-1. It reads the frame time `LH3DTech::g_delta_time` (`0x00C38134`) and adds a
-   scaled copy to an effect clock at `0x00D37CCC`. The clock sets the fade in
-   and the fade out (constants 12, 15, 31 and 33 in the code) and the camera
-   motion.
-2. It works out a camera position and a focus point from the clock with `sin`
-   and `cos`, and blends them.
-3. It calls `LH3DRender::StartFrame` `0x0082F0E0`. `StartFrame` writes
-   `g_delta_time` from the tick count, with a minimum of 1. It runs at
-   `0x005F933E`, after the clock read at `0x005F9050` and before the spring and
-   push read at `0x005F96F0`.
+1. It adds the frame time `LH3DTech::g_delta_time` (`0x00C38134`) to an effect
+   clock at `0x00D37CCC`, times 0.0011 and times a speed factor at
+   `0x00D34A8C` (`0x005F904E`). The effect sets the factor to 1 when it
+   builds, so the clock gets 1.1 for each second. The mouse wheel changes the
+   factor, between 0.1 and 1 (`0x005F968C`). No other code reads it. The clock
+   sets the camera, the fades and the size of the orbs.
+2. It works out a camera position and a focus point from the clock (see "The
+   camera path").
+3. It sets `LH3DRender::g_mode_cleaning` (`0x00C3871C`) to 2, and it calls
+   `LH3DRender::StartFrame` `0x0082F0E0`. `StartFrame` writes `g_delta_time`
+   from the tick count, with a minimum of 1. It runs at `0x005F933E`, after the
+   clock read at `0x005F9050` and before the spring read at `0x005F96F0`.
 4. It calls `LH3DTech::UpdateCamera` `0x00819920` itself, at `0x005F934B`. The
    first call is in mode 0, at `0x005F8A84`, with the camera at `(0, 0, 100)`.
-5. It draws the sky object (`D_SKY.l3d`) through the normal `LH3DObject` path.
-6. It moves the particles, then draws 4096 of them, one call to
-   `LH3DSprite::Draw` `0x00840530` each, in a loop at `0x005F9959`. Each
-   particle is a 3D sprite record of `0x34` bytes. The engine projects it with
-   the normal camera matrix at `0x00EA9E40` [V for the loop, I for the particle
-   count from the `0xC000` byte bound divided by 12].
-7. It draws 2D boxes and a text line (`SetupThing::DrawBox`,
-   `GatheringText::DrawTextRaw`). The text and the boxes are the fades and a
-   caption.
+5. It draws the sky object (`D_SKY.l3d`) through the normal `LH3DObject` path,
+   with a color that has an alpha of 160 of 255 (`0x005F9531`).
+6. It calls `LHMouse::UpdateDeltaPos` at `0x005F95DC`. Then it moves the orbs
+   (see "How the mouse pushes the particles"), and it draws 4096 of them, one
+   call to `LH3DSprite::Draw` `0x00840530` each, in a loop at `0x005F9959`.
+   Each orb is a 3D sprite record of `0x34` bytes. `LH3DSprite::Draw` reads the
+   camera matrix at `0x00EA1D28` and draws through `LH3DRender::DrawTriangle`
+   [V for the loop, I for the count from the `0xC000` byte bound divided by
+   12].
+7. It draws a text and boxes at a place of the picture (see "The flat text and
+   the boxes of the effect").
 8. It calls `LH3DRender::FinishFrame` `0x0082F460` and `LHScreen::Flip`
-   `0x007DE090`.
+   `0x007DE090`. `FinishFrame` draws the fade of the effect: a black picture
+   with an alpha (`fn_0086FEE0`, the color at `0x00FA51D8`).
 
 `DoLogo`, `PlayLogoScreens`, `PlayPreIntroVideo` and `RunAlexFX` are all
 `FinishFrame` callers outside `Process3dEngine` (`ui-layer.md`, section 1.4).
 
-The camera path of the game: the camera orbits the logo, then rests at
-`(0, 0, 100)` looking at `(0, 0, 0)` from clock 26 to clock 30 (the same pose as
-the build call). From clock 30 it flies through the logo to `(0, 0, -200)`. The
-effect sets its done flag when the fade factor reaches -2 (clock about 34.7) or
-when the window is minimized.
+### The camera path
 
-The logo is a flat image of about 75 units at 100 units of distance (110
-degree render).
+The logo is at the origin, on the plane z = 0. The orbs stay at their places:
+each orb starts at its home, and only the push moves it. So the motion that a
+player sees in the intro is the motion of the camera. The effect works out
+the camera from its clock (`0x005F90E7` to `0x005F933A`):
+
+| Clock | The camera of the game |
+| --- | --- |
+| 0 to 15 | It goes around the origin, between the orbs, at `r * (sin(0.352532 t + 2), cos(3 - 0.26793 t), sin(0.15161 t + 7))`. The distance `r` goes from 25 units to 10. It looks at the origin |
+| 15 to 26 | It leaves the orbit and goes to the rest pose. The blend is `(1 - cos(pi a)) / 2` with `a = (t - 15) / 11` (`fn_005F8960`), so this move starts and ends with no speed. It looks at the origin |
+| 26 to 30 | The rest pose: `(0, 0, 100)`, looking at the origin. It is the same pose as the build call |
+| 30 to 36 | It goes through the logo along -z, 50 units for each unit of the clock, to `(0, 0, -200)`. This move starts at once, with no ease. It looks along -z |
+
+The effect sets its done flag at clock 36 (`0x005F95AE`), or when the window
+is minimized. With no skip the logo plays for 33 s. `intro_motion_math.h` has
+the path (`GameCamera`), and the math test compares it with the camera that
+the game asked for in a run.
+
+### The clock
+
+| Clock | What changes |
+| --- | --- |
+| 0 to 12 | The fade from black: its alpha goes from 255 to 0 |
+| 15 to 26 | The orbs grow to 2.54 times their size (`1 + 1.54 s^8`, `s` is the blend of the camera) |
+| 22 to 23 | The text and the boxes fade in. The alpha of the sky goes from 160 to 178, and the sky gets darker |
+| 31 to 33 | The fade to black |
+| 32 to 34 | The orbs fade out |
+| 33 to 34 | The text and the boxes fade out |
+
+### The picture of the logo
 
 The logo shape comes from `lhlogo.raw`. It is 12288 bytes, which is 64 x 64 x 3,
 so one grayscale image with three equal bytes per pixel [I]. The code reads the
-file with `LHLoadData` and turns bright and dark pixels into particle home
-positions [I]. Each particle then flies to its home like a spring, and the
-sprite color is black or white [I from the color and the spring code].
+file with `LHLoadData` and gives each pixel one orb: the place of the pixel in
+the picture of the build camera, at a distance of 70 to 130 units from that
+camera (`Random(70, 130)`, `LH3DTech::Get3DPointFromScreen`). A bright pixel
+gets a white orb and a dark pixel a black orb. So the orbs make the logo only
+for a camera at the rest pose, and the cloud is 60 units deep. On its plane the
+logo is 74.9 units wide with a view of 110 degrees (the log has the number at
+the first stereo frame).
 
-At `0x005F8AF0` a tick count test makes the code read a file from the temp
-folder for 1 launch in 4 [V]. It appears to load a replacement 64 x 64 image
-[I]. The mod does not use it.
+At `0x005F8AF0` a tick count test makes the effect read `userlogo.raw` from the
+temp folder of the user in 1 start of 4, when the file is there: 64 x 64 bytes
+and a name [V]. The desktop runs on one PC showed a second picture in some
+runs [I, it is the symbol of the player]. With that picture the effect draws
+the name under the logo, and it does not draw the mark "TM".
 
-## How the mouse pushes the particles [V for the reads, I for the maths]
+### The sky and the trails
+
+The sky is a sphere around the logo with a radius of about 160 units [measured
+in a desktop run: the difference between the two eye pictures puts each part
+of the sky 157 to 163 units from the origin]. The camera is inside it until
+clock 35.
+
+The effect keeps the picture of the frame before in the render target (the
+clean mode 2), and it draws the sky with an alpha over that picture [I for the
+blend, from the pictures]. So 37 percent of the frame before shows through
+the sky, and each thing that moves in the picture has a trail.
+
+### The flat text and the boxes of the effect
+
+From clock 22 the effect draws these things at a fixed place of the picture,
+through `GatheringText::DrawTextRaw` (which draws with
+`LH3DTech::Draw3DScreenTriangle`) and `SetupThing::DrawBox`:
+
+- A name under the logo (`0x005F9B9D`). With the logo of Lionhead the name is
+  two spaces, so nothing shows.
+- The mark "TM" above the right corner of the logo (`0x005F9FBA`), only with
+  the logo of Lionhead.
+- The logo of a maker of hardware, in two boxes, only on a PC that has that
+  hardware: a Pentium 4 (`LH3DP3::IsPentium4`, `0x005F9BB8`), and a mouse with
+  force feedback of Immersion (`0x005F9DA2`).
+
+## How the mouse pushes the particles [V]
 
 The push code sits inline in `RunAlexFX` mode 1, from `0x005F95DC` to
 `0x005F993A`. It reads these `LHMouse` fields (see `controllers.md`):
 
 | Address | Field | Use in the effect |
 | --- | --- | --- |
-| `0x00E852C0`, `0x00E852C4` | pointer x, y in window pixels (the mod maps them to render pixels) | Copied to the local pointer of the frame. |
-| `0x00E852E4`, `0x00E852E8` | relative motion from DirectInput, summed | Smoothed into `0x00D37CB0` and `0x00D37CB4`, then cleared. A lagging cursor, clamped to +20 and -20. |
-| `0x00E85300` | wheel delta | Clamped to plus or minus 240. It scales a strength value at `0x00D34A8C` by an exponent, kept between 0.1 and 1. |
+| `0x00E852C0`, `0x00E852C4` | pointer x, y in window pixels (the mod maps them to render pixels) | The middle of the push. |
+| `0x00E852E4`, `0x00E852E8` | relative motion of the mouse, summed | Smoothed into `0x00D37CB0` and `0x00D37CB4`, then cleared. |
+| `0x00E85300` | wheel delta | Clamped to plus or minus 240. It changes the speed factor of the clock at `0x00D34A8C`. |
 | `0x00E85304` | button bits | Read by `DoLogo`, not by the push. |
 
 `LHMouse::UpdateDeltaPos` `0x007E4810` is called at `0x005F95DC` in the same
-frame, so the effect reads the raw DirectInput delta path as well as the window
-pointer [V].
+frame. It reads the mouse device (DirectInput) and adds its motion to the two
+sums.
 
-Then, for each of the 4096 particles [I]:
+Each call smooths the motion: `lag = lag + (motion - lag) * 0.1`, as a whole
+number. This step has no frame time in it. While the smoothed motion is not
+zero, the effect does this for each of the 4096 orbs:
 
 1. `LH3DTech::ProjectPoint` `0x00819390` (call at `0x005F9779`) gives the
-   screen x, y and depth of the particle, against the matrix at `0x00EA9E40`.
-2. If the particle is more than one tenth of the screen width from the pointer,
-   the code skips it. The radius is `width / 10`, from `0x00E85058`.
-3. Otherwise the weight is one minus distance over radius.
-4. `fn_0081B370` (call at `0x005F987A`) turns the pointer x, y and the particle
-   depth into a world point. This is an unproject [I from its arguments and the
-   use of its result].
-5. The code moves the particle toward that world point and adds a velocity
-   term, both scaled by the frame time and the weight.
+   pixel and the depth of the orb, against the matrix at `0x00EA9E40`.
+2. If the orb is one tenth of the picture width or more from the pointer,
+   across or up and down, the code skips it.
+3. The weight is one minus distance over that radius.
+4. The new pixel of the orb is its pixel plus the smoothed motion (at most 20
+   each way) times 4 times the weight. `LH3DTech::Get3DPointFromScreen`
+   `0x0081B370` (call at `0x005F987A`) gives the point of the scene for that
+   pixel at the depth of the orb.
+5. The effect puts the orb at that point (`0x005F991A`), and it adds the move
+   to the speed of the orb, times the frame time and 100.
 
-After the push, one loop applies damping and the spring pull to the home
-positions, and the next loop draws. The push is a screen space disc that
-reaches into depth at the depth of the particle. It is not a sphere in world
-space.
+After the push, one loop pulls each orb to its home like a spring, damps its
+speed and moves it by its speed, all with the frame time. The next loop draws.
+
+So the push is a disc in the picture that goes into depth at the depth of each
+orb. It is not a sphere in the scene. And the push needs a motion of the mouse
+device: the place of the pointer alone moves no orb.
 
 ## Why the intro is flat without the hook
 
@@ -179,20 +250,26 @@ the effect.
 1. `XrScreen::BeginFrame`. If it fails, or the runtime does not want a picture,
    the effect runs one time and flat.
 2. First frame only: the head view setup of `stereo.cpp`
-   (`StereoIntroPrepareView`), and the room scale. `intro_distance_cm` (default
-   300) gives 33.3 units per meter, so the logo is about 2.2 m wide at 3 m. Mode
-   2 puts the old scale back.
-3. The head pose for the frame, and the declared render pose for both eyes.
-4. `HeadCameraIntroFrame`: one head for both eyes.
-5. Eye 0 with the real time, eye 1 with time 0. Each `UpdateCamera` call from
-   `0x005F934B` goes through `IntroCameraPose` (the still camera) and the
-   normal head code of `head_camera.cpp`. Then `IntroCameraBuilt` moves the
-   matrices half an eye, as the scene does.
-6. `h_FinishFrame` calls `IntroFinishFrame` after each eye, and it copies the
-   picture to the headset. The mono path does not run.
-7. `EndFrame`, then `StereoMarkPresented`, so `StereoIdle()` stays false.
+   (`StereoIntroPrepareView`), and the speed of the effect clock
+   (`intro_speed_pct`).
+3. The test keys, and the scale of the room for the value of `intro_motion`.
+   The call with mode 2, at the end of the effect, puts the old scale back.
+4. The head pose for the frame, and the declared render pose for both eyes.
+5. `HeadCameraIntroFrame`: one head for both eyes.
+6. Eye 0 with the real time, eye 1 with time 0. Before each eye pass the keep
+   of that eye goes into the render target (see "The trails"). The
+   `UpdateCamera` call from `0x005F934B` goes through `IntroCameraPose`, which
+   gives the camera for `intro_motion`, and through the normal head code of
+   `head_camera.cpp`. Then `IntroCameraBuilt` moves the matrices half an eye,
+   as the scene does. The first eye pass works out the cameras of the frame,
+   and the second eye pass uses the same ones.
+7. `h_FinishFrame` calls `IntroFinishFrame` after each eye. It takes the
+   picture into the keep of the eye, and it copies the picture to the headset.
+   The mono path does not run.
+8. `EndFrame`, then `StereoMarkPresented`, so `StereoIdle()` stays false.
 
-Mode 2 calls `HeadPoseRecenter`, so the world starts as it did before.
+The call with mode 2 also frees the keeps and calls `HeadPoseRecenter`, so the
+world starts as it did before.
 
 ### Why the freeze needs a hook on StartFrame
 
@@ -201,37 +278,142 @@ set before the call stops only the clock. The mod hooks `StartFrame` and writes
 `g_delta_time` again for that one call site. The first eye gets the real frame
 time, so the two calls together match real time.
 
-The mouse smoothing (`0x00D37CB0`, `0x00D37CB4`), the push strength
-(`0x00D34A8C`) and the C runtime random seed change on each call and do not
-scale with time. The mod saves them and puts them back around the second eye.
-Each sprite gets `rand` for its angle, so the seed matters. [V] (The random
-jitter is `Random` at `0x0081D180`, per sprite, at `+0x14`.)
+With `g_delta_time` at zero the clock, the spring and the damping stop, because
+each one multiplies by the frame time. The push does not: see "The second eye
+and the push". The smoothed mouse motion (`0x00D37CB0`, `0x00D37CB4`), the
+speed factor of the clock (`0x00D34A8C`) and the C runtime random seed change
+on each call and do not scale with time. The mod saves them and puts them back
+around the second eye. Each sprite gets `rand` for its angle, so the seed
+matters. [V] (The random jitter is `Random` at `0x0081D180`, per sprite, at
+`+0x14`.)
 
-With `g_delta_time` at zero, the spring, the damping and the push scale to zero,
-because each one multiplies by a value that comes from the delta time [I from
-the constants at `0x005F8FE1`, `0x005F9054`, `0x005F96F0`]. If any other state
-of `RunAlexFX` advances by something that is not `g_delta_time` (for example
-`GetTickCount` or a frame counter), the second call moves it.
+### The motion
 
-### The still camera
+`intro_motion` chooses what the view does. In each value the head of the
+player turns and moves the view, as in the scene. `intro_motion_math.h` has
+the cameras (`Cameras`), and the math test checks them.
 
-`intro_still=1` holds the camera at the rest pose `(0, 0, 100)` looking at
-`(0, 0, 0)` for the whole intro (`kStillPosition`, `kStillFocus` in
-`intro_vr.cpp`). The render frustum of about 110 degrees limits how far to
-the side and behind the player particles show [I]. Particles behind the head
-do not draw.
+| `intro_motion` | The view |
+| --- | --- |
+| 0 | The camera stays at the rest pose. The player sees the formed logo from the start, and nothing moves |
+| 1 (default) | The camera goes along the path of the game and does not turn. Each frame the mod takes the place that the game asks for, and gives it one fixed heading. The player goes between the orbs, then back to the rest pose, then through the logo |
+| 2 | The orbs are a model in front of the player, and the room stays still. See "The model" |
+| 3 | The camera of the game, with its turns: its place and its heading. This turns the view of the player with no turn of the head. `head_camera.cpp` keeps the view level, so the tilt of the camera of the game is not in the view |
 
-With the still camera nothing moves in the headset: the player sees the
-formed logo from the start. The motion of the intro of the game is the
-motion of its camera. The orbs stay where they are, the camera goes between
-them, and then it goes away to the place from which the logo shows. This
-was seen in a headset, and it is not read in the code yet. `intro_still=0`
-gives the camera of the game, with its turns.
+**The fixed heading.** It is the direction of the rest pose: from `(0, 0, 100)`
+to the logo, along -z. `head_camera.cpp` builds the room of the head from the
+heading of the camera that it gets, so the straight ahead of the player (the
+recenter direction) is that heading for the whole intro. At the rest pose the
+logo is then in front of the player. In the orbit the logo is to the side or
+behind: the log gives the angle.
+
+**The speed.** The path has the speed of the game: 0.15 to 0.3 m for each
+second in the orbit (5 to 10 units, at 33.3 units for a meter), 0.6 m for each
+second at the most on the way to the rest pose, and 1.65 m for each second
+through the logo (55 units). The game eases the start and the end of the way
+to the rest pose. The move through the logo starts at once, 3.6 s after the
+camera came to rest, and the fade to black starts 0.9 s later. The mod adds no
+ease.
+`intro_speed_pct` (10 to 100) makes the clock of the effect slower: the mod
+writes it to the speed factor of the effect (`0x00D34A8C`), which is the way of
+the game for a slower clock. The path, the fades and the end then take longer.
+The spring of the orbs and the sound of the logo keep their speed.
+
+**The scale.** `intro_distance_cm` (default 300) is the distance from the head
+to the plane of the logo at the rest pose. The rest pose is 100 units from
+that plane, so the room has 33.3 units for each meter: the logo is 2.25 m wide
+at 3 m, the cloud of orbs is 1.8 m deep, and in the orbit the head is 0.3 to
+0.75 m from the middle of the cloud. Orbs then pass near the eyes: the effect
+has its near plane at 0.1 units (3 mm).
+
+**This is motion that the player did not make.** The design rule of the mod is
+"no motion that the player did not make". `intro_motion=1` and 3 are an
+exception that the player chooses with `intro_vr=1`. 0 and 2 keep the rule.
+
+### The model
+
+With `intro_motion=2` a frame has two cameras:
+
+- **The camera of the room** stays at the rest pose. It draws the sky, so the
+  room does not move.
+- **The camera of the orbs** starts from the rest pose and makes half of each
+  move of the camera of the game, with the fixed heading (`ModelPlace`,
+  `kModelGain`). So the cloud of orbs moves in front of the player as the path
+  of the game moves it, and the head does not go between the orbs: in the
+  orbit this camera is 50 units from the plane of the logo at the least, and
+  the nearest orbs are 30 units in front of that plane. The model passes the
+  head only in the move through the logo, after clock 32.8, when the fade is
+  90 percent black.
+
+`intro_model_distance_cm` (default 200) is the distance from the head to the
+plane of the logo at the rest pose, as `intro_distance_cm` is for the other
+values. With 200 the room has 50 units for each meter: the logo is 1.5 m wide
+at 2 m, and in the orbit the middle of the cloud is 1 m to 1.2 m from the head.
+
+The call at `0x005F934B` gets the camera of the room. The effect calls
+`LHMouse::UpdateDeltaPos` at `0x005F95DC`, after it drew the sky and before it
+moves and draws the orbs. The hook of that function (`input_watch.cpp`) calls
+`IntroMouseCall`, and that places the camera of the orbs
+(`HeadCameraIntroPlace`) and moves it half an eye. The push, the orbs, the text
+and the boxes then use the camera of the orbs.
+
+### The trails
+
+The effect draws each frame over the frame before (see "The sky and the
+trails"). The two eye passes share one render target. With no help, the pass
+of the left eye draws over the picture of the right eye and the reverse. Each
+eye then sees each thing two times: at its own place, and weaker at the place
+that the thing has for the other eye. This is the doubling of the stereo
+intro.
+
+`gpu_bridge.cpp` has a keep for each eye (`GpuBridgeKeepTake`,
+`GpuBridgeKeepGive`): a surface with the size, the format and the
+multisampling of the render target of the game. After an eye pass the mod
+copies the picture to the keep of that eye. Before the next pass of that eye
+it copies the keep back to the render target. So each eye has its own trails,
+and a trail has the eye difference of the thing that made it.
+`intro_eye_trails=0` gives one render target for both eyes with no keep. The
+keeps need the Direct3D 9 device of the backend (`gpu_bridge=1`, the default).
+With no keep the log has one line that says so.
+
+### The flat text and the boxes in stereo
+
+The effect draws its text and its boxes at a pixel, with no place in the scene
+(see "The flat text and the boxes of the effect"). With no help each eye gets
+them at the same pixel. They then have no depth, they show double when the
+eyes look at the logo, and they go with the head.
+
+The place in the scene of such a thing is the point of the plane of the logo
+that the rest camera shows at that pixel. `draw_hooks.cpp` gives each corner
+of a flat batch of an eye pass of the intro to `IntroFlatVertex`, and that
+gives the pixel at which the camera of the eye pass sees the point
+(`intro_motion::PlaceFlat`). So the mark "TM" has the depth of the logo, it
+stays at the corner of the logo when the head or the camera moves, and it has
+the right size for its distance. A batch with a corner that is not in front of
+the camera is not drawn. `intro_text_place=0` gives the same pixel in each
+eye.
+
+### The second eye and the push
+
+The push puts each orb near the pointer at a new place, with no frame time in
+it (see "How the mouse pushes the particles"). So a second eye pass with a
+smoothed motion of the mouse moves those orbs again, after the first eye drew
+them. For the second eye pass the mod sets the smoothed motion to zero, and
+`IntroMouseCall` makes its call of `LHMouse::UpdateDeltaPos` return with no
+read of the mouse. The push code then does not run, and the motion that the
+mouse made in that time stays in the device for the next frame.
+`intro_push_once=0` lets each eye pass push.
+
+A desktop run with the test key `intro_push_test_px=15` shows it. With
+`intro_push_once=0` the second eye pass moves an orb of the disc 0.6 units
+after the first eye drew it: the two pictures have it -9.9 px apart, and its
+depth asks for -13.7 px. With `intro_push_once=1` no orb has a different
+place for the two eye passes.
 
 ### The ways back to the flat intro
 
 - `intro_vr=0`, no headset and no `stereo_headless`, stereo off.
-- The bytes at `RunAlexFX` or at its three calls do not match. The mod makes no
+- The bytes at `RunAlexFX` or at its four calls do not match. The mod makes no
   hook.
 - 3 frames in a row without the camera call, 4 frames in a row over 250 ms, or
   3 frames in a row where the picture did not reach the headset. The mod logs
@@ -246,50 +428,121 @@ the intro" is cleared when mode 2 runs.
 | Key | Default | Meaning |
 | --- | --- | --- |
 | `intro_vr` | 0 | The intro in stereo |
-| `intro_still` | 1 | Hold the camera at the rest pose. 0 uses the game's orbit |
-| `intro_distance_cm` | 300 | Distance of the logo plane from the head |
+| `intro_motion` | 1 | 0: the camera stays at the rest pose. 1: the camera goes along the path of the game and does not turn. 2: the orbs are a model in front of the player, and the room stays still. 3: the camera of the game, with its turns |
+| `intro_speed_pct` | 100 | The speed of the effect clock in percent, 10 to 100 |
+| `intro_distance_cm` | 300 | The distance from the head to the plane of the logo at the rest pose, for `intro_motion` 0, 1 and 3 |
+| `intro_model_distance_cm` | 200 | The same distance for the model of `intro_motion=2` |
+| `intro_eye_trails` | 1 | 1: each eye pass draws over the last picture of the same eye. 0: each eye pass draws over the last picture in the render target, which is the picture of the other eye |
+| `intro_text_place` | 1 | 1: the text and the boxes of the effect are on the plane of the logo. 0: they have the same pixel in each eye |
+| `intro_push_once` | 1 | 1: only the first eye pass pushes the orbs. 0: each eye pass pushes them |
 | `intro_controller` | 1 | Run the controller frame, so the aim moves the pointer |
-| `intro_probe` | 0 | Log the camera of the game each second and the particle and pointer checks |
+| `intro_probe` | 0 | Log the cameras for each second of the effect clock, and for a pair of eye pictures the pixel of some orbs |
+| `intro_motion_test_seconds` | 0 | A test key of the desktop runs: each N seconds of the logo in stereo the mod steps `intro_motion`, as its test key does |
+| `intro_push_test_px` | 0 | A test key of the desktop runs: each frame of the logo in stereo gets that motion of the mouse to the right, with the pointer in the middle of the picture |
+
+The launcher removes the two test keys of the desktop runs from `bwvr.ini` on
+each save.
+
+### The test keys
+
+With `test_keys=1` these keys act while the logo plays in stereo (`backend.md`,
+"Keys for v1.0"). Ctrl must be up.
+
+| Key | Effect | Pulse of the pointing controller |
+| --- | --- | --- |
+| Shift and Page Up | `intro_motion` steps: 1, 2, 3, 0 and 1 again | One short pulse for each unit of the new value, one long pulse for 0 |
+| Shift and Page Down | `intro_eye_trails` goes between 1 and 0 | Long for 1, short for 0 |
+| Shift and Delete | `intro_text_place` goes between 1 and 0 | Long for 1, short for 0 |
+
+`DoLogo` ends the logo on each key that goes down. While Shift, Page Up, Page
+Down or Delete is down, the mod clears the last key of the game after each
+frame (`0x00E85474`), so a press of a test key does not end the logo.
 
 ### The controller in the stereo intro
 
 - `ControllersFrame` runs once for each pair. With the pointer owned by the
   controller, `pointer_map.cpp` writes the pixel to `0x00E852C0`, and the
-  effect reads it as it reads the mouse.
+  effect reads it as the middle of the push.
+- A controller does not push the orbs. The push needs a motion of the mouse
+  device, and the controller gives only the place of the pointer.
 - `Usable()` in `controllers.cpp` is false while the intro draws in stereo
   (`IntroBlocksButtons`). No controller button can reach `SetButtons`, so the
   trigger cannot click, and a click cannot end the intro.
 - The menu button on either controller sets the done flag.
-- The push is worked out in the view of the first eye (the left one).
+- The push of a mouse is worked out in the view of the first eye (the left
+  one). With the model it uses the camera of the orbs.
 
-The pointer is a shadow touch: a particle that overlaps the point of the
-controller in the view moves. The push reaches every particle along the sight
-line inside the pixel disc, whatever the depth.
+### The log
 
-### What a headset showed, and what is open
+The tag is `intro`:
 
-The intro in stereo is not finished, so `intro_vr` stays 0.
+- One line at the start with each key, and one line for the scale of the room.
+- At the first stereo frame: the width of the logo on its plane, in units and
+  in meters.
+- One line when a new part of the path starts (the orbit, the way to the rest
+  pose, the rest pose, the move through the logo). The line has the camera
+  that the game asks for, the camera that the mod draws from and its
+  direction, and the angle and the distance of the logo from there.
+- With `intro_probe=1`: the same line for each second of the effect clock,
+  and for each pair of eye pictures the pixel of 8 orbs in each eye.
+- `test key`: one line for each press of a test key, with the clock.
+- The first flat batch that gets a place, and at the end the counts.
 
-- Some things show double, here and there. The cause is not known. Suspects:
-  the fade boxes and the name text at zero disparity, and the sprite depth.
-  If the fade box looks like a wall that covers the whole view, turn it off
-  in VR and fade with the sprite color alpha alone [I].
-- Nothing moves with the still camera (see "The still camera"). Wanted:
-  motion that shows the depth and does not make the player sick. One idea is
-  a camera that moves along the path of the game and does not turn. That is
-  motion that the player did not make, so it needs a decision first. A way
-  that keeps the rule: the orbs are a small model in front of the player,
-  the path of the game moves the model, and the room stays still.
+### The math test
 
-Not known yet:
+`intro_motion_checks.h` (66 checks) covers the camera path against the camera
+that the game asked for in a run, the ease, the fixed heading, the cameras of
+each value of `intro_motion` (the place of the game with no turn, the room
+that stays still, the model that stays in front of the head), the step of the
+test key, the scale and the speed, and the pixel of a flat corner on the
+plane of the logo for each eye.
 
-- The comfort of the scale (logo about 2.2 m wide at 3 m).
-- The frame rate with two effect calls and the real `Flip` skip. On the desktop
-  each call includes a `Flip` that waits for the display. With a headset
-  `PresentWatchSkipDesktop` skips them.
-- Whether the aim of a real controller pushes the particles as expected. The
-  push uses the left eye view.
-- The menu button skip.
+### A desktop run
+
+`tools/desk/intro_run.ps1` makes a run of the logo in stereo with no skip, with
+`intro_probe=1` and a picture of each eye each few seconds
+(`tools/desk/README.md`, "The logos"). A run renders 2208 by 2208 with a view
+of 110 degrees, and its invented head has 66.8 mm between the eyes. The
+difference of a thing between the two pictures is then 1721 pixels over its
+distance in units (at 33.3 units for a meter). Measured at the rest pose:
+
+| Thing | Distance | Difference that the distance asks for | In the pictures |
+| --- | --- | --- | --- |
+| An orb (the log has the pixel of 8 orbs for each eye) | 70 to 130 units, for example 84.1 | -20.4 px for 84.1 units | -20.4 px. An orb with no other orb over it is less than 1 px from its pixel in the log |
+| The logo as one picture | 70 to 130 units | -24.6 to -13.2 px, -17.8 px in the mean | -17.7 px (-15.6 px with `intro_eye_trails=0`: the second picture of each orb pulls it to 0) |
+| The mark "TM" | 100 units, the plane of the logo | -17.2 px | -17.0 px (0.0 px with `intro_text_place=0`) |
+| The sky | A sphere of about 160 units around the logo | Each part gives a point on one sphere | 157 to 163 units from the origin |
+| The fade | A black picture with an alpha, the same in each eye | none | none |
+| A second picture of an orb at its place for the other eye | It must not be there | 0 percent | 0 to 5 percent of the orb at the edge of the logo (22 to 33 percent with `intro_eye_trails=0`) |
+| A second picture of the mark at its place for the other eye | It must not be there | 0 percent | 0 percent (10 percent with `intro_eye_trails=0`) |
+
+With `intro_motion=2` the room has 50 units for each meter, and each
+difference is 1.5 times as large: the mark is -25.3 px apart (its distance
+asks for -25.8 px), and the sky is on the same sphere. In the orbit the orbs
+are at the pixels of the camera of the orbs, and the sky is the sky of the
+rest pose.
+
+### What only a headset can show
+
+No headset session has seen this state, so `intro_vr` stays 0.
+
+- Whether the doubling is gone for the eye. The orbs are 3.6 cm apart on a
+  grid, and the cloud is 1.8 m deep at 3 m. Two orbs that are neighbors in the
+  picture can be far apart in depth, and the eye can then see one of them
+  double. That is the geometry of the scene, not a fault of a draw. A larger
+  `intro_distance_cm` makes each eye difference smaller.
+- Whether the motion of `intro_motion=1` is comfortable, and if not, whether
+  `intro_motion=2` is. Which value is the default.
+- Orbs that pass near the eyes with `intro_motion=1`: an orb a few cm from one
+  eye shows large in that eye only.
+- The size of the logo. The effect builds the logo in mode 0, before the mod
+  sets the view of the headset at the first stereo frame. So in a headset the
+  logo can be smaller than in a desktop run, which has its view from the
+  start [I]. The log has the width.
+- The frame rate with two effect calls and four copies of the picture for the
+  keeps. On the desktop each call includes a `Flip` that waits for the
+  display. With a headset `PresentWatchSkipDesktop` skips them.
+- The menu button skip, and the pulses of the test keys.
 
 ## The skip
 
@@ -452,6 +705,10 @@ the service "Remote Access Connection Manager" again as an administrator.
 
 ## Open work
 
+- A push of the orbs with a controller. A controller does not push now: the
+  push needs a motion of the mouse device (see "How the mouse pushes the
+  particles"). The game's own way is a motion in the two sums of `LHMouse`
+  (`0x00E852E4`, `0x00E852E8`), from the motion of the aim.
 - A true 3D push (L3b). The pointer push of the stereo intro is a screen space
   disc. A sphere push needs two hooks keyed on the return address inside
   `RunAlexFX`: `ProjectPoint` `0x00819390` with return address `0x005F977E`
@@ -465,11 +722,11 @@ the service "Remote Access Connection Manager" again as an administrator.
   `0x00D34A94`, `0x00D34A90`) in place after the original returns. It needs a
   map of the strides first [I]. A short haptic pulse when a particle moves is an
   easy extra.
-- The faults of the stereo intro in a headset (see "What a headset showed,
-  and what is open").
+- The headset check of the stereo intro (see "What only a headset can
+  show").
 - Not verified: the exact particle count and array strides (the `0xC000` bound
-  and the strides `0x34` and 12 suggest 4096 particles [I]), the push maths in
-  detail, and that `0x00E85304` holds the mouse button bits.
+  and the strides `0x34` and 12 suggest 4096 particles [I]), and that
+  `0x00E85304` holds the mouse button bits.
 - The Bink videos (`PlayLogoScreens`, `PlayPreIntroVideo`) stay flat on the
   existing flat path. A small quad in the room is the right home for them.
 - Do not ship `lhlogo.raw`, the Bink files or any Lionhead art. The mod reads

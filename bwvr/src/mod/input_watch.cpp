@@ -28,6 +28,7 @@
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#include <intrin.h>
 #include <stdint.h>
 
 #include "MinHook.h"
@@ -36,6 +37,13 @@
 extern void ModLog(const char* format, ...);
 // pointer_map.cpp: rewrite the pointer once the game has settled it.
 void PointerMapApply();
+// intro_vr.cpp: the Lionhead logo in stereo calls this function one time in
+// each eye pass, between the sky and the orbs. IntroMouseCall places the
+// camera of the orbs there. It is true when the call must not read the
+// mouse: the second eye pass must not move an orb. IntroMouseRead is a test
+// of a desktop run.
+bool IntroMouseCall(uintptr_t caller);
+void IntroMouseRead(uintptr_t caller);
 
 namespace {
 
@@ -77,6 +85,8 @@ int g_x_offset = -1;
 int g_y_offset = -1;
 
 void __fastcall h_MouseUpdateDeltaPos(void* self, void* unused) {
+  const uintptr_t caller = reinterpret_cast<uintptr_t>(_ReturnAddress());
+  if (IntroMouseCall(caller)) return;
   const uint32_t* words = reinterpret_cast<const uint32_t*>(self);
   const bool readable =
       self != nullptr && !IsBadReadPtr(self, sizeof(uint32_t) * 16);
@@ -90,6 +100,7 @@ void __fastcall h_MouseUpdateDeltaPos(void* self, void* unused) {
   // read it yet. ControlMap::MouseDelta is taken from the object on the very
   // next line of the game's own code.
   PointerMapApply();
+  IntroMouseRead(caller);
 
   if (!readable) return;
   g_mouse_object = reinterpret_cast<uintptr_t>(self);

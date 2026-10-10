@@ -92,6 +92,7 @@ calls it. It keeps these rules, and a new script must keep them too:
 | `spawn_run.ps1` | A start with "Keep your old Creature": no story, the player at the Temple |
 | `creature_recipe.ps1` | The Creature state, strokes and a slap. With `-Kind leash`, `-Kind stay` or `-Kind tie`: the leash, the stay from a distance, and the leash tied to an object. With `-Kind click`: a text that waits for a click |
 | `hand_run.ps1`, `village_run.ps1`, `temple_run.ps1`, `miracle_run.ps1` | Runs for the near hand, the village, the Temple and miracles. See "The scripts of one area" |
+| `intro_run.ps1` | The Lionhead logo in stereo, with a picture of each eye each few seconds. The run does not skip the logos. See "The logos" |
 
 The scripted controller is driven by ini keys: `fake_controller_script` (words
 such as `point@400+1`, `grip@3100+101`, `trigger@440+8`: the word, the frame
@@ -183,6 +184,24 @@ of the land comes 47 s after the start of the game process, and not 9 s.
 mod then skips them (`docs/intro.md`, "The skip"). So each number of the
 table is without the logos. A run that tests the logos gives
 `intro_skip_test_frame=0`, or a frame of its own, in its extra keys.
+
+`intro_run.ps1` is such a run, for the Lionhead logo in stereo
+(`docs/intro.md`, "The intro in stereo"):
+
+```powershell
+.\bwvr\tools\desk\intro_run.ps1 -Name in1 -Dll <build>\src\mod\Release\ddraw.dll -Motion 1
+```
+
+It gives `intro_vr=1`, `intro_skip_test_frame=0`, `intro_probe=1` and
+`intro_motion` (`-Motion`), and it starts no scripted controller. The logo
+screens take about 9 s and the Lionhead logo 33 s, so a run of 54 s (the
+default) has the whole logo. Each `-Every` seconds (4 by default) the mod saves a picture of
+each eye, `bwvr-eye-left-1NNNNN.bmp` and `bwvr-eye-right-1NNNNN.bmp`. NNNNN is
+the stereo frame of the logo. Each picture is 14 MB at a render of 2208 by
+2208. After the run the script prints the lines of the log with the tag
+`intro`: the camera for each second of the effect clock, and for each pair of
+pictures the pixels of some orbs. `-Set` gives other keys, for example the
+test keys `intro_motion_test_seconds` and `intro_push_test_px`.
 
 ### A test save
 

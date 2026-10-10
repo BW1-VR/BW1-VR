@@ -130,7 +130,7 @@ does not delete them, so a value that a person writes in `bwvr.ini` is kept.
 | Setting | Default | What it does |
 | --- | --- | --- |
 | Play mode | God view | Key `play_mode`, a value and not an index. 4 God view: the land is at your waist, so your hands can reach it, with motion controllers or with the mouse (see `god-view.md`). 1 Stereoscopic window: a 3D screen in front of you, and your head does not move the camera. 3 Tabletop (test): the island is a model on a table in front of you (see `tabletop.md`). A window that follows the head is mode 2, which the launcher does not offer. An ini with `play_mode=0` gets the God view. |
-| Intro in stereo | off | The Lionhead logo at the start shows in 3D around you. The menu button skips it. It is not finished: some things show double, and the logo does not move. Key `intro_vr`. See `intro.md`. |
+| Intro in stereo | off | The Lionhead logo at the start shows in 3D around you. The view goes along the camera path of the game and does not turn. The menu button skips it. It is a test: no headset session has checked it. Key `intro_vr`. The key `intro_motion` chooses the motion, and the launcher has no row for it. See `intro.md`. |
 
 ### Moving around
 

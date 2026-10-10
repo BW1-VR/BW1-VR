@@ -55,8 +55,11 @@ void StereoSetHeadlessGrab(bool on);
 void StereoSetUiDepth(bool adaptive, float ceiling_pixels);
 void StereoSetScreen(bwvr::XrScreen* screen);
 // intro_vr.cpp: the Lionhead intro in stereo.
-void IntroSetOptions(bool on, bool still, int distance_cm, bool controller,
-                     bool probe);
+void IntroSetOptions(bool on, int motion, int speed_pct, int distance_cm,
+                     int model_distance_cm, bool eye_trails, bool text_place,
+                     bool push_once, bool controller, bool probe,
+                     bool test_keys);
+void IntroSetTests(int motion_seconds, int push_pixels);
 void IntroSetScreen(bwvr::XrScreen* screen);
 void IntroInstall();
 bool IntroFinishFrame();
@@ -413,10 +416,21 @@ bool g_stereo_headless = false;
 // The Lionhead intro in stereo. Off by default while it is tested. See
 // intro_vr.cpp and docs/intro.md.
 bool g_intro_vr = false;
-bool g_intro_still = true;
+// 0 the camera stays at the rest pose, 1 it goes along the path of the game
+// and does not turn, 2 the orbs are a model in front of the player, 3 the
+// camera of the game with its turns.
+int g_intro_motion = 1;
+int g_intro_speed_pct = 100;
 int g_intro_distance_cm = 300;
+int g_intro_model_distance_cm = 200;
+bool g_intro_eye_trails = true;
+bool g_intro_text_place = true;
+bool g_intro_push_once = true;
 bool g_intro_controller = true;
 bool g_intro_probe = false;
+// Tests of the desktop runs.
+int g_intro_motion_test_seconds = 0;
+int g_intro_push_test_px = 0;
 
 // The camera is a family of matrices, not one matrix. Each of these
 // keeps one more member of that family in step with the eye. They are
@@ -1055,9 +1069,23 @@ void ReadSettings() {
   g_stereo_headless =
       GetPrivateProfileIntA("bwvr", "stereo_headless", 0, path) != 0;
   g_intro_vr = GetPrivateProfileIntA("bwvr", "intro_vr", 0, path) != 0;
-  g_intro_still = GetPrivateProfileIntA("bwvr", "intro_still", 1, path) != 0;
+  g_intro_motion = GetPrivateProfileIntA("bwvr", "intro_motion", 1, path);
+  g_intro_speed_pct =
+      GetPrivateProfileIntA("bwvr", "intro_speed_pct", 100, path);
   g_intro_distance_cm =
       GetPrivateProfileIntA("bwvr", "intro_distance_cm", 300, path);
+  g_intro_model_distance_cm =
+      GetPrivateProfileIntA("bwvr", "intro_model_distance_cm", 200, path);
+  g_intro_eye_trails =
+      GetPrivateProfileIntA("bwvr", "intro_eye_trails", 1, path) != 0;
+  g_intro_text_place =
+      GetPrivateProfileIntA("bwvr", "intro_text_place", 1, path) != 0;
+  g_intro_push_once =
+      GetPrivateProfileIntA("bwvr", "intro_push_once", 1, path) != 0;
+  g_intro_motion_test_seconds =
+      GetPrivateProfileIntA("bwvr", "intro_motion_test_seconds", 0, path);
+  g_intro_push_test_px =
+      GetPrivateProfileIntA("bwvr", "intro_push_test_px", 0, path);
   g_intro_controller =
       GetPrivateProfileIntA("bwvr", "intro_controller", 1, path) != 0;
   g_intro_probe = GetPrivateProfileIntA("bwvr", "intro_probe", 0, path) != 0;
@@ -1265,8 +1293,11 @@ void StartVrOnce() {
       DrawProbeDelay(g_draw_probe_delay);
     }
     StereoInstall(nullptr, g_separation, g_ui_shift, height);
-    IntroSetOptions(g_intro_vr, g_intro_still, g_intro_distance_cm,
-                    g_intro_controller, g_intro_probe);
+    IntroSetOptions(g_intro_vr, g_intro_motion, g_intro_speed_pct,
+                    g_intro_distance_cm, g_intro_model_distance_cm,
+                    g_intro_eye_trails, g_intro_text_place, g_intro_push_once,
+                    g_intro_controller, g_intro_probe, g_test_keys);
+    IntroSetTests(g_intro_motion_test_seconds, g_intro_push_test_px);
     IntroInstall();
   }
 

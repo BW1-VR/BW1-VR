@@ -239,21 +239,20 @@ moves while the Hand takes it.
   game camera over the table, the mouse, the wheel, the stick and the
   double click for the table, the ring and the depth key for the key color,
   and the place of the table in a real room (`tabletop.md`).
-- **P11. The intro in stereo** (`intro_vr`, off by default) is not finished
-  (`intro.md`). In a headset:
-  - Some things show double, here and there. Find which draws get a wrong
-    depth or go to one eye only.
-  - Nothing moves. The mod holds the camera still (`intro_still=1`), and
-    the player sees the formed logo from the start. In the intro of the
-    game the orbs stay where they are. The game moves its camera between
-    them, and then away to the place from which the logo shows.
-  - Wanted: motion that shows the depth of the scene and does not make the
-    player sick. An idea: the camera moves along the path of the game and
-    does not turn. This is motion that the player did not make, so decide
-    first whether the intro is an exception to that design rule. A way that
-    keeps the rule: the orbs are a small model in front of the player, the
-    path of the game moves the model, and the room stays still.
-  - A push of the particles in 3D with a controller.
+- **P11. The intro in stereo** (`intro_vr`, off by default) needs a headset
+  check (`intro.md`, "What only a headset can show"). Each eye has its own
+  trails, the mark beside the logo has the depth of the logo, and the view
+  goes along the camera path of the game with no turn (`intro_motion=1`).
+  With `test_keys=1`, while the logo plays:
+  - Is the doubling gone for the eye? Shift and Page Down switch
+    `intro_eye_trails`, and Shift and Delete switch `intro_text_place`.
+  - Is the motion comfortable? Shift and Page Up step `intro_motion`: 2 is
+    the orbs as a model in a room that stays still (it keeps the design
+    rule "no motion that the player did not make"), 3 is the camera of the
+    game with its turns, 0 is the still camera. `intro_speed_pct` makes the
+    path slower. Then choose the default, and decide if `intro_vr` goes on.
+  - Not built: a push of the orbs with a controller, and a push in 3D. A
+    controller does not push the orbs now (`intro.md`, "Open work").
 - **P12. Ideas from Half-Life: Alyx** that are not built are in
   `research-hla.md`, for the far grab, the teleport, the hands, the hints,
   the sound and comfort.

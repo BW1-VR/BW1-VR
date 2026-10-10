@@ -74,10 +74,10 @@ bool ScriptCameraRenderPose(uintptr_t caller, const float* position,
                             const float* focus, float* out_position,
                             float* out_focus);
 // intro_vr.cpp: the Lionhead intro draws its own frames. While it runs two
-// eye passes, it holds the camera still and puts the head on it. True when
-// this call is the intro's camera call, and then out_position and out_focus
-// are the still camera. IntroCameraBuilt runs after the engine built the
-// camera, and moves it half an eye separation.
+// eye passes, it gives the camera of each frame, and the head goes on it.
+// True when this call is the intro's camera call, and then out_position and
+// out_focus are the camera of the intro. IntroCameraBuilt runs after the
+// engine built the camera, and moves it half an eye separation.
 bool IntroCameraPose(uintptr_t caller, const float* position, const float* focus,
                      float* out_position, float* out_focus);
 void IntroCameraBuilt();
@@ -643,6 +643,16 @@ void HeadCameraBeginScene() { g_in_scene = true; }
 void HeadCameraIntroFrame() {
   ++g_frame;
   ++g_frames;
+}
+
+// The intro places a second camera in an eye pass: the camera that draws the
+// orbs, when they are a model in a room that stays still (intro_vr.cpp,
+// intro_motion=2). The head goes on it as on the first camera. The first
+// camera of the frame recorded the state of the frame, and this call leaves
+// that state as it is.
+void HeadCameraIntroPlace(const float* position, const float* focus) {
+  if (!g_installed || o_UpdateCamera == nullptr) return;
+  PlaceCamera(position, focus, true, 0);
 }
 
 void HeadCameraEndScene() {
