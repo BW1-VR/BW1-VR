@@ -606,12 +606,14 @@ worship) have shown the totem (three steps of 4.0 cm up give the values 0.22,
 0.44 and 0.67), the miracle icon (a tap, a charge, a cancel of the charge,
 and the miracle given back), the whole chain of gestures with a power up, the
 cast and the cancel with the power that goes back, and the join of two
-scaffolds. The start with no story has no Worship Site, so the totem is no
-target there.
+scaffolds. The icon of Food gives the same chain as the icon of Water: a tap,
+a power up with the spiral, a pour and a cancel
+(`village_run.ps1 -Kind miracle -Icon 3`). The start with no story has no
+Worship Site, so the totem is no target there.
 
 **Not run on the desktop:**
 
-- Each miracle other than Water, and the second power up.
+- Heal from its icon, and the second power up.
 - Worshippers that make the chants: the runs set the pool with a test key.
 - A scaffold of three or more.
 - A left handed player, and a multiplayer game.

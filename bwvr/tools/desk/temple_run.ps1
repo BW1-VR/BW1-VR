@@ -4,11 +4,25 @@
 #   temple_run.ps1 -Name tpl1 -Dll <dll> -Steps "<script>" -Set "<keys>" -Seconds 190
 #
 # The start is the choice "Keep your old Creature" (spawn_run.ps1). The ring
-# item "enter" goes into the Temple at frame 850: the hall, and its guide
-# until about frame 2710. The script waits for an idle PC (10 minutes, no
-# game) and then makes one run through spawn_run.ps1 and desk_run.ps1. It
-# reads the settings of the game in the registry before and after the run,
-# and it says if a value changed. It writes nothing there.
+# item "enter" goes into the Temple at frame 850: the hall, and its guide.
+# The guide has a length in seconds, so the frame of its end depends on the
+# frame rate: between frame 2700 and frame 3250. The ring does not open while
+# a guide plays, so put the first step of -Steps after frame 3350. The script
+# waits for an idle PC (10 minutes, no game) and then makes one run through
+# spawn_run.ps1 and desk_run.ps1. It reads the settings of the game in the
+# registry before and after the run, and it says if a value changed. It
+# writes nothing there.
+#
+# With no -Steps the run stays in the hall. The ring of the Temple goes to a
+# room: the left stick in the direction of the item for 60 frames, and the
+# left trigger 30 frames after its start. From the top and clockwise the
+# items are hall, room_creature, room_challenge (lstick_right), room_save,
+# leave (lstick_down), room_options, room_library (lstick_left). The first
+# visit of a room plays a guide of 650 to 1500 frames. For example, the
+# Challenge Room and then the Library, with a scan of the controls of each:
+#
+#   temple_run.ps1 -Name tpl2 -Dll <dll> -Set "temple_test_scan=16" -Steps `
+#     "lstick_right@3400+60 ltrigger@3430+6 lstick_left@5800+60 ltrigger@5830+6"
 param(
     [Parameter(Mandatory = $true)][string]$Name,
     [Parameter(Mandatory = $true)][string]$Dll,

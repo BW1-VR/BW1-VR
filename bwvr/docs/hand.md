@@ -961,11 +961,24 @@ point must be 0.0 cm from the overlay's index tip, the game's Hand must lie
 inside the overlay's test hand, and no pass may move the wrist more than 0.6
 cm in the Hand's frame.
 
-Not reached on the desktop: the Tug, the Holding, the Creature, the Grain and
-the PlayAnim states, so the exact Hand there and the held object with no lag
-are not seen yet, and the hook of the mesh draw, the wrist lock in each state,
-the object in the palm and the poses with a real controller. The math and the
-seam are the same as in the Normal and the Camera states.
+Desktop runs (`bwvr/tools/desk`) reach these states, and the log of the exact
+Hand has its lines for each:
+
+| State | The run | The index finger's last joint, from the overlay's |
+| --- | --- | --- |
+| 3 Tug, 4 Holding | `hand_run.ps1 -Kind one` (a rock at the Hand), and each fetch of `throw_queue.ps1` and `aim_queue.ps1` | 1.2 cm in the Tug, 5.4 to 5.7 cm in the Holding state (the Hand is closed on the object) |
+| 7 Creature | `hand_run.ps1 -Kind old` | 0.7 to 0.8 cm |
+| 8 Grain | `village_run.ps1` and `miracle_run.ps1` | 0.7 cm |
+
+In each of these states the drawn wrist is 2.5 cm from the overlay's wrist,
+the wrist lock is on, the mesh of the game is not drawn, and no pass moves
+the wrist more than 0.5 cm in the Hand's frame (the worst is 0.00 cm). The
+animation of a hold has its wrist bone 10 to 14 cm from the wrist bone of the
+file, and the lock takes that away. A held object moves to its place in the
+palm in 0.12 s and turns with the hand.
+
+Not reached on the desktop: the PlayAnim state. Not shown on the desktop: the
+poses with a real controller.
 
 Needs the headset: whether the Hand sits on the real hand with each runtime's
 grip pose, the rest turn, whether the Hand in the land drag, the Tug and the

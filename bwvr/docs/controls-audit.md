@@ -85,10 +85,10 @@ means an item that is not on a default page: the player puts its word in
 | `0x13` | Zoom To Realm | F3 | `fn_0064A7A0(1)`: the camera goes up to see the whole land | Ring (ini), `land`. In the God view the view goes to the middle of the land at the scale of now [R] |
 | `0x14` | Zoom To Inside Temple | F4 | `GGame::GoInsideCitadel(0)` `0x00553E10` | Ring, `enter`. Or a tap of the grip on the door of the Temple [R] |
 | `0x15` | Zoom To Creature Room | F5 | `GoInsideCitadel(1)` | Ring, `room_creature`, on the ring of the Temple [R] |
-| `0x16` | Zoom To Challenge Room | F6 | `GoInsideCitadel(2)` | Ring, `room_challenge`, on the ring of the Temple |
+| `0x16` | Zoom To Challenge Room | F6 | `GoInsideCitadel(2)` | Ring, `room_challenge`, on the ring of the Temple [R] |
 | `0x17` | Zoom To Save Game Room | F7 | `GoInsideCitadel(5)` | Ring, `room_save`, on the ring of the Temple [R] |
 | `0x18` | Zoom To Options Room | F8 | `GoInsideCitadel(4)` | Ring, `room_options`, on the ring of the Temple [R] |
-| `0x19` | Zoom To Library | F9 | `GoInsideCitadel(6)` | Ring, `room_library`, on the ring of the Temple |
+| `0x19` | Zoom To Library | F9 | `GoInsideCitadel(6)` | Ring, `room_library`, on the ring of the Temple [R] |
 | `0x1A` | Leash/UnLeash Creature | L | Packet `0x5F`: the leash goes on or off | A short press of the grip on the Creature, the grip with the hand pointed at it, and a shake to take it off [D] |
 | `0x1B` | Show Villager Names | N | Changes bit `0x20000` of `g_game + 0x14` | Ring, `names`, page 2 [R] |
 | `0x1C` | Show Villager Details | S | Changes the details of the villager under the Hand, or bit `0x200000` for all | Ring (ini), `details` [R] |
@@ -233,7 +233,7 @@ send Esc. Its stick has no other job.
 | Function that needed the keyboard | On the ring |
 | --- | --- |
 | The Temple | `temple` (Space two times), `enter` (F4) |
-| The rooms | The ring of the Temple: `room_creature`, `room_challenge`, `room_save`, `room_options`, `room_library`, `hall`, `leave`. The Creature Room and the Save Game Room were chosen in runs [R]. The other rooms are the same call with a different room |
+| The rooms | The ring of the Temple: `room_creature`, `room_challenge`, `room_save`, `room_options`, `room_library`, `hall`, `leave`. The Creature Room, the Challenge Room, the Save Game Room and the Library were chosen in runs [R]. The Options Room is the same call with a different room |
 | The Creature | `creature`. In the God view it is one teleport to the Creature, because the key of the game starts a follow camera |
 | The kind of the leash | `leash_learning`, `leash_compassion`, `leash_aggression` |
 | Bookmarks | `mark_set`, `mark_go`, `mark_back` on page 2. Follow and remove are not on the ring |

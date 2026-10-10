@@ -616,19 +616,26 @@ seed, and the shake of the desktop runs (5 steps of 15 cm).
 A desktop run (`bwvr/tools/desk/`) in the God view with the start "Keep your
 old Creature" can test a miracle. `miracle_test_seeds` makes the seeds. A
 press of 3 frames on a seed is the tap of the game. Desktop runs have shown
-a cast of Strong on a Creature, the cancel by a shake and by the button, a
-throw (Fireball), a pour (Water), a circle (Spiritual Shield and Storm), a
-place (Heal), a carried seed with the trigger, and a seed from a Worship Site
-with a power up and the power that goes back at a cancel.
+a cast of Strong and of Freeze on a Creature, the cancel by a shake and by
+the button, a throw (Fireball and the two flocks), a pour (Water, Food, Wood
+and Lightning), a circle (Spiritual Shield and Storm), a place (Heal, Forest
+and Explosion), a carried seed with the trigger, and a seed from a Worship
+Site (Water and Food) with a power up and the power that goes back at a
+cancel. A Physical Shield with no circle gives the refusal "this miracle
+needs a circle on the land first".
+
+A miracle that pours stays in the Hand after the pour, until its chants are
+used or the player takes it out. So a recipe with more than one seed must
+tap B after a pour (`miracle_run.ps1 -Seeds` gives the seed types, and
+`-Steps` the steps).
 
 **Not run on the desktop:**
 
-- Food, Wood and Lightning (the pour of Water), Forest, Teleport and
-  Explosion (the cast of Heal), the flocks (the throw of the Fireball), and
-  the Creature miracles other than Strong.
+- Teleport (the cast of Heal), and the Creature miracles other than Strong
+  and Freeze.
 - A Creature outside the influence (the red halo and its line), each reason
-  of a refusal other than "needs a Creature", a Worship Site or a dispenser
-  as the target, and a magic fireball.
+  of a refusal other than "needs a Creature" and "needs a circle on the
+  land", a Worship Site or a dispenser as the target, and a magic fireball.
 - The line of the card with `miracle_seed_use=0`, and each key at a value
   that is not its default, other than `miracle_hand`.
 - A left handed player, `controller_swap_buttons=1`, and a multiplayer game.

@@ -47,6 +47,10 @@ is built, and no test has proven it.
     run), a tree thrown fast across the land, and the look in a headset.
   - A thrown object is no candidate for 9 to 16 frames after the release,
     while the mod draws it on its arc.
+  - The near grip misses a rock in its fall in a desktop run
+    (`throw_queue.ps1 -Runs dropnear` in `bwvr/tools/desk`). The grip closes
+    4 frames after the hand is at the rock. The rock is then 15.8 cm of the
+    room from the Hand's point, and the reach is 15 cm.
 - **B4. The card does not know a body in the way of a planted tree.** The
   card says "plant" by the tests of the game that it can read (the height,
   the lean, dry land, fire, `grab.md`, "A tree in the Hand"). The game also
@@ -108,6 +112,22 @@ is built, and no test has proven it.
   `DllMain` for a comparison. A desktop run with `exit_run.ps1 -Old` records
   faults of `runblack.exe` too, at the time of the run (the modules
   `unknown`, `nvd3dum.dll_unloaded` and `d3d9.dll`): those are from the test.
+
+- **B10. The picture of a thrown villager moves in steps after its first
+  contact.** A desktop run throws a villager at 2.6 m/s, at 44.4 units for
+  each meter (`village_run.ps1 -Kind throw` in `bwvr/tools/desk`). The first
+  contact is with an object, not with the land. For about 0.25 s after it,
+  the steps of the game are behind the real time (the lines `turn` of the
+  log). The mod draws 3 or 4 frames from one step, 11 to 71 ms after it, so
+  the picture slows and stops. The next frame is 0.6 to 1.7 units away (1.4
+  to 3.9 cm of the room). This occurs three times. In two runs the log
+  counts 47 of 144 and 96 of 175 frames after the newest step, and 2 and 4
+  times that the picture turned back (1.2 cm at most). The same line of the
+  other runs (a rock, a tree and a scaffold, at 44.4 to 225 units for each
+  meter) has 0 to 23 frames of 40 ms at most, and no picture that turned
+  back. Not known: whether the cause is the villager or the
+  contact with an object, and whether a player sees it in a headset.
+  `throw_log=2` gives each frame (the lines `d`).
 
 B1b, B2 and B4 are one package: a thing that is held, thrown, or that
 moves while the Hand takes it.
@@ -217,22 +237,21 @@ moves while the Hand takes it.
 - **N3. The hand model.** The game's finger animations are not played (a
   pose is a curl for each finger). The shadow of the Hand on the land has
   the game's fingers. The textures of an edited hand file are not read.
-- **N4. The Temple.** Not done: the Challenge Room, the Library, a value of
-  the options box, a drag of a scroll. Suspects: the picture of a new save
-  is flat magenta, the waist point is 8.4 units higher after a load, the
-  ray ends short of the pointer in the left eye in a dialog box inside the
-  Temple, and the leash posts are 1.4 cm from each other at the scale of
-  the start. In the ring menu: a thumb on the left stick can open it, and
-  a jump to the town or to a bookmark takes the heading of the game camera.
-- **N5. The village.** Not run: food, a tree, an animal or crops set down
-  at a store, the altar, a gift to the Creature, the red halo outside the
+- **N4. The Temple.** Not done: a click on a frame of the Challenge Room,
+  a text of the Library, a value of the options box, a drag of a scroll.
+  Suspects: the picture of a new save is flat magenta, the waist point is
+  8.4 units higher after a load, the ray ends short of the pointer in the
+  left eye in a dialog box inside the Temple, and the leash posts are 1.4
+  cm from each other at the scale of the start. In the ring menu: a thumb
+  on the left stick can open it, and a jump to the town or to a bookmark
+  takes the heading of the game camera.
+- **N5. The village.** Not run: food, an animal or crops set down at a
+  store, the altar, a gift to the Creature, the red halo outside the
   influence, a Workshop that gives scaffolds, villagers that make chants,
-  a miracle of a Worship Site that is not Water.
-- **N6. Miracles.** Not run: food, wood, lightning, forest, teleport,
-  explosion, flocks, the other Creature miracles, and each reason of a
-  refusal but "needs a Creature".
-- **N7. The commands of the Creature.** Not run: the walk of the Creature
-  to an object that the leash is tied to.
+  and Heal from its icon at the Worship Site.
+- **N6. Miracles.** Not run: teleport, the Creature miracles other than
+  Strong and Freeze, and each reason of a refusal but "needs a Creature"
+  and "needs a circle on the land".
 - **N8. The scripts and the engine camera.** The scripts get the place of
   the player. Not changed: the 114 markers at "camera position",
   `GetFacingCameraPosition`, and the other readers of the engine camera.
@@ -243,21 +262,19 @@ moves while the Hand takes it.
   seconds after a near thing left, a thing smaller than one grid cell can
   be in front, and the advisors are in the measure.
 - **N11. The God view.** No desktop run: the mouse pan, the events that a
-  step of the tutorial waits for, the load of a saved game, and a pick up,
-  a set down and a throw in the God view. The teleport has only its math
-  test. Some cameras of the game still glide: the follow of the Creature
-  after a double click, the pull back past 3500 units, the arrow keys and
-  the automatic tilt (`backend.md`).
-- **N12. The far grab.** No desktop run: the fetch of a thing that floats,
-  a villager in the sea, a Field or a FishFarm as a target, a take while
-  the Hand is outside the influence, and a second object in the Hand
-  (`grab.md`).
-- **N13. The exact Hand.** No desktop run in the Tug, Holding, Creature,
-  Grain and PlayAnim states. The Totem and the Citadel states are not read
-  (`hand.md`).
-- **N14. The throw.** Not tested: a tree that flies, a villager, a throw
-  into a pile and into the sea, and a scale other than 100 units for each
-  meter (`throw.md`).
+  step of the tutorial waits for, and the load of a saved game. Of the
+  teleport, not run: the red arc on the sea, the aim at the sky, the cancel
+  with B and the mouse double click (`god-view.md`, 14.9). Some cameras of
+  the game still glide: the follow of the Creature after a double click, the
+  pull back past 3500 units, the arrow keys and the automatic tilt
+  (`backend.md`).
+- **N12. The far grab.** No desktop run: a villager in the sea, a Field or
+  a FishFarm as a target, a take while the Hand is outside the influence,
+  and a second object in the Hand (`grab.md`).
+- **N13. The exact Hand.** No desktop run in the PlayAnim state. The Totem
+  and the Citadel states are not read (`hand.md`).
+- **N14. The throw.** Not tested: a throw into a pile, and whether a thrown
+  villager lives (`throw.md`).
 - **N15. The interface panel** (`ui_panel=1`). No run, on the desktop or in
   a headset (`ui-layer.md`).
 - **N16. A PC with no DirectX 9 runtime.** No test has run the mod on a PC
@@ -270,10 +287,12 @@ moves while the Hand takes it.
 - **R1. The installer and a person.** No person has run the installer on a
   real game folder and told the result: the install, an update over a
   build that is installed, and the uninstall.
-- **R2. The run scripts of one area** (`village_run.ps1`, `temple_run.ps1`,
-  `miracle_run.ps1` in `bwvr/tools/desk/`) have not run from this repo, and
-  `hand_run.ps1` has run only with `-Kind one`. `-Box` of `hand_run.ps1` is
-  a place of the start dialog at one render size.
+- **R2. `hand_run.ps1 -Kind creature` does not choose a Creature.** At the
+  Creature select the double click of A makes the jump of the game, and a
+  grip on one of the three Creatures starts no Creature state. Find how the
+  plain game chooses a Creature there, and correct the recipe
+  (`bwvr/tools/desk/README.md`, "The scripts of one area"). `-Kind old`
+  reaches the Creature state.
 - **R3. The game window is in front in a desktop run.** Windows gives the
   front to the game window of a run on a PC that nobody uses, with no call
   of the game process (`bwvr/tools/desk/README.md`, and `backend.md`, "Who

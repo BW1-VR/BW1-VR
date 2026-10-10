@@ -1,8 +1,11 @@
-# Desktop runs of the totem of the Village Centre and the miracle icons of the
-# Worship Site. See bwvr/docs/village.md, "The village with the real hand".
+# Desktop runs of the village: the totem of the Village Centre, the miracle
+# icons of the Worship Site, the Village Store, a villager, scaffolds and the
+# Workshop. See bwvr/docs/village.md, "The village with the real hand", and
+# bwvr/docs/grab.md.
 #
 #   village_run.ps1 -Name vilD -Dll <dll> -Kind miracle
 #   village_run.ps1 -Name vilE -Dll <dll> -Kind totem -Set "totem_hand=0"
+#   village_run.ps1 -Name vilF -Dll <dll> -Kind miracle -Icon 3
 #
 # The start is the choice "Keep your old Creature" (spawn_run.ps1): no story,
 # and a town of the player with no Worship Site. The test keys of village.cpp
@@ -21,7 +24,10 @@
 # -Kind miracle: a tap on the icon of Water, the pour, the power up with the
 #                spiral (B and the word "trace"), a tap of B (the cancel), the
 #                choice with the gestures (the spiral and the W shape), and a
-#                shake.
+#                shake. -Icon gives the seed type of a different icon (3 is
+#                Food, which pours as Water does).
+# The other kinds (charge, store, job, tree, throw, probe, workshop, site,
+# build, scaffold) have a comment at their steps below.
 param(
     [Parameter(Mandatory = $true)][string]$Name,
     [Parameter(Mandatory = $true)][string]$Dll,
@@ -84,6 +90,27 @@ if ($Kind -eq 'totem') {
     if ($Steps -eq '') {
         $Steps = $pre + 'seek@920+1 seek@1000+1 seek@1040+1 grip@1046+260 seek@1180+1 shot@1420+1'
     }
+} elseif ($Kind -eq 'tree') {
+    # A tree near the Village Store: the grip takes it, the hand goes to the
+    # point of the store and the grip opens. The store takes the tree as
+    # wood.
+    if ($Plan -eq '') { $Plan = 'gostore,store,treebase,store' }
+    if ($Census -eq '') { $Census = '890' }
+    if ($Seconds -eq 0) { $Seconds = 62 }
+    if ($Steps -eq '') {
+        $Steps = $pre + 'seek@920+1 seek@1000+1 seek@1040+1 grip@1046+260 seek@1180+1 shot@1420+1'
+    }
+} elseif ($Kind -eq 'throw') {
+    # A villager near the Village Store: the grip takes him, the hand steps
+    # 15 cm toward the head, and the grip opens in that step: a throw of
+    # about 2.6 m/s at 44 units for each meter.
+    if ($Plan -eq '') { $Plan = 'gostore,store,villager' }
+    if ($Census -eq '') { $Census = '890' }
+    if ($Seconds -eq 0) { $Seconds = 62 }
+    if ($Steps -eq '') {
+        $Steps = $pre + 'seek@920+1 seek@1000+1 seek@1040+1 grip@1046+100 pull@1143+3 shot@1200+1 shot@1420+1'
+    }
+    $keys = "$keys;throw_log=1"
 } elseif ($Kind -eq 'probe') {
     # One scaffold in the Hand over six places of the test key seek_go: the
     # log says where the game has a place for a building.

@@ -2,14 +2,25 @@
 # given DLL through desk_run.ps1. Gives up after -Minutes.
 #
 #   hand_run.ps1 -Name hs1 -Dll <dll> -Kind one -Seconds 200
+#   hand_run.ps1 -Name hs2 -Dll <dll> -Kind old -Seconds 200
+#   hand_run.ps1 -Name hs3 -Dll <dll> -Kind creature -Seconds 260
 #
 # -Kind chooses the script:
-#   one    One target: the air, the scroll and the crown, each with
-#          near_rule 1 and then 2 (near_test_flips), at the start place and
-#          at the store.
-#   fixed  The same places from -Points (cm from the head), with no seek, so
-#          a DLL of an older build runs the same test. -Steps gives the
-#          script after the start dialog.
+#   one       One target: the air, the scroll and the crown, each with
+#             near_rule 1 and then 2 (near_test_flips), at the store of Land
+#             1. With near_rule 2 the grip at the scroll takes the rock beside
+#             it: the Tug state, the Holding state and a set down.
+#   old       The start "Keep your old Creature". Four times: the grip on the
+#             Creature (the Creature state), four strokes and two slaps.
+#   creature  The start "Skip straight to the Creature select". The steps for
+#             the choice of a Creature at the Creature select, and then the
+#             steps of "old". The choice does not work now: no Creature is
+#             chosen, and no Creature state starts (README.md, "Known limits
+#             of the recipes").
+#   fixed     The places from -Points (cm from the head), with no seek, so a
+#             DLL of an older build runs the same test. -Steps gives the
+#             script after the start dialog. With no -Points and no -Steps
+#             the run only closes the start dialog.
 param(
     [Parameter(Mandatory = $true)][string]$Name,
     [Parameter(Mandatory = $true)][string]$Dll,
@@ -17,7 +28,7 @@ param(
     [string]$Set = '',
     [string]$Steps = '',
     [string]$Points = '',
-    [string]$Box = '-16,-6,100',
+    [string]$Box = '',
     [int]$Seconds = 200,
     [int]$Minutes = 600
 )
@@ -26,8 +37,8 @@ $sp = Split-Path -Parent $MyInvocation.MyCommand.Path
 # The steps that close the start dialog.
 $dialog = 'point@400+1 trigger@440+8 pose2@500+1 point@520+1 trigger@560+8'
 # The two dialog points depend on the render size. dialog.ps1 measures a
-# new size one time and gives them. -Box is a fixed place of the dialog (it
-# fits a render of 2560 by 1440), and dialog.ps1 does not correct it.
+# new size one time and gives them. For -Kind old it also gives the point of
+# the fourth box. -Box gives a different point for that box.
 . (Join-Path $sp 'dialog.ps1')
 if (-not (Confirm-DialogCalibration -Dll $Dll)) {
     'NOT RUN: the start dialog is not measured for this render size'
@@ -94,6 +105,7 @@ if ($Kind -eq 'one') {
     # and seek_plan=creature puts the hand on the body bone of the nearest
     # Creature in view. Four times: the grip held with four strokes (nudge),
     # a slap of the wrist (rot out and in) and a slap of the arm.
+    if ($Box -eq '') { $Box = (Get-DialogPoints 'keep').Row }
     $extra.fake_controller_points = "$Box $d2 0,-30,60"
     $extra.fake_controller_rots = '-27,1,0 8,1,0'
     $extra.seek_plan = 'creature'

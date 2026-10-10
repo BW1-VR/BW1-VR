@@ -1668,8 +1668,10 @@ Desktop runs [R] (the God view, `fake_controller=2`, the start choice "Keep
 your old Creature"): each choice goes into the key buffer of the game, and the
 line "the game:" or the camera watch shows what it did. Seen: `temple` (the
 God view goes to the Temple), `enter` (the player is in the hall, the pause is
-on), `room_creature` and `room_save`, `hall`, `leave` (in a room: the hall, in
-the hall: out of the Temple, the pause as before, the God view where it was),
+on), `room_creature`, `room_challenge`, `room_save` and `room_library` (a
+choice of the room that the player is in does not act), `hall`, `leave` (in a
+room: the hall, in the hall: out of the Temple, the pause as before, the God
+view where it was),
 `creature` (the God view moves to the Creature, scale and heading kept),
 `leash_compassion` and `leash_aggression`, `town`, `mark_set`, `mark_go`,
 `mark_back`, `land`, `slower` and `faster` (0.50, 1.00, 2.00, and a refusal at
@@ -1683,9 +1685,9 @@ not open.
 
 Not run: `save` and `load`, because a quick save writes a saved game of the
 profile and a test must not do that. They use the same path as each other
-action key. Also not run: `room_challenge`, `room_options` and `room_library`
-(the same call with a different room), the left hand as the pointing hand, the
-test key, and a real controller.
+action key. Also not run: `room_options` (the same call with a different
+room), the left hand as the pointing hand, the test key, and a real
+controller.
 
 Needs the headset:
 
@@ -1727,11 +1729,11 @@ It holds the 7 rooms at `+0x00` to `+0x18`, and the room of now at `+0x1C` [V].
 | --- | --- | --- |
 | 0 | The hall | It is the World Room of the game (`WorldRoom`, camera `WorldRoomCamera`). A pool in the floor shows the land. Pads at the pool are check boxes: each pad has one sub mesh for "on" and one for "off" (sub mesh 2 and 1), and they change what the pool shows [R]. A large scroll hangs at the far wall (sub mesh 112, `WorldRoom::WorldScrollSet` `0x0079F090`). The doors of the rooms are in the wall, each with a sign [R] |
 | 1 | The Creature Room | `CreatureRoom`, camera `CreatureRoomCamera`. 4 scrolls (sub meshes 80 to 83) with the statistics of the Creature: `CreatureScrollCreatureSet`, `FightSet`, `LikesSet` and `MagicSet` [R]. The belts and medals of the Creature, and a picture of it |
-| 2 | The Challenge Room | `ChallengeRoom`, camera `ChallengeRoomCamera`. The challenges of the land. A challenge can start again from there (`TempleChallenge::StartScript`). Not run |
+| 2 | The Challenge Room | `ChallengeRoom`, camera `ChallengeRoomCamera`. The challenges of the land. A challenge can start again from there (`TempleChallenge::StartScript`). The ring goes there, and the guide of the first visit plays for about 1500 frames. The view of the start has 4 frames (sub meshes 76, 77, 83 and 84) [R]. No run clicked a frame |
 | 3 | The room of the multiplayer game | Not open in a single player game. Not examined |
 | 4 | The Options Room | `GameOptionsRoom`. It has no controls of its own. When its camera is at rest it opens the options box of the game (`GameOptionsRoom::Update` `0x0078D860`), and when the box closes it goes back to the hall [V, R] |
 | 5 | The Save Game Room | `SaveGameRoom` (a `PictureRoomBase`). Each picture is a slot. The function of picture N is the stub at `0x00791360 + 0x10 * N`, and each stub calls `fn_00790B30` [V]. The first click turns the camera to the picture. A second click on a picture with no saved game, for N from 0 to 13, opens the box "Save Game Message" with a text line, OK and Cancel, and OK makes the save [R]. A click on that picture with a saved game opens the box "Are you sure you want to load this game?" with Yes and No (`ComfirmForLoadGame`), and Yes loads it [R]. The slots 14 and more are the saves that the game makes by itself ("Auto Save Land: 1", "Auto Save On Exit") [R]. The room also has a scroll (sub mesh 167, `SaveGameScrollSet`). The view of the start has the pictures of the slots 0, 1, 7 and 8 [R] |
-| 6 | The Library | `CreditsRoom`. Texts on navigation, the Creature, village life, miracles and history. Not run |
+| 6 | The Library | `CreditsRoom`. Texts on navigation, the Creature, village life, miracles and history. The ring goes there, and the guide of the first visit plays for about 650 frames. The view of the start has 3 scrolls (sub meshes 63, 97 and 103). A click on a scroll turns the camera of the room to it [R] |
 
 This version has no separate World Room: the hall is that room.
 
@@ -2017,7 +2019,13 @@ folder of the new slot after the profile guard has taken its files away.
   the saves apart.
 - **The picture of a new save** is one flat color in the room. The cause is
   open.
-- **The Challenge Room and the Library** were not run with the ray.
+- **The Challenge Room.** A run goes there with the ring, and the scan of the
+  test finds its four frames. No run clicked a frame.
+- **The Library.** A run goes there with the ring, and the scan finds its
+  three scrolls. One click on a scroll is seen: the press is 0.2 cm from the
+  ray, the room starts the drag of a control, and the camera turns 44
+  degrees to the scroll. After that turn a second scroll was not in the
+  view. No run read a text of the Library.
 - **The Options Room** is the options box of the game. No run changed a value
   there.
 - **A drag of a scroll** was not seen: the first click on a scroll starts a

@@ -1080,11 +1080,13 @@ and the camera events (0x304 for a wheel click and 0x308 for a land drag).
 
 ## 13. Open items and what needs the headset
 
-- **Not tested on the desktop:** a pick up, a set down and a throw in the God
-  view. The two hand zoom by the grips has only the math test. An advisor
-  goes to a place of the world in a desktop run only with a test
-  (`tabletop.md`, "A spirit at a place of the world"). No desktop run has the
-  sound.
+- **Shown on the desktop:** a pick up, a set down and a throw in the God
+  view, at 66.7, 100 and 225 units per meter (`hand_run.ps1` and
+  `throw_queue.ps1` in `bwvr/tools/desk`).
+- **Not tested on the desktop:** the two hand zoom by the grips has only the
+  math test. An advisor goes to a place of the world in a desktop run only
+  with a test (`tabletop.md`, "A spirit at a place of the world"). No desktop
+  run has the sound.
 - **The mouse pan on the desktop** and the **tutorial events** (section 7)
   have not run in the game. The numbers and the bits come from the binary.
   The run is in section 12.
@@ -1379,6 +1381,14 @@ holds the view until the pen. If camera switch `0x10` is off at the pen, the
 press of A is refused and the log says so. Then use a game start that turns it
 on.
 
+`aim_queue.ps1 -Runs ring1,ring0` in `bwvr/tools/desk` makes three teleports at
+the pen: at 100 units a meter, after two zoom steps in (44.4) and after five
+zoom steps out (337.5). The runs show for each teleport that the head is over
+the target (0.000 units off), that the land under the head keeps its room
+height, and that the scale and the heading stay. With `teleport_ring_mode=1`
+the ring has a radius of 11.0 cm, 24.7 cm and 4.0 cm of the room at the three
+scales. With `teleport_ring_mode=0` it has 11.0 cm at each scale.
+
 1. A at the pen: `a@3000+10`. With the switch off, the log shows "A is
    refused: the game's jump switch is off (camera switch 0x10)".
 2. With the switch on, two aims and a release: `a@N+90 pose2@N+30+1`. The
@@ -1399,8 +1409,8 @@ on.
 
 ### 14.10 Not tested
 
-- The teleport has run only in the math test. No desktop run has shown it in
-  the game.
+- Not run on the desktop: the red arc on the sea, the aim at the sky, the
+  cancel with B and the mouse double click (the steps 4 to 7 of 14.9).
 - The look of the arc and the ring in the headset: the width of 6 mm, the
   colors, the limits of 4 and 40 cm of the ring, and whether the arc is easy to aim at 4000 units a
   meter.

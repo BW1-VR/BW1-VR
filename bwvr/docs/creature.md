@@ -1246,6 +1246,7 @@ Two scripts in `bwvr/tools/desk/` reach the Creature of the player:
 creature_recipe.ps1 -Name <run> -Dll <dll>
 creature_recipe.ps1 -Name <run> -Dll <dll> -Kind leash
 creature_recipe.ps1 -Name <run> -Dll <dll> -Kind stay
+creature_recipe.ps1 -Name <run> -Dll <dll> -Kind tie
 ```
 
 The kind `state` (the default) does these steps:
@@ -1276,6 +1277,12 @@ The kind `stay` stays at 100 units a meter too. Each grip comes after an
 3. Two grips of 6 frames. The leash goes on and comes off.
 4. A grip of 40 frames: a stay that ends soon after its start.
 
+The kind `tie` stays at 100 units a meter: the grip from a distance (the
+leash goes on), `aimcmd`, and two presses of the trigger 17 frames apart (a
+command, and then the leash tied to the object). Then the word `seek` comes
+six times, 300 frames apart. Each `seek` gives a log line with the place of
+the Creature, so the log shows the walk to the object.
+
 The recipe takes no picture while the grip is closed, because the frame of a
 picture can take 250 ms. With `-Set "creature_hold_stay=0"` the same steps
 give a leash click at each close of the grip, and no stay.
@@ -1297,9 +1304,14 @@ the run:
 | `creature stay: ...` | the stay, from its start to the Creature that goes on |
 | `creature cmd : the leash is on / off` | the leash |
 
-For the commands, the desktop run uses `creature_command_test=N` (section
-4.5). No desktop run can reach an owned Creature on a leash from a new game.
-With the recipe and the word `aimcmd`, a tree near the Creature is the target.
+For the commands, a desktop run can use `creature_command_test=N` (section
+4.5), which counts the leash as on. The start "Keep your old Creature" gives
+an owned Creature, and a short grip from a distance puts the leash on it. The
+kind `tie` uses that: with the word `aimcmd`, an object near the Creature is
+the target, and two short presses of the trigger send the Creature to it and
+tie the leash to it. The run shows packet `0x5D`, packet `0x5C` 318 ms later,
+the line "the leash is tied to", and the walk: the Creature goes from 97
+units to 9 units from the object in 1500 frames.
 
 The speed of a step of the fake hand depends on the time of its frame, and a
 step is one frame long. A real stroke is not. So the desktop shows that the

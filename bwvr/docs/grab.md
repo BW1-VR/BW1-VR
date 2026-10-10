@@ -1247,13 +1247,16 @@ The math test (`far_checks.h`, `RangeChecks` in `grip_checks.h`):
   wanted direction.
 
 Desktop runs have shown the fetch of an object at rest, a fetch of an object in
-flight (the lock follows it), and the end of a lock when the game deletes the
-object. Desktop runs (God view, `fake_controller=2`, Land 1, `-NEWGAME`) use the
-dialog recipe of [god-view.md](god-view.md), section 12, then the pen from about
-frame 2750.
+flight (the lock follows it), the same for a rock that flies over the sea, a
+fetch of a rock from the sea 1.8 s after its first contact with the water
+(its point is then 0.5 units under the sea plane), and the end of a lock when
+the game deletes the object. Desktop runs (God view, `fake_controller=2`,
+Land 1, `-NEWGAME`) use the dialog recipe of [god-view.md](god-view.md),
+section 12, then the pen. The steps count from the frame at which the first
+story ends (`fake_controller_play_frame=2750`, `aim_queue.ps1` and
+`throw_queue.ps1` in `bwvr/tools/desk`).
 
-**Not shown in a run:** a villager beside a tree (the start of Land 1 has no villager in view, so the runs use a rock and a tree), a fetch of an object over the sea or in it, an object
-with its point under the sea plane, a locked target that drifts out of the
+**Not shown in a run:** a villager beside a tree (the start of Land 1 has no villager in view, so the runs use a rock and a tree), a locked target that drifts out of the
 influence, a villager in the sea, the tether and the halo during a take at a
 distance, a `Field` and a `FishFarm` as a far target, a take with the Hand over
 land outside the influence, a multiplayer game, a fetch of a villager, a
@@ -1621,10 +1624,11 @@ reach for the altar and for a Creature, and the line of the card for each pair o
 the tables above.
 
 Desktop runs (the God view, `village_run.ps1`) have shown wood at the Village Store,
-two scaffolds, wood at the Workshop, wood at a building site and a scaffold, and a
-villager at a tree and at the Village Store.
+a tree at the Village Store (the card says "Open to give the tree as wood", and the
+store has more wood after the opening), two scaffolds, wood at the Workshop, wood at
+a building site and a scaffold, and a villager at a tree and at the Village Store.
 
-**Not run on the desktop:** food, a tree, an animal and a crop at a store (the same
+**Not run on the desktop:** food, an animal and a crop at a store (the same
 code with a different class), the altar and a sacrifice, a teleport, an object given
 to a Creature, a thing outside the influence (the red halo and its line), a villager
 at a field, at a building site and at the Workshop, and a scaffold that the Workshop

@@ -77,8 +77,8 @@ calls it. It keeps these rules, and a new script must keep them too:
 | `aim_run.ps1`, `aim_queue.ps1` | The far fetch, the aim presets, the teleport |
 | `throw_queue.ps1` | Throws and landings |
 | `spawn_run.ps1` | A start with "Keep your old Creature": no story, the player at the Temple |
-| `creature_recipe.ps1` | The Creature state, strokes and a slap. With `-Kind leash` or `-Kind stay`: the leash and the stay from a distance |
-| `hand_run.ps1`, `village_run.ps1`, `temple_run.ps1`, `miracle_run.ps1` | Runs for the near hand, the village, the Temple and miracles |
+| `creature_recipe.ps1` | The Creature state, strokes and a slap. With `-Kind leash`, `-Kind stay` or `-Kind tie`: the leash, the stay from a distance, and the leash tied to an object |
+| `hand_run.ps1`, `village_run.ps1`, `temple_run.ps1`, `miracle_run.ps1` | Runs for the near hand, the village, the Temple and miracles. See "The scripts of one area" |
 
 The scripted controller is driven by ini keys: `fake_controller_script` (words
 such as `point@400+1`, `grip@3100+101`, `trigger@440+8`: the word, the frame
@@ -96,10 +96,51 @@ and keeps the result in `local\dialog-calibration.json`. Each run script
 takes its dialog points from there. You do nothing for it. It happens one
 time for each new render size.
 
-`verify_build.ps1` and the scripts that it calls are the maintained set. The
-scripts for one area (`hand_run.ps1`, `village_run.ps1`, `temple_run.ps1`,
-`miracle_run.ps1`) have run on one PC only, and can need a correction on a
-different PC.
+`verify_build.ps1` and the scripts that it calls are the maintained set.
+
+## The scripts of one area
+
+Each of these scripts makes runs of one area, and prints the lines of the
+log that show the result. The header comment of each script has its
+parameters. The frames of a recipe fit a game that runs at about 60 frames a
+second.
+
+| Script | The start of the game | The kinds and what they do | A run takes |
+| --- | --- | --- | --- |
+| `hand_run.ps1` | "Skip straight to the Creature select" (`one`, `creature`, `fixed`), "Keep your old Creature" (`old`) | `one`: the grip in the air, at a scroll and at the crown of a tree, with `near_rule` 1 and 2. With `near_rule` 2 the grip at the scroll takes the rock beside it and sets it down. `old`: the grip on the Creature, strokes and slaps. `creature`: the choice of a Creature at the Creature select. `fixed`: places from `-Points` and steps from `-Steps` | 200 s, 260 s for `creature` |
+| `throw_queue.ps1 -Runs <names>` | "Skip straight to the Creature select" | A far fetch at the pen and a throw (`land`, `base`, `early`, `tree`, `sea`), the same at a different scale (`landout`, `landin`), a release with a still hand (`fall`, `fallold`), and a new grip on an object that falls, flies or rolls (the names with `drop`, `fly` and `roll`) | 80 to 112 s each |
+| `aim_queue.ps1 -Runs <names>` | "Skip straight to the Creature select" | The aim presets and the trim (`aim2`), a fetch of a thrown rock over the sea and from the sea (`move2`, `move1b`), a Creature command with the leash counted as on (`cmd1b`), and the teleport at three scales (`ring1`, `ring0`) | 112 to 140 s each |
+| `creature_recipe.ps1` | "Keep your old Creature" | `state`: the Creature state, strokes and a slap. `leash`: the leash on and off. `stay`: the stay from a distance. `tie`: the leash tied to an object, and the walk of the Creature to it | 65 to 75 s |
+| `village_run.ps1` | "Keep your old Creature" | `miracle`: a miracle from an icon of the Worship Site (`-Icon 3` is Food). `totem`, `charge`. `store`, `tree` and `job`: wood, a tree and a villager at the Village Store. `throw`: a thrown villager. `scaffold`, `build`, `site`, `probe`, `workshop` | 60 to 100 s |
+| `miracle_run.ps1` | "Keep your old Creature" | `creature`, `throw`, `cancel`, `place`, `shield`: a miracle from a seed that the test key `miracle_test_seeds` makes. `-Seeds` gives other seed types, and `-Steps` other steps | 75 s |
+| `temple_run.ps1` | "Keep your old Creature" | The ring item `enter`, and then the steps of `-Steps` in the Temple. `-NoEnter` stays on the land. `-SaveTest` makes a save, and starts only when the profile has no saved game in the slots 0 to 13 | 190 s |
+
+What these scripts need:
+
+- The profile of the game needs a Creature for each start with "Keep your
+  old Creature".
+- `dialog.ps1` gives the points of the start dialog to each script, also the
+  point of the fourth box for `hand_run.ps1 -Kind old`.
+- A miracle that pours (Water, Food, Wood and Lightning) stays in the Hand
+  after the pour. A recipe with more than one seed must take it out of the
+  Hand (a tap of B) before it takes the next seed.
+- The word `pull` steps the hand 15 cm toward the head, and the next `pull`
+  steps it back. A recipe with two fetches needs a `pull` with an empty hand
+  between them.
+
+Known limits of the recipes:
+
+- `hand_run.ps1 -Kind creature` does not choose a Creature: the double click
+  of A at the pen makes the jump of the game, and a grip on a Creature of the
+  Creature select starts no Creature state.
+- `throw_queue.ps1 -Runs rollnear` and `-Runs rollfar` do not take the rock
+  in its roll. The word `seek` or `aimfar` comes 1.6 s after the release.
+  The rock is then 1.1 to 1.2 m of the room from the Hand, and the draw of
+  the game does not offer it (the log says "seen 0"), so it is no candidate.
+  `dropfarroll` takes a rock that rolls after a fall.
+- A run in which a person uses the PC does not count: the game window can
+  lose the front, and the real mouse can take the pointer from the scripted
+  controller. `desk_run.ps1` says when a person used the PC in a run.
 
 ## The shared folder
 

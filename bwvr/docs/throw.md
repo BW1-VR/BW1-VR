@@ -293,13 +293,28 @@ turns and steps, and the time that the steps took.
   lands where the real throw lands, and the flight takes k times the real
   time. At 7.5 units per meter k = 4 is cut to 2.74.
 
+### Desktop runs
+
+`throw_queue.ps1` and `village_run.ps1` in `bwvr/tools/desk` throw an object
+with the scripted hand, and the log has the lines of each flight. The runs
+show these flights. The distance is from the object to the real arc at the
+first contact, in cm of the room.
+
+| Recipe | The object and the throw | The first contact | The end |
+| --- | --- | --- | --- |
+| `throw_queue.ps1 -Runs landout` | A rock, 2.5 m/s, at 225 units per meter | After 1.09 s, 0.3 cm from the arc | At rest |
+| `throw_queue.ps1 -Runs landin` | A rock, two throws of 3.0 and 3.1 m/s, at 66.7 units per meter | After 0.83 s and 0.82 s, 0.3 cm and 1.2 cm from the arc | At rest |
+| `throw_queue.ps1 -Runs tree` | A tree, 3.0 m/s, at 100 units per meter | After 1.03 s, 2.3 cm from the arc | The tree settles, and the game takes it out of the physics 2.7 s after the release |
+| `throw_queue.ps1 -Runs sea` | A rock, 8.3 m/s toward the sea, at 100 units per meter | After 2.64 s on the sea, about 7.8 m from the release, 0.4 cm from the arc | The flight ends 20 s later, when the object is under the sea |
+| `village_run.ps1 -Kind throw` | A villager, 2.6 m/s, at 44.4 units per meter | After 0.54 s on an object, 2.7 to 3.1 cm from the arc | At rest 3.5 to 4.2 s after the release. For about 0.25 s after the first contact the picture moves in steps: the steps of the game are behind the real time |
+
 ### Open
 
 - The last 0.1 to 0.2 s of a roll is not drawn: when the object comes to
   rest, the picture goes to the place of rest at once.
 - A Miracle and the objects that a thrown object pushes keep the game's time.
-- A flying tree is tested in a desktop run only for a fall from the Hand (see
-  "The landing of a tree"), and not in the headset.
+- A flying tree is tested in desktop runs only (a throw of 3.0 m/s, and a
+  fall from the Hand, see "The landing of a tree"), and not in the headset.
 - Only a headset shows: whether a throw feels like a real throw at 7.5, 67
   and 400 units per meter, whether the top speed of 120 ms gives the throw
   that the player meant, whether a quick put down throws by accident (the 1
@@ -472,8 +487,10 @@ catch up of the picture (`kCatchUp`).
 
 ### Open
 
-- Not tested: a villager, a throw into a pile of objects, a throw into the
-  sea, and a scale other than 100 units per meter.
+- Not tested: a throw into a pile of objects. A desktop run shows the landing
+  of a villager, of a rock in the sea and of a rock at 66.7 and at 225 units
+  per meter ("Desktop runs" in "The throw physics"). The log does not say
+  whether a thrown villager lives.
 - Only a headset shows: whether the landing looks natural at the rate of the
   land, or too slow (on the slope of the pen the rock moves slowly for about
   2.5 s before it stops: try `throw_land=2` with the Pause key, or a higher
@@ -608,8 +625,12 @@ throw at each height.
 
 ### Open
 
-- Not tested in a desktop run: a pot, a villager, a tree and an animal that
-  fall from the Hand, and an opening over a store at a height. Only a headset shows whether 15 cm feels right.
+- A desktop run (`throw_queue.ps1 -Runs fall` in `bwvr/tools/desk`) shows a
+  rock that falls from 45.9 cm, and a tree that the Hand sets down at 2.0
+  cm. A tree that falls is in "The landing of a tree".
+- Not tested in a desktop run: a pot, a villager and an animal that fall
+  from the Hand, and an opening over a store at a height.
+- Only a headset shows whether 15 cm feels right.
 
 ## The release at once
 

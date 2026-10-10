@@ -6,6 +6,7 @@
 #   creature_recipe.ps1 -Name x3 -Dll <dll> -Kind leash
 #   creature_recipe.ps1 -Name x4 -Dll <dll> -Kind stay
 #   creature_recipe.ps1 -Name x5 -Dll <dll> -Kind stay -Set "creature_hold_stay=0"
+#   creature_recipe.ps1 -Name x6 -Dll <dll> -Kind tie
 #
 # The start: the choice "Keep your old Creature" of the start dialog (through
 # spawn_run.ps1 and desk_run.ps1). It gives a game with no story, and the
@@ -29,6 +30,13 @@
 #   short press of the trigger with the aim on the Creature (the leash comes
 #   off), the grip again (on), and a grip of 300 frames (the Creature stays,
 #   the leash does not change, and no state starts).
+# -Kind tie:
+#   At 100 units a meter: the grip from a distance (the leash goes on), the
+#   aim on an object that a command can act on (the word "aimcmd"), and two
+#   short presses of the trigger: the Creature goes to the object, and the
+#   leash is tied to it. Then six times the word "seek", 300 frames apart:
+#   each one gives a log line with the place of the Creature, so the log
+#   shows its walk to the object.
 # -Kind stay:
 #   At 100 units a meter: the hand aims at the Creature from a distance and
 #   holds the grip for 300 frames (the Creature stays at the door, and then
@@ -80,6 +88,14 @@ if ($Kind -eq 'stay') {
 } elseif ($Kind -eq 'leash') {
     $steps = 'look@800+1200 point@860+1 aimfar@890+1 shot@900+1 grip@910+6 shot@950+1 ' +
              'trigger@980+6 aimfar@1060+1 grip@1080+6 aimfar@1160+1 grip@1180+300'
+} elseif ($Kind -eq 'tie') {
+    # The second press of the trigger comes 17 frames after the first one: a
+    # double press. The walk takes about 1500 frames, so the run is 75 s
+    # long or more.
+    if ($Seconds -lt 75) { $Seconds = 75 }
+    $steps = 'look@800+2600 point@860+1 aimfar@890+1 grip@910+6 aimcmd@1000+1 shot@1010+1 ' +
+             'trigger@1020+6 trigger@1037+6 seek@1100+1 seek@1400+1 seek@1700+1 seek@2000+1 ' +
+             'seek@2300+1 seek@2600+1 shot@2610+1'
 } else {
     # The Creature state starts 30 to 230 frames after the press, when the
     # Creature has ended its body action. So the strokes start at 1260.
@@ -99,7 +115,8 @@ if (-not (Test-Path $log)) { "no log at $log"; exit 1 }
 $pattern = '^hand creature: (the body of|a press|the Creature state|the hand of|a stroke|a slap|a hard slap|the press ends)|' +
            '^hand pick    : the target is|^hand press   : the grip pressed on|' +
            '^far grab    : (the grip closed|the grip opened|the hand cannot)|^creature stay: |' +
-           '^creature cmd : (the leash|a short press)|' +
+           '^creature cmd : (the leash|a short press|a double press|the trigger opens|test: aimcmd)|' +
+           '^hand pick    : seek plan: the Creature|' +
            '^haptics      : (\d+ pulses|leash|slap|touch|activate)'
 Get-Content $log | Where-Object { $_ -match $pattern } | ForEach-Object {
     $_.Substring(0, [Math]::Min(300, $_.Length))

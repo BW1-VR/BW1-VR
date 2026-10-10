@@ -11,8 +11,12 @@
 #   Creature from a distance, a shake (5 steps of the word "pull"), a second
 #   seed, a press with the Hand on the Creature, and a short press of B.
 # -Kind throw: a Fireball (2): hold the grip, a step of the hand, open. Then
-#   Water (9): hold the grip for 90 frames. Then Heal (7): a press. Then a
-#   Creature seed that the Hand carries, and the trigger.
+#   Water (9): hold the grip for 90 frames, and a tap of B. Water stays in
+#   the Hand after a pour, and the tap takes it out. Then Heal (7): a press.
+#   Then a Creature seed that the Hand carries, and the trigger.
+# The other kinds (cancel, place, shield) have a comment at their steps
+# below. -Seeds gives other seed types to the steps of a kind (the types are
+# in bwvr/docs/miracles.md), and -Steps gives other steps.
 param(
     [Parameter(Mandatory = $true)][string]$Name,
     [Parameter(Mandatory = $true)][string]$Dll,
@@ -32,7 +36,7 @@ if ($Kind -eq 'throw') {
     if ($Steps -eq '') {
         $Steps = 'stick_up@800+10 stick_up@830+10 look@860+5000 point@900+1 ' +
                  'seek@960+1 grip@1000+3 point@1080+1 grip@1120+40 pull@1156+3 ' +
-                 'pull@1230+1 point@1300+1 seek@1360+1 grip@1400+3 point@1480+1 grip@1520+90 ' +
+                 'pull@1230+1 point@1300+1 seek@1360+1 grip@1400+3 point@1480+1 grip@1520+90 b@1640+5 ' +
                  'point@1700+1 seek@1760+1 grip@1800+3 point@1880+1 grip@1920+10 ' +
                  'point@2000+1 seek@2060+1 grip@2100+260 trigger@2200+6 shot@2420+1'
     }
@@ -94,4 +98,4 @@ $pattern = '^miracle      :|^hand press   : the grip pressed|^haptics      : (ef
            '^hint card    : frame .*(iracle|ancel|Cast|pour|throw|Use)|^hand         : state'
 Get-Content $log | Where-Object { $_ -match $pattern } | ForEach-Object {
     $_.Substring(0, [Math]::Min(420, $_.Length))
-} | Select-Object -First 90
+} | Select-Object -First 220
