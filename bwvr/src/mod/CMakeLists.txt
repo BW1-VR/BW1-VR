@@ -45,6 +45,7 @@ add_library(bwvr_mod SHARED
     far_grab.cpp
     forest_take.cpp
     creature_command.cpp
+    creature_stay.cpp
     miracle.cpp
     village.cpp
     radial_menu.cpp

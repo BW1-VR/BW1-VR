@@ -255,6 +255,10 @@ size of your hand.
                       a store or a far field, the closed grip collects
                       with no pull. On a far scroll, the closed grip
                       starts the scroll.
+  Grip, far Creature  Point at your Creature from a distance. A short
+                      grip changes its leash. Keep the grip closed,
+                      and your Creature stops and stays until you
+                      open the grip.
   Stick up, down      Zoom in or out one step.
   Stick left, right   Turn one step.
   A                   Hold it and an arc shows where you will go.
@@ -611,11 +615,25 @@ grip to stop. A short press of the grip on your Creature changes its
 leash, as a short click with the mouse does. When the interface panel
 is set up, the panel of the Creature shows near the Creature.
 
-To change the leash from a distance, point your hand at your Creature
-and close the grip. The card on your hand says what the grip does: put
-the leash on, take it off, or take it back from an object. This does
-not start a stroke. For a stroke or a slap, put your hand on the
-Creature. Set far_leash=0 in bwvr.ini to turn this off.
+To change the leash from a distance, point your hand at your Creature,
+close the grip and open it again at once. The leash changes when the
+grip opens. The card on your hand says what the grip does: put the
+leash on, take it off, or take it back from an object. This does not
+start a stroke. For a stroke or a slap, put your hand on the Creature.
+Set far_leash=0 in bwvr.ini to turn this off.
+
+To make your Creature stay, point your hand at it from a distance,
+close the grip and keep it closed. After a third of a second the
+controller gives a pulse. Your Creature stops, turns to you, looks at
+your hand and stays where it is for as long as the grip is closed. You
+can move your hand in that time. Open the grip, and your Creature goes
+on by itself. A stay does not change the leash. It is not a stroke and
+not a slap, so your Creature learns nothing from it. The card says
+"Grip hold Make it stay". Set creature_hold_stay=0 in bwvr.ini to turn
+the stay off: each grip then changes the leash when it closes. Set
+creature_hold_stay_ms in bwvr.ini to change the time of the hold, in
+milliseconds (350). Set creature_stay_look=0 if your Creature must not
+look at your hand.
 
 While the leash is on your Creature, the trigger commands it. Point
 your hand at an object: a green halo shows around it. Press the

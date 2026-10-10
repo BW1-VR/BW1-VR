@@ -138,7 +138,7 @@ bool TeleportAiming();
 // far_grab.cpp: the grab from a distance (docs/grab.md, "The grab from a
 // distance"). The pump gives it the grip, and it says when to hold the grip
 // back from the grip machine.
-bool FarGrabPumpGrip(bool grip, bool ok);
+bool FarGrabPumpGrip(bool grip, bool ok, bool hand);
 // This file, below: a pulse on the pointing hand.
 void ControllersGesturePulse(float amplitude, float seconds);
 bool FarGrabPressing();
@@ -2510,8 +2510,11 @@ void PumpButtons(ULONGLONG now) {
   bool far_claim = false;
   {
     const char* why = "";
-    const bool ok = usable && DirectHandNow() && ControllersFarAllowed(&why);
-    far_claim = FarGrabPumpGrip(RawDown(kRight), ok);
+    // A grip that is closed on the Creature needs only a hand that can hold
+    // it (far_grab.cpp, PumpHold).
+    const bool can_hold = usable && DirectHandNow();
+    const bool ok = can_hold && ControllersFarAllowed(&why);
+    far_claim = FarGrabPumpGrip(RawDown(kRight), ok, can_hold);
   }
   UpdateGrab(usable, back, far_claim);
   // THE CREATURE COMMAND. While the leash is on the Hand, a press of the

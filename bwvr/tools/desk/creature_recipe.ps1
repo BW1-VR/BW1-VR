@@ -4,6 +4,8 @@
 #   creature_recipe.ps1 -Name x1 -Dll <dll>
 #   creature_recipe.ps1 -Name x2 -Dll <dll> -Set "creature_stroke_hand=3"
 #   creature_recipe.ps1 -Name x3 -Dll <dll> -Kind leash
+#   creature_recipe.ps1 -Name x4 -Dll <dll> -Kind stay
+#   creature_recipe.ps1 -Name x5 -Dll <dll> -Kind stay -Set "creature_hold_stay=0"
 #
 # The start: the choice "Keep your old Creature" of the start dialog (through
 # spawn_run.ps1 and desk_run.ps1). It gives a game with no story, and the
@@ -21,11 +23,20 @@
 #   of the wrist out and back (the backhand: the grip is still, the Hand's
 #   point moves) and a swing of the arm (a step of 12 cm out and back). Then
 #   the hand aims at the Creature from a distance and holds the grip for 300
-#   frames: the leash changes, and no Creature state starts.
+#   frames: the Creature stays, and no Creature state starts.
 # -Kind leash:
 #   At 100 units a meter: the grip from a distance (the leash goes on), a
 #   short press of the trigger with the aim on the Creature (the leash comes
-#   off), the grip again (on), and a grip of 300 frames (off, and no state).
+#   off), the grip again (on), and a grip of 300 frames (the Creature stays,
+#   the leash does not change, and no state starts).
+# -Kind stay:
+#   At 100 units a meter: the hand aims at the Creature from a distance and
+#   holds the grip for 300 frames (the Creature stays at the door, and then
+#   starts a walk). A second grip of 200 frames comes while the Creature
+#   walks (it stops, stays and goes on). Then two short grips of 6 frames
+#   (the leash goes on and comes off), and a grip of 40 frames (a stay that
+#   ends soon after its start). With creature_hold_stay=0 each close of the
+#   grip is a leash click, and no grip makes the Creature stay.
 #
 # What to read in bwvr.log of the run (the folder desk-<Name>):
 #   hand creature: the body of the Creature ...     the body bone before a press
@@ -33,7 +44,9 @@
 #   hand press   : the grip pressed on the target   the press
 #   hand creature: the Creature state starts        the state
 #   hand creature: a stroke / a slap / a hard slap  what reached the game
-#   far grab    : the grip closed on your Creature the leash from a distance
+#   far grab    : the grip closed on your Creature the grip from a distance
+#   far grab    : the grip opened after ...         a short grip: the leash click
+#   creature stay: ...                              the stay, from start to end
 #   creature cmd : the leash is on / off
 #   haptics      : ...                              the pulses
 param(
@@ -49,7 +62,16 @@ $sp = Split-Path -Parent $MyInvocation.MyCommand.Path
 $keys = 'god_zoom_about=0;seek_plan=creature;far_test_creature=1;far_test_influence=1;grab_hand=1;' +
         'far_grab_max_m=0;fake_controller_rots=-112,1,0 8,1,0'
 if ($Set -ne '') { $keys = "$keys;$Set" }
-if ($Kind -eq 'leash') {
+if ($Kind -eq 'stay') {
+    # No picture in the hold: the frame of a picture can take 250 ms, and the
+    # controller then lets go of its buttons.
+    # The Creature starts its walk about 100 frames after the first grip
+    # opens. The second grip closes in that walk.
+    $steps = 'look@800+1700 point@860+1 aimfar@890+1 grip@910+300 ' +
+             'aimfar@1335+1 grip@1345+200 ' +
+             'aimfar@1700+1 grip@1720+6 aimfar@1820+1 grip@1840+6 ' +
+             'aimfar@1950+1 grip@1970+40 shot@2200+1'
+} elseif ($Kind -eq 'leash') {
     $steps = 'look@800+1200 point@860+1 aimfar@890+1 shot@900+1 grip@910+6 shot@950+1 ' +
              'trigger@980+6 aimfar@1060+1 grip@1080+6 aimfar@1160+1 grip@1180+300'
 } else {
@@ -66,8 +88,9 @@ $log = Join-Path $sp "desk-$Name\bwvr.log"
 if (-not (Test-Path $log)) { "no log at $log"; exit 1 }
 $pattern = '^hand creature: (the body of|a press|the Creature state|the hand of|a stroke|a slap|a hard slap|the press ends)|' +
            '^hand pick    : the target is|^hand press   : the grip pressed on|' +
-           '^far grab    : the grip closed|^creature cmd : (the leash|a short press)|' +
+           '^far grab    : (the grip closed|the grip opened|the hand cannot)|^creature stay: |' +
+           '^creature cmd : (the leash|a short press)|' +
            '^haptics      : (\d+ pulses|leash|slap|touch|activate)'
 Get-Content $log | Where-Object { $_ -match $pattern } | ForEach-Object {
     $_.Substring(0, [Math]::Min(300, $_.Length))
-} | Select-Object -First 60
+} | Select-Object -First 80

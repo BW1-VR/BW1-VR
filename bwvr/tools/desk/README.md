@@ -69,7 +69,7 @@ calls it. It keeps these rules, and a new script must keep them too:
 | `aim_run.ps1`, `aim_queue.ps1` | The far fetch, the aim presets, the teleport |
 | `throw_queue.ps1` | Throws and landings |
 | `spawn_run.ps1` | A start with "Keep your old Creature": no story, the player at the Temple |
-| `creature_recipe.ps1` | The Creature state, strokes and a slap |
+| `creature_recipe.ps1` | The Creature state, strokes and a slap. With `-Kind leash` or `-Kind stay`: the leash and the stay from a distance |
 | `hand_run.ps1`, `village_run.ps1`, `temple_run.ps1`, `miracle_run.ps1` | Runs for the near hand, the village, the Temple and miracles |
 
 The scripted controller is driven by ini keys: `fake_controller_script` (words

@@ -3391,6 +3391,7 @@ void CreatureChecks() {
 #include "intro_skip_checks.h"
 #include "spawn_checks.h"
 #include "spirit_size_checks.h"
+#include "stay_checks.h"
 #include "ring_checks.h"
 #include "teleport_checks.h"
 #include "feel_checks.h"
@@ -3782,6 +3783,7 @@ int main() {
   temple_checks::TempleChecks();
   tree_plant_checks::TreePlantChecks();
   zoom_checks::ZoomChecks();
+  stay_checks::StayChecks();
 
   printf("\n%d checks, %d failed\n", g_checks, g_failures);
   return g_failures == 0 ? 0 : 1;

@@ -127,6 +127,7 @@
 #include "controller_math.h"
 #include "controllers.h"
 #include "creature_command.h"
+#include "creature_stay.h"
 #include "far_choice_math.h"
 #include "far_grab.h"
 #include "forest_take.h"
@@ -4660,10 +4661,11 @@ void FarSelect() {
     // the halo and the hint said "collect", and a grip from a distance started
     // the Creature state with the hand far from the body. A short grip changed
     // the leash, and that part was useful. So the player's own Creature is a
-    // target again, only for the leash click: the closed grip sends packet 0x5F
-    // and no press (far_grab.cpp). A Creature of another player, and a Creature
-    // that the game would not leash now, is no target. far_leash=0 takes the
-    // Creature out of the far targets.
+    // target of its own kind: a short grip sends the leash click (packet
+    // 0x5F), a grip that stays closed makes the Creature stay, and no press
+    // goes to the game (far_grab.cpp). A Creature of another player, and a
+    // Creature that the game would not leash now, is no target. far_leash=0
+    // takes the Creature out of the far targets.
     const bool creature = IsCreatureObject(c.object);
     const int leash = creature && g_far_leash ? LeashKind(c.object) : 0;
     if (creature && leash == 0) continue;
@@ -6065,6 +6067,7 @@ void InstallNear() {
          g_far_leash ? "Your Creature in the aim is a target of the leash: "
                        "the grip sends the leash click, and no press"
                      : "The Creature is no far target");
+  CreatureStayInstall();
   g_creature_bone = IniKey("creature_bone", 1) != 0;
   ModLog("hand creature: creature_bone=%d. %s", g_creature_bone ? 1 : 0,
          g_creature_bone

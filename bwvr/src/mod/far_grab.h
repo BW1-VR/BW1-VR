@@ -69,11 +69,13 @@ struct FarPick {
   bool touch;               // a scroll: the grip activates it, with no pull
                             // (the far touch)
   bool forest;              // a forest: the fetch puts a new tree in the Hand
-  int leash;                // the player's own Creature: the grip changes the
-                            // leash, with no pull and no press of the game
-                            // (near_math::LeashClick: 1 puts the leash on, 2
-                            // takes it off, 3 takes it back to the Hand). 0
-                            // for each other target
+  int leash;                // the player's own Creature: a short grip changes
+                            // the leash, with no pull and no press of the
+                            // game (near_math::LeashClick: 1 puts the leash
+                            // on, 2 takes it off, 3 takes it back to the
+                            // Hand). A grip that stays closed makes the
+                            // Creature stay (creature_stay.h). 0 for each
+                            // other target
   bool inside;              // the Hand can take it: in the influence, or it
                             // does not need the influence
   float te;                 // degrees
@@ -113,9 +115,11 @@ bool FarGrabFetching(void** object, float position[3], float land[2]);
 bool FarGrabGlideOrigin(void** object, float origin[3]);
 
 // For controllers.cpp, once a pump, before the grip goes to the grip machine.
-// grip is the grip button, and ok is true when the hand may act now. The
-// answer is true while the grip must be held back from the machine.
-bool FarGrabPumpGrip(bool grip, bool ok);
+// grip is the grip button, and ok is true when the hand may act now. hand is
+// true while the controller can hold the grip: a grip that is closed on the
+// Creature needs only that, so a different control in use does not end it.
+// The answer is true while the grip must be held back from the machine.
+bool FarGrabPumpGrip(bool grip, bool ok, bool hand);
 // True while the press of the fetch goes to the game, so it needs no pixel in
 // view: the hand is near the head after a pull.
 bool FarGrabPressing();
@@ -132,8 +136,12 @@ struct FarDraw {
   bool touch;             // the target is a scroll: the grip activates it.
                           // For the hint card: the prompt of the grip is
                           // then "Activate", and not "Pull to fetch"
-  int leash;              // the target is the player's Creature: what the
-                          // grip does to the leash (FarPick::leash), or 0
+  int leash;              // the target is the player's Creature: what a
+                          // short grip does to the leash (FarPick::leash),
+                          // or 0
+  bool hold;              // and a grip that stays closed makes it stay
+                          // (creature_hold_stay=1)
+  bool stay;              // the grip holds the Creature in a stay now
   float object[3];        // the mesh translation, in the world
   float radius;           // in world units
   float land[2];

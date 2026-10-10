@@ -109,13 +109,21 @@ moves while the Hand takes it.
   Creature command. The screen test offers an object to the pick by its base
   point (12 degrees), so a tall tree that the ray crosses only at its crown,
   far from its base, is a candidate only when the draw offers it by the pixel.
-- **P2. A held grip on the far Creature makes it stay.** When the Creature
-  is the far target and the grip is held, the Creature stops and stays
-  where it is for as long as the grip is held. A short grip on the far
-  Creature changes the leash at the close of the grip (`far_leash=1`), so
-  the short press and the hold need a rule that keeps both. Find how the
-  plain game makes the Creature stop and attend to the Hand, so that the
-  mod uses the game's own way.
+- **P2. The stay of the Creature: test it in the headset.** A grip from a
+  distance that stays closed on the Creature makes it stop and stay until
+  the grip opens. A short grip changes the leash when it opens
+  (`creature_hold_stay=1`, `creature.md`, section 5.3). The stay is the
+  locked select of the game, with no stroke, no lesson and no camera.
+  Desktop runs show it with a Creature that stands and with a Creature that
+  walks. Check in a headset:
+  - the hold time of 350 ms with a real grip (`creature_hold_stay_ms`),
+  - where the Creature turns to, and how its head follows the real hand
+    (`creature_stay_look`),
+  - whether the halo, the pulse and the card show well that the stay is on.
+
+  The test key (Shift and End) gives the leash click at the close of the
+  grip for a comparison. Not run: a start that the game refuses, and a grip
+  that closes again before the end of a stay went to the game.
 - **P4. A choice of control scheme, the default of the zoom, and a two
   hand grab as in Deisim.**
   - A choice of control scheme: more options, so that each player chooses

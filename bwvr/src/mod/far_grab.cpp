@@ -27,6 +27,12 @@
 // record, and the game taps the scroll, as it does for a press at the Hand's
 // point. After kTouchFrames frames the far grab lets the press go.
 //
+// THE PLAYER'S OWN CREATURE is a target of its own kind (docs/creature.md,
+// "The leash from a distance" and "The stay"). It needs no pull and it does
+// not come to the Hand. A short grip is the leash click of the game. A grip
+// that stays closed makes the Creature stay until the grip opens
+// (creature_stay.cpp). No press goes to the game.
+//
 // NEAR OBJECTS WIN. hand_direct.cpp gives no target while an object that a
 // press acts on is near the Hand's point (docs/grab.md, "One point for each
 // interaction").
@@ -45,7 +51,9 @@
 // the object. A fetch that the game does not finish in kFetchFrames frames is
 // cancelled. Take: the game takes from a far bulk source. The grip is not held
 // back: the grip machine makes it the game's button (GripStep), and the state
-// ends when the game ends the take.
+// ends when the game ends the take. Hold: the grip is closed on the player's
+// Creature, and the time decides between the leash click and the stay
+// (stay_math::Step). The target does not change in that time.
 //
 // A grip that is closed when a lock or a fetch ends stays held back until it
 // opens, so it never reaches the grip machine as a new press on the land.
@@ -69,6 +77,8 @@
 #include <string.h>
 
 #include "controller_math.h"
+#include "creature_stay.h"
+#include "creature_stay_math.h"
 #include "far_grab.h"
 #include "haptics.h"
 #include "near_math.h"
@@ -89,9 +99,9 @@ bool HandDirectCandidatePosition(void* object, float out[3]);
 
 namespace {
 
-enum State { kIdle, kAim, kLock, kPull, kFetch, kTake };
-const char* const kStateName[6] = {"idle", "aim",   "lock",
-                                   "pull", "fetch", "take"};
+enum State { kIdle, kAim, kLock, kPull, kFetch, kTake, kHold };
+const char* const kStateName[7] = {"idle",  "aim",  "lock", "pull",
+                                   "fetch", "take", "hold"};
 
 // The frames the object stays in the record before the press goes out, and
 // the frames the game has to take it.
@@ -133,6 +143,12 @@ uint64_t g_fetch_frame = 0;
 bool g_pump_grip = false;
 bool g_hold_open = false;
 
+// THE GRIP ON THE CREATURE (the Hold state): the press, and whether the frame
+// said that the far grab cannot run (FarGrabFrame). The pump then ends the
+// press as for a hand that it lost.
+stay_math::Press g_press;
+bool g_press_lost = false;
+
 // THE GLIDE.
 struct Glide {
   bool armed;        // an object was fetched, and the glide waits or runs
@@ -163,6 +179,7 @@ uint64_t g_press_frames = 0;
 uint64_t g_far_takes = 0;
 uint64_t g_far_touches = 0;
 uint64_t g_far_leashes = 0;
+uint64_t g_far_stays = 0;
 uint64_t g_forest_trees = 0;
 uint64_t g_gone = 0;
 // Where the target was at the lock, for the log of how far it moved.
@@ -185,6 +202,10 @@ double Meters(const float a[3], const float b[3]) {
 // back until it opens.
 void Cancel(const char* why) {
   if (g_state == kIdle) return;
+  if (g_state == kHold) {
+    if (g_press.stay) CreatureStayEnd(why, g_f.now, g_f.frame);
+    g_press = stay_math::Press();
+  }
   ++g_cancels;
   if (LogRoom()) {
     ModLog("far grab    : the %s ends: %s, frame %llu", kStateName[g_state], why,
@@ -392,6 +413,7 @@ void FarGrabInstall() {
 void FarGrabFrame(const FarFrame& f) {
   g_f = f;
   g_have_frame = true;
+  CreatureStayFrame(f.now, f.frame);
   // A glide that never started: the Hand did not hold the object.
   if (g_glide.armed && !g_glide.started &&
       f.now - g_glide.armed_at > kGlideWaitSeconds &&
@@ -516,13 +538,19 @@ void FarGrabFrame(const FarFrame& f) {
         g_have_pick = false;
       }
       break;
+    case kHold:
+      // The pump has the rule of the press (PumpHold). A different control
+      // in use (the trigger, a grip on the world) does not end it. A view
+      // that the far grab cannot run in does.
+      g_press_lost = !f.usable;
+      break;
   }
 }
 
 void FarGrabSelect(const FarPick& pick) {
   if (!g_set.on || pick.object == nullptr) return;
   if (g_state == kLock || g_state == kPull || g_state == kFetch ||
-      g_state == kTake) {
+      g_state == kTake || g_state == kHold) {
     if (pick.object == g_pick.object) {
       for (int i = 0; i < 3; ++i) g_pick.position[i] = pick.position[i];
       g_pick.inside = pick.inside;
@@ -573,7 +601,7 @@ void FarGrabNoTarget() {
 
 bool FarGrabLocked() {
   return g_state == kLock || g_state == kPull || g_state == kFetch ||
-         g_state == kTake;
+         g_state == kTake || g_state == kHold;
 }
 
 void* FarGrabTargetObject() { return g_have_pick ? g_pick.object : nullptr; }
@@ -592,7 +620,8 @@ void FarGrabTrack(const float position[3], const float land[2], bool inside) {
   g_pick.land[0] = land[0];
   g_pick.land[1] = land[1];
   // A bulk source and a scroll do not move, and their test has more parts.
-  if (!g_pick.bulk && !g_pick.touch) {
+  // The Creature needs no influence (FarSelect).
+  if (!g_pick.bulk && !g_pick.touch && g_pick.leash == 0) {
     if (inside != g_pick.inside && LogRoom()) {
       ModLog("far grab    : the locked target %p is now %s your influence, "
              "frame %llu", g_pick.object, inside ? "inside" : "outside",
@@ -616,8 +645,12 @@ void FarGrabGone() {
   }
   if (g_glide.object == g_pick.object) g_glide.armed = false;
   if (g_state == kLock || g_state == kPull || g_state == kFetch ||
-      g_state == kTake) {
+      g_state == kTake || g_state == kHold) {
     if (g_pump_grip) g_hold_open = true;
+  }
+  if (g_state == kHold) {
+    CreatureStayGone();
+    g_press = stay_math::Press();
   }
   g_state = kIdle;
   g_have_pick = false;
@@ -639,11 +672,75 @@ bool FarGrabGlideOrigin(void** object, float origin[3]) {
   return true;
 }
 
-bool FarGrabPumpGrip(bool grip, bool ok) {
+namespace {
+
+// What a leash click on the Creature does, for the log. kind is
+// near_math::LeashClick at the selection.
+const char* LeashWords(int kind, bool sent) {
+  return !sent ? "The game would not take a leash click now, so the mod sent "
+                 "none"
+         : kind == 1 ? "The leash click (packet 0x5F): the leash goes on"
+         : kind == 2 ? "The leash click (packet 0x5F): the leash comes off"
+                     : "The leash click (packet 0x5F): the leash comes back "
+                       "to the Hand";
+}
+
+// THE GRIP ON THE CREATURE, one step for each pump (stay_math::Step). hand is
+// true while the controller can hold the grip. The answer is true while the
+// grip must be held back from the grip machine.
+bool PumpHold(bool grip, bool hand) {
+  const double held_ms = stay_math::HeldMs(g_press, g_f.now);
+  const bool can = hand && !g_press_lost;
+  const int event =
+      stay_math::Step(&g_press, grip, can, g_f.now, CreatureStayHoldMs());
+  if (event == stay_math::kStayStart) {
+    // The pulse of a lock: the grip holds the Creature now.
+    if (CreatureStayStart(g_pick.object, g_pick.vtable, g_f.now, g_f.frame)) {
+      ++g_far_stays;
+      HapticsPulse(haptics_math::kLock);
+    } else {
+      HapticsPulse(haptics_math::kRefused);
+    }
+    return true;
+  }
+  if (g_press.down) return true;
+  // THE PRESS IS OVER.
+  if (event == stay_math::kStayEnd) {
+    CreatureStayEnd(can ? "the grip opened"
+                        : "the hand cannot hold the grip now",
+                    g_f.now, g_f.frame);
+  } else if (event == stay_math::kClick) {
+    // A SHORT GRIP: the leash click of the game, and no press. The pulse
+    // comes when the game changed the leash (creature_command.cpp,
+    // LeashFrame).
+    const bool sent = HandDirectLeashClick(g_pick.object);
+    if (sent) ++g_far_leashes;
+    if (LogRoom()) {
+      ModLog("far grab    : the grip opened after %.0f ms, a short grip on "
+             "your Creature %p. %s. No press goes to the game, so the "
+             "Creature state does not start, frame %llu", held_ms,
+             g_pick.object, LeashWords(g_pick.leash, sent), g_f.frame);
+    }
+  } else if (LogRoom()) {
+    ModLog("far grab    : the hand cannot hold the grip now, %.0f ms after "
+           "it closed on your Creature %p. The player did not open the grip, "
+           "so the mod sends no leash click, frame %llu", held_ms,
+           g_pick.object, g_f.frame);
+  }
+  g_press_lost = false;
+  g_state = kAim;
+  if (grip) g_hold_open = true;
+  return g_hold_open && grip;
+}
+
+}  // namespace
+
+bool FarGrabPumpGrip(bool grip, bool ok, bool hand) {
   const bool edge = grip && !g_pump_grip;
   g_pump_grip = grip;
   if (!grip) g_hold_open = false;
   if (!g_set.on) return false;
+  if (g_state == kHold) return PumpHold(grip, hand);
   if (!ok) {
     if (g_state == kLock || g_state == kPull) {
       Cancel("the hand cannot act now");
@@ -664,12 +761,33 @@ bool FarGrabPumpGrip(bool grip, bool ok) {
       return g_hold_open && grip;
     }
     if (g_pick.leash != 0) {
-      // THE LEASH FROM A DISTANCE. The target is the player's own Creature.
-      // The closed grip sends the leash click of the game (packet 0x5F) and
-      // no press. So the Creature state does not start, however long the
-      // grip stays closed: no stroke, no slap and no camera from a distance.
-      // The grip stays held back until it opens. The pulse comes when the
-      // game changed the leash (creature_command.cpp, LeashFrame).
+      // THE GRIP ON THE CREATURE. The target is the player's own Creature. No
+      // press goes to the game, so the Creature state does not start, however
+      // long the grip stays closed: no stroke, no slap and no camera from a
+      // distance. The grip stays held back until it opens.
+      const int event =
+          stay_math::Close(&g_press, CreatureStayMode(), g_f.now);
+      if (event != stay_math::kClick) {
+        // creature_hold_stay=1: the time decides (PumpHold). A short grip is
+        // the leash click, and a grip that stays closed makes the Creature
+        // stay.
+        g_state = kHold;
+        g_press_lost = false;
+        CreatureStayPressed(g_pick.object, g_f.now);
+        if (LogRoom()) {
+          ModLog("far grab    : the grip closed on your Creature %p, %.2f m "
+                 "of the room from the Hand. A grip that opens in less than "
+                 "%d ms is the leash click. A grip that stays closed makes "
+                 "the Creature stay (creature_hold_stay=1). No press goes to "
+                 "the game, frame %llu", g_pick.object, g_pick.hand_m,
+                 CreatureStayHoldMs(), g_f.frame);
+        }
+        return true;
+      }
+      // creature_hold_stay=0: the closed grip sends the leash click of the
+      // game (packet 0x5F). The pulse comes when the game changed the leash
+      // (creature_command.cpp, LeashFrame).
+      g_press = stay_math::Press();
       const bool sent = HandDirectLeashClick(g_pick.object);
       if (sent) ++g_far_leashes;
       g_hold_open = true;
@@ -677,16 +795,7 @@ bool FarGrabPumpGrip(bool grip, bool ok) {
         ModLog("far grab    : the grip closed on your Creature %p, %.2f m of "
                "the room from the Hand. %s. No press goes to the game, so the "
                "Creature state does not start, frame %llu", g_pick.object,
-               g_pick.hand_m,
-               !sent ? "The game would not take a leash click now, so the mod "
-                       "sent none"
-               : g_pick.leash == 1 ? "The leash click (packet 0x5F): the "
-                                     "leash goes on"
-               : g_pick.leash == 2 ? "The leash click (packet 0x5F): the "
-                                     "leash comes off"
-                                   : "The leash click (packet 0x5F): the "
-                                     "leash comes back to the Hand",
-               g_f.frame);
+               g_pick.hand_m, LeashWords(g_pick.leash, sent), g_f.frame);
       }
       return true;
     }
@@ -749,10 +858,15 @@ bool FarGrabDrawState(FarDraw* out) {
   }
   out->active = true;
   out->valid = g_pick.inside;
-  out->locked = g_state != kAim;
+  // The grip on the Creature has no tether: the Creature does not come to the
+  // Hand.
+  out->locked = g_state != kAim && g_state != kHold;
   out->bulk = g_pick.bulk;
   out->touch = g_pick.touch;
   out->leash = g_pick.leash;
+  out->hold = g_pick.leash != 0 &&
+              CreatureStayMode() == stay_math::kModeHold;
+  out->stay = g_state == kHold && g_press.stay && CreatureStayHolds();
   for (int i = 0; i < 3; ++i) {
     out->object[i] = g_pick.position[i];
     out->hand[i] = g_f.hand_point[i];
@@ -765,6 +879,7 @@ bool FarGrabDrawState(FarDraw* out) {
 }
 
 void FarGrabReport() {
+  CreatureStayReport();
   if (g_gone != 0) {
     ModLog("far grab    : %llu targets were deleted by the game while the mod "
            "held them, this window", g_gone);
@@ -776,12 +891,12 @@ void FarGrabReport() {
   ModLog("far grab    : %llu targets, %llu locks, %llu pulls, %llu fetches "
          "done (%llu trees from a forest), %llu glides, %llu takes from a "
          "bulk source, %llu far touches of a scroll, %llu leash clicks on "
-         "the Creature, %llu cancelled, %llu grips refused outside the "
-         "influence, %llu frames of fetch",
+         "the Creature, %llu stays of the Creature, %llu cancelled, %llu "
+         "grips refused outside the influence, %llu frames of fetch",
          g_targets, g_locks, g_pulls, g_fetches, g_forest_trees, g_glides,
-         g_far_takes, g_far_touches, g_far_leashes, g_cancels, g_refused,
-         g_press_frames);
-  g_far_leashes = 0;
+         g_far_takes, g_far_touches, g_far_leashes, g_far_stays, g_cancels,
+         g_refused, g_press_frames);
+  g_far_leashes = g_far_stays = 0;
   g_targets = g_locks = g_pulls = g_fetches = g_glides = g_cancels = 0;
   g_refused = g_press_frames = g_far_takes = 0;
   g_far_touches = g_forest_trees = 0;

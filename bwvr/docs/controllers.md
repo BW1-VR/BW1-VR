@@ -914,7 +914,7 @@ hands change sides. The default mode is the God view (`god-view.md`).
 | Control | Behavior |
 | --- | --- |
 | Pose | The Hand, one to one in place and size (`hand.md`) |
-| Grip | The right button of the game: take, carry, let go, throw, stroke, tap, cast (3.6, `grab.md`). A grip closed on a far target and pulled fetches it (`grab.md`) |
+| Grip | The right button of the game: take, carry, let go, throw, stroke, tap, cast (3.6, `grab.md`). A grip closed on a far target and pulled fetches it (`grab.md`). A short grip on your Creature from a distance changes its leash, and a grip that stays closed makes it stay (`creature.md`) |
 | Trigger | The left button: click. A drag on the land moves nothing in the God view. With the leash on the Hand, a Creature command (`creature.md`). With a one-off seed in the Hand, it makes the seed active (`miracles.md`) |
 | A | Hold to aim the teleport arc, let go to go there (`god-view.md`). `teleport=0` gives a jump to the object or the land under the Hand |
 | B (Y on the left hand) | Hold and draw: a gesture (`miracles.md`). A short press with a miracle in the Hand takes the miracle out. B while A is down cancels the teleport |

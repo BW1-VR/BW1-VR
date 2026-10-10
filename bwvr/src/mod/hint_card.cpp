@@ -528,6 +528,22 @@ void AddPromptTwice(Content cards[kHands], int word, const wchar_t* text,
   SetLine(&out->line[out->count++], twice, text, tone, 0);
 }
 
+// A line for a button that stays down: the word of the button with "hold".
+// It has its own line beside the line of a short press.
+void AddPromptHold(Content cards[kHands], int word, const wchar_t* text,
+                   int tone) {
+  Content* out = &cards[WordHand(word)];
+  if (out->count >= kMaxLines) return;
+  const wchar_t* button = ControllerHintWord(word);
+  if (button == nullptr) return;
+  wchar_t hold[24];
+  swprintf_s(hold, L"%.18s hold", button);
+  for (int i = 0; i < out->count; ++i) {
+    if (wcscmp(out->line[i].button, hold) == 0) return;
+  }
+  SetLine(&out->line[out->count++], hold, text, tone, 0);
+}
+
 // The lines of the trigger on a target of a command: one press sends the
 // Creature, and two presses tie the leash when the leash can go on it.
 void AddCommandPrompts(Content cards[kHands]) {
@@ -576,6 +592,11 @@ void AddPrompts(Content cards[kHands], int context, bool first_show) {
       // bulk source. All other far targets come to the Hand with a pull.
       FarDraw far_draw = {};
       FarGrabDrawState(&far_draw);
+      // THE STAY: the grip holds the Creature, and the opening lets it go.
+      if (far_draw.stay) {
+        AddPrompt(cards, kWordGrab, L"Open to let it go", kToneGrab);
+        break;
+      }
       // The player's own Creature in the aim: the grip changes the leash, as
       // a click on the Creature does in the plain game.
       AddPrompt(cards, kWordGrab,
@@ -586,6 +607,11 @@ void AddPrompts(Content cards[kHands], int context, bool first_show) {
                 : far_draw.bulk ? L"Hold to collect"
                                 : L"Pull to fetch",
                 kToneGrab);
+      // A grip that stays closed on the Creature makes it stay
+      // (creature_hold_stay=1).
+      if (far_draw.hold) {
+        AddPromptHold(cards, kWordGrab, L"Make it stay", kToneGrab);
+      }
       // With the leash on the Hand, a short press of the trigger on the
       // Creature takes the leash off too.
       if (CreatureCommandHint() == kCommandHintCreature) {

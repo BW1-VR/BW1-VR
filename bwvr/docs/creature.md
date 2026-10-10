@@ -3,8 +3,8 @@
 This doc covers how the player touches, commands and leashes the Creature
 with the VR hands. It has four parts: how the plain game does it, the
 Creature by touch (the open hand, the stroke, the slap), the commands (the
-trigger on the land and on a thing), and the leash (the tie, the leash from a
-distance, the leash on an object).
+trigger on the land and on a thing), and the grip from a distance (the leash,
+the leash on an object, and the stay).
 
 Marks: [V] verified in the disassembly of `runblack.exe` 1.42, [I] inferred,
 [G] a guess.
@@ -35,8 +35,9 @@ Other docs:
   hold on the land sends it there, a press on an object makes it act on that
   object, and a double press ties the leash to the object. A shake of the
   real hand takes the leash off.
-- The grip from a distance puts the leash on and takes it off. It does not
-  start the Creature state.
+- A short grip from a distance puts the leash on and takes it off. A grip
+  from a distance that stays closed makes the Creature stop and stay until
+  the grip opens. The two do not start the Creature state.
 
 ## 1. How the plain game does it
 
@@ -120,8 +121,10 @@ The hand mode comes from a table indexed by the interface style
   (`Object+0x28`) has `1` at `+0x10` it gives `0x13` (the Creature state), or
   `0xE` (the Totem) when the flag at `attribute+0x10AC` is set.
 
-A trigger press on an object with bit `0x10` in the byte `Object+0x24` runs
-the interface action at `0x005D4960`. It sets the style to 4 (`fn_005D2980`).
+A press on the Creature starts the locked select of the game on it and sets
+the style to 3 (section 1.7). The step of style 3 (`0x005D4960`) sets the
+style to 4 (`fn_005D2980`) when the object of the next pick record has bit
+`0x10` in the byte `Object+0x24`: the game has started the locked select.
 In style 4 the hand mode is `0x13` only while the next pick record (`+0x400`)
 holds an object of type 1, the Creature. Another object gives `0xE` and no
 object gives 3. Mode `0x13` puts the empty Hand in state 7.
@@ -318,6 +321,116 @@ game calls it for a Creature that the Hand does not have (`0x005D3E33`,
 that has a player, no spell on it and no state `0xD` [V], because a press on
 the Creature starts its touch with the locked select. So the game's test for a
 bulk take passes for the Creature (see `grab.md`, "The bulk take").
+
+### 1.7 How the Creature stops for the Hand: the locked select [V]
+
+A press on the Creature is a locked select of the game, as a press on a pile
+of a store is (`grab.md`, "The bulk take"). The style of sections 1.2 and 1.3
+is the interface action of `grab.md` (`GInterface+0x44`). The locked select
+makes the Creature stop, turn to the player and stay. The stay of the mod
+uses it (section 5.3).
+
+**The start.** `fn_005D1330` is the press of the Action button with an empty
+Hand. For the object of the next pick record it tests that slot `0x6CC` gives
+1, that `IsCannotBePickedUp` (slot `0x180`) gives 0, and that bit `0x10` of
+`Object+0x24` is clear. It also tests the player of a Creature (`0x005D13FB`
+to `0x005D1481`). Then `fn_005D1A00` stops when bit 8 of `GInterface+0x38` is
+set, and it has two ways:
+
+- The press has two jobs: the leash is on the Hand, or the leash is tied to
+  this object, or a press taps the object (slot `0x740`). Then it sets the
+  interface action `0x13`. The step of that action (`0x005D53D0`) sends the
+  click of the object when the button comes up (`fn_005D3930`). When the
+  button stays down for more than 225 ms (`0x005D5445`, in real time from
+  `GInterface+0x454`), it starts the locked select.
+- Else it starts the locked select at once.
+
+`fn_005D1950` starts it: slot `0x6D4`, packet `0x1B` with the index of the
+object (`fn_00550C80`, `Base::GetIndexOffset`), and the interface action 3.
+
+**The handler of packet `0x1B`** is `fn_005DA950` (thiscall on `GInterface`,
+the object, `ret 4`). It needs `IsInteractable` (slot `0x190`) and a clear
+bit `0x10`. Else it resets the interface (`fn_005D1260`). It calls slot
+`0x6D0`, writes the object to `GInterfaceStatus+0x3C` and 0 to `+0x40`
+(`fn_005DC110`), and sets bit `0x10`. For a Creature it also copies the pose
+buffer of the `LH3DCreature` and closes the particle effects of the Creature
+(`fn_004F81F0`).
+
+**The slots of the Creature** (its vtable is at `0x008CC810`):
+
+| Slot | Function | What it does |
+| --- | --- | --- |
+| `0x6CC` | `Creature::ValidForLockedSelectProcess` `0x00476E10` | See section 1.6. It also gives 0 while bit 4 of `Creature+0x25` is set, and in the first three steps of action 9 (`CreatureMental+0xF60` and `+0xFB4`) |
+| `0x6D0` | `Creature::NetworkFriendlyStartLockedSelect` `0x00476E70` | It calls `Creature::GoIntoStateOfFinishingAction` and sets bit `0x20` of `GInterfaceStatus+0x24` |
+| `0x6D4` | `Object::NetworkUnfriendlyStartLockedSelect` `0x004027D0` | It gives 1 |
+| `0x6E0` | `Creature::GetReadyForNetworkUnfriendlyEndLockedSelect` `0x00476ED0` | It clears the three floats at `LH3DCreature+0x48C0` and the flag `+0x526C` |
+| `0x6E4` | `Creature::IsReadyForNetworkUnfriendlyEndLockedSelect` `0x00476F00` | 1 when the look of the Creature is at its place (`LH3DCreature::ReachedLookDestination`), no action of its body runs (or the Creature is dead), and no action of its face runs |
+| `0x6E8` | `Creature::NetworkUnfriendlyEndLockedSelect` `0x00476F60` | It gives 1 |
+| `0x6EC` | `Creature::NetworkFriendlyEndLockedSelect` `0x00476E90` | It calls `LH3DCreature::ReconnectToGame`, which resets the look when `+0x5270` is set, and it clears bit `0x20` of the status |
+| `0x808` | `Object::ProcessInInteract` `0x00639B10` | It gives 1, so `GInterfaceStatus::Process` does not end the select of a Creature that lives |
+| `0x6A0` | `Object::IsLockedInInteract` `0x00402790` | It gives 0: the Creature is not a bulk source |
+
+**The Creature stops and turns.** `Creature::GoIntoStateOfFinishingAction`
+(`0x00477B20`) takes the direction from the body of the Creature
+(`LH3DCreature+0x78`) to the camera of the nearest player
+(`Creature::GetNearestCameraInterfaceStatus`, `GInterfaceStatus+0xB0`).
+`fn_0048F7B0` gets that angle. With no action of the body
+(`LH3DCreature+0x4994` is 0) it starts the turn at once
+(`LH3DCreature::StartTurningAction`). Else `fn_0048F710` ends the animations
+and calls `LH3DCreature::StopMoving`, and the turn starts when the action of
+the body is over (`+0x523C`, read in `LH3DCreature::StateSet`). Then
+`Creature+0x3CC` is 1.
+
+**The Creature stays.** `Creature::ProcessState` (`0x00472DC0`) tests bit
+`0x10` at `0x00472F77`. With the bit set it writes 1 to
+`CreatureMental+0x1C28`, calls `fn_00477D00` while `+0x3CC` is 1, and jumps
+to `0x004737DB`. The jump goes past the mind of the Creature: its leash
+(`Creature::UpdateLeash`), its desires and its plan. `fn_00477D00` waits
+while `LH3DCreature::IsPerformingBodyAction` is true. Then it clears
+`+0x3CC`, sets the flag `+0x526C` (section 1.6), and shows what the Creature
+thinks of: `fn_00477C50` asks `CreatureMental::GetBestContextToLearnFrom`,
+`fn_004806E0` starts the animation of that desire
+(`LH3DCreature::StartIndividualAction`), and `fn_004C9FE0` asks for a line of
+the Creature help (number `0x29`) [I for the help line].
+
+**The Creature looks at the Hand.** In the Creature state,
+`HandStateCreature::Update` gives the Creature a look point on each frame. It
+sets the int at `0x00C64210` to 1, calls `fn_00482C90` (thiscall on the
+`LH3DCreature`, a point of the world, `ret 4`) with a point at the Hand, and
+clears the int (`0x005B236D` to `0x005B23AB`). `fn_00482C90` writes the point
+to `LH3DCreature+0x48C0`. With bit `0x10` of the Creature set, it writes only
+while the int is not 0 (`0x00482D06`). So in a locked select only the Hand
+turns the head of the Creature. Slot `0x6E0` clears the point at the release,
+and slot `0x6E4` waits until the head is back.
+
+**The end.** At the release (bit `0x40` of `GInterface+0x39`) the step of the
+interface action 4 calls slot `0x6E0` (`0x005D4858`). The step of action 5
+(`0x005D49B0`) waits until slot `0x6E4` gives 1, with no limit. Then
+`fn_005D2210` calls slot `0x6E8` and sends packet `0x1C` with the index of
+the object. The handler `fn_005DAA10` calls slot `0x6EC`, writes 0 to
+`GInterfaceStatus+0x3C` and clears bit `0x10`. The exit of the interface
+actions 3 to 6 (`0x005D4870`, called by `fn_005D1260`) sends the end with no
+wait.
+
+**The Creature goes on.** With bit `0x10` clear, `Creature::ProcessState`
+runs the mind again. At `0x004733AE` it tests the plan: the plan is valid
+(`CreatureMental+0xF48`), it has a step to do (`+0xFB4` is below `+0xFBC`),
+and `+0xFB8` is below 3. With these and the flag `+0x1C28` set, it clears the
+flag, ends the action (`Creature::FinishActionUnsuccessfully`) and builds the
+steps of the same plan again
+(`CreatureAgenda::ConstructSubActionsFromActionAgenda` with
+`CreatureMental+0xF60`). So the Creature starts the action of its plan again.
+What `+0xFB8` counts was not traced.
+
+**What the locked select does not do.** The stroke, the slap and the lesson
+come from the Creature state of the Hand (state 7): packet `0x27` from
+`HandStateCreature::Update`, and packet `0x59` from `fn_0046CF80` when the
+Hand leaves the state. `fn_0046CF80` lets the Hand go to state 7 only with
+bit `0x10` set and `Creature+0x3CC` at 0, and only the hand mode `0x13` of
+the interface action 4 asks for that state. The camera comes from the same
+hand mode (section 1.3). The locked select does not read or write the
+`GLeashStatus`. The Creature panel needs the Creature in the next pick record
+(`ui-layer.md`).
 
 ## 2. The Creature by touch
 
@@ -861,14 +974,14 @@ creature cmd : the leash is off, 70 ms after the shake, frame 6016
 creature cmd : creature_command_rule=3. While the trigger was held, what shows changed 5 times. The range left out 54490 objects, and the land in front left out 125 objects of the cone. 0 double presses tied the leash, and 0 took it back
 ```
 
-## 5. The leash
+## 5. The grip from a distance: the leash and the stay
 
 ### 5.1 The leash from a distance
 
 Your Creature in the aim is a far target of its own kind. The code is in
 `FarSelect` and `HandDirectLeashClick` (`hand_direct.cpp`), `FarGrabPumpGrip`
-(`far_grab.cpp`) and `hint_card.cpp`. The pure rule is
-`near_math::LeashClick`.
+and `PumpHold` (`far_grab.cpp`) and `hint_card.cpp`. The pure rules are
+`near_math::LeashClick` and `stay_math::Step`.
 
 - `FarSelect` takes the Creature when `LeashKind` says that the click does
   something. The kinds are 1 (the leash goes on), 2 (it comes off) and 3 (it
@@ -876,12 +989,16 @@ Your Creature in the aim is a far target of its own kind. The code is in
   target. A Creature that the game would not leash is no target. The halo is
   the halo of each far target.
 - The card of the hand shows "Grip Put the leash on", "Grip Take the leash
-  off" or "Grip Take the leash back".
-- On the edge of the grip, `FarGrabPumpGrip` calls `HandDirectLeashClick`
-  (packet `0x5F`) and takes the grip away from the game until it opens. No
-  press goes to the game. So the Creature state does not start, for a short
-  grip and for a long one. The game decides what the click does, as for the
-  mouse. The mod sends only `0x5F`.
+  off" or "Grip Take the leash back". A second line shows "Grip hold Make it
+  stay" (section 5.3).
+- The close of the grip on the Creature starts the Hold state of the far
+  grab, and the grip stays away from the game until it opens. No press goes
+  to the game. So the Creature state does not start, for a short grip and
+  for a long one.
+- A grip that opens in less than `creature_hold_stay_ms` (350 ms) is a short
+  grip. `PumpHold` calls `HandDirectLeashClick` (packet `0x5F`) in the pump
+  of the open. The game decides what the click does, as for the mouse. A
+  grip that stays closed is the stay (section 5.3). It sends no leash click.
 - Near the Creature the grip is a press. "Near objects win" turns the far
   target off while the Creature is 10 cm or less from the Hand's point. A
   short press is then the leash click, and a hold starts the Creature state.
@@ -896,16 +1013,20 @@ trigger commands it.
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| `far_leash` | 1 | Your Creature in the aim is a target of the leash. 0 takes the Creature out of the far targets |
+| `far_leash` | 1 | Your Creature in the aim is a target of the leash and of the stay. 0 takes the Creature out of the far targets |
+| `creature_hold_stay` | 1 | See section 5.3. 0: the leash click goes out at the close of the grip, and no grip makes the Creature stay |
 | `far_test_creature` | 0 | A test key. 1: only your Creature is a far target, and the word `aimfar` aims at it |
 
 ```
 far grab    : far_leash=1. Your Creature in the aim is a target of the leash: the grip sends the leash click, and no press
-far grab    : the grip closed on your Creature 29258674, 0.75 m of the room from the Hand. The leash click (packet 0x5F): the leash goes on. No press goes to the game, so the Creature state does not start, frame 931
-creature cmd : the leash is on, frame 936
+far grab    : the grip closed on your Creature 0F7E2674, 0.31 m of the room from the Hand. A grip that opens in less than 350 ms is the leash click. A grip that stays closed makes the Creature stay (creature_hold_stay=1). No press goes to the game, frame 1721
+far grab    : the grip opened after 105 ms, a short grip on your Creature 0F7E2674. The leash click (packet 0x5F): the leash goes on. No press goes to the game, so the Creature state does not start, frame 1727
+creature cmd : the leash is on, frame 1733
 ```
 
-The report of the far grab counts the leash clicks from a distance.
+With `creature_hold_stay=0` the line of the close has the leash click, and
+the open has no line. The report of the far grab counts the leash clicks and
+the stays from a distance.
 
 ### 5.2 The leash on an object
 
@@ -921,8 +1042,8 @@ The two presses do not fight. The first tap starts `ForceActOnObject`. The
 handler of the second packet ends that action and starts it again with the
 leash tied. The plain game sends the same two packets for a double click.
 
-The grip on your Creature from a distance takes the leash back too (kind 3 of
-`near_math::LeashClick`). It sends the leash click.
+A short grip on your Creature from a distance takes the leash back too (kind
+3 of `near_math::LeashClick`). It sends the leash click.
 
 Each object that is a target of a command passes the tests of the double
 click, except a `OneOffSpellSeed`. So the same objects can take the leash.
@@ -941,8 +1062,130 @@ creature cmd : the leash is tied to the Tree 2A67A804 now (the game has the leas
 creature cmd : the trigger opens after 115 ms, and nothing is sent: the leash is tied to this object. A second press takes the leash back, frame 1106
 creature cmd : a double press on the Tree 2A67A804, 276 ms after the first press. The leash is tied to it. Packet 0x5C with no object: the leash comes back to the Hand, frame 1113
 creature cmd : the leash is not tied to an object now (it was on 2A67A804). The leash is on the Hand, frame 1116
-far grab    : the grip closed on your Creature 2A64C674, 0.36 m of the room from the Hand. The leash click (packet 0x5F): the leash comes back to the Hand. No press goes to the game, so the Creature state does not start, frame 1301
+far grab    : the grip opened after 108 ms, a short grip on your Creature 2A64C674. The leash click (packet 0x5F): the leash comes back to the Hand. No press goes to the game, so the Creature state does not start, frame 1307
 creature cmd : a short press of 118 ms with the aim on your Creature: the leash click (packet 0x5F). The leash comes back from the object to the Hand, frame 1526
+```
+
+### 5.3 The stay
+
+The player points the hand at the Creature from a distance, closes the grip
+and keeps it closed. The Creature stops, turns to the player and stays. When
+the grip opens, the Creature is free and goes on by itself. The code is in
+`creature_stay.cpp` (the game side) and `PumpHold` in `far_grab.cpp` (the
+grip), with the pure rules in `creature_stay_math.h`.
+
+**The way of the game.** The stay is the locked select of the game on the
+Creature (section 1.7). The mod sends the two packets of it, `0x1B` and
+`0x1C`, and it makes the calls that the game makes before each. It does not
+set the interface action. So the Hand stays in its Normal state at the
+controller, and the game does none of these: a stroke, a slap, a lesson
+(the packets `0x27` and `0x59`), the camera of a press, the Creature panel.
+The locked select does not change the leash. The far grab does not fetch
+the Creature and does not pull it, and no tether shows.
+
+**The rule of the grip** (`stay_math::Step`):
+
+| The grip, with your Creature as the far target | What the mod does |
+| --- | --- |
+| It closes | Nothing goes to the game. The target does not change until the grip opens (`FarGrabLocked`), so the aim can move, and the halo stays on the Creature |
+| It opens in less than `creature_hold_stay_ms` | The leash click, packet `0x5F` (section 5.1) |
+| It stays closed for `creature_hold_stay_ms` | The stay starts. `CreatureStayStart` makes the tests of the game (section 1.7), calls slot `0x6D4` and sends packet `0x1B`. The controller gives the pulse of a lock. The leash does not change |
+| It opens after that | The stay ends. `CreatureStayEnd` calls slot `0x6E0`. When slot `0x6E4` gives 1, `CreatureStayFrame` calls slot `0x6E8` and sends packet `0x1C` |
+| The hand cannot hold the grip (a menu, a controller that sleeps, a view with no far grab) | A stay ends. A grip that is not a hold yet sends no leash click, because the player did not open it |
+| The game refuses the start (a miracle on the Creature, a press of the game that has it) | No packet, no change of the leash, and the pulse of a refusal. The log has the reason |
+
+The reasons for the rule:
+
+- **The click goes out at the open.** The game has the same rule for a press
+  with two jobs (section 1.7): the click when the button comes up, and the
+  locked select when the button stays down. So a hold never changes the
+  leash, and a short grip never stops the Creature. The cost: the leash
+  changes when the grip opens, at most 350 ms after the close.
+- **350 ms.** The game's time is 225 ms, for a mouse button. The grip of a
+  controller closes and opens slower than a mouse button, so the default is
+  longer.
+- **Until the grip opens.** The stay does not need the aim on the Creature.
+  A different control in use (the trigger, the stick, the grip of the other
+  hand on the world) does not end it: `PumpHold` needs only a controller that
+  places the Hand.
+- **The end waits for the Creature**, as the game's interface action 5 does:
+  slot `0x6E4` gives 1 when the Creature has ended the action of its body.
+  The mod waits 5 s at most (`stay_math::kEndWaitS`). Then it sends the end
+  as the exit of the game's actions does, so a Creature that does not become
+  ready is not held for ever.
+- **A grip that closes again** on the Creature before the end packet went
+  keeps the same stay.
+
+**What the Creature does** is the game's own (section 1.7). It stops, it
+turns to the camera of the player, and when the action of its body is over
+it plays the animation of what it thinks of. The game can show a line of the
+Creature help. After the end it starts the action of its plan again. In
+desktop runs a Creature that the stay stopped in a walk (step 0 of 4 of its
+plan) went on with the same walk. A Creature with no plan chose one by
+itself. A Creature at the last step of its plan (step 3 of 4) had no plan
+after the stay, and it chose a new one some seconds later.
+
+**The times** in desktop runs at 60 frames a second. The game has the
+Creature in its locked select 35 to 130 ms after packet `0x1B`: the packet
+waits for a game turn. A Creature that stands is still 1.1 to 1.3 s after
+the start: that is the time of its turn. A Creature that walks is still 1.4
+to 1.5 s after the start, 1 to 2 units from its place at the start. Then
+its place does not change. Packet `0x1C` goes 20 to 510 ms after the open.
+After a stay of less than 1.5 s it goes 1.4 to 1.8 s after the open. The
+game lets the Creature go 85 to 110 ms after the packet, and a Creature in a
+walk moves again 0.2 s later.
+
+**The Creature looks at the Hand** (`creature_stay_look=1`). With no Creature
+state, no code of the game gives the Creature a look point. So from the frame
+in which the Creature stands still, `CreatureStayFrame` gives it the Hand's
+point (`CHand+0x78`) on each frame, with the call that the Creature state
+makes (`Look`, section 1.7). The Hand is at the real hand, so the Creature
+looks at the real hand. The end of the stay clears the point (slot `0x6E0`),
+and the end packet waits until the head is back.
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `creature_hold_stay` | 1 | 1: the rule above. 0: a grip on the far Creature is the leash click when it closes, and no grip makes the Creature stay |
+| `creature_hold_stay_ms` | 350 | A grip that is closed for this long is a hold. 100 to 2000 |
+| `creature_stay_look` | 1 | 1: the Creature of a stay looks at the Hand. 0: it looks ahead |
+
+**The A/B key.** With `test_keys=1`, Shift with End (and Ctrl up) changes
+`creature_hold_stay` between 1 and 0 while the game runs. The pointing
+controller gives a long pulse for 1 and a short pulse for 0, and the log has
+a line. A grip that is closed at that time keeps its rule.
+
+**The card.** With the Creature as the far target, the card has the line of
+the leash and the line "Grip hold Make it stay" (`AddPromptHold` in
+`hint_card.cpp`). While the grip holds the Creature in a stay, the card says
+"Grip Open to let it go".
+
+**The log.** The tag `creature stay` has one line for each change, and no
+line for a frame:
+
+- the two keys at the start,
+- the start of a stay, with the state of the Creature before it,
+- the frame in which the game has the Creature in its locked select,
+- the frame in which the Creature stands still,
+- the first look point, with the answer of the game,
+- the end, with its reason and its time,
+- packet `0x1C`,
+- the frame in which the game lets the Creature go,
+- the Creature that goes on: it moved 0.5 units, or 10 s are over.
+
+The place of the Creature is the base of its body (`LH3DCreature+0x78`, x
+and z). The lines of one stay, from a desktop run:
+
+```
+creature stay: creature_hold_stay: creature_hold_stay=1. A grip on your Creature from a distance that opens in less than 350 ms is the leash click, and the click goes out when the grip opens. A grip that stays closed makes the Creature stay until the grip opens (creature_hold_stay_ms, the game's own time is 225 ms)
+far grab    : the grip closed on your Creature 0F7E2674, 0.34 m of the room from the Hand. A grip that opens in less than 350 ms is the leash click. A grip that stays closed makes the Creature stay (creature_hold_stay=1). No press goes to the game, frame 1346
+creature stay: the grip stayed closed on your Creature 0F7E2674 for 350 ms, so the mod asks the game for the stay (creature_hold_stay_ms=350). Before the stay: the Creature is at 1900.16 2519.91, and it moved 1.75 units while the grip was closed. Its plan is desire 23, action 81, step 0 of 4, and the action of its body is 1. Packet 0x1B: the locked select of the game starts on it. No press goes to the game, and the leash does not change, frame 1366
+creature stay: the game has the Creature in its locked select, 124 ms after the packet. Its mind stops for the time of the stay. The interface action of the game is 0, so the Hand does not go to its Creature state, frame 1373
+creature stay: the Creature stands still, 1521 ms after the start of the stay: the action of its body is over, and it is ready for the Hand (1). It is at 1902.17 2519.82, 2.01 units from its place at the start, frame 1452
+creature stay: the Creature looks at the Hand now (creature_stay_look=1). The mod gives it the Hand's point 1922.0 52.3 2512.9 as its look point on each frame of the stay. That is 21.1 units from the Creature on the map and 22.9 above its base. The game took the point, frame 1452
+creature stay: the grip opened after 3177 ms of the stay, so the stay ends. The Creature is at 1902.17 2519.82: it moved 0.00 units after it stood still. The game has it in its locked select. The end goes to the game when the Creature is ready for it, frame 1546
+creature stay: packet 0x1C goes, 37 ms after the end was asked for: the Creature is ready for the end (its look is at its place, and no action of its body or its face runs). The game ends its locked select, frame 1548
+creature stay: the game let the Creature go, 107 ms after the packet. Its mind runs again. It is at 1902.17 2519.82, and its plan is desire 23, action 81, step 0 of 4, frame 1554
+creature stay: the Creature goes on: 206 ms after the stay it is at 1902.88 2519.79, 0.72 units from the place of its stay. Its plan did not change: desire 23, action 81, step 0 of 4, frame 1565
 ```
 
 ## 6. Tests
@@ -977,6 +1220,13 @@ The math tests are in `bwvr/test/controller_math/` and run with
   `RayLandDistance`, `AimLandWins` and `AimInRange`, `HeldStep` (the land at
   once, the object after 100 ms, a ring that passes 5 objects, an aim at the
   border for 200 frames, a press on the land that stays a walk), `ReleaseLive` and `DoublePress`.
+- The stay (`stay_checks.h`): a grip of 150 ms and of 330 ms is one leash
+  click at its open, a grip of 370 ms and of 3 s is one stay and no click,
+  the stay starts in the first pump after the hold time, a grip of 15 s
+  starts one stay only, `creature_hold_stay=0` (the click at the close and
+  no stay), a hand that is lost before and in a stay, a key that changes
+  while the grip is closed, the wait of the end (`EndNow`), and the distance
+  and the watch for the log (`GoesOn`, `WatchDone`).
 - The near target is in `far_checks.h` (see `grab.md`).
 
 ### 6.2 A Creature in a desktop run
@@ -995,6 +1245,7 @@ Two scripts in `bwvr/tools/desk/` reach the Creature of the player:
 ```
 creature_recipe.ps1 -Name <run> -Dll <dll>
 creature_recipe.ps1 -Name <run> -Dll <dll> -Kind leash
+creature_recipe.ps1 -Name <run> -Dll <dll> -Kind stay
 ```
 
 The kind `state` (the default) does these steps:
@@ -1008,12 +1259,26 @@ The kind `state` (the default) does these steps:
 3. `nudge` steps the hand 2 cm to the side (a stroke), `slap` 12 cm (a hard
    slap), and `rot` turns the wrist (the backhand:
    `fake_controller_rots=-112,1,0 8,1,0` is a turn of 120 degrees).
-4. `aimfar` aims the hand at the Creature, and the grip for 300 frames changes
-   the leash from a distance. No Creature state starts.
+4. `aimfar` aims the hand at the Creature, and the grip for 300 frames makes
+   the Creature stay. No Creature state starts.
 
 The kind `leash` stays at 100 units a meter: the grip from a distance (on), a
 short press of the trigger with the aim on the Creature (off), the grip (on),
-and a grip of 300 frames (off, and no Creature state).
+and a grip of 300 frames (the stay, with no change of the leash and no
+Creature state).
+
+The kind `stay` stays at 100 units a meter too. Each grip comes after an
+`aimfar`:
+
+1. A grip of 300 frames. The Creature stays at the door. After the open it
+   starts a walk.
+2. A grip of 200 frames in that walk. The Creature stops, stays and goes on.
+3. Two grips of 6 frames. The leash goes on and comes off.
+4. A grip of 40 frames: a stay that ends soon after its start.
+
+The recipe takes no picture while the grip is closed, because the frame of a
+picture can take 250 ms. With `-Set "creature_hold_stay=0"` the same steps
+give a leash click at each close of the grip, and no stay.
 
 The settings of the `state` kind are `seek_plan=creature`,
 `far_test_creature=1`, `far_test_influence=1`, `grab_hand=1`,
@@ -1027,7 +1292,9 @@ the run:
 | `hand press : the grip pressed on the target` | the press |
 | `hand creature: the Creature state starts` | the state |
 | `hand creature: a stroke / a slap / a hard slap` | what reached the game |
-| `far grab : the grip closed on your Creature` | the leash from a distance |
+| `far grab : the grip closed on your Creature` | the grip from a distance |
+| `far grab : the grip opened after ... a short grip` | the leash click of a short grip |
+| `creature stay: ...` | the stay, from its start to the Creature that goes on |
 | `creature cmd : the leash is on / off` | the leash |
 
 For the commands, the desktop run uses `creature_command_test=N` (section
@@ -1054,7 +1321,7 @@ now"), and the Creature state ends.
   glow at the palm reads well, and that a slow stroke with the flat hand is
   never a slap.
 - That the halo of the Creature does not show when the player does not want
-  it, and that the grip from a distance puts the leash on without the
+  it, and that a short grip from a distance puts the leash on without the
   Creature turning to the hand.
 - Whether a tap sends the Creature to the place that the player pointed at,
   whether a trigger that closes by accident sends it too often, and whether
@@ -1070,6 +1337,15 @@ now"), and the Creature state ends.
 - That each press on the land has its land point in the headset: the log line
   of the press must say "The arc of the press meets", not "has no land point:
   the arc meets no land".
+- Whether 350 ms is the right hold time for a real grip: a short grip must
+  not start a stay, and a hold must not feel late.
+- Where the Creature turns to in a stay in the God view. The game turns it
+  to the place of the game camera.
+- Whether the head of the Creature follows the real hand well when the hand
+  is far from it.
+- Whether the animation of what the Creature thinks of, and the line of the
+  Creature help, read well with no stroke after them.
+- Whether the halo and the pulse are enough to show that the stay is on.
 
 ## 7. Not built, open
 
@@ -1103,6 +1379,18 @@ now"), and the Creature state ends.
   smaller.
 - **What action `0x5D` is** and the rest of `ForceActOnMapCoord` were not
   traced. The Creature in the sea (desire and action values) was not traced.
+- **A stay and the touch.** While a stay runs, a press of the game on the
+  Creature starts no Creature state: the game refuses a second locked select
+  (bit `0x10`). The player opens the grip first.
+- **A stay and a saved game.** No run looked at a game that is saved while a
+  stay runs. Whether the saved game keeps bit `0x10` of the Creature is not
+  known.
+- **A stay with the leash on.** The trigger sends no command while the grip
+  holds the Creature: the far grab has the grip, so
+  `CreatureCommandPumpTrigger` does not act.
+- **The stay, with no run.** No run had: a start that the game refuses, a
+  grip that closes again before the end packet, a Creature that is not ready
+  5 s after the open, `creature_stay_look=0`, and the test key.
 - **A sailor in the sea, an object 15 to 35 cm from the Hand in the aim, a
   forest in the cone with the list of 128, and the green halo on a red far
   target** have no run with an owned Creature on a leash.

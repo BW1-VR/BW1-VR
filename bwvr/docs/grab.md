@@ -620,7 +620,8 @@ table of steps at `0x00D17DA8`, `0x30` bytes an action):
 | 6, the end | `FUN_005D4A10` | When the object of the record has no bit `0x10`, it clears the pick lock and calls `GInterface::ResetActionState` `0x005D29C0` |
 
 Slot `0x6E4` is `Object::IsReadyForNetworkUnfriendlyEndLockedSelect`
-(`0x00402810`) and gives 1 for each class. So a release ends the take only when
+(`0x00402810`) and gives 1 for each bulk source. The Creature has its own
+function there (see [creature.md](creature.md), section 1.7). So a release ends the take only when
 the next pick record holds the source of the take at that moment. The pick lock
 then keeps the record as it is: `GInterface::PreDrawProcess` (`0x005CEA57`) and
 `UpdateInterfaceCollide` (`0x005D5A9C`) do not change a locked record. With
@@ -887,8 +888,10 @@ limit. An object past the range gets no halo and no lock.
   from the forest's point.
 - A scroll in the cone (`IsScroll`, by the class name, and `Tappable`): the far
   touch (see below).
-- The player's own Creature, for the leash: the grip changes the leash with no
-  pull and no press of the game (`near_math::LeashClick`, key `far_leash`, see
+- The player's own Creature, for the leash and the stay: a short grip changes
+  the leash, and a grip that stays closed makes the Creature stay, with no
+  pull and no press of the game (`near_math::LeashClick`, `stay_math::Step`,
+  the keys `far_leash` and `creature_hold_stay`, see
   [creature.md](creature.md)).
 - No other object that a press taps. Else the aim would knock on each house that
   it crosses, and a press on the entrance of the Temple from 2 m would take the
@@ -896,7 +899,9 @@ limit. An object past the range gets no halo and no lock.
 
 ### The claim, the pull and the fetch
 
-The states are Idle, Aim, Lock, Pull, Fetch and Take (`far_grab.cpp`).
+The states are Idle, Aim, Lock, Pull, Fetch, Take and Hold (`far_grab.cpp`).
+The Hold state is the grip on the player's own Creature (see
+[creature.md](creature.md), section 5.3).
 
 - **The claim.** A grip that closes while the target is selected and inside the
   influence is held back from the grip machine and from the grab of the world
@@ -1156,6 +1161,7 @@ not jump.
 | `far_grab_near_cm`, `far_grab_near_out_cm` | 10, 15 | See "Near objects win" |
 | `far_touch` | 1 | 1 makes a scroll in the aim a far target that the grip activates |
 | `far_leash` | 1 | The leash click on the player's own Creature at a distance (see [creature.md](creature.md)) |
+| `creature_hold_stay`, `creature_hold_stay_ms`, `creature_stay_look` | 1, 350, 1 | A grip that stays closed on the far Creature makes it stay (see [creature.md](creature.md), section 5.3). Test key: Shift and End |
 | `far_roots_at_tree` | 1 | 1 puts the roots pile of a tree that comes from a distance at the roots, on the land where the tree stood. 0 leaves it where the game puts it, on the way of the glide. Test key: Ctrl, Shift and Page Down |
 | `tree_plant_hint` | 1 | 1 makes the card say what the opening of the grip does with a tree in the Hand. 0 shows the text of the game ("Plant") each time. Test key: Ctrl and Page Down |
 | `throw_law` | 2 | The law of the throw (see [throw.md](throw.md)) |
