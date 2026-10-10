@@ -485,6 +485,16 @@ struct TakeKeepOut {
   int ended;     // a TakeKeepEnd
 };
 
+// The end of a context that stays, or kTakeKeepNoEnd. here: the context of
+// this frame is the one that stays.
+inline int TakeKeepEnd(const TakeKeep& s, bool here, bool empty, bool stale,
+                       bool grip, double now, double limit) {
+  if (!here && !empty && !stale) return kTakeKeepContext;
+  if (!grip) return kTakeKeepOpened;
+  if (now - s.since > limit) return kTakeKeepLimit;
+  return kTakeKeepNoEnd;
+}
+
 // One frame. take: the Hand is on an object to take. empty: the Hand holds
 // nothing and is on no target. stale: the Hand holds an object, and the game
 // still gives the hint for the grip that the prompt of the take owned. shown:
@@ -497,13 +507,7 @@ inline TakeKeepOut TakeKeepStep(TakeKeep* s, bool take, bool empty, bool stale,
   s->grip = grip;
   if (shown) s->shown_at = now;
   if (s->on) {
-    if (!take && !empty && !stale) {
-      out.ended = kTakeKeepContext;
-    } else if (!grip) {
-      out.ended = kTakeKeepOpened;
-    } else if (now - s->since > limit) {
-      out.ended = kTakeKeepLimit;
-    }
+    out.ended = TakeKeepEnd(*s, take, empty, stale, grip, now, limit);
     if (out.ended != kTakeKeepNoEnd) s->on = false;
   } else if (closed && (take || empty) &&
              LingerOpen(s->shown_at, now, recent)) {
@@ -513,6 +517,78 @@ inline TakeKeepOut TakeKeepStep(TakeKeep* s, bool take, bool empty, bool stale,
   }
   out.keep = s->on;
   return out;
+}
+
+// THE FETCH IN WORK. A fetch from a distance ends as a take does: the game
+// puts the Hand in its pick up state, and it gives the hint of the take ("Pick
+// Up") until the hint of the object in the Hand comes. The far target is gone
+// in those frames, so no prompt owns the grip. So the context of the fetch
+// stays from the frame in which the far target goes, with the three ends of
+// the take in work.
+//
+// The grip is closed all through a fetch, so a close of the grip cannot start
+// it. It starts when the far target goes while all of these are true:
+//
+//   1. The prompt of the fetch showed less than `recent` seconds before.
+//   2. The grip is closed.
+//   3. The object is on its way to the Hand (`coming`): the game took the
+//      press of the fetch.
+//   4. The Hand is empty and on no target, or it holds the object.
+//
+// A far target that goes for a different reason starts nothing.
+//
+// THE HAND HOLDS THE OBJECT, and the hint of the object in the Hand is not
+// there yet (FetchWaits). That is true while the game gives the hint that the
+// prompt of the fetch owned. It is also true while the object is still on its
+// way to the Hand and the game gives no new hint for the grip: the game can
+// put the object in the Hand some frames before its hint of the take comes.
+// A new hint for the grip is the hint of the object in the Hand, so it ends
+// the fetch at once.
+inline bool FetchWaits(bool old_hint, bool new_hint, bool coming) {
+  return old_hint || (coming && !new_hint);
+}
+
+// One frame. fetch: a far target that the Hand fetches is the context. empty:
+// the Hand holds nothing and is on no target. stale: the Hand holds an object,
+// and FetchWaits is true. shown: the prompt of the fetch showed in the last
+// frame. grip: the grip is closed.
+inline TakeKeepOut FetchKeepStep(TakeKeep* s, bool fetch, bool empty,
+                                 bool stale, bool coming, bool shown, bool grip,
+                                 double now, double recent, double limit) {
+  TakeKeepOut out = {false, false, kTakeKeepNoEnd};
+  s->grip = grip;
+  if (shown) s->shown_at = now;
+  if (s->on) {
+    out.ended = TakeKeepEnd(*s, fetch, empty, stale, grip, now, limit);
+    if (out.ended != kTakeKeepNoEnd) s->on = false;
+  } else if (!fetch && (empty || stale) && grip && coming &&
+             LingerOpen(s->shown_at, now, recent)) {
+    s->on = true;
+    s->since = now;
+    out.started = true;
+  }
+  out.keep = s->on;
+  return out;
+}
+
+// THE HINT THAT A PROMPT OWNED. The game gives the hint for the button of a
+// target for some frames after the target went. No prompt owns the button
+// then, so that hint would show for those frames, and the prompt would come
+// back after it (LingerOpen). The hint is not new: it is the hint that the
+// prompt owned. So it stays away for `limit` seconds after the prompt went,
+// while the game gives the same button and the same text with no break.
+//
+// After `limit` the hint shows: it is then true for the place of the Hand. A
+// hint with a different text, or one that comes after a break, shows at once.
+//
+// The card keeps the lines of the game for some frames after the game gave
+// them, so a frame with no draw of the hint does not blink the card. In such
+// a frame (`held`) the game gives the hint no more. So the hint does not show
+// then, also after `limit`.
+//
+// went: the time of the first frame in which no prompt owned the hint.
+inline bool OwnedStale(double went, bool held, double now, double limit) {
+  return held || (now >= went && now - went < limit);
 }
 
 // The fade of the card: toward 1 while it shows and toward 0 while it does

@@ -949,6 +949,180 @@ inline void HintCardChecks() {
           "a grip that was closed before the take keeps nothing", 0.0, 0.0);
   }
 
+  // THE FETCH IN WORK: the context of the fetch stays from the end of the far
+  // target until the Hand holds the object.
+  {
+    const double recent = 0.15, limit = 1.0;
+    // The grip is closed on a far target for 40 frames. Then the far target
+    // goes, the Hand is on no target for 10 frames, and it holds the object
+    // with the old hint of the game for 13 frames.
+    TakeKeep s;
+    TakeKeepOut o = {false, false, kTakeKeepNoEnd};
+    int kept = 0, starts = 0;
+    for (int i = 0; i < 40; ++i) {
+      o = FetchKeepStep(&s, true, false, false, i >= 37, i > 0, true,
+                        10.0 + 0.014 * i, recent, limit);
+      kept += o.keep ? 1 : 0;
+      starts += o.started ? 1 : 0;
+    }
+    Check(kept == 0 && starts == 0, "a far target that is there keeps nothing",
+          kept, 0.0);
+    o = FetchKeepStep(&s, false, true, false, true, true, true, 10.560, recent,
+                      limit);
+    Check(o.keep && o.started,
+          "the end of the far target with the object on its way starts it",
+          1.0, 1.0);
+    kept = 0;
+    int ends = 0;
+    for (int i = 1; i < 10; ++i) {
+      o = FetchKeepStep(&s, false, true, false, true, false, true,
+                        10.560 + 0.014 * i, recent, limit);
+      kept += o.keep ? 1 : 0;
+      ends += o.ended != kTakeKeepNoEnd ? 1 : 0;
+    }
+    for (int i = 10; i < 23; ++i) {
+      o = FetchKeepStep(&s, false, false, true, i < 20, false, true,
+                        10.560 + 0.014 * i, recent, limit);
+      kept += o.keep ? 1 : 0;
+      ends += o.ended != kTakeKeepNoEnd ? 1 : 0;
+    }
+    Check(kept == 22 && ends == 0,
+          "the fetch stays until the game has a new hint for the object", kept,
+          22.0);
+    o = FetchKeepStep(&s, false, false, false, false, false, true, 10.882,
+                      recent, limit);
+    Check(!o.keep && o.ended == kTakeKeepContext,
+          "the object in the Hand with a new hint ends it", o.ended,
+          kTakeKeepContext);
+    o = FetchKeepStep(&s, false, false, false, false, false, true, 10.896,
+                      recent, limit);
+    Check(!o.keep && !o.started && o.ended == kTakeKeepNoEnd,
+          "and it does not start again while the grip stays closed", 0.0, 0.0);
+
+    // The Hand holds the object in the first frame after the far target, and
+    // the game has no hint for it yet: the object is on its way.
+    TakeKeep first;
+    FetchKeepStep(&first, true, false, false, true, true, true, 20.000, recent,
+                  limit);
+    o = FetchKeepStep(&first, false, false, true, true, true, true, 20.014,
+                      recent, limit);
+    Check(o.keep && o.started,
+          "an object in the Hand that is still on its way starts it", 1.0,
+          1.0);
+    // The grip opens before the object is there.
+    o = FetchKeepStep(&first, false, true, false, true, false, false, 20.028,
+                      recent, limit);
+    Check(!o.keep && o.ended == kTakeKeepOpened, "the open grip ends it",
+          o.ended, kTakeKeepOpened);
+    // The Hand holds the object: what counts as no hint of the object yet.
+    Check(FetchWaits(true, false, false) && FetchWaits(true, false, true),
+          "the old hint of the game is not the hint of the object in the Hand",
+          1.0, 1.0);
+    Check(FetchWaits(false, false, true) && !FetchWaits(false, false, false),
+          "no hint for the grip waits only while the object is on its way",
+          1.0, 1.0);
+    Check(!FetchWaits(false, true, true) && !FetchWaits(false, true, false),
+          "a new hint for the grip is the hint of the object in the Hand", 0.0,
+          0.0);
+    // The new hint comes while the object is still on its way.
+    TakeKeep early;
+    FetchKeepStep(&early, true, false, false, true, true, true, 25.000, recent,
+                  limit);
+    FetchKeepStep(&early, false, true, false, true, true, true, 25.014, recent,
+                  limit);
+    o = FetchKeepStep(&early, false, false, FetchWaits(true, false, true), true,
+                      false, true, 25.028, recent, limit);
+    Check(o.keep, "the old hint keeps the fetch", 1.0, 1.0);
+    o = FetchKeepStep(&early, false, false, FetchWaits(false, true, true), true,
+                      false, true, 25.042, recent, limit);
+    Check(!o.keep && o.ended == kTakeKeepContext,
+          "a new hint ends the fetch while the object is still on its way",
+          o.ended, kTakeKeepContext);
+
+    // The far target goes, and the game did not take the press: nothing
+    // comes to the Hand.
+    TakeKeep refused;
+    FetchKeepStep(&refused, true, false, false, false, true, true, 30.000,
+                  recent, limit);
+    o = FetchKeepStep(&refused, false, true, false, false, true, true, 30.014,
+                      recent, limit);
+    Check(!o.keep && !o.started,
+          "a far target that goes with no object on its way keeps nothing",
+          0.0, 0.0);
+    // The far target goes with the grip open: the aim left it.
+    TakeKeep aim;
+    FetchKeepStep(&aim, true, false, false, false, true, false, 40.000, recent,
+                  limit);
+    o = FetchKeepStep(&aim, false, true, false, true, true, false, 40.014,
+                      recent, limit);
+    Check(!o.keep && !o.started, "an open grip keeps nothing", 0.0, 0.0);
+    // The prompt of the far target was not the prompt of a fetch.
+    TakeKeep scroll;
+    FetchKeepStep(&scroll, false, false, false, false, false, true, 50.000,
+                  recent, limit);
+    o = FetchKeepStep(&scroll, false, true, false, true, false, true, 50.014,
+                      recent, limit);
+    Check(!o.keep && !o.started,
+          "a far target with a different prompt keeps nothing", 0.0, 0.0);
+    // A different context comes after the far target: a dialog box.
+    TakeKeep dialog;
+    FetchKeepStep(&dialog, true, false, false, true, true, true, 60.000,
+                  recent, limit);
+    o = FetchKeepStep(&dialog, false, false, false, true, true, true, 60.014,
+                      recent, limit);
+    Check(!o.keep && !o.started, "a different context keeps nothing", 0.0,
+          0.0);
+    // The object never comes: the limit ends it.
+    TakeKeep lost;
+    FetchKeepStep(&lost, true, false, false, true, true, true, 70.000, recent,
+                  limit);
+    FetchKeepStep(&lost, false, true, false, true, true, true, 70.014, recent,
+                  limit);
+    o = FetchKeepStep(&lost, false, true, false, true, false, true, 70.900,
+                      recent, limit);
+    Check(o.keep, "it holds below the limit", 1.0, 1.0);
+    o = FetchKeepStep(&lost, false, true, false, true, false, true, 71.100,
+                      recent, limit);
+    Check(!o.keep && o.ended == kTakeKeepLimit, "the time limit ends it",
+          o.ended, kTakeKeepLimit);
+  }
+
+  // THE HINT THAT A PROMPT OWNED: it stays away for the limit after the
+  // prompt went.
+  {
+    const double limit = 0.25;
+    Check(OwnedStale(10.0, false, 10.0, limit),
+          "the hint that a prompt owned does not show in the frame in which "
+          "the prompt went", 1.0, 1.0);
+    // The game gives the old hint for 6 frames after the target went. That
+    // is less than the limit at each frame rate from 24 frames a second.
+    int hidden = 0, frames = 0;
+    for (int fps = 24; fps <= 120; fps += 8) {
+      for (int i = 0; i < 6; ++i) {
+        ++frames;
+        hidden += OwnedStale(10.0, false, 10.0 + static_cast<double>(i) / fps,
+                             limit)
+                      ? 1
+                      : 0;
+      }
+    }
+    Check(hidden == frames,
+          "6 frames of the old hint do not show from 24 frames a second up",
+          hidden, frames);
+    Check(OwnedStale(10.0, false, 10.24, limit) &&
+              !OwnedStale(10.0, false, 10.25, limit) &&
+              !OwnedStale(10.0, false, 11.0, limit),
+          "a hint that the game still gives shows after the limit", 0.0, 0.0);
+    Check(!OwnedStale(10.0, false, 9.9, limit),
+          "a time before the prompt went is not in the limit", 0.0, 0.0);
+    // The game gives the hint no more, and the card has it from an earlier
+    // frame.
+    Check(OwnedStale(10.0, true, 10.30, limit) &&
+              OwnedStale(10.0, true, 10.10, limit),
+          "a hint that the game gives no more does not show after the limit",
+          1.0, 1.0);
+  }
+
   // THE FADE: 0.15 s for the whole way, and it stops at 0 and 1.
   {
     float fade = 0.0f;

@@ -742,7 +742,7 @@ has a dwell, a hold time and a count (`kRules` in `hint_card.cpp`):
    show.
 
 **One text for one action.** The hint of the game for the button of a target
-comes some frames after the target. With `hint_words` 1 or 2 (2 is the
+comes some frames after the target. With `hint_words` 1, 2 or 3 (3 is the
 default) the prompt of a target owns its button for as long as the target is
 there: the
 hint of the game for that button does not show, so the words of the card do
@@ -764,7 +764,7 @@ of the Hand, so the context is none. The game gives its hint of the take
 holds the object (6 in a desktop run). Then it gives the hint of the object in
 the Hand ("Drop").
 
-With `hint_words=2` the context of the take stays for those frames
+With `hint_words` 2 or 3 the context of the take stays for those frames
 (`TakeKeepStep` in `hint_card_math.h`). So the card says "Grip Take" from the
 frame in which the target comes until the hint of the object in the Hand
 comes. The rule:
@@ -784,8 +784,61 @@ all through the take. With `hint_words=1` the hint of the game for the grip
 shows from the close of the grip until the hint of the object in the Hand
 comes.
 
+**The fetch in work.** A fetch from a distance ends as a take does. The far
+target goes when the game puts the object in the Hand (`far_grab.cpp`). The
+Hand is then in its pick up state, and the mod draws the object on its way to
+the Hand (the glide, `grab.md`). The game gives its hint of the take ("Pick
+Up") in those frames. In a desktop run it gives "Pick Up" for 16 frames after
+the far target went, then no hint for the grip for 3 frames, and then the hint
+of the object in the Hand ("Drop").
+
+With `hint_words=3` the context of the fetch stays for those frames
+(`FetchKeepStep` in `hint_card_math.h`). So the card says "Grip Pull to fetch"
+from the frame in which the far target comes until the hint of the object in
+the Hand comes. The rule:
+
+1. It starts when the far target goes while the card has the prompt "Pull to
+   fetch", or less than 0.15 s after that prompt showed. The grip must be
+   closed, and the object must be on its way to the Hand
+   (`FarGrabGlideOrigin`: the game took the press of the fetch). A far target
+   that goes for a different reason starts nothing. A far target with a
+   different prompt (a scroll, a bulk source, the Creature) starts nothing.
+2. It holds while the Hand is empty and on no target. It also holds while the
+   Hand has the object and the game still gives the hint that the prompt
+   owned. It holds too while the Hand has the object, the object is still on
+   its way, and the game gives no hint for the grip (`FetchWaits`).
+3. It ends when the Hand has the object and the game gives a new hint for
+   the grip. It also ends as the take in work ends: a different context comes,
+   the grip opens, or 1.0 s passed since the far target went.
+
+With `hint_words` 2 or less the hint of the game for the grip shows from the
+end of the far target until the hint of the object in the Hand comes.
+
+**After the prompt went.** The card has the hint of the game for the button of
+a target for some frames after the target went: 1 to 11 frames in desktop
+runs, at most 0.17 s. The last 4 of those frames are the hold of the card
+(`kHoldFrames`). No prompt owns the button in those frames. With
+`hint_words=3` a hint of the game that a prompt owned does not show for 0.25 s
+after the prompt went (`kOwnedSeconds`, `OwnedStale` in `hint_card_math.h`),
+while the card has the same button and the same text with no break. So the
+card keeps the words of the target for the linger time (see below) and then
+shows nothing. It does not show "Pick Up" and then "Take" again. A change of
+the target for one frame does not change the words.
+
+The rule hides only the hint that the prompt owned:
+
+1. A hint with a different text shows at once.
+2. A hint that comes after a frame with no such hint shows at once.
+3. A hint that the game still gives 0.25 s after the prompt went shows then:
+   it is true for the place of the Hand. In a frame of the hold of the card
+   the game gives the hint no more, so the hint does not show in that frame.
+
+With `hint_words` 2 or less the hint of the game shows in the frame after the
+target went, and the words of the target come back for the rest of the linger
+time when the hint goes.
+
 A hint of the game with no words (the text has no letter and no digit, for
-example "," or ".") never goes to the card with `hint_words` 1 or 2.
+example "," or ".") never goes to the card with `hint_words` 1, 2 or 3.
 
 **The prompt of a target follows the target.** With `prompt_timing=1` (the
 default) rules 1 to 3 do not apply to a context about a thing that the Hand or
@@ -826,14 +879,15 @@ the help options of the game, so a player with "No ToolTips" sees them too.
 | `prompts` | 1 | 0 no prompts, 1 the first times, 2 always |
 | `hint_card_size_pct` | 100 | The size of the card, 50 to 200 |
 | `prompt_timing` | 1 | 1 the prompt of a target shows at once, stays while the target is there and shows each time. 0 the dwell, hold and count for all prompts (9.4) |
-| `hint_words` | 2 | 1 the prompt of a target owns its button and a hint of the game with no words does not show. 2 is 1, and the prompt of a take also keeps the grip from the close of the grip until the Hand holds the object. 0 the hint of the game takes the place of the prompt, as it comes (9.4) |
+| `hint_words` | 3 | 1 the prompt of a target owns its button and a hint of the game with no words does not show. 2 is 1, and the prompt of a take also keeps the grip from the close of the grip until the Hand holds the object. 3 is 2, and the prompt of a fetch keeps the grip from the end of the far target until the Hand holds the object, and a hint of the game that a prompt owned does not show for 0.25 s after the prompt went. 0 the hint of the game takes the place of the prompt, as it comes (9.4) |
 
 `hint_card.cpp` reads the keys itself, at the first frame. With `test_keys=1`
 and `ui_panel=0`, Ctrl Shift F11 switches between the card and the hints in the
 eye pictures, for a live comparison. With `test_keys=1`, Ctrl End switches
 `prompt_timing` between 1 (a long pulse in the pointing controller) and 0 (a
-short pulse). Ctrl Home changes `hint_words` from 2 to 1 to 0 and back: a long
-pulse for 2, a medium pulse for 1 and a short pulse for 0.
+short pulse). Ctrl Home changes `hint_words` from 3 to 2 to 1 to 0 and back.
+The pointing controller gives one short pulse for each unit of the value:
+three pulses for 3, two for 2 and one for 1. It gives one long pulse for 0.
 
 ### 9.6 The log
 
@@ -851,7 +905,19 @@ pulse for 2, a medium pulse for 1 and a short pulse for 0.
   frame N, the prompt of the take let the grip go K frames after the close:
   the context of the Hand is now an object in the Hand` (or `the grip opened`,
   or `the time limit passed`): one line for the start and one for the end of
-  each take in work, with `hint_words=2` (60 lines at most).
+  each take in work, with `hint_words` 2 or 3 (60 lines at most).
+- `hint card : frame N, the far target went with the grip closed, and the
+  object comes to the Hand. The prompt of the fetch keeps the grip ...`, and
+  `hint card : frame N, the prompt of the fetch let the grip go K frames after
+  the far target went: the context of the Hand is now an object in the Hand`
+  (or `the grip opened`, or `the time limit passed`): one line for the start
+  and one for the end of each fetch in work, with `hint_words=3`. These lines
+  count in the same 60 lines.
+- `hint card : frame N, the hint "[Grip] Pick Up" of the game did not show on
+  K frames after its prompt went at frame M: the game gives it no more` (or
+  `the time limit passed, so it shows now`, or `a prompt owns it again`): one
+  line for each hint that a prompt owned and that did not show after the
+  prompt went, with `hint_words=3` (60 lines at most).
 - `hint card : the hint "[Trigger] Move" of the game does not show: the trigger
   does not move the land here. The grip of the other hand moves it`: one time
   for each of the two false hints (9.9).
@@ -866,7 +932,9 @@ pulse for 2, a medium pulse for 1 and a short pulse for 0.
   card did not show because it was on the other hand, the changes of side, and
   the prompts by context. The line of `hint_words` has the hints with no
   words, the hints that a prompt owned, the closes of the grip on a take, and
-  the frames with no target in which the prompt of the take kept the grip.
+  the frames with no target in which the prompt of the take kept the grip. It
+  also has the fetches in work, the frames in which the prompt of the fetch
+  kept the grip, and the hints that did not show after their prompt went.
   `ui depth : N tooltip calls went to the hint card and
   did not draw in an eye picture`. `XrScreen` counts the quad layers of each
   card.
@@ -899,6 +967,9 @@ The math test (`hint_checks.h`, in `test/controller_math`) covers:
 - The size, the prompt rule (dwell, hold, count, a hand that goes across
   objects, always), the rule of a target (no dwell, hold or count), the linger
   and the fade.
+- The take in work and the fetch in work: each start, each end, and each case
+  that starts nothing. The hint that a prompt owned: 6 frames of it do not
+  show at each frame rate from 24 frames a second, and it shows after 0.25 s.
 - `GameHintTrue` for each case of 9.9.
 - 2000 poses of two hands: each has two cards, more than 95 percent start on
   the outer side, no card is on its own hand or on the other hand, and the two
@@ -919,6 +990,9 @@ sharp at 40 pixels a cm.
 - Whether the card steps against the hand at a low frame rate. The hand pose is
   from the game frame, and the runtime moves the quad only for the head.
 - The prompts in play: the dwell, the time of the show and the counts.
+- The words of the card at the end of a take and of a fetch, and when the
+  Hand leaves a target, at the frame rate of the headset (`hint_words=3`, the
+  0.25 s of `kOwnedSeconds`). The desktop runs have 60 to 90 frames a second.
 - Whether the left card is easy to see while the right hand works, and whether
   the land prompt at the left wrist teaches the grip.
 

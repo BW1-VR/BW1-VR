@@ -59,15 +59,19 @@
 //                        in which the target comes, stays while it is there,
 //                        and shows each time (hint_card_math.h, TargetRule).
 //                        Ctrl and End switch it, with test_keys=1
-//   hint_words=2         1 a target has one text: while the prompt of a target
+//   hint_words=3         1 a target has one text: while the prompt of a target
 //                        shows, it owns its button and the hint of the game for
 //                        that button does not take its place. A hint of the
 //                        game with no words (only "," or ".") never shows. 2
 //                        is 1, and the prompt of a take also keeps the grip
 //                        from the close of the grip until the Hand holds the
-//                        object (hint_card_math.h, TakeKeepStep). 0 the hint
-//                        of the game takes the place of the prompt. Ctrl and
-//                        Home change it, with test_keys=1
+//                        object (hint_card_math.h, TakeKeepStep). 3 is 2, and
+//                        the prompt of a fetch keeps the grip in the same way
+//                        (FetchKeepStep), and a hint that a prompt owned does
+//                        not show for 0.25 s after the prompt went
+//                        (OwnedStale). 0 the hint of the game takes the place
+//                        of the prompt. Ctrl and Home change it, with
+//                        test_keys=1
 //
 // With no headset (the desktop test) the route runs too. A capture frame
 // saves each card as bwvr-hintcard-right-NNNNN.bmp or
@@ -137,7 +141,10 @@ int g_size_pct = 100;    // hint_card_size_pct
 bool g_toggled_off = false;  // the test key
 bool g_test_keys = false;    // test_keys
 int g_timing = 1;            // prompt_timing, and its test key
-int g_words = 2;             // hint_words, and its test key
+int g_words = 3;             // hint_words, and its test key
+// A hint of the game that a prompt owned does not show for this long after
+// the prompt went (hint_words=3, hint_card_math.h, OwnedStale).
+const double kOwnedSeconds = 0.25;
 
 int IniKey(const char* key, int fallback) {
   char path[MAX_PATH];
@@ -159,8 +166,8 @@ void ReadSettings() {
   if (g_prompts < 0 || g_prompts > 2) g_prompts = 1;
   g_test_keys = IniKey("test_keys", 0) != 0;
   g_timing = IniKey("prompt_timing", 1) != 0 ? 1 : 0;
-  g_words = IniKey("hint_words", 2);
-  if (g_words < 0 || g_words > 2) g_words = 2;
+  g_words = IniKey("hint_words", 3);
+  if (g_words < 0 || g_words > 3) g_words = 3;
   g_size_pct = IniKey("hint_card_size_pct", 100);
   if (g_size_pct < 50) g_size_pct = 50;
   if (g_size_pct > 200) g_size_pct = 200;
@@ -179,7 +186,15 @@ void ReadSettings() {
                          "the target is there, and shows each time"
                        : "each prompt waits for its dwell and goes after its "
                          "hold and its count");
-  ModLog("hint card    : hint_words=%d, %s%s", g_words,
+  char owned[256] = "";
+  if (g_words >= 3) {
+    _snprintf_s(owned, _TRUNCATE,
+                ". The prompt of a fetch keeps the grip from the end of the "
+                "far target until the Hand holds the object. A hint that a "
+                "prompt owned does not show for %.2f s after the prompt went",
+                kOwnedSeconds);
+  }
+  ModLog("hint card    : hint_words=%d, %s%s%s", g_words,
          g_words != 0 ? "a target has one text: the prompt of the mod owns its "
                         "button, and a hint of the game with no words does not "
                         "show"
@@ -187,7 +202,8 @@ void ReadSettings() {
                         "the same button, and a hint with no words can show",
          g_words >= 2 ? ". The prompt of a take keeps the grip from the close "
                         "of the grip until the Hand holds the object"
-                      : "");
+                      : "",
+         owned);
 }
 
 // --- the words -----------------------------------------------------------------
@@ -371,15 +387,41 @@ const int kMaxTimingLogs = 400;
 // long at most.
 const double kTakeKeepSeconds = 1.0;
 hint_card_math::TakeKeep g_take_keep;
-// The hint of the game for the grip that the prompt of the take owns ("Pick
-// Up"). The game still gives it in the first frames with the object in the
-// Hand.
-Line g_take_owned = {};
 uint64_t g_take_keep_frame = 0;  // the frame of the close
 uint64_t g_take_keep_frames = 0;
 uint64_t g_take_keeps = 0;
 int g_take_keep_logs = 0;
 const int kMaxTakeKeepLogs = 60;
+
+// THE FETCH IN WORK (hint_card_math.h, FetchKeepStep): the context of the
+// fetch stays from the end of the far target until the Hand holds the object,
+// for kTakeKeepSeconds at most.
+hint_card_math::TakeKeep g_fetch_keep;
+bool g_fetch_prompt = false;  // the prompt of the last frame was "Pull to fetch"
+bool g_fetch_kept = false;    // the context of this frame is a fetch in work
+uint64_t g_fetch_keep_frame = 0;  // the frame in which the far target went
+uint64_t g_fetch_keep_frames = 0;
+uint64_t g_fetch_keeps = 0;
+
+// THE HINTS THAT A PROMPT OWNED (hint_card_math.h, OwnedStale): the lines of
+// the game for a button of the prompt of a target ("Pick Up" for the prompt
+// "Take"). The game still gives such a line in the first frames with the
+// object in the Hand, and for some frames after the target went. A line stays
+// here while the game gives it with no break, for kOwnedSeconds at most after
+// the prompt went.
+struct OwnedLine {
+  Line line;
+  bool owned;           // a prompt owned it in the last frame
+  bool touched;         // the frame before this one had the line
+  double went;          // the first frame with no prompt that owns it
+  uint64_t went_frame;
+  int hidden;           // frames on which it did not show after the prompt
+};
+OwnedLine g_owned[kMaxGameLines] = {};
+int g_owned_count = 0;
+uint64_t g_stale_hints = 0;
+int g_stale_logs = 0;
+const int kMaxStaleLogs = 60;
 
 hint_card_math::PromptState g_prompt_state;
 int g_prompt_shown = kCtxNone;
@@ -524,6 +566,12 @@ void AddPrompts(Content cards[kHands], int context, bool first_show) {
       AddPrompt(cards, kWordJump, L"Release to go", kToneOther);
       break;
     case kCtxFar: {
+      // THE FETCH IN WORK: the far target is gone, and the object comes to
+      // the Hand. The line of the fetch stays.
+      if (g_fetch_kept) {
+        AddPrompt(cards, kWordGrab, L"Pull to fetch", kToneGrab);
+        break;
+      }
       // A scroll in the aim takes a closed grip with no pull, and so does a
       // bulk source. All other far targets come to the Hand with a pull.
       FarDraw far_draw = {};
@@ -997,6 +1045,122 @@ void KeepTrueHints(const Content& noted, Content* out) {
   if (false_grip) ++g_false_grip;
 }
 
+// --- the hints that a prompt owned -------------------------------------------------
+
+bool SameLine(const Line& a, const Line& b) {
+  return wcscmp(a.button, b.button) == 0 && wcscmp(a.text, b.text) == 0;
+}
+
+int OwnedFind(const Line& line) {
+  for (int i = 0; i < g_owned_count; ++i) {
+    if (SameLine(g_owned[i].line, line)) return i;
+  }
+  return -1;
+}
+
+// Takes a line out of the list. The log has one line for each hint that did
+// not show after its prompt went, with the number of frames.
+void OwnedForget(int at, const char* why) {
+  const OwnedLine& e = g_owned[at];
+  if (e.hidden > 0 && g_stale_logs < kMaxStaleLogs) {
+    ++g_stale_logs;
+    char button[32], text[64];
+    Narrow(e.line.button, button, sizeof(button));
+    Narrow(e.line.text, text, sizeof(text));
+    ModLog("hint card    : frame %llu, the hint \"[%s] %s\" of the game did not "
+           "show on %d frames after its prompt went at frame %llu: %s "
+           "(hint_words=%d)", g_frame, button, text, e.hidden, e.went_frame,
+           why, g_words);
+  }
+  g_owned[at] = g_owned[--g_owned_count];
+}
+
+// Once a frame, before the context. A line that the game does not give now,
+// or that the card of the frame before this one did not have, is not the hint
+// that a prompt owned.
+void OwnedStart() {
+  for (int i = g_owned_count - 1; i >= 0; --i) {
+    bool given = false;
+    for (int j = 0; j < g_game.count && !given; ++j) {
+      given = SameLine(g_game.line[j], g_owned[i].line);
+    }
+    if (!given || !g_owned[i].touched) {
+      OwnedForget(i, given ? "the card had no line for it"
+                           : "the game gives it no more");
+    } else {
+      g_owned[i].touched = false;
+    }
+  }
+}
+
+// True when the game gives a line that a prompt owned.
+bool OwnedGiven() {
+  for (int i = 0; i < g_game.count; ++i) {
+    if (OwnedFind(g_game.line[i]) >= 0) return true;
+  }
+  return false;
+}
+
+// True when the game gives a hint for the grip (code 2) that no prompt owned:
+// a new hint.
+bool NewGripHint() {
+  for (int i = 0; i < g_game.count; ++i) {
+    if (g_game.line[i].code == 2 && OwnedFind(g_game.line[i]) < 0) return true;
+  }
+  return false;
+}
+
+// One line of the game on the card of this frame. owned: the prompt of this
+// frame has its button. True when no prompt owns the line and it must not
+// show: it is the hint that a prompt owned (hint_words=3).
+bool OwnedStep(const Line& line, bool owned, double now) {
+  int at = OwnedFind(line);
+  if (owned) {
+    if (at >= 0 && !g_owned[at].owned) {
+      OwnedForget(at, "a prompt owns it again");
+      at = -1;
+    }
+    if (at < 0 && g_owned_count < kMaxGameLines) {
+      at = g_owned_count++;
+      memset(&g_owned[at], 0, sizeof(g_owned[at]));
+      g_owned[at].line = line;
+    }
+    if (at >= 0) {
+      g_owned[at].owned = true;
+      g_owned[at].touched = true;
+    }
+    return false;
+  }
+  if (at < 0) return false;
+  OwnedLine& e = g_owned[at];
+  if (e.owned) {
+    e.owned = false;
+    e.went = now;
+    e.went_frame = g_frame;
+  }
+  // In a frame with no hint of the game, the line is here from an earlier
+  // frame (kHoldFrames).
+  if (g_words >= 3 &&
+      hint_card_math::OwnedStale(e.went, g_noted.count == 0, now,
+                                 kOwnedSeconds)) {
+    e.touched = true;
+    ++e.hidden;
+    ++g_stale_hints;
+    return true;
+  }
+  OwnedForget(at, g_words >= 3 ? "the time limit passed, so it shows now"
+                               : "hint_words is less than 3 now");
+  return false;
+}
+
+// The far target is one that the Hand fetches with a pull: not a scroll, not
+// a bulk source and not the player's Creature.
+bool FarTargetIsFetch() {
+  FarDraw far_draw = {};
+  return FarGrabDrawState(&far_draw) && far_draw.active && far_draw.valid &&
+         far_draw.leash == 0 && !far_draw.touch && !far_draw.bulk;
+}
+
 // What one card needs for its place in this frame.
 struct Plan {
   bool have_hand;
@@ -1115,6 +1279,10 @@ void HintCardEndFrame() {
                                kRules[kCtxNone], false);
     g_prompt_shown = kCtxNone;
     g_take_keep = hint_card_math::TakeKeep();
+    g_fetch_keep = hint_card_math::TakeKeep();
+    g_fetch_prompt = false;
+    g_fetch_kept = false;
+    g_owned_count = 0;
     return;
   }
 
@@ -1134,6 +1302,9 @@ void HintCardEndFrame() {
   int shown = kCtxNone;
   bool first_show = false;
   int raw_context = kCtxNone;
+  bool fetch = false;
+  OwnedStart();
+  g_fetch_kept = false;
   if (g_prompts != 0) {
     int context = ContextNow();
     raw_context = context;
@@ -1142,19 +1313,65 @@ void HintCardEndFrame() {
     // of the take ("Pick Up") some frames longer. The context of the take
     // stays for those frames, so the prompt keeps the grip and that hint does
     // not take its place.
-    bool stale = false;
-    if (context == kCtxHolding && g_take_owned.button[0] != 0) {
-      for (int i = 0; i < g_game.count && !stale; ++i) {
-        stale = wcscmp(g_game.line[i].button, g_take_owned.button) == 0 &&
-                wcscmp(g_game.line[i].text, g_take_owned.text) == 0;
+    const bool stale = context == kCtxHolding && OwnedGiven();
+    const bool empty = context == kCtxNone || context == kCtxLand ||
+                       context == kCtxLeashedLand;
+    const bool grip = ControllersGripClosed();
+    const hint_card_math::TakeKeepOut keep = hint_card_math::TakeKeepStep(
+        &g_take_keep, context == kCtxTake, empty, stale,
+        g_prompt_shown == kCtxTake, grip, now, kLingerSeconds,
+        kTakeKeepSeconds);
+    // THE FETCH IN WORK. The far target goes when the game puts the object in
+    // the Hand, and the mod then draws the object on its way to the Hand
+    // (far_grab.cpp, the glide). The context of the fetch stays until the
+    // game has a new hint for the object in the Hand.
+    void* coming_object = nullptr;
+    float coming_from[3];
+    const bool coming = FarGrabGlideOrigin(&coming_object, coming_from);
+    fetch = context == kCtxFar && FarTargetIsFetch();
+    const hint_card_math::TakeKeepOut fetch_keep =
+        hint_card_math::FetchKeepStep(
+            &g_fetch_keep, fetch, empty,
+            context == kCtxHolding &&
+                hint_card_math::FetchWaits(stale, NewGripHint(), coming),
+            coming, g_prompt_shown == kCtxFar && g_fetch_prompt, grip, now,
+            kLingerSeconds, kTakeKeepSeconds);
+    if (g_words >= 3) {
+      if (fetch_keep.started) {
+        g_fetch_keep_frame = g_frame;
+        ++g_fetch_keeps;
+      }
+      if (fetch_keep.keep && context != kCtxFar) {
+        context = kCtxFar;
+        g_fetch_kept = true;
+        ++g_fetch_keep_frames;
+      }
+      if ((fetch_keep.started ||
+           fetch_keep.ended != hint_card_math::kTakeKeepNoEnd) &&
+          g_take_keep_logs < kMaxTakeKeepLogs) {
+        ++g_take_keep_logs;
+        if (fetch_keep.started) {
+          ModLog("hint card    : frame %llu, the far target went with the grip "
+                 "closed, and the object comes to the Hand. The prompt of the "
+                 "fetch keeps the grip until the Hand holds the object and "
+                 "the game has a new hint for it, for %.1f s at most "
+                 "(hint_words=%d)",
+                 g_frame, kTakeKeepSeconds, g_words);
+        } else {
+          ModLog("hint card    : frame %llu, the prompt of the fetch let the "
+                 "grip go %lld frames after the far target went: %s%s",
+                 g_frame, static_cast<long long>(g_frame - g_fetch_keep_frame),
+                 fetch_keep.ended == hint_card_math::kTakeKeepContext
+                     ? "the context of the Hand is now "
+                     : fetch_keep.ended == hint_card_math::kTakeKeepOpened
+                           ? "the grip opened"
+                           : "the time limit passed",
+                 fetch_keep.ended == hint_card_math::kTakeKeepContext
+                     ? kContextName[raw_context]
+                     : "");
+        }
       }
     }
-    const hint_card_math::TakeKeepOut keep = hint_card_math::TakeKeepStep(
-        &g_take_keep, context == kCtxTake,
-        context == kCtxNone || context == kCtxLand ||
-            context == kCtxLeashedLand,
-        stale, g_prompt_shown == kCtxTake, ControllersGripClosed(), now,
-        kLingerSeconds, kTakeKeepSeconds);
     if (g_words >= 2) {
       if (keep.started) {
         g_take_keep_frame = g_frame;
@@ -1190,7 +1407,7 @@ void HintCardEndFrame() {
     }
     // A hint of the game for the same button says it already. Then the
     // prompt adds no line, and that must not count as one of its shows.
-    // With hint_words 1 or 2 the prompt of a target owns its button: the
+    // With hint_words 1 or more the prompt of a target owns its button: the
     // hint of the game, which comes a few frames later, must not change the
     // words.
     if (context != kCtxNone && context != kCtxMiracle &&
@@ -1219,7 +1436,7 @@ void HintCardEndFrame() {
   }
   const bool prompt_changed = shown != g_prompt_shown;
   g_prompt_shown = shown;
-  if (shown != kCtxTake) g_take_owned.button[0] = 0;
+  g_fetch_prompt = shown == kCtxFar && (fetch || g_fetch_kept);
   if (raw_context != g_raw_context) {
     g_raw_context = raw_context;
     g_raw_frame = g_frame;
@@ -1241,11 +1458,13 @@ void HintCardEndFrame() {
     }
     game.count = kept;
   }
-  if (g_words != 0 && IsTargetContext(shown)) {
+  if (g_words != 0) {
     // The prompt of a target owns its buttons. The hint of the game for the
     // same button goes, so the words stay the same while the target stays.
+    // With hint_words=3 that hint also stays away for kOwnedSeconds after the
+    // prompt went, while the game gives it with no break (OwnedStep).
     Content probe[kHands] = {};
-    AddPrompts(probe, shown, first_show);
+    if (IsTargetContext(shown)) AddPrompts(probe, shown, first_show);
     Content& game = content[kPointing];
     int kept = 0;
     for (int i = 0; i < game.count; ++i) {
@@ -1255,10 +1474,8 @@ void HintCardEndFrame() {
                 wcscmp(game.line[i].button, probe[kPointing].line[j].button) ==
                     0;
       }
-      if (owned) {
-        ++g_owned_hints;
-        if (shown == kCtxTake) g_take_owned = game.line[i];
-      } else {
+      if (owned) ++g_owned_hints;
+      if (!OwnedStep(game.line[i], owned, now) && !owned) {
         game.line[kept++] = game.line[i];
       }
     }
@@ -1465,11 +1682,18 @@ static void PollTimingKey() {
                          "count");
 }
 
-// THE A/B KEY (test_keys=1): Ctrl with Home changes hint_words from 2 to 1 to
-// 0 and back. The pointing controller gives a long pulse for 2, a medium
-// pulse for 1 and a short pulse for 0.
+// THE A/B KEY (test_keys=1): Ctrl with Home changes hint_words from 3 to 2 to
+// 1 to 0 and back. The pointing controller gives one short pulse for each
+// unit of the value: three for 3, two for 2 and one for 1. It gives one long
+// pulse for 0. A hand can count pulses, and it cannot tell four lengths
+// apart.
+const float kWordsPulseSeconds = 0.08f;
+const float kWordsLongPulseSeconds = 0.40f;
+const double kWordsPulseStep = 0.25;  // from the start of a pulse to the next
 static void PollWordsKey() {
   static bool was = false;
+  static int pulses = 0;
+  static double pulse_at = 0.0;
   if (!g_test_keys) return;
   // Shift must be up: Ctrl, Shift and Home is the key of grip_press_guard.
   const bool down = (GetAsyncKeyState(VK_HOME) & 0x8000) != 0 &&
@@ -1477,21 +1701,32 @@ static void PollWordsKey() {
                     (GetAsyncKeyState(VK_SHIFT) & 0x8000) == 0;
   const bool pressed = down && !was;
   was = down;
-  if (!pressed) return;
-  DWORD process = 0;
-  const HWND window = GetForegroundWindow();
-  if (window != nullptr) GetWindowThreadProcessId(window, &process);
-  if (process != GetCurrentProcessId()) return;
-  g_words = g_words <= 0 ? 2 : g_words - 1;
-  ControllersGesturePulse(0.5f, g_words >= 2   ? 0.40f
-                                : g_words == 1 ? 0.24f
-                                               : 0.08f);
-  ModLog("test key     : Ctrl and Home: hint_words is %d now (%s)", g_words,
-         g_words >= 2   ? "a target has one text, and the prompt of a take "
-                          "keeps the grip until the Hand holds the object"
-         : g_words == 1 ? "a target has one text, and the hint of the game "
-                          "shows after the close of the grip on a take"
-                        : "a hint of the game takes the place of the prompt");
+  const double now = NowSeconds();
+  if (pressed) {
+    DWORD process = 0;
+    const HWND window = GetForegroundWindow();
+    if (window != nullptr) GetWindowThreadProcessId(window, &process);
+    if (process != GetCurrentProcessId()) return;
+    g_words = g_words <= 0 ? 3 : g_words - 1;
+    pulses = g_words;
+    pulse_at = now;
+    if (g_words == 0) ControllersGesturePulse(0.5f, kWordsLongPulseSeconds);
+    ModLog("test key     : Ctrl and Home: hint_words is %d now (%s)", g_words,
+           g_words >= 3   ? "a target has one text, the prompt of a take or of "
+                            "a fetch keeps the grip until the Hand holds the "
+                            "object, and a hint that a prompt owned does not "
+                            "show after the prompt went"
+           : g_words == 2 ? "a target has one text, and the prompt of a take "
+                            "keeps the grip until the Hand holds the object"
+           : g_words == 1 ? "a target has one text, and the hint of the game "
+                            "shows after the close of the grip on a take"
+                          : "a hint of the game takes the place of the prompt");
+  }
+  if (pulses > 0 && now >= pulse_at) {
+    --pulses;
+    pulse_at = now + kWordsPulseStep;
+    ControllersGesturePulse(0.5f, kWordsPulseSeconds);
+  }
 }
 
 // THE A/B KEYS (test_keys=1): Ctrl with Page Down switches tree_plant_hint
@@ -1545,9 +1780,13 @@ void HintCardReport() {
   ModLog("hint card    : hint_words=%d: %llu hints of the game with no words "
          "did not show, and %llu hints of the game for a button of the prompt "
          "of a target did not show. The grip closed on a take %llu times, and "
-         "the prompt of the take kept the grip on %llu frames with no target",
+         "the prompt of the take kept the grip on %llu frames with no target. "
+         "A far target went with the object on its way to the Hand %llu "
+         "times, and the prompt of the fetch kept the grip on %llu frames. "
+         "%llu hints that a prompt owned did not show after the prompt went",
          g_words, g_empty_hints, g_owned_hints, g_take_keeps,
-         g_take_keep_frames);
+         g_take_keep_frames, g_fetch_keeps, g_fetch_keep_frames,
+         g_stale_hints);
   ModLog("hint card    : %llu and %llu frames had words and no tracked hand. "
          "%llu and %llu frames a card did not show, because it was on the "
          "other hand or on the other card. The cards changed side %llu and "
@@ -1577,6 +1816,8 @@ void HintCardReport() {
   g_game_hints = 0;
   g_empty_hints = g_owned_hints = 0;
   g_take_keeps = g_take_keep_frames = 0;
+  g_fetch_keeps = g_fetch_keep_frames = 0;
+  g_stale_hints = 0;
   g_false_trigger = g_false_grip = 0;
   for (int h = 0; h < kHands; ++h) {
     g_cards[h].frames_shown = 0;

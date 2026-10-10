@@ -58,19 +58,6 @@ is built, and no test has proven it.
   run: a tree that comes from a distance and is then planted again. A
   tree that is thrown, or that falls from more than `release_fall_cm`,
   is not planted by the game: it takes the path of a dead tree.
-- **B5. The hint card shows the hint of the game for some frames.** Two
-  cases stay, both seen in desktop runs:
-  - At the end of a fetch from a distance the card says "Pull to fetch",
-    then "Pick Up" for about 18 frames while the pick up of the game runs,
-    and then "Drop". The rule of the take in work (`hint_words=2`,
-    `controller-hints.md`, 9.4) starts only at a close of the grip on the
-    prompt "Take".
-  - When the Hand leaves an object to take with the grip open, the card
-    says the hint of the game ("Pick Up", or "Reminder" near a scroll) for
-    3 to 6 frames, then "Take" again for some frames, and then nothing.
-    The hint of the game stays for some frames after the target went, and
-    no prompt owns the grip then. The same shows for one frame when the
-    target changes to a scroll and back.
 - **B6. A soft lock in the quest of the sailors.** The sailors ask for
   wood. After a tree was dropped on their boat, the boat took no wood, the
   subtitle "Trees won't work, they need prepared wood" stayed, and the game
