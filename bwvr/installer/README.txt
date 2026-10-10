@@ -377,6 +377,15 @@ For example, in the God view the trigger does not move the land, so the
 card does not say "Trigger Move". Set hint_card=0 in bwvr.ini to draw
 the hints in the view. Set controller_hints=0 to keep the mouse hints.
 
+Some lines of the game wait for a click. The text stays, and the card
+says "Trigger Continue" as its first line. Press the trigger. Until
+you do, the quest that said the line waits, and a new quest cannot
+start its story. While the card says this, the trigger is that click
+only: it sends no Creature command. An example is in the quest of the
+sailors. They take a pile of wood, for example from the store. A whole
+tree at their boat gives such a line. Set text_click=0 in bwvr.ini to
+give this hint the rule of the other trigger hints.
+
 Each controller has its own card. A line for a button of the other
 controller shows beside the wrist of that hand: "Grip Move the land",
 "X Ring menu" and "Y Game menu" show at your left hand. The two cards
@@ -765,8 +774,10 @@ KNOWN ISSUES
 This is an alpha build for testers. Expect faults. Save the game
 before you start a quest. These faults are known:
 
-  - In the quest of the sailors, do not drop a whole tree on the
-    boat. The quest can stop then, and the game cannot go on.
+  - In the quest of the sailors, a whole tree at the boat gives a
+    line that waits for a click. Press the trigger when the card
+    says "Trigger Continue". If the quest does not go on then, tell
+    us: no headset session has tested this.
   - A change of the zoom moves you forward or back a little.
   - The aim at a distance can select a tree when you want a
     villager or a different object near it.

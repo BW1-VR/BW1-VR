@@ -915,7 +915,7 @@ hands change sides. The default mode is the God view (`god-view.md`).
 | --- | --- |
 | Pose | The Hand, one to one in place and size (`hand.md`) |
 | Grip | The right button of the game: take, carry, let go, throw, stroke, tap, cast (3.6, `grab.md`). A grip closed on a far target and pulled fetches it (`grab.md`). A short grip on your Creature from a distance changes its leash, and a grip that stays closed makes it stay (`creature.md`) |
-| Trigger | The left button: click. A drag on the land moves nothing in the God view. With the leash on the Hand, a Creature command (`creature.md`). With a one-off seed in the Hand, it makes the seed active (`miracles.md`) |
+| Trigger | The left button: click. A drag on the land moves nothing in the God view. With the leash on the Hand, a Creature command (`creature.md`). With a one-off seed in the Hand, it makes the seed active (`miracles.md`). While a text of the game waits for a click, the trigger is that click and nothing more (`controller-hints.md`, section 10) |
 | A | Hold to aim the teleport arc, let go to go there (`god-view.md`). `teleport=0` gives a jump to the object or the land under the Hand |
 | B (Y on the left hand) | Hold and draw: a gesture (`miracles.md`). A short press with a miracle in the Hand takes the miracle out. B while A is down cancels the teleport |
 | Stick left and right | One snap turn (5.4). In the Temple it turns the player in the room (11.4) |
@@ -951,6 +951,7 @@ hands change sides. The default mode is the God view (`god-view.md`).
 | `teleport` | 1 | 1: A makes the teleport. 0: A makes a jump |
 | `miracle_cancel_ms` | 400 | The longest press of the second face button that takes a miracle out of the Hand |
 | `controller_hints` | 1 | 1 shows the controller words in the hints and the help text of the game while a controller owns the pointer. 0 leaves every hint as the game draws it (`controller-hints.md`) |
+| `text_click` | 1 | 1: while a text of the game waits for a click, its prompt shows on the hint card in each view, and a press of the trigger goes to the game as the left button: no Creature command, no seed, and with the Hand off the view too. 0: the prompt has the rule of each other hint of the left button, and the trigger keeps its other jobs (`controller-hints.md`, section 10) |
 | `hint_profile` | (none) | A test key. Forces the words of one profile, for example `valve/index_controller` |
 | `controller_window_behind` | 1 | Section 9. Not in the launcher |
 | `aim_preset` | 2 | Section 8 |

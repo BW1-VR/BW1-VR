@@ -309,6 +309,11 @@ inline bool CardsOverlap(const Card& a, float a_width, float a_height,
 // Each other hint is true: the grip takes, plants, drops and throws as the
 // right button does, it touches the Creature ("Interact"), and the stick
 // zooms as the wheel does.
+//
+// THE CLICK PROMPT. One hint of the left button is not the land drag: the
+// prompt "Continue" of a text that waits for a click (text_click.cpp). The
+// trigger is the left button, and the game takes that click at each place of
+// the pointer. So the prompt is true in each view, with the leash on too.
 const int kHandModeLand = 3;
 const int kHandModeCreature = 0x13;
 
@@ -316,10 +321,12 @@ const int kHandModeCreature = 0x13;
 // 0x10 the wheel, 0 for a hint with no button). mode: the interface hand
 // mode, when have_mode. trigger_drags_land: the game's land drag moves the
 // view now. leash_command: the leash is on the Hand, and the trigger
-// commands the Creature.
+// commands the Creature. click_prompt: the hint is the click prompt, and
+// text_click is 1.
 inline bool GameHintTrue(unsigned code, bool have_mode, int mode,
-                         bool trigger_drags_land, bool leash_command) {
-  if (code == 1) return trigger_drags_land;
+                         bool trigger_drags_land, bool leash_command,
+                         bool click_prompt = false) {
+  if (code == 1) return trigger_drags_land || click_prompt;
   if (code == 2) {
     return !(leash_command && have_mode && mode == kHandModeLand);
   }

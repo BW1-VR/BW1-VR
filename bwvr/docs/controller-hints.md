@@ -38,6 +38,9 @@ All addresses are for `runblack.exe` v1.42, image base `0x00400000`.
   to a hint card, a small quad layer beside the wrist of each hand. The card
   also shows prompts for what the controller can do now. A hint of the game
   that is false with the controllers does not show.
+- A text of the game can wait for a click of the left button. The prompt of
+  the game for that click shows on the card in each view, and the trigger is
+  the click (section 10).
 - Not built: glyph pictures of the buttons, a picture of the controller with
   the button lit, and the runtime's 3D model (section 5).
 
@@ -880,6 +883,7 @@ the help options of the game, so a player with "No ToolTips" sees them too.
 | `hint_card_size_pct` | 100 | The size of the card, 50 to 200 |
 | `prompt_timing` | 1 | 1 the prompt of a target shows at once, stays while the target is there and shows each time. 0 the dwell, hold and count for all prompts (9.4) |
 | `hint_words` | 3 | 1 the prompt of a target owns its button and a hint of the game with no words does not show. 2 is 1, and the prompt of a take also keeps the grip from the close of the grip until the Hand holds the object. 3 is 2, and the prompt of a fetch keeps the grip from the end of the far target until the Hand holds the object, and a hint of the game that a prompt owned does not show for 0.25 s after the prompt went. 0 the hint of the game takes the place of the prompt, as it comes (9.4) |
+| `text_click` | 1 | 1 shows the prompt of a text that waits for a click in each view, and makes the trigger that click. 0 gives that prompt the rule of each other hint of the left button (section 10) |
 
 `hint_card.cpp` reads the keys itself, at the first frame. With `test_keys=1`
 and `ui_panel=0`, Ctrl Shift F11 switches between the card and the hints in the
@@ -1000,12 +1004,15 @@ sharp at 40 pixels a cm.
 
 **The hints of the game, and what is true.** `GameHintTrue` in
 `hint_card_math.h` is the rule. It tests the button code and the mod's own
-state, never the caption, so it holds in each language of the game.
+state, never the caption, so it holds in each language of the game. The
+prompt "Continue" is known by its node in the HelpSystem, not by its words
+(section 10).
 
 | Hint of the game | Mouse button | With the controllers | The card |
 | --- | --- | --- | --- |
 | "Move" over the land | Left, code 1 | False in the God view and on the table. The game's land drag runs, but the picture does not come from the game camera, so nothing moves (`GodDragAfter`). The grip of the other hand moves the land. False also with the leash on: the trigger commands the Creature and does not reach the game. True in the old immersive view. | Does not show where it is false. The land prompt shows "Grip Move the land" on the card of the other hand. |
 | "Focus Creature" over the land with the leash on | Right, code 2 | False. It is the tooltip of the leash (`0xEA2`): a press sends the Creature to that place. `creature_command.cpp` leaves that packet out for the grip, and the trigger sends the Creature. | Does not show over the land (hand mode 3) while the leash is on. The prompt shows "Trigger Send the Creature". |
+| "Continue", while a text waits for a click | Left, code 1 | True in each view: the trigger is the left button, and the game takes that click at each place of the pointer (section 10) | Shows as the first line, "Trigger Continue". No prompt of the mod for the trigger takes its place. With `text_click=0` it has the rule of "Move" |
 | "Pick Up", "Plant", "Catch", "Throw", "Activate", "Reminder" | Right, code 2 | True: the grip does the work of the right button | Shows |
 | "Plant" with a tree in the Hand | Right, code 2 | The text is the same for each release, so it is not always true: a hand higher than `release_fall_cm`, a tree that leans more than 0.2 rad, no dry land or a tree on fire lets the tree fall | The card keeps "Plant" when the opening plants the tree. Else it says "Lower to plant. Open to drop" or a line for the other cause (`tree_plant_hint`, `grab.md`, "A tree in the Hand") |
 | "Interact" on the Creature | Right, code 2 | True. The grip is the control that touches the Creature. | Shows. The prompt of the mod says "Grip Stroke or slap". |
@@ -1048,3 +1055,185 @@ and with `prompts=2` each one shows always.
 
 The subtitles and the help text have a card of their own, fixed in the room:
 `ui-layer.md`, section 17.
+
+## 10. A text that waits for a click
+
+Code: `src/mod/text_click.cpp` and `.h` (the flag of the game, the log, the
+keys), `src/mod/text_click_math.h` (the rules), `KeepTrueHints` in
+`src/mod/hint_card.cpp`, and `PumpButtons` in `src/mod/controllers.cpp`.
+
+### 10.1 What the game does
+
+`[V]` is from the disassembly and from the compiled scripts
+(`Scripts\Quests\challenge.chl`).
+
+- **The mode of a text.** The script word `RUN_TEXT` (native 13,
+  `GScript::RunText` `0x006F7D60`) takes three values: a flag, the number of
+  the help text, and a mode. It gives the number and the mode to
+  `fn_005C5F90` of the HelpSystem. `fn_005C6100` sets `HelpSystem + 0x57C`
+  for mode 1 and `HelpSystem + 0x580` for mode 2 [V]. The scripts call
+  `RUN_TEXT` 1767 times with a fixed mode: 1552 times with 0, 154 times with
+  1 ("with interaction") and 61 times with 2. The 154 are in 53 scripts of 24
+  script files: the guide of the Creature, the hand demos, and many
+  challenges [V].
+- **The wait.** While `HelpSystem + 0x57C` is set,
+  `HelpSystem::IsTextRead` `0x005C64E0` gives 0. The script word `TEXT_READ`
+  (native 15, `0x006F8260`) gives that value, so a script that waits until
+  the text is read does not go on. The text stays on the screen [V].
+- **The prompt.** `HelpSystem::Draw3D` `0x005C59A0` makes a hint while the
+  flag is set: the picture of the button of action 1 (the left button), the
+  caption of help text 3705 ("Continue"), and a blink. It keeps the node at
+  `HelpSystem + 0x24`. `fn_004489D0` copies the caption into the node at
+  `+ 0x20`, and the draw of the node (`fn_00448AC0`) gives that copy to
+  `CameraHelp::DrawKeyOrMouse` [V]. On a monitor the prompt is in the lower
+  right corner of the screen.
+- **The click.** The step of the interface (`fn_005D1120`, at `0x005D11C0`)
+  calls `HelpSystem::ProcessInterface` `0x005C69B0` with bit `0x20` of
+  `GInterface + 0x39`: the left button went up. When the text came 1 s ago
+  or more (`fn_005C68C0`), the function clears the flag and deletes the
+  node. No time clears the flag. The other writers are the next text
+  (`fn_005C6100`), `HelpSystem::ReInitialiseText` `0x005C7A80`, the load of
+  a saved game (a saved game keeps the flag), and
+  `HelpSystem::ClearTextDisplayed` `0x005C54E0`. That function runs through
+  `HelpSystem::ClearAllText` `0x005C5550` when a task gets the dialogue
+  (`HelpSystem::DialogueControlRequest` `0x005C6790`), when the dialogue
+  ends, and for the script words `GAME_CLEAR_DIALOGUE` and
+  `GAME_CLOSE_DIALOGUE` [V]. With the cinema bars up, the same click ends
+  the text at once.
+- **One dialogue.** A script says a text in a dialogue. `START_DIALOGUE`
+  (native 120, `GScript::StartDialogue` `0x00710690`) gives the dialogue to
+  the task when `HelpSystem + 0x45CC` is 0, and it gives 0 to each other
+  task while a task has it. One case is different: a script of type 1 (a
+  challenge) takes the dialogue from a script of type 2 (a help script,
+  `GScript::StopHelpScripts` `0x006EC780`). A script calls
+  `START_DIALOGUE` again until it gets 1. `END_DIALOGUE` (native 121) comes
+  after the text is read [V].
+- **A cinema.** A script that starts a cinema calls `START_CAMERA_CONTROL`
+  (native 30) first, then `START_DIALOGUE`, then `START_GAME_SPEED` and
+  `SET_WIDESCREEN` [V]. So while a different script has the dialogue, the
+  new script has the camera, and the cinema bars are down.
+
+A plain player moves the land with the left button, so the first move ends
+the wait. A player who gives no left click has a text that stays. The
+script that said it does nothing more, and each story that starts after it
+stops with the camera of its script and no cinema bars. A left click then
+lets all of them go on.
+
+**The sailors of Land 1** (`TheMissionaries.txt`, the scroll with the
+number 18) [V]:
+
+- The script takes wood only as a pile: an object of type 16 with the kind 9
+  that is 40 units or less from the boat. It does not take a pile while the
+  Hand or the Creature holds a sailor. It looks each 3 s.
+- Each 3.4 s, until the boat has its wood and one time only, the script looks
+  for an object of type 13 (a tree) 40 units or less from the boat. When
+  there is one, the good advisor says help text 1275, "A tree is no good.
+  These people require prepared wood.", with mode 1, in a dialogue.
+- The test for the wood comes after that text in the loop of the script. So
+  while the text waits for a click, the boat takes no wood.
+- "Can we have some more wood please?", "That's good grain. Please can we
+  have more?" and "We need more meat, though." have mode 1 too.
+
+### 10.2 What the mod does
+
+With `text_click=1`:
+
+- **The prompt shows in each view.** The hint is a hint of the left button,
+  and the rule of 9.9 hides each other one where the trigger does not move
+  the land (the God view, the table, and with the leash on).
+  `TextClickIsPrompt` knows the hint by the node of `HelpSystem + 0x24`
+  while the flag is set. `GameHintTrue` then gives true. The line is the
+  first line of the card of the pointing hand: "Trigger Continue", with the
+  caption in the language of the game.
+- **No prompt of the mod takes its place.** The prompt of a target does not
+  own it, and a miracle in the Hand keeps it in the place of the name of the
+  miracle. A prompt of the mod for the trigger does not show beside it, also
+  not a line for two presses ("Trigger x2").
+- **The trigger is the click.** While the flag is set, a new press of the
+  trigger is no Creature command and makes no seed active
+  (`TriggerMayCommand`): it goes to the game as the left button. It starts
+  with the Hand off the view too (`PressMayStart`), as a press in the cut
+  scene window does. A grab of the land with the other hand still holds the
+  trigger back.
+
+The mod writes nothing in the game for this, except in the test for the
+desktop runs. `TextClickFrame` reads the flag one time for a frame. With
+`text_click=0` the prompt has the rule of "Move", and the trigger keeps its
+other jobs.
+
+In the cut scene window the card does not show. The prompt of the game is in
+the picture there, and the trigger is a left click (`cutscene-window.md`).
+
+**The test key**, with `test_keys=1`: Shift with Insert, and Ctrl up, switches
+`text_click`. The pointing controller gives a long pulse for 1 and a short
+pulse for 0.
+
+**The test for the desktop runs.** `text_click_test=N` or `N,M` (4 frames at
+most): at each frame the mod starts a wait. With `text_click_test_text=0`
+it sets `HelpSystem + 0x57C`. With a text number it makes the game say that
+text with mode 1, through `fn_005C5F90`, as `RUN_TEXT` does for the values
+1, the number and 1. The prompt, the wait and the click are then the
+game's own. The text of the test has no script, so no task has the
+dialogue: a script that starts a dialogue in the wait ends the wait.
+
+### 10.3 The log
+
+- `text click : text_click=1. ...` once, with the rule.
+- `text click : a text of the game waits for a click now (HelpSystem + 0x57C),
+  frame N. The script task T has the dialogue (0 is none), and the cinema
+  bars are down. text_click=1`: the start of each wait.
+- `text click : the wait for a click is over after K frames, frame N. The
+  controller sent P presses of the left button to the game in that time`: its
+  end.
+- `hint card : frame N, the game gives its prompt for a text that waits for a
+  click, "[Trigger] Continue". It shows on the card of the pointing hand, also
+  here, where the trigger does not move the land (text_click=1)`: one line for
+  each wait (80 lines at most). With `text_click=0` the line says that the
+  prompt does not show.
+- Each report window with a wait: the waits that started, the frames with a
+  text that waits, the frame of the start of a wait that still holds, and the
+  frames on which the prompt showed and did not show.
+
+### 10.4 Tests
+
+The math checks (`test/controller_math/text_click_checks.h` and
+`hint_checks.h`): the wait from frame to frame with its length and its
+clicks, `TriggerMayCommand`, `PressMayStart`, the frames of the test key, and
+`GameHintTrue` for the click prompt in each view, with the leash on and with
+`text_click=0`.
+
+The desktop run is `creature_recipe.ps1 -Kind click` in `bwvr/tools/desk`
+(the start "Keep your old Creature", the God view). The leash goes on, and
+the test makes the game say help text 1275 with mode 1 at the frames 960 and
+1500. The advisor speaks the line, and the text is in the picture.
+
+| Step | `text_click=1` | `text_click=0` |
+| --- | --- | --- |
+| The wait starts | The card says "Trigger Continue" as its first line, with the lines of the grip under it | The card does not have the line |
+| The trigger at frame 1100, with the leash on and the aim on the Creature | The press goes to the game as the left button, and the wait is over 1 frame after the button goes up. No command | The press is a Creature command (the leash comes off). No left press goes to the game, and the wait goes on |
+| The trigger at frame 1300 | A Creature command: the leash comes off | The left button. The wait is over 1 frame after the button goes up |
+| The trigger at frame 1700, with the hand behind the head | The press goes to the game, and the second wait is over 1 frame after the button goes up | The press is dropped, and the wait stays to the end of the run (2500 frames) |
+
+With `text_click=0` the press at frame 1100 is a command for the object in
+the aim. When that object is not the Creature, the Creature gets a job. In
+one run the wait was then over 10 frames after the command, with no left
+press. The text of the test has no task that has the dialogue, so a script
+that starts a dialogue ends the wait [I].
+
+Not run: the quest of the sailors itself, a miracle or a seed in the Hand in
+a wait, and a wait in the Temple. A desktop run does not reach that quest.
+The start "Keep your old Creature" has no scroll at the place of the boat.
+The start "Skip all of the Creature tutorial" plays the first story and
+goes to the Creature select, and it has no scroll there too.
+
+### 10.5 Limits
+
+- A script that has the camera and waits for the dialogue has no cinema
+  bars. The God view stands aside for each story camera, so the player then
+  sees the camera of the game with a held shot (`script_camera`,
+  `backend.md`), and the cut scene window does not open. The same must
+  happen for the time of a spoken line, when a quest starts while a
+  different challenge script has the dialogue [I].
+- The card is at the wrist of the pointing hand. Only a headset shows
+  whether a player sees the prompt there while a text stays on the subtitle
+  card.

@@ -1247,6 +1247,7 @@ creature_recipe.ps1 -Name <run> -Dll <dll>
 creature_recipe.ps1 -Name <run> -Dll <dll> -Kind leash
 creature_recipe.ps1 -Name <run> -Dll <dll> -Kind stay
 creature_recipe.ps1 -Name <run> -Dll <dll> -Kind tie
+creature_recipe.ps1 -Name <run> -Dll <dll> -Kind click
 ```
 
 The kind `state` (the default) does these steps:
@@ -1282,6 +1283,13 @@ leash goes on), `aimcmd`, and two presses of the trigger 17 frames apart (a
 command, and then the leash tied to the object). Then the word `seek` comes
 six times, 300 frames apart. Each `seek` gives a log line with the place of
 the Creature, so the log shows the walk to the object.
+
+The kind `click` is for a text that waits for a click
+(`controller-hints.md`, section 10). The leash goes on, and the test key
+`text_click_test` makes the game say a text with interaction at the frames
+960 and 1500. The trigger is pressed at frame 1100 with the leash on, at
+frame 1300, and at frame 1700 with the hand behind the head. With
+`-Set "text_click=0"` the same steps show the trigger with its other jobs.
 
 The recipe takes no picture while the grip is closed, because the frame of a
 picture can take 250 ms. With `-Set "creature_hold_stay=0"` the same steps

@@ -7,6 +7,8 @@
 #   creature_recipe.ps1 -Name x4 -Dll <dll> -Kind stay
 #   creature_recipe.ps1 -Name x5 -Dll <dll> -Kind stay -Set "creature_hold_stay=0"
 #   creature_recipe.ps1 -Name x6 -Dll <dll> -Kind tie
+#   creature_recipe.ps1 -Name x7 -Dll <dll> -Kind click
+#   creature_recipe.ps1 -Name x8 -Dll <dll> -Kind click -Set "text_click=0"
 #
 # The start: the choice "Keep your old Creature" of the start dialog (through
 # spawn_run.ps1 and desk_run.ps1). It gives a game with no story, and the
@@ -45,6 +47,21 @@
 #   (the leash goes on and comes off), and a grip of 40 frames (a stay that
 #   ends soon after its start). With creature_hold_stay=0 each close of the
 #   grip is a leash click, and no grip makes the Creature stay.
+# -Kind click:
+#   A text that waits for a click (bwvr/docs/controller-hints.md, section
+#   10). At 100 units a meter: the grip from a distance puts the leash on.
+#   At frame 960 the test key text_click_test makes the game say a text with
+#   interaction (text_click_test_text, 1275 by default here). A press of the
+#   trigger comes at frame 1100, with the leash on and the aim on the
+#   Creature, and a second press at frame 1300. At frame 1500 the game says
+#   the text again, the hand goes behind the head (off the view), and the
+#   trigger is pressed at frame 1700.
+#   With text_click=1 the card says "[Trigger] Continue", the first press
+#   ends the first wait and is no command, the second press takes the leash
+#   off, and the third press ends the second wait. With text_click=0 the
+#   card does not have that line, the first press takes the leash off, the
+#   second press ends the first wait, the third press is dropped, and the
+#   second wait stays to the end of the run.
 #
 # What to read in bwvr.log of the run (the folder desk-<Name>):
 #   hand creature: the body of the Creature ...     the body bone before a press
@@ -56,6 +73,8 @@
 #   far grab    : the grip opened after ...         a short grip: the leash click
 #   creature stay: ...                              the stay, from start to end
 #   creature cmd : the leash is on / off
+#   text click   : ...                              a wait for a click, from start to end
+#   hint card    : ... the game gives its prompt    the prompt of that wait on the card
 #   haptics      : ...                              the pulses
 #
 # spawn_run.ps1 waits for an idle PC (10 minutes, no game) and gives up after
@@ -76,6 +95,8 @@ $sp = Split-Path -Parent $MyInvocation.MyCommand.Path
 $keys = 'god_zoom_about=0;seek_plan=creature;far_test_creature=1;far_test_influence=1;grab_hand=1;' +
         'far_grab_max_m=0;fake_controller_rots=-112,1,0 8,1,0'
 if ($Set -ne '') { $keys = "$keys;$Set" }
+# The points of the word "point", after the two points of the start dialog.
+$points = '0,-30,60'
 if ($Kind -eq 'stay') {
     # No picture in the hold: the frame of a picture can take 250 ms, and the
     # controller then lets go of its buttons.
@@ -88,6 +109,14 @@ if ($Kind -eq 'stay') {
 } elseif ($Kind -eq 'leash') {
     $steps = 'look@800+1200 point@860+1 aimfar@890+1 shot@900+1 grip@910+6 shot@950+1 ' +
              'trigger@980+6 aimfar@1060+1 grip@1080+6 aimfar@1160+1 grip@1180+300'
+} elseif ($Kind -eq 'click') {
+    if ($Seconds -lt 80) { $Seconds = 80 }
+    # The keys of -Set come after these in the list, so -Set can give a
+    # different text or different frames.
+    $keys = "text_click_test=960,1500;text_click_test_text=1275;$keys"
+    $points = '0,-30,60 0,-40,-40'
+    $steps = 'look@800+1300 point@860+1 aimfar@890+1 grip@910+6 shot@1040+1 trigger@1100+6 ' +
+             'aimfar@1250+1 trigger@1300+6 point@1560+1 shot@1600+1 trigger@1700+6 shot@1800+1'
 } elseif ($Kind -eq 'tie') {
     # The second press of the trigger comes 17 frames after the first one: a
     # double press. The walk takes about 1500 frames, so the run is 75 s
@@ -105,7 +134,7 @@ if ($Kind -eq 'stay') {
              'point@1800+1 aimfar@1830+1 shot@1840+1 grip@1850+300'
 }
 $o = & (Join-Path $sp 'spawn_run.ps1') -Name $Name -Dll $Dll -Choice keep -Steps $steps `
-    -Points '0,-30,60' -Set $keys -Seconds $Seconds -Minutes $Minutes
+    -Points $points -Set $keys -Seconds $Seconds -Minutes $Minutes
 # The RUN DONE of spawn_run.ps1 is not shown: this script gives it as its
 # last line, after the lines of the log.
 $o | Where-Object { "$_" -cnotmatch '^RUN DONE' }
@@ -116,6 +145,8 @@ $pattern = '^hand creature: (the body of|a press|the Creature state|the hand of|
            '^hand pick    : the target is|^hand press   : the grip pressed on|' +
            '^far grab    : (the grip closed|the grip opened|the hand cannot)|^creature stay: |' +
            '^creature cmd : (the leash|a short press|a double press|the trigger opens|test: aimcmd)|' +
+           '^text click   : |^hint card    : (frame \d+, the game gives its prompt|the prompt of a text)|' +
+           '^controllers  : the left button press started off view|' +
            '^hand pick    : seek plan: the Creature|' +
            '^haptics      : (\d+ pulses|leash|slap|touch|activate)'
 Get-Content $log | Where-Object { $_ -match $pattern } | ForEach-Object {

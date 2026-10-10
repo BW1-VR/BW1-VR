@@ -1208,6 +1208,28 @@ inline void HintCardChecks() {
           "\"Zoom Out\" for the stick is true", 1, 1);
     Check(GameHintTrue(0, true, 3, false, true),
           "a hint with no button (\"Temple Health\") is true", 1, 1);
+    // THE CLICK PROMPT of a text that waits for a click (text_click=1): the
+    // trigger is the left button, and the game takes the click at each place.
+    Check(GameHintTrue(1, true, 3, false, false, true),
+          "the God view: the click prompt for the trigger is true", 1, 1);
+    Check(GameHintTrue(1, true, 3, false, true, true),
+          "the leash on: the click prompt is true too", 1, 1);
+    Check(GameHintTrue(1, false, 0, false, false, true) &&
+              GameHintTrue(1, true, 9, false, false, true) &&
+              GameHintTrue(1, true, 0x13, false, true, true),
+          "the click prompt is true with no hand mode, over an object and on "
+          "the Creature", 1, 1);
+    Check(GameHintTrue(1, true, 3, true, false, true),
+          "the immersive view: the click prompt is true", 1, 1);
+    // text_click=0: the prompt has the rule of each other hint of the left
+    // button.
+    Check(!GameHintTrue(1, true, 3, false, false, false) &&
+              GameHintTrue(1, true, 3, true, false, false),
+          "text_click=0: the click prompt shows only where the trigger moves "
+          "the land", 1, 1);
+    Check(GameHintTrue(2, true, 9, false, false, true) &&
+              !GameHintTrue(2, true, 3, false, true, true),
+          "the click prompt changes nothing for a hint of the grip", 1, 1);
   }
 
   // ONE CARD FOR EACH HAND. The right hand at the right and the left hand at

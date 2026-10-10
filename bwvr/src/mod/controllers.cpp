@@ -62,6 +62,8 @@
 #include "radial_menu.h"
 #include "temple.h"
 #include "temple_math.h"
+#include "text_click.h"
+#include "text_click_math.h"
 #include "zoom_math.h"
 
 extern void ModLog(const char* format, ...);
@@ -1745,6 +1747,7 @@ void ReconcileController(int button, ULONGLONG now, bool quiet = false) {
     const uint8_t flag = PressFlagFor(button, now);
     SendToGame(button, flag);
     ++g_presses_sent;
+    if (button == kLeft) TextClickSent();
     if (!quiet) Pulse(PointingIndex());
     if (g_event_logs < kMaxEventLogs) {
       ++g_event_logs;
@@ -2521,11 +2524,18 @@ void PumpButtons(ULONGLONG now) {
   // trigger commands the Creature and does not reach the game
   // (creature_command.cpp). Not with controller_swap_buttons=1, where the
   // trigger does the work of the grip.
+  //
+  // A TEXT THAT WAITS FOR A CLICK (text_click.cpp). The game ends that wait
+  // only when its left button goes up. So while a text waits, a new press of
+  // the trigger is no command and makes no seed active: it goes to the game.
+  const bool click_waits = TextClickFlag();
+  const bool click_on = TextClickOn();
   bool command_claim = false;
   {
     const bool ok = usable && DirectHandNow() && g_pointer_owned &&
                     !g_swap_buttons && !GrabHeld() && !far_claim &&
-                    !g_jump_control && !g_gesture_held && !TeleportAiming();
+                    !g_jump_control && !g_gesture_held && !TeleportAiming() &&
+                    text_click_math::TriggerMayCommand(click_on, click_waits);
     command_claim = CreatureCommandPumpTrigger(RawDown(kLeft), ok);
     // A SEED IN THE HAND. While the Hand carries a one-off seed, a press of
     // the trigger makes the seed active and does not reach the game
@@ -2625,8 +2635,11 @@ void PumpButtons(ULONGLONG now) {
       //
       // The cut scene window has no Hand and no ray, so no pixel is in view
       // there. A press is then a plain click at the place of the pointer,
-      // which is all that a cut scene can use.
-      want = ((g_ctrl_mask >> b) & 1) != 0 || InView() || CutsceneWindowFlat();
+      // which is all that a cut scene can use. The click that a text waits
+      // for is such a click too: the game takes it at each place.
+      want = text_click_math::PressMayStart(
+          ((g_ctrl_mask >> b) & 1) != 0, InView(), CutsceneWindowFlat(),
+          click_on && b == kLeft, click_waits);
       if (!want) {
         g_button[b].need_up = true;
         ++g_dropped;
@@ -3322,6 +3335,7 @@ void ControllersFrame() {
   LogBothButtons();
   UpdateAim();
   TempleFrame(g_frame);
+  TextClickFrame(g_frame);
   Compute();
   ++g_frame;
   ++g_frames_in_window;
@@ -4108,6 +4122,7 @@ void ControllersPump() {
   g_last_pump = now;
   if (!g_on) return;
   if (g_fake_deactivate) FakeDeactivate();
+  TextClickPump();
   PumpButtons(now);
   PumpStick(now);
   PumpEsc(now);
@@ -4146,6 +4161,7 @@ void ControllersReport() {
   }
   RadialMenuReport();
   TempleReport();
+  TextClickReport();
   if (g_god_zooms != 0 || g_god_holds != 0) {
     ModLog("controllers  : the stick asked the God view for %llu zoom steps "
            "and %llu smooth zooms", g_god_zooms, g_god_holds);

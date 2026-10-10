@@ -62,14 +62,24 @@ is built, and no test has proven it.
   run: a tree that comes from a distance and is then planted again. A
   tree that is thrown, or that falls from more than `release_fall_cm`,
   is not planted by the game: it takes the path of a dead tree.
-- **B6. A soft lock in the quest of the sailors.** The sailors ask for
-  wood. After a tree was dropped on their boat, the boat took no wood, the
-  subtitle "Trees won't work, they need prepared wood" stayed, and the game
-  froze when a different quest started. Not known: a fault of the mod (for
-  example the object that a release acts on, or the place that the scripts
-  see) or a fault of the plain game. Try the same steps in the plain game.
-  The logs of a session with this fault are on the owner's PC, in
-  `local\logs\2026-10-07\`.
+- **B6. A text that waits for a click: check the prompt in a headset.**
+  Some lines of the game stay until a click of the left button, and the
+  script that said the line waits for it. An example is "A tree is no
+  good" in the quest of the sailors: until the click the boat takes no
+  wood, and a new quest stops with the camera of its script and no cinema
+  bars (`controller-hints.md`, section 10). The card of the pointing hand
+  shows the prompt "Trigger Continue" in each view, and the trigger is that
+  click (`text_click`).
+  A desktop run shows the prompt on the card, the click with the leash on
+  and the click with the Hand off the view (`creature_recipe.ps1 -Kind
+  click`, section 10.4). Not run: the quest of the sailors itself, with a
+  tree at the boat. A desktop run does not reach that quest.
+  Only a headset shows whether the player sees the prompt at the wrist
+  while the text stays on the subtitle card. If the player does not see
+  it, the next step is the prompt on the subtitle card. Also open: a
+  script that has the camera and waits for the dialogue shows the camera
+  of the game with a held shot, and not the God view (`cutscene-window.md`,
+  section 2).
 - **B7. The zoom seems to move the view forward and back.** A zoom keeps
   the land point that the player looks at in its place, so only the size of
   that land changes (`god_zoom_about=1`, `god-view.md`, section 2). Desktop

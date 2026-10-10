@@ -70,6 +70,7 @@ is not the camera of the player, and most of those are not cut scenes.
 | The hand demo | Up | Its own camera call | The window |
 | A script puts the bars up and leaves the camera | Up | No | The window. The game holds the input, so the God view has no use then |
 | A story camera with no bars, for example a camera that follows the Creature | Down | Yes | No window. The God view stands aside, and the mod holds each shot and cuts |
+| A script that starts a cinema while a different script has the dialogue | Down, until the dialogue is free | Yes | No window until the bars go up. The script takes the camera first and then waits for the dialogue (`controller-hints.md`, section 10.1). The God view stands aside, and the view is the camera of the game with a held shot |
 | Play | Down | No | The God view |
 
 Which scenes of the game have a story camera and no bars is not measured.

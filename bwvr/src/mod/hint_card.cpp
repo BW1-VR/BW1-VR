@@ -38,6 +38,9 @@
 // "Move" for the trigger while the trigger does not move the land, and the
 // tooltip of the leash for the grip while the trigger sends the Creature.
 // They do not show. The prompt of the mod for that place says what is true.
+// One hint of the left button is true in each view: the prompt "Continue" of
+// a text that waits for a click (text_click.cpp). It is the first line of
+// the card of the hand that points, and no prompt of the mod takes its place.
 //
 // THE PROMPTS. A card shows what the controller can do now, as a button word
 // and a short order: "Grip Take", "Grip Pull to fetch". The context comes
@@ -72,6 +75,8 @@
 //                        (OwnedStale). 0 the hint of the game takes the place
 //                        of the prompt. Ctrl and Home change it, with
 //                        test_keys=1
+//   text_click=1         0 gives the prompt "Continue" the rule of each other
+//                        hint of the left button (text_click.cpp)
 //
 // With no headset (the desktop test) the route runs too. A capture frame
 // saves each card as bwvr-hintcard-right-NNNNN.bmp or
@@ -96,6 +101,7 @@
 #include "radial_menu.h"
 #include "temple.h"
 #include "teleport.h"
+#include "text_click.h"
 #include "tree_plant_math.h"
 #include "village.h"
 
@@ -222,6 +228,7 @@ struct Line {
   wchar_t text[48];
   int tone;
   uint32_t code;       // the mouse button code of a hint of the game, or 0
+  bool click;          // the prompt of a text that waits for a click
 };
 struct Content {
   int count;
@@ -996,6 +1003,15 @@ uint64_t g_frames_routed = 0;
 uint64_t g_false_trigger = 0;
 uint64_t g_false_grip = 0;
 bool g_said_false[2] = {false, false};
+// THE CLICK PROMPT (text_click.cpp): the frames in which it showed, and the
+// frames in which it did not show with text_click=0. The log has one line
+// for each wait: the prompt was away for more than kHoldFrames before it.
+uint64_t g_click_shown = 0;
+uint64_t g_click_hidden = 0;
+uint64_t g_click_frame = 0;  // the last frame that had the prompt
+bool g_click_had = false;
+int g_click_logs = 0;
+const int kMaxClickLogs = 80;
 bool g_said_route = false;
 
 void Narrow(const wchar_t* in, char* out, size_t size) {
@@ -1030,10 +1046,59 @@ void KeepTrueHints(const Content& noted, Content* out) {
   const bool drags = TriggerDragsLand();
   const bool leash = CreatureCommandLeashOn();
   bool false_trigger = false, false_grip = false;
+  const bool click_on = TextClickOn();
   for (int i = 0; i < noted.count; ++i) {
     const Line& line = noted.line[i];
-    if (!hint_card_math::GameHintTrue(line.code, have_mode, g_facts_mode,
-                                      drags, leash)) {
+    const bool is_true = hint_card_math::GameHintTrue(
+        line.code, have_mode, g_facts_mode, drags, leash,
+        line.click && click_on);
+    if (line.click) {
+      // One line of the log for each wait.
+      const bool fresh =
+          !g_click_had ||
+          g_frame - g_click_frame > static_cast<uint64_t>(kHoldFrames);
+      g_click_had = true;
+      g_click_frame = g_frame;
+      if (is_true) {
+        ++g_click_shown;
+      } else {
+        ++g_click_hidden;
+      }
+      if (fresh && g_click_logs < kMaxClickLogs) {
+        ++g_click_logs;
+        char button[32], text[64];
+        Narrow(line.button, button, sizeof(button));
+        Narrow(line.text, text, sizeof(text));
+        ModLog("hint card    : frame %llu, the game gives its prompt for a "
+               "text that waits for a click, \"[%s] %s\". %s (text_click=%d)",
+               g_frame, button, text,
+               is_true ? (drags ? "It shows on the card of the pointing hand"
+                                : "It shows on the card of the pointing hand, "
+                                  "also here, where the trigger does not move "
+                                  "the land")
+                       : "It does not show: the trigger does not move the "
+                         "land here, and the prompt has the rule of each "
+                         "other hint of the left button",
+               click_on ? 1 : 0);
+      }
+      if (!is_true) {
+        false_trigger = true;
+        continue;
+      }
+      // The first line of the card: the text of the game waits for it.
+      if (out->count < kMaxGameLines) {
+        for (int j = out->count; j > 0; --j) out->line[j] = out->line[j - 1];
+        out->line[0] = line;
+        ++out->count;
+      } else {
+        for (int j = kMaxGameLines - 1; j > 0; --j) {
+          out->line[j] = out->line[j - 1];
+        }
+        out->line[0] = line;
+      }
+      continue;
+    }
+    if (!is_true) {
       const int which = line.code == 1 ? 0 : 1;
       if (which == 0) {
         false_trigger = true;
@@ -1248,6 +1313,9 @@ void HintCardGameHint(int eye, const wchar_t* button, uint32_t button_code,
   if (!g_route || g_route_frame != g_frame) return;
   if (g_noted_eye < 0) g_noted_eye = eye;
   if (eye != g_noted_eye) return;
+  // The prompt of a text that waits for a click: the hint of the left button
+  // that the HelpSystem makes for it (text_click.cpp).
+  const bool click = button_code == 1 && TextClickIsPrompt(text);
   if (text == nullptr) text = L"";
   if ((button == nullptr || button[0] == 0) && text[0] == 0) return;
   // A text of only spaces or punctuation says nothing. It does not show.
@@ -1262,6 +1330,7 @@ void HintCardGameHint(int eye, const wchar_t* button, uint32_t button_code,
                                     : (button_code == 2 ? kToneGrab
                                                         : kToneOther);
   SetLine(&line, button, text, tone, button_code);
+  line.click = click;
   for (int i = 0; i < g_noted.count; ++i) {
     if (wcscmp(g_noted.line[i].button, line.button) == 0 &&
         wcscmp(g_noted.line[i].text, line.text) == 0) {
@@ -1476,8 +1545,13 @@ void HintCardEndFrame() {
     // A MIRACLE IN THE HAND: the lines of the mod say what the controls do,
     // so the hints of the game for a button go, and one line of its text
     // stays (the name of the miracle). Then the three lines of the mod fit.
+    // The click prompt stays in the place of that line: the trigger is the
+    // click while a text waits.
     Content& game = content[kPointing];
     int kept = 0;
+    for (int i = 0; i < game.count && kept < 1; ++i) {
+      if (game.line[i].click) game.line[kept++] = game.line[i];
+    }
     for (int i = 0; i < game.count && kept < 1; ++i) {
       if (game.line[i].button[0] != 0) continue;
       game.line[kept++] = game.line[i];
@@ -1494,6 +1568,11 @@ void HintCardEndFrame() {
     Content& game = content[kPointing];
     int kept = 0;
     for (int i = 0; i < game.count; ++i) {
+      // No prompt owns the click prompt.
+      if (game.line[i].click) {
+        game.line[kept++] = game.line[i];
+        continue;
+      }
       bool owned = false;
       for (int j = 0; j < probe[kPointing].count && !owned; ++j) {
         owned = game.line[i].button[0] != 0 &&
@@ -1508,6 +1587,32 @@ void HintCardEndFrame() {
     game.count = kept;
   }
   AddPrompts(content, shown, first_show);
+  // THE CLICK PROMPT (text_click.cpp): while it shows, each press of its
+  // button is the click. AddPrompt adds no line for the same button. A line
+  // for two presses or for a hold of that button ("Trigger x2") goes too.
+  {
+    Content& card = content[kPointing];
+    int click = -1;
+    for (int i = 0; i < card.count && click < 0; ++i) {
+      if (card.line[i].click) click = i;
+    }
+    if (click >= 0) {
+      wchar_t word[24];
+      wcsncpy_s(word, card.line[click].button, _TRUNCATE);
+      const size_t length = wcslen(word);
+      int kept = 0;
+      for (int i = 0; i < card.count; ++i) {
+        const Line& line = card.line[i];
+        if (!line.click && line.code == 0 && length > 0 &&
+            wcsncmp(line.button, word, length) == 0 &&
+            line.button[length] == L' ') {
+          continue;
+        }
+        card.line[kept++] = line;
+      }
+      card.count = kept;
+    }
+  }
   // The ring is open at the other hand, and its picture is there. The card
   // of that hand comes back when the ring closes.
   if (RadialMenuOpen()) content[kOther].count = 0;
@@ -1819,6 +1924,12 @@ void HintCardReport() {
          "%llu times (the pointing hand first)",
          a.frames_no_hand, b.frames_no_hand, a.frames_hidden, b.frames_hidden,
          a.side_changes, b.side_changes);
+  if (g_click_shown != 0 || g_click_hidden != 0) {
+    ModLog("hint card    : the prompt of a text that waits for a click showed "
+           "on %llu frames and did not show on %llu (text_click=%d)",
+           g_click_shown, g_click_hidden, TextClickOn() ? 1 : 0);
+    g_click_shown = g_click_hidden = 0;
+  }
   uint64_t prompts = 0;
   for (int i = 1; i < kContexts; ++i) prompts += g_prompt_shows[i];
   if (prompts > 0) {
