@@ -205,6 +205,9 @@ void GpuBridgeShutdown();
 void GdiWatchInstall();
 void GdiWatchReport();
 void UiDepthReport();
+// exit_test.cpp: the game ends by itself at one frame, for a desktop run.
+void ExitTestSetFrame(int frame);
+void ExitTestFrame(uint64_t frame);
 
 void ModLog(const char* format, ...);
 
@@ -419,6 +422,17 @@ bool g_fix_unscaled = true;
 bool g_fix_copy = true;
 bool g_fix_inverse = true;
 bool g_fix_random = false;  // measured: it makes things worse, see eye_camera.cpp
+
+// The end of the mod (docs/backend.md, "The end of the mod"). 1: the mod
+// shuts down on the exit path of the game. 0: it shuts down when Windows
+// unloads the DLL.
+bool g_exit_shutdown = true;
+// The shutdown ran. No hook of this file does work after it.
+bool g_shut_down = false;
+// The thread that draws the frames of the game, from FinishFrame.
+DWORD g_frame_thread = 0;
+// Windows ends the process. Each other thread is stopped then.
+bool g_process_ends = false;
 
 bwvr::XrScreen* g_screen = nullptr;
 bool g_hooks_installed = false;
@@ -1048,6 +1062,14 @@ void ReadSettings() {
       GetPrivateProfileIntA("bwvr", "fix_random", 0, path) != 0;
   g_move_camera_point =
       GetPrivateProfileIntA("bwvr", "move_camera_point", 0, path) != 0;
+  // Not in the launcher. 1: the mod shuts down on the exit path of the game,
+  // while each thread runs and each DLL is loaded. 0: it shuts down when
+  // Windows unloads the DLL. See docs/backend.md, "The end of the mod".
+  g_exit_shutdown =
+      GetPrivateProfileIntA("bwvr", "exit_shutdown", 1, path) != 0;
+  // Test only: the frame at which the mod asks the game to end by itself.
+  ExitTestSetFrame(static_cast<int>(
+      GetPrivateProfileIntA("bwvr", "exit_test_frame", 0, path)));
   ModLog("settings     : vr=%d, stereo=%d, screen %.2f m wide at %.2f m",
          g_vr_enabled ? 1 : 0, g_stereo ? 1 : 0, g_width, g_distance);
   ModLog("settings     : eye separation %.3f world units, interface shift "
@@ -1309,6 +1331,12 @@ void StartVrOnce() {
 void ModLogNowhere(const char*, ...) {}
 
 void __cdecl h_FinishFrame() {
+  // After the shutdown the game draws for itself.
+  if (g_shut_down) {
+    o_FinishFrame();
+    return;
+  }
+  g_frame_thread = GetCurrentThreadId();
   // Only reads, and only with the table. See tabletop.cpp.
   TabletopCountLists();
   // The bars of a story scene are hidden for the draw only. The game's own
@@ -1321,6 +1349,7 @@ void __cdecl h_FinishFrame() {
   o_FinishFrame();
   UiBarsEnd(bars);
   ++g_frame;
+  ExitTestFrame(g_frame);
   if (g_cursor_trace) CursorTraceFrame(g_frame);
   // The rules for the switch (docs/ui-layer.md, "Rules for the switch"):
   // the game's target is back before anything else runs.
@@ -1577,6 +1606,8 @@ void EarlyHooks() {
   GpuBridgeInstall();
 }
 
+void ExitPathInstall();
+
 void Startup() {
   ModLog("%s", ProxyBackendNote());
   ModLog("");
@@ -1608,31 +1639,168 @@ void Startup() {
   ModLog("hooks        : LH3DRender::FinishFrame at 0x%08X %s",
          bw::render::kFinishFrame, status == MH_OK ? "ok" : "FAILED");
   if (status != MH_OK) g_vr_enabled = false;
+  ExitPathInstall();
   Depth24Install();
 }
 
-void Shutdown() {
+// THE END OF THE MOD.
+//
+// When a process ends, Windows first stops each thread but the one that
+// ends it, and then tells each DLL in an order that the mod does not
+// control. A call into OpenXR or Direct3D from DllMain then goes to a
+// runtime whose threads are stopped and to objects whose device is gone.
+//
+// The game also ends its own Direct3D before that, in exit: the exit list
+// of the C runtime holds the destructor of LHScreen (0x007DD850), which
+// calls IDirectDraw7::RestoreDisplayMode, and the backend destroys its
+// Direct3D 9 device there, with each object that the bridge made on it. If
+// the shared textures are open on a Direct3D 11 device at that time, the
+// process stops with an access violation.
+//
+// So the mod shuts down on the exit path of the game, before the game frees
+// anything: each thread runs, each DLL is loaded, and the device of the
+// backend lives. free_system is the last call of pc_main (0x00641C60) when
+// the game ends in its usual way. exit is where WinMainCRTStartup
+// (0x007CA49F) takes the result of WinMain, and where the game goes when it
+// stops for an error. The first of the two that runs does the shutdown, one
+// time. See docs/backend.md, "The end of the mod".
+const uintptr_t kFreeSystem = 0x00643420;  // void free_system()
+const uintptr_t kExit = 0x007C9EE1;        // void exit(int), of the C runtime
+
+typedef void(__cdecl* FreeSystemFn)();
+typedef void(__cdecl* ExitFn)(int);
+FreeSystemFn o_free_system = nullptr;
+ExitFn o_exit = nullptr;
+// One of the two hooks is there.
+bool g_exit_hooked = false;
+
+double MsSince(const LARGE_INTEGER& start) {
+  LARGE_INTEGER hz, now;
+  QueryPerformanceFrequency(&hz);
+  QueryPerformanceCounter(&now);
+  return hz.QuadPart > 0
+             ? (now.QuadPart - start.QuadPart) * 1000.0 / hz.QuadPart
+             : 0.0;
+}
+
+// One part of the shutdown. Its line comes after it, with its time, so the
+// last line of a log that stops here names the part before the one that
+// did not come back.
+template <typename Part>
+void ShutdownPart(const char* name, Part part) {
+  LARGE_INTEGER start;
+  QueryPerformanceCounter(&start);
+  part();
+  ModLog("shutdown     : %s, %.1f ms", name, MsSince(start));
+}
+
+// `path` says who called. The hooks stay: on the exit path the threads of
+// the game run, and one of them can be in a hook.
+void Shutdown(const char* path) {
+  if (g_shut_down) return;
+  g_shut_down = true;
+  LARGE_INTEGER start;
+  QueryPerformanceCounter(&start);
+  ModLog("");
+  ModLog("shutdown     : the shutdown starts, %s, frame %llu", path, g_frame);
+  // Let the cursor go before anything else. A clipped cursor outlives the
+  // process that clipped it, so a crash here would leave the pointer trapped
+  // in a rectangle on a dead window.
+  ShutdownPart("the cursor, the camera values and the detail distance", [] {
+    PointerMapRelease();
+    ComfortCameraRelease();
+    SkyDetailRelease();
+  });
   if (g_screen != nullptr) {
-    ModLog("");
     ModLog("final: %llu frames, %llu presented, %llu skipped", g_frame,
            g_screen->presented(), g_screen->skipped());
     FrameSourceReport();
     StereoReport();
     UiDepthReport();
     TextureFilterReport();
-    g_screen->Stop();
-    delete g_screen;
-    g_screen = nullptr;
+    ShutdownPart("the OpenXR session and its Direct3D 11 device", [] {
+      // Each file that holds the screen lets it go first: the game can call
+      // a hook after this.
+      StereoSetScreen(nullptr);
+      IntroSetScreen(nullptr);
+      ControllersSetScreen(nullptr);
+      bwvr::XrScreen* screen = g_screen;
+      g_screen = nullptr;
+      screen->Stop();
+      delete screen;
+    });
   }
-  // Let the cursor go before anything else. A clipped cursor outlives the
-  // process that clipped it, so a crash here would leave the pointer trapped
-  // in a rectangle on a dead window.
-  PointerMapRelease();
-  ComfortCameraRelease();
-  SkyDetailRelease();
-  GpuBridgeShutdown();
-  FrameSourceShutdown();
-  MH_Uninitialize();
+  ShutdownPart("the GPU bridge", [] { GpuBridgeShutdown(); });
+  ShutdownPart("the frame source", [] { FrameSourceShutdown(); });
+  ModLog("shutdown     : all parts are done, %.1f ms", MsSince(start));
+}
+
+void __cdecl h_free_system() {
+  Shutdown("the game frees its system (free_system)");
+  o_free_system();
+}
+
+// The game calls exit from 27 places, and most of them stop the game for an
+// error. Only the thread that draws the frames can shut the mod down: on a
+// different thread a frame can be in the middle of a call into OpenXR.
+void __cdecl h_exit(int code) {
+  if (g_frame_thread == 0 || GetCurrentThreadId() == g_frame_thread) {
+    char path[64];
+    _snprintf_s(path, sizeof(path), _TRUNCATE, "the game calls exit(%d)",
+                code);
+    Shutdown(path);
+  } else if (!g_shut_down) {
+    ModLog("shutdown     : the game calls exit(%d) on a thread that does not "
+           "draw the frames, so the shutdown does not run", code);
+  }
+  o_exit(code);
+}
+
+// The two hooks of the exit path. With exit_shutdown=0 they are not there.
+void ExitPathInstall() {
+  if (!g_exit_shutdown) {
+    ModLog("shutdown     : exit_shutdown=0, the mod shuts down when Windows "
+           "unloads the DLL");
+    return;
+  }
+  void* free_system = reinterpret_cast<void*>(kFreeSystem);
+  void* exit_fn = reinterpret_cast<void*>(kExit);
+  const bool free_ok =
+      MH_CreateHook(free_system, reinterpret_cast<void*>(&h_free_system),
+                    reinterpret_cast<void**>(&o_free_system)) == MH_OK &&
+      MH_EnableHook(free_system) == MH_OK;
+  const bool exit_ok =
+      MH_CreateHook(exit_fn, reinterpret_cast<void*>(&h_exit),
+                    reinterpret_cast<void**>(&o_exit)) == MH_OK &&
+      MH_EnableHook(exit_fn) == MH_OK;
+  g_exit_hooked = free_ok || exit_ok;
+  ModLog("hooks        : the exit path of the game, free_system at 0x%08X %s "
+         "and exit at 0x%08X %s (exit_shutdown=1)",
+         kFreeSystem, free_ok ? "ok" : "FAILED", kExit,
+         exit_ok ? "ok" : "FAILED");
+}
+
+// From DllMain, when Windows unloads the DLL. `process_ends` is true when
+// the process ends, which is the usual case: the game never unloads the DLL.
+void EndOfDll(bool process_ends) {
+  g_process_ends = process_ends;
+  if (!g_exit_shutdown || !process_ends) {
+    Shutdown(process_ends
+                 ? "Windows unloads the DLL at the end of the process"
+                 : "the DLL is unloaded and the process continues");
+    ShutdownPart("the hooks", [] { MH_Uninitialize(); });
+  } else {
+    // No OpenXR, no Direct3D and no MinHook here. The cursor is free again
+    // in each case: that call is safe, and it does nothing a second time.
+    PointerMapRelease();
+    if (!g_shut_down && g_exit_hooked) {
+      ModLog("");
+      ModLog("shutdown     : the process ends and the shutdown did not run "
+             "on the exit path of the game. The mod frees the cursor and "
+             "closes the log");
+    }
+  }
+  ModLog("shutdown     : the mod is shut down");
   if (g_log != nullptr) {
     fclose(g_log);
     g_log = nullptr;
@@ -1643,17 +1811,24 @@ void Shutdown() {
 
 void ModLog(const char* format, ...) {
   if (g_log == nullptr) return;
-  EnterCriticalSection(&g_lock);
+  // At the end of the process a stopped thread can hold the lock for ever.
+  // No other thread runs then, so the line goes out without the lock.
+  bool locked = true;
+  if (g_process_ends) {
+    locked = TryEnterCriticalSection(&g_lock) != 0;
+  } else {
+    EnterCriticalSection(&g_lock);
+  }
   va_list args;
   va_start(args, format);
   vfprintf(g_log, format, args);
   va_end(args);
   fputc('\n', g_log);
   fflush(g_log);
-  LeaveCriticalSection(&g_lock);
+  if (locked) LeaveCriticalSection(&g_lock);
 }
 
-BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, LPVOID) {
+BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, LPVOID reserved) {
   if (reason == DLL_PROCESS_ATTACH) {
     DisableThreadLibraryCalls(instance);
     OpenLog();
@@ -1667,7 +1842,8 @@ BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, LPVOID) {
     if (!ProxyLoadRealDDraw()) return FALSE;
     if (game_ok) Startup();
   } else if (reason == DLL_PROCESS_DETACH) {
-    Shutdown();
+    // The third parameter is not null when the process ends.
+    EndOfDll(reserved != nullptr);
   }
   return TRUE;
 }

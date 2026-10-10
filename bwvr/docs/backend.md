@@ -29,7 +29,7 @@ Other docs: `software-tnl.md` (the CPU transform and the camera matrix),
 | File | Job |
 | --- | --- |
 | `src/proxy/ddraw_proxy.cpp` | The `ddraw.dll` stub. Loads the backend named by `backend` |
-| `src/mod/mod_main.cpp` | Settings (`ReadSettings`), hook installation, the log |
+| `src/mod/mod_main.cpp` | Settings (`ReadSettings`), hook installation, the log, the shutdown |
 | `src/mod/gpu_bridge.cpp` | Shared textures, Direct3D 9 to Direct3D 11 copy, depth format hook |
 | `src/mod/present_watch.cpp` | Skips the copy to the monitor |
 | `src/mod/stereo.cpp` | The scene walk twice, the hotkeys, the view setup |
@@ -37,6 +37,7 @@ Other docs: `software-tnl.md` (the CPU transform and the camera matrix),
 | `src/mod/fov.cpp` | `LH3DTech::ChangeFov` hook |
 | `src/mod/pointer_map.cpp` | The pointer in render pixels, the head lock of the cursor |
 | `src/mod/cursor_trace.cpp` | A test aid: the log names each caller that touches the cursor of Windows or takes the front |
+| `src/mod/exit_test.cpp` | A test aid: the game ends by itself at one frame, and its writes to the registry are dropped |
 | `src/mod/comfort_camera.cpp` | Snap turns, jumps, zoom steps |
 | `src/mod/script_camera.cpp` | The camera of the story |
 | `src/mod/draw_hooks.cpp` | Hints, tooltips, subtitles, interface depth and size |
@@ -391,6 +392,144 @@ device, runs the same capture and copies the result back only to write a file.
 Turn it on with `gpu_bridge=1` and a capture frame in `bwvr-eye-frames.txt`. It
 writes `bwvr-shared-*.bmp` beside `bwvr-eye-*.bmp`. The two routes must give the
 same bytes.
+
+## The end of the mod
+
+### How the game ends
+
+The close button of the window and Alt F4 give `WM_SYSCOMMAND` with `SC_CLOSE`.
+`GameWindowProc` (`0x007DBF30`) answers it with `LHSystem::SetTerminate`
+(`0x007DB8A0`), which sets a flag. `GGame::Loop` reads the flag at `0x0054D424`
+and sets the state 6 in `GGame+0x250180`. The Quit of the options dialog sets
+the same state (`0x005553F0`). A plain `WM_CLOSE` is not this way: the window
+goes, the backend makes a new device, and the game runs on with no window.
+
+The exit path, in its order:
+
+1. The game loop ends. The game writes the save of slot 20 (`20.sav.tmp`,
+   `Script_20.sav.tmp`, `SaveGame.inf`, two save pictures) and `helpstats.dat`.
+2. `pc_main` (`0x00641C60`) calls `GGame::Close` (`0x0054EC80`) at
+   `0x00641EFF`. It clears the map. Then it writes the numbers of the profile
+   to the registry (`PlayerProfile::WriteBackToRegistry`, `0x0066BCD0`, called
+   at `0x0054ECCD`): the play time (`timestarted`), the counts of saves and
+   loads, and the options of the profile.
+3. The game writes `helpstats.dat` again, and the two sound volumes of
+   `BWSetup` in the registry. Then `pc_main` calls `free_system`
+   (`0x00643420`) as its last call.
+4. `WinMain` returns, and `WinMainCRTStartup` (`0x007CA49F`) calls `exit`
+   (`0x007C9EE1`) of the C runtime.
+5. `exit` runs the exit list of the C runtime (`_doexit`, `0x007C9F21`). The
+   destructor of the static `LHScreen` (`0x007DD850`) is in that list. It calls
+   `IDirectDraw7::RestoreDisplayMode` at `0x007DD8B0`, and dxwrapper destroys
+   its Direct3D 9 device there (`Release` until the count is zero).
+6. `exit` calls `ExitProcess`. Windows stops each thread but this one. Then it
+   calls `DllMain` of each DLL, in an order that the mod does not control.
+
+A fault in step 5 does not end the process at once. The exception handler of
+`WinMainCRTStartup` (`0x007CA59C`) calls `_exit` (`0x007C9EF2`), which calls
+`ExitProcess`. So step 6 can run after the fault, and a second fault can
+follow.
+
+Each write of the profile is in steps 1 to 3, so a fault in step 5 or 6 does
+not cut a write of the profile. It cuts the log of the mod.
+
+### What must be true at step 5 and at step 6
+
+- The device of the backend must not be destroyed while the shared textures
+  of the bridge are open on a Direct3D 11 device. The last `Release` then
+  stops the process with an access violation (`0xc0000005`). Windows names
+  the module `unknown` or `nvd3dum.dll_unloaded`.
+- No call into OpenXR or Direct3D can come from `DllMain` at the end of the
+  process. The threads of the runtime are stopped, and the device is gone. A
+  release of the bridge there can stop the process a second time, in
+  `d3d9.dll`.
+- The OpenXR session and the instance must be destroyed before step 6. A
+  runtime that has a session at the end of the process is the likely cause of
+  the fault `0xc0000409` in `VirtualDesktop.LibOVRRT32_1.dll`. No run has
+  shown this: only a headset session can.
+
+### What the mod does
+
+`mod_main.cpp` hooks `free_system` and `exit`. The first of the two that the
+game calls runs the shutdown, one time. `exit` is there for an end that does
+not pass `free_system` (the game calls `exit` at 27 places, most of them for
+an error). At that time each thread runs, each DLL is loaded, and the device
+of the backend lives.
+
+The parts of the shutdown, in their order:
+
+1. The cursor is free again (`ClipCursor`). The glide time, the wheel scale
+   and the detail distance of the game get their own values back.
+2. With a headset session: the reports, and then `XrScreen::Stop`. Each file
+   that holds the screen lets it go first.
+3. `GpuBridgeShutdown`: the shared textures on the two devices, and the
+   references of the bridge to the device of the backend.
+4. `FrameSourceShutdown`.
+
+The hooks stay until the process ends. A thread of the game can be in a hook,
+and `FinishFrame` calls the game's function directly after the shutdown.
+
+`XrScreen::Stop` ends a session that runs as OpenXR asks. `xrEndSession` is
+valid only in the state `STOPPING`. So the mod calls `xrRequestExitSession`
+and reads the events for at most 500 ms until that state comes. Then it calls
+`xrEndSession`. Then it destroys the swapchains, the spaces and the session,
+releases its Direct3D 11 objects, and destroys the instance. If the state
+does not come in time, the destroy calls run all the same.
+
+At the end of the process the third parameter of `DllMain` is not null. The
+mod then only makes the cursor free, writes its last line and closes the
+log. When the game did not pass `free_system` or `exit` (it called
+`ExitProcess` directly), the log says that the shutdown did not run.
+
+### The key and the log
+
+`exit_shutdown=1` (the default) is the behavior above. With `exit_shutdown=0`
+the mod has no hook on the exit path, and the whole shutdown runs in
+`DllMain`, with a removal of the hooks at its end. With the bridge on, a game
+that ends by itself then has the first fault of "What must be true", and in
+some runs the second one too.
+
+The log of an end:
+
+```
+shutdown     : the shutdown starts, the game frees its system (free_system), frame N
+shutdown     : the cursor, the camera values and the detail distance, T ms
+final: N frames, N presented, N skipped
+  openxr: the end of the session. xrRequestExitSession gave 0, the state STOPPING came, xrEndSession gave 0 (0 is success), T ms
+  openxr: the swapchains, the spaces and the session are destroyed, T ms
+  openxr: the Direct3D 11 objects of the session are released, T ms
+  openxr: the instance is destroyed, T ms
+shutdown     : the OpenXR session and its Direct3D 11 device, T ms
+shutdown     : the GPU bridge, T ms
+shutdown     : the frame source, T ms
+shutdown     : all parts are done, T ms
+shutdown     : the mod is shut down
+```
+
+The lines `final` and `openxr` are there only with a headset session. The
+line of a part comes after the part, so a log that stops in the shutdown
+names the part before the one that did not come back. `the mod is shut down`
+is the last line of a whole log. A log without it is cut: Windows stopped the
+process (a desktop run, the Task Manager), or a fault did.
+
+### The test of the end
+
+A desktop run stops the game with `Stop-Process`, and a stopped process never
+comes to the exit path. `exit_test_frame=N` makes the game end by itself: at
+frame N of `FinishFrame` the mod posts the message of the close button to the
+game window (`exit_test.cpp`). From that frame to the end of the process, the
+mod drops each write of the process to the registry: `RegSetValueEx`,
+`RegDeleteValue` and `RegDeleteKey`. The log names each one. The log also
+names each file that the process opens for a write. The run scripts put the
+files of the profile back. `bwvr/tools/desk/exit_run.ps1` makes the run and
+reads the faults that Windows recorded. The launcher removes the key from
+`bwvr.ini` on each save.
+
+A desktop run has no OpenXR session. With `capture_every_seconds`, the self
+test of the bridge makes the shared textures on a Direct3D 11 device of its
+own. So a run shows the fault of the device with `exit_shutdown=0`, and a
+clean end with 1. Only a headset session shows the end of the OpenXR session
+and the record of `VirtualDesktop.LibOVRRT32_1.dll`.
 
 ## The depth buffer
 
@@ -1604,6 +1743,8 @@ keys that the launcher sets.
 | `game_camera_rebuild` | 1 | See "The game camera's own screen" |
 | `pointer_scale`, `pointer_clip` | 1, 1 | See "The window is the input device" |
 | `pointer_leave_cursor`, `cursor_trace` | 0, 0 | Test keys of the desktop runs. See "Who moves the cursor of Windows" |
+| `exit_shutdown` | 1 | 1: the mod shuts down on the exit path of the game. 0: in `DllMain`. See "The end of the mod" |
+| `exit_test_frame` | 0 | A test key of the desktop runs: the frame at which the game ends by itself. See "The test of the end" |
 | `window_width`, `window_height` | 0 | A forced window size |
 | `snap_turn`, `blink`, `instant_jumps`, `camera_glide` | 2, 0, 1, 0 | See "Moving around" |
 | `zoom_step` | 2 | See "Zoom in steps" |
@@ -1673,6 +1814,8 @@ section, so the uninstaller can put them back.
 
 ## Open items
 
+- The end of the OpenXR session at the exit of the game (`XrScreen::Stop` on
+  the exit path) has run in no headset session. See "The end of the mod".
 - A device lost after the bridge has started is not tested.
 - The worst frames of 31 to 52 ms have no explanation.
 - The clouds and the sun bob a little in the headset.

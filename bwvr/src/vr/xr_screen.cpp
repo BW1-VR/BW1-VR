@@ -2002,13 +2002,62 @@ bool XrScreen::SubmitBgra(const void* pixels, int pitch) {
   return true;
 }
 
+namespace {
+
+// How long the end of a session waits for the STOPPING state. The game must
+// not hang at its exit.
+const DWORD kStopWaitMs = 500;
+
+double StopMs(const LARGE_INTEGER& start) {
+  LARGE_INTEGER hz, now;
+  QueryPerformanceFrequency(&hz);
+  QueryPerformanceCounter(&now);
+  return hz.QuadPart > 0
+             ? (now.QuadPart - start.QuadPart) * 1000.0 / hz.QuadPart
+             : 0.0;
+}
+
+}  // namespace
+
 void XrScreen::Stop() {
   Impl& s = *impl_;
   running_ = false;
+  // The lines of the end are for a session that was made. A start that
+  // failed comes here too, many times, and it has nothing to say.
+  const bool had_session = s.session != XR_NULL_HANDLE;
+  LARGE_INTEGER part;
+  QueryPerformanceCounter(&part);
 
+  // xrEndSession is valid only in the STOPPING state. So the mod asks the
+  // runtime for the exit of the session, and reads the events for a short
+  // time until that state comes. If it does not come, the session is
+  // destroyed as it is: xrDestroySession is valid in each state.
   if (s.session_running) {
-    xrEndSession(s.session);
+    const XrResult asked = xrRequestExitSession(s.session);
+    bool stopping = s.state == XR_SESSION_STATE_STOPPING;
+    const DWORD start = GetTickCount();
+    while (XR_SUCCEEDED(asked) && !stopping &&
+           GetTickCount() - start < kStopWaitMs) {
+      for (;;) {
+        XrEventDataBuffer event = {XR_TYPE_EVENT_DATA_BUFFER};
+        if (xrPollEvent(s.instance, &event) != XR_SUCCESS) break;
+        if (event.type != XR_TYPE_EVENT_DATA_SESSION_STATE_CHANGED) continue;
+        s.state =
+            reinterpret_cast<const XrEventDataSessionStateChanged*>(&event)
+                ->state;
+        if (s.state == XR_SESSION_STATE_STOPPING) stopping = true;
+      }
+      if (!stopping) Sleep(5);
+    }
+    const XrResult ended = xrEndSession(s.session);
     s.session_running = false;
+    s.log("  openxr: the end of the session. xrRequestExitSession gave %d, "
+          "the state STOPPING %s, xrEndSession gave %d (0 is success), "
+          "%.1f ms",
+          static_cast<int>(asked),
+          stopping ? "came" : "did not come in the time limit",
+          static_cast<int>(ended), StopMs(part));
+    QueryPerformanceCounter(&part);
   }
   for (int eye = 0; eye < 2; ++eye) {
     if (s.swapchain[eye] != XR_NULL_HANDLE) {
@@ -2046,6 +2095,11 @@ void XrScreen::Stop() {
   }
   // The action set goes before the instance.
   s.DestroyActionSet();
+  if (had_session) {
+    s.log("  openxr: the swapchains, the spaces and the session are "
+          "destroyed, %.1f ms", StopMs(part));
+    QueryPerformanceCounter(&part);
+  }
 
   for (int eye = 0; eye < 2; ++eye) {
     delete[] s.images[eye];
@@ -2055,10 +2109,18 @@ void XrScreen::Stop() {
   Release(s.staging);
   Release(s.context);
   Release(s.device);
+  if (had_session) {
+    s.log("  openxr: the Direct3D 11 objects of the session are released, "
+          "%.1f ms", StopMs(part));
+    QueryPerformanceCounter(&part);
+  }
 
   if (s.instance != XR_NULL_HANDLE) {
     xrDestroyInstance(s.instance);
     s.instance = XR_NULL_HANDLE;
+    if (had_session) {
+      s.log("  openxr: the instance is destroyed, %.1f ms", StopMs(part));
+    }
   }
 }
 

@@ -86,13 +86,28 @@ is built, and no test has proven it.
   size, and where the advisor stands at the scroll (the distance to the side
   stays in units of the world). The test key (Shift and Home) gives the size
   of the game for a comparison.
-- **B9. A crash at each exit of the game.** Windows records two crashes at
-  the time the game closes: the faulting modules are
-  `VirtualDesktop.LibOVRRT32_1.dll` (exception `0xc0000409`) and
-  `nvd3dum.dll_unloaded` (`0xc0000005`). The player sees nothing, because
-  the game is closing. Find the order in which the mod, the OpenXR session
-  and the Direct3D devices shut down, and whether the crash can cut the
-  last lines of the log or a write of the profile.
+- **B9. The end of the game with a headset: check it after a session.** The
+  mod shuts down on the exit path of the game, before the game destroys its
+  Direct3D device (`exit_shutdown=1`, `backend.md`, "The end of the mod"). A
+  desktop run with the shared textures of the bridge shows a clean end, and
+  the access violation with `exit_shutdown=0`. No run had an OpenXR session.
+  So the end of the session (`xrRequestExitSession`, `xrEndSession`, the
+  destroy calls) is not run. Only a headset session can show that Windows
+  records no fault of `VirtualDesktop.LibOVRRT32_1.dll` (`0xc0000409`).
+  After a session in the headset that ended with the Quit of the game or
+  with Alt F4, check two things:
+  - `bwvr.log` in the game folder ends with the line `the mod is shut down`.
+    Its lines `openxr: the end of the session` and `shutdown` give the
+    result and the time of each part.
+  - This command of PowerShell shows the faults of the game that Windows
+    recorded in the last day. It must show no line with the time of the end
+    of the session:
+    `Get-WinEvent -FilterHashtable @{ LogName='Application'; ProviderName='Application Error'; StartTime=(Get-Date).AddDays(-1) } -ErrorAction SilentlyContinue | Where-Object Message -match 'runblack' | ForEach-Object { "$($_.TimeCreated) $(($_.Message -split "\n")[1]) $(($_.Message -split "\n")[2])" }`
+
+  If a fault is there, `exit_shutdown=0` in `bwvr.ini` gives the shutdown in
+  `DllMain` for a comparison. A desktop run with `exit_run.ps1 -Old` records
+  faults of `runblack.exe` too, at the time of the run (the modules
+  `unknown`, `nvd3dum.dll_unloaded` and `d3d9.dll`): those are from the test.
 
 B1b, B2 and B4 are one package: a thing that is held, thrown, or that
 moves while the Hand takes it.

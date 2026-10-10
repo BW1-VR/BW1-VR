@@ -54,7 +54,10 @@ calls it. It keeps these rules, and a new script must keep them too:
   of the log. After the run it puts each of them back. A new game writes
   save slot 20 and other files of the profile, so do not remove this guard.
 - A run never changes the registry. It starts `runblack.exe` directly, not
-  the launcher.
+  the launcher. A run stops the game with `Stop-Process`, so the game never
+  comes to its exit path, where it writes the profile to the registry. A run
+  in which the game ends by itself is different: see "A run in which the
+  game ends by itself".
 
 ## The scripts
 
@@ -66,6 +69,7 @@ calls it. It keeps these rules, and a new script must keep them too:
 | `game.ps1` | Gives the game folder (`local\game-path.txt`), and stops a run on a game folder where the launcher never ran |
 | `dialog.ps1` | Measures the start dialog for a render size, and gives the dialog points |
 | `verify_build.ps1` | The three runs before a merge |
+| `exit_run.ps1` | A run in which the game ends by itself, and the check of its end |
 | `aim_run.ps1`, `aim_queue.ps1` | The far fetch, the aim presets, the teleport |
 | `throw_queue.ps1` | Throws and landings |
 | `spawn_run.ps1` | A start with "Keep your old Creature": no story, the player at the Temple |
@@ -92,6 +96,49 @@ time for each new render size.
 scripts for one area (`hand_run.ps1`, `village_run.ps1`, `temple_run.ps1`,
 `miracle_run.ps1`) have run on one PC only, and can need a correction on a
 different PC.
+
+## A run in which the game ends by itself
+
+`desk_test.ps1` waits until the game is gone or until `-Seconds` are over.
+Only then does it stop the game. Its line `game exited on its own` says
+which of the two happened. A stopped game never runs the shutdown of the
+mod, so each other run tests nothing of the end of the game.
+
+The test key `exit_test_frame=N` makes the game end by itself. At frame N the
+mod posts the message of the close button to the game window. The game then
+goes its usual exit path (`docs/backend.md`, "The end of the mod"). On that
+path the game writes the save of slot 20, `helpstats.dat`, and the profile
+and the sound volumes in the registry. Two guards keep the player's state:
+
+- `desk_run.ps1` puts each file of the `Profiles` folder back, as for each
+  run.
+- From frame N to the end of the process, the mod drops each write of the
+  game process to the registry. The log names each one (lines `exit test`).
+  If a guard cannot be made, the mod does not post the message.
+
+`exit_run.ps1` makes such a run and checks the end:
+
+```powershell
+.\bwvr\tools\desk\exit_run.ps1 -Name exit1 -Dll <build>\src\mod\Release\ddraw.dll
+.\bwvr\tools\desk\exit_run.ps1 -Name exit0 -Dll <build>\src\mod\Release\ddraw.dll -Old
+```
+
+It ends with `EXIT CLEAN` when these three things are true:
+
+- The game ended by itself.
+- Windows recorded no fault of `runblack.exe` in the run (the Application
+  log, the provider "Application Error").
+- The log of the mod ends with `the mod is shut down`.
+
+If not, it ends with `EXIT FAULT`. `-Old` gives `exit_shutdown=0`, the
+shutdown in `DllMain`: that run ends with `EXIT FAULT`, and Windows records
+one fault or two. `-NoBridge` gives a run with no shared textures: it ends
+clean with each value of `exit_shutdown`. The run has no headset, so it does
+not test the end of the OpenXR session.
+
+The frame must be in the game, after the logos and the load (3600 by
+default). A different way to close the game window (a plain `WM_CLOSE`)
+does not end the game.
 
 ## The real cursor and the window in front
 
