@@ -22,6 +22,7 @@ param(
     [int]$Minutes = 600
 )
 $sp = Split-Path -Parent $MyInvocation.MyCommand.Path
+. (Join-Path $sp 'game.ps1')
 # The steps that close the start dialog.
 $dialog = 'point@400+1 trigger@440+8 pose2@500+1 point@520+1 trigger@560+8'
 # The two dialog points depend on the render size. dialog.ps1 measures a
@@ -118,7 +119,7 @@ while ((Get-Date) -lt $deadline) {
     if ($idle -ge 620 -and -not $running) {
         $o = & (Join-Path $sp 'desk_run.ps1') -Name $Name -Dll $Dll -Extra $extra -Seconds $Seconds
         $o
-        if (($o -join "`n") -notmatch 'NOT RUN') { "RUN DONE $(Get-Date -Format s)"; exit 0 }
+        if (-not (Test-BwvrVerdict $o 'NOT RUN')) { "RUN DONE $(Get-Date -Format s)"; exit 0 }
     }
     Start-Sleep -Seconds 30
 }

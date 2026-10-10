@@ -2232,8 +2232,8 @@ void TouchFrame(uint8_t* state, uint8_t* hand, float dt) {
   const bool was_finger =
       fresh ? near_math::StrokeFingerAtStart(ratio, finger_below, flat_above)
             : g_stroke_finger;
-  // With the stroke of build 3918f87 the contact is at the Hand's point, as
-  // for the finger.
+  // With the fist stroke (creature_stroke_hand=3) the contact is at the
+  // Hand's point, as for the finger.
   g_stroke_finger = g_stroke_mode == 1 ? false
                     : g_stroke_mode == 2 || g_stroke_mode == kStrokeBefore
                         ? true
@@ -2289,8 +2289,8 @@ void TouchFrame(uint8_t* state, uint8_t* hand, float dt) {
              "point is %.2f %.2f %.2f, %.1f cm of the room from the tip of "
              "the index finger and %.1f cm %s the body, frame %llu",
              g_stroke_mode == kStrokeBefore
-                 ? "the hand of build 3918f87: a fist while the grip is "
-                   "closed, and the Hand's point touches"
+                 ? "a fist while the grip is closed (the fist stroke), and "
+                   "the Hand's point touches"
                  : g_stroke_finger ? "the index finger, and its tip touches"
                                    : "the flat hand, and its palm touches",
              room_units > 0.0f ? g_touch_body.height / room_units * 100.0f
@@ -2472,7 +2472,7 @@ void __fastcall h_CreatureUpdate(void* self, void* unused, float dt,
 
 // For overlay.cpp (docs/creature.md, "The open hand"): the hand
 // of a stroke. 0 while the Hand is not in the Creature state. 1 for the flat
-// hand, 2 for the index finger and 3 for the hand of build 3918f87
+// hand, 2 for the index finger and 3 for the fist of the fist stroke
 // (creature_stroke_hand=3). curl gets what the tickle adds to the curl
 // of each finger (the thumb, then the index to the little finger): for the
 // flat hand each finger, and for the index finger only that one.
@@ -3194,8 +3194,7 @@ void PollNearKey() {
            g_scroll_draw ? "Each scroll that the game draws is a candidate, "
                            "with the reach of scroll_reach_cm"
                          : "A scroll is a candidate only when the game's pick "
-                           "offers it, with the reach of each object, as in "
-                           "the builds before");
+                           "offers it, with the reach of each object");
   }
   if (script_pressed) {
     g_script_on = !g_script_on;
@@ -3207,8 +3206,8 @@ void PollNearKey() {
              g_frame);
     } else {
       ModLog("scripts      : Ctrl and the 7 key: a script that asks about the "
-             "camera gets the game's camera, as in the builds before, frame "
-             "%llu", g_frame);
+             "camera gets the game's camera, as with script_distance=0 and "
+             "script_view=0, frame %llu", g_frame);
     }
   }
   if (palm_pressed) {
@@ -3218,7 +3217,7 @@ void PollNearKey() {
            "frame %llu. %s", g_palm_point ? 1 : 0, g_frame,
            g_palm_point ? "The point of the flat hand of a stroke is the palm"
                         : "The point of the flat hand of a stroke is the tip "
-                          "of the index finger, as in the builds before");
+                          "of the index finger");
   }
   if (limit_pressed) {
     g_stroke_limits_before = !g_stroke_limits_before;
@@ -3231,7 +3230,7 @@ void PollNearKey() {
            "frame %llu", finger_below, flat_above,
            0.5f * (finger_below + flat_above),
            g_stroke_limits_before
-               ? "the limits of the builds before"
+               ? "the fixed limits of the test key"
                : "creature_finger_below_pct and creature_flat_above_pct",
            g_frame);
   }
@@ -3252,9 +3251,8 @@ void PollNearKey() {
                                   "the Creature"
            : g_stroke_mode == 1 ? "the flat hand"
            : g_stroke_mode == 2 ? "the index finger"
-                                : "the stroke of build 3918f87: a fist while "
-                                  "the grip is closed, and the speed of the "
-                                  "grip only",
+                                : "the fist stroke: a fist while the grip is "
+                                  "closed, and the speed of the grip only",
            SlapMps(), g_frame);
   }
   if (glow_pressed) {
@@ -3263,7 +3261,7 @@ void PollNearKey() {
     ModLog("hand glow    : the 7 key: hand_glow_idle is %d, frame %llu. %s",
            g_glow_idle ? 1 : 0, g_frame,
            g_glow_idle ? "The glow shows on each frame, pale blue with no "
-                         "target, as in the builds before"
+                         "target"
                        : "The glow shows only while a press of the grip has "
                          "a target at the Hand's point");
   }
@@ -3278,11 +3276,11 @@ void PollNearKey() {
              ? "One target: the pick record holds only the object with the "
                "halo, and the game's search at the palm is off"
              : g_near_rule
-                   ? "The rule of the build before: the nearest body, the "
-                     "game's pick at the pixel for an object that is not "
-                     "near, and the game's search at the palm"
-                   : "The pick of the first builds: a reach of 60 percent of "
-                     "the Hand's length");
+                   ? "The nearest body within the reach, the game's pick at "
+                     "the pixel for an object that is not near, and the "
+                     "game's search at the palm"
+                   : "The pick has a reach of 60 percent of the Hand's "
+                     "length");
 }
 
 // Once a frame: how long the Hand kept the object after the release action.
@@ -5873,13 +5871,13 @@ void InstallNear() {
   g_palm_search = IniKey("palm_search", 0) != 0;
   g_stroke_mode = IniKey("creature_stroke_hand", 0);
   if (g_stroke_mode < 0 || g_stroke_mode > 3) g_stroke_mode = 0;
-  // -1 says that the ini has no creature_slap_mps: the stroke of build
-  // 3918f87 then has the speed of that build.
+  // -1 says that the ini has no creature_slap_mps: the fist stroke then has
+  // its own speed (kSlapBeforeMps).
   g_slap_ini_set = IniKey("creature_slap_mps", -1) != -1;
   if (g_stroke_mode == kStrokeBefore) {
-    ModLog("hand creature: creature_stroke_hand=3, the stroke of build "
-           "3918f87: a fist while the grip is closed, the contact at the "
-           "Hand's point, and a slap at %.2f m/s of the grip", SlapMps());
+    ModLog("hand creature: creature_stroke_hand=3, the fist stroke: a fist "
+           "while the grip is closed, the contact at the Hand's point, and a "
+           "slap at %.2f m/s of the grip", SlapMps());
   } else {
     ModLog("hand creature: a slap needs %.2f m/s of the grip or of the Hand's "
            "point, the larger of the two (creature_slap_mps). The hand of a "
@@ -5902,8 +5900,8 @@ void InstallNear() {
            "length, and the flat hand over %.2f (creature_finger_below_pct, "
            "creature_flat_above_pct). A stroke starts with the flat hand from "
            "%.2f. The body is the height of the Creature. Ctrl and the 3 key "
-           "of the number pad change to the limits of the builds before, "
-           "0.80 and 1.20", finger_below, flat_above,
+           "of the number pad change to the fixed limits 0.80 and 1.20",
+           finger_below, flat_above,
            0.5f * (finger_below + flat_above));
   }
   g_palm_point = IniKey("creature_palm_point", 1) != 0;
@@ -5913,7 +5911,7 @@ void InstallNear() {
              ? "With the flat hand of a stroke the Hand's point is the palm: "
                "the glow and the ray of the game's stroke are there"
              : "With the flat hand of a stroke the Hand's point stays at the "
-               "tip of the index finger, as in the builds before");
+               "tip of the index finger");
   g_stroke_wait_open = IniKey("creature_open_wait", 1) != 0;
   ModLog("hand creature: creature_open_wait=%d. %s",
          g_stroke_wait_open ? 1 : 0,
@@ -5921,10 +5919,10 @@ void InstallNear() {
              ? "The hand opens when a press on the Creature is 450 ms old, "
                "before the game starts the Creature state"
              : "The hand is a fist from the press to the start of the "
-               "Creature state, as in the builds before");
+               "Creature state");
   g_glow_idle = IniKey("hand_glow_idle", 0) != 0;
   ModLog("hand glow    : hand_glow_idle=%d. %s", g_glow_idle ? 1 : 0,
-         g_glow_idle ? "The glow shows on each frame, as in the builds before"
+         g_glow_idle ? "The glow shows on each frame"
                      : "The glow shows only while a press of the grip has a "
                        "target at the Hand's point");
   {
@@ -6029,8 +6027,7 @@ void InstallNear() {
              ? "A scroll that is not active is a target of the grip: the "
                "game makes it active at the first click, and the press is "
                "that click"
-             : "A scroll that is not active is no target, as in the builds "
-               "before");
+             : "A scroll that is not active is no target");
   g_scroll_reach_cm = IniKey("scroll_reach_cm", near_math::kScrollReachCm);
   if (g_scroll_reach_cm < 0) g_scroll_reach_cm = 0;
   if (g_scroll_reach_cm > 30) g_scroll_reach_cm = 30;
@@ -6056,7 +6053,7 @@ void InstallNear() {
                  ? "Each scroll that the game draws is a candidate of the "
                    "choice, with the ball that its draw made in this frame"
                  : "A scroll is a candidate only when the game's pick offers "
-                   "it, as in the builds before",
+                   "it",
              g_scroll_reach_cm > g_pick_cm ? g_scroll_reach_cm : g_pick_cm,
              g_pick_cm);
     }
@@ -6076,8 +6073,8 @@ void InstallNear() {
                "capsule of the choice and the Creature as a target of a "
                "command use it"
              : "The body of a Creature is known only while the Creature is "
-               "ready for the Hand, as in the builds before. Before a press "
-               "the choice measures the Creature as each other object");
+               "ready for the Hand. Before a press the choice measures the "
+               "Creature as each other object");
   g_leash_palm = IniKey("leash_at_palm", 1) != 0;
   if (g_near_rule) {
     ModLog("hand pick    : one point. A press of the grip acts on the nearest "
@@ -6094,7 +6091,7 @@ void InstallNear() {
                        : "a scroll is no target of the aim");
   } else {
     ModLog("hand pick    : near_rule=0, so the pick reaches 60 percent of the "
-           "Hand's length, as in the build before");
+           "Hand's length");
   }
   if (!g_leash_palm) {
     ModLog("leash        : leash_at_palm=0, so the rope ends at the wrist "
@@ -6171,7 +6168,7 @@ void HandDirectInstallCreatureCamera(int mode) {
   g_creature_camera = mode;
   if (mode == 1) {
     ModLog("hand creature: creature_camera=1, the game moves its camera to "
-           "the Creature as before");
+           "the Creature as the plain game does");
     return;
   }
   if (installed) return;
@@ -6594,8 +6591,8 @@ void ScriptPlayerInstall() {
          "the distance on the map from your head or your nearest hand. With "
          "script_view=1 the camera sees a thing when your head sees it. In a "
          "cut scene, and while the game moves its own camera, a script gets "
-         "the game's camera. 0 is the game's camera, as in the builds "
-         "before%s", g_script_distance, g_script_view,
+         "the game's camera. 0 gives the game's camera%s", g_script_distance,
+         g_script_view,
          IniKey("test_keys", 0) != 0
              ? ". Ctrl and the 7 key of the number pad change both"
              : "");
@@ -7563,7 +7560,7 @@ near_math::Gap GapFrom(const float point[3], const Candidate& c, int kind) {
 }
 
 // The census of a place of the plan: the nearest objects that a press acts on,
-// with the gap of the new body and of the old cylinder.
+// with the gap of the body of one target and of the upright cylinder.
 void PlanCensus(const float point[3], void* status, float units) {
   int shown[4] = {-1, -1, -1, -1};
   float gaps[4] = {1e30f, 1e30f, 1e30f, 1e30f};
@@ -7590,8 +7587,8 @@ void PlanCensus(const float point[3], void* status, float units) {
     const near_math::Gap old =
         near_math::BodyGap(point, c.position, body.radius, body.height);
     ModLog("hand pick    : seek census: %p (%s), %s. Its body is %.1f cm of "
-           "the room from the place (the cylinder of the build before: %.1f "
-           "cm). Point %.2f %.2f %.2f, radius %.2f, height %.2f units",
+           "the room from the place (its upright cylinder: %.1f cm). Point "
+           "%.2f %.2f %.2f, radius %.2f, height %.2f units",
            c.object, ClassName(c.object),
            KindName(PressKind(c.object, status)),
            units > 0.0f ? gaps[s] / units * 100.0f : 0.0f,

@@ -1,7 +1,9 @@
+# The seconds since the last input of a person.
 # The owner's "test now": while the time in test-now-until.txt is in the
-# future, the wait for an idle PC is off, and this gives a large number.
-$flag = Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) 'test-now-until.txt'
-if (Test-Path $flag) { try { if ((Get-Date) -lt [datetime]((Get-Content $flag -Raw).Trim())) { 99999; return } } catch { } }
+# future (Test-BwvrTestNow of game.ps1 reads the file), the wait for an idle
+# PC is off, and this gives a large number.
+. (Join-Path $PSScriptRoot 'game.ps1')
+if (Test-BwvrTestNow) { 99999; return }
 Add-Type @'
 using System; using System.Runtime.InteropServices;
 public static class IdleNow {

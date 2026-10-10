@@ -537,7 +537,7 @@ void SubtitleBeginFrame(bool to_headset, bool projection, uint64_t frame,
              s.set.fallback_cm * 0.01f, frame);
     } else {
       ModLog("subtitles    : no subtitle card (%s). The subtitles draw in the "
-             "eye pictures as before, frame %llu", why, frame);
+             "eye pictures at the interface depth, frame %llu", why, frame);
     }
   }
   GpuBridgePanelNewFrame(false);
@@ -927,13 +927,13 @@ void UiPanelToggle() {
   if (g_settings.mode == kUiPanelOff) {
     // With no interface layer, the key switches the cards: the hint cards
     // beside the wrists and the subtitle card, or the hints and the subtitles
-    // in the eye pictures as before.
+    // in the eye pictures.
     HintCardToggle();
     if (g_sub.set.on) {
       g_sub.toggled_off = !g_sub.toggled_off;
       ModLog("test key     : %s",
              g_sub.toggled_off
-                 ? "the subtitles draw in the eye pictures, as before"
+                 ? "the subtitles draw in the eye pictures"
                  : "the subtitles show on the card in the room");
     }
     return;

@@ -421,6 +421,10 @@ TeleportRequest g_tele = {};
 uint64_t g_tele_moves = 0;
 int g_god_logs = 0;
 const int kMaxGodLogs = 60;
+// The lines of a zoom step and of a smooth zoom hold have their own count. A
+// zoom writes three lines, so they do not use the lines of the God view.
+int g_zoom_logs = 0;
+const int kMaxZoomLogs = 150;
 // THE PLACE AT A CAMERA OF THE GAME (PlaceGod, docs/god-view.md, "The place
 // at a camera of the game"). A move of the game camera that comfort_camera.cpp found, kept until
 // the next main camera call, which uses it once. again is the test key: the
@@ -1121,6 +1125,12 @@ bool GodLog() {
   return true;
 }
 
+bool ZoomLog() {
+  if (g_zoom_logs >= kMaxZoomLogs) return false;
+  ++g_zoom_logs;
+  return true;
+}
+
 uint32_t CameraFeatures() {
   return *reinterpret_cast<const uint32_t*>(kEnabledFeatures);
 }
@@ -1458,7 +1468,7 @@ void ApplyGodSteps() {
       // The head moves over the land, and a hill there stays below it.
       const float sunk =
           ZoomPointAway(point) ? ZoomClearHead(&next, room, head) : 0.0f;
-      if (GodLog()) {
+      if (ZoomLog()) {
         char why[224], hill[128] = "";
         ZoomPointText(point, why, sizeof(why));
         if (sunk > 0.0005f) {
@@ -1471,7 +1481,7 @@ void ApplyGodSteps() {
                zoom > 0 ? "in" : "out", before, next.scale, point.pivot[0],
                point.pivot[1], point.pivot[2], point.below, why, hill);
       }
-      if (GodLog()) {
+      if (ZoomLog()) {
         // The view that the step gives, with the center kept on the map.
         TablePose to = next;
         for (int i = 0; i < 3; i += 2) to.center[i] = ClampMap(to.center[i]);
@@ -1501,7 +1511,7 @@ void ApplyGodSteps() {
       Help(kHelpZoom, kInputWheel);
     } else {
       ++g_god_refused;
-      if (GodLog()) {
+      if (ZoomLog()) {
         ModLog("god view     : the zoom is at its limit, %.1f units per meter",
                pose.scale);
       }
@@ -1624,7 +1634,7 @@ void StopZoomHold(const char* cause, bool view_stays) {
   g_hold_check.version = g_god_version;
   g_hold_check.have_eye = have_eye;
   for (int i = 0; i < 3; ++i) g_hold_check.eye[i] = eye[i];
-  if (!GodLog()) return;
+  if (!ZoomLog()) return;
   char drawn[96];
   if (g_hold.have_eye && have_eye && g_hold.scale > 0.0f) {
     const float dx = eye[0] - g_hold.start_eye[0];
@@ -1704,7 +1714,7 @@ void ApplyGodZoomHold(double frame_seconds) {
   g_hold.fresh = false;
   g_hold.push = 0.0f;
   if (g_hold_check.frames_left > 0 && --g_hold_check.frames_left == 0 &&
-      GodLog()) {
+      ZoomLog()) {
     float eye[3];
     if (g_hold_check.version != g_god_version) {
       ModLog("god view     : smooth zoom check, the view moved again in the "
@@ -1764,7 +1774,7 @@ void ApplyGodZoomHold(double frame_seconds) {
     g_hold.seconds = 0.0;
     g_hold.frames = g_hold.moved = 0;
     g_hold_check.frames_left = 0;
-    if (GodLog()) {
+    if (ZoomLog()) {
       char why[224];
       ZoomPointText(point, why, sizeof(why));
       ModLog("god view     : the smooth zoom starts to zoom %s at %.2f units "
@@ -2142,7 +2152,7 @@ void TabletopInstall() {
              g_settings.test_keys ? ". Ctrl and Numpad 0 change it" : "");
     } else {
       ModLog("god view     : god_spawn=0. The view does not follow the game "
-             "camera, as before%s",
+             "camera%s",
              g_settings.test_keys ? ". Ctrl and Numpad 0 change it" : "");
     }
     if (g_settings.god_zoom_smooth != 0) {
@@ -2291,7 +2301,7 @@ bool TabletopCamera(const float asked_position[3], const float asked_focus[3],
     if (g_zoom_probe.armed) {
       g_zoom_probe.armed = false;
       float eye[3];
-      if (HeadCameraTableEye(eye) && GodLog()) {
+      if (HeadCameraTableEye(eye) && ZoomLog()) {
         const float dx = eye[0] - g_zoom_probe.eye[0];
         const float dz = eye[2] - g_zoom_probe.eye[2];
         // The point of the zoom from the drawn head, in the room, before and

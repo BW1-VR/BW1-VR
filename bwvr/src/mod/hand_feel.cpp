@@ -320,7 +320,7 @@ void LoadSettings() {
   g_live = g_set.on;
   if (!g_set.on) {
     ModLog("hand feel    : hand_feel=0, so the fingers have the curls of the "
-           "pose only, as in the builds before");
+           "pose only");
     return;
   }
   ModLog("hand feel    : on. The fingers bend on the land: %s. The hand takes "
@@ -795,7 +795,8 @@ bool HandFeelHoldRange(int hand, bool mesh, float length, float hold_radius,
     if (g_fall_logs < 5) {
       ++g_fall_logs;
       ModLog("hand feel    : the mod cannot read the object in the Hand, so "
-             "the hold pose is the pose of the builds before, frame %llu",
+             "the hold pose is the pose of hand_feel=0: each finger closes "
+             "on the ball of the object, frame %llu",
              g_frame);
     }
     return false;

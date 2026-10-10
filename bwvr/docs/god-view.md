@@ -196,7 +196,11 @@ sends the game's zoom event, 0x304.
 
 The log has two lines for a step, and one more for a check in the next
 frame. They give the point of the zoom and why it is that point, how far the
-point moved in the room, and how far the land under the head moved:
+point moved in the room, and how far the land under the head moved. The
+lines of a zoom step and of a smooth zoom hold have their own count, 150
+lines for a session (`kMaxZoomLogs`). The lines of a turn, a ground step, a
+pan of the mouse and a zoom that the game does not allow share 60 lines
+(`kMaxGodLogs`).
 
 ```
 god view     : zoomed in, 100.0 to 66.7 units per meter, about the point at 2052.0 37.6 2489.7, 0.44 m below your head: the land that you look at, 0.77 m across from your head (god_zoom_about=1)

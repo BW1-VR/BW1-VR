@@ -1046,11 +1046,13 @@ Desktop runs use the fake controller with `fake_head=1`. These checks apply:
 6. **Land drag.** A trigger hold, then `pose2` while held. The drag report
    shows one press, one land drag and the exact ray, and the camera moves once,
    at the step.
-7. **The mouse still works.** Send relative mouse input with `mouse_event` and
-   `MOUSEEVENTF_MOVE`, not `SetCursorPos` (`backend.md`, "Holding the land
-   shook the camera"). The owner changes to the mouse.
-   While the real left button is held and the script presses and releases the
-   trigger, the game sees one press and one release.
+7. **The mouse still works.** A desktop run does not send input of the real
+   mouse. The test mouse (`fake_mouse_script`, `god-view.md`, section 10)
+   moves the pointer and presses the left button inside the mod. The check
+   with the real mouse is for a person at the PC: after a move of the mouse,
+   the owner changes to the mouse. While the real left button is held and the
+   script presses and releases the trigger, the game sees one press and one
+   release.
 
 In the headset, `xrtest` shows both hands, the profile and every button. In
 the game, the Hand follows the controller, and Ctrl+F12 switches the owner

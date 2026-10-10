@@ -1787,7 +1787,7 @@ void HintCardToggle() {
   }
   g_toggled_off = !g_toggled_off;
   ModLog("test key     : %s",
-         g_toggled_off ? "the hints draw in the eye pictures, as before"
+         g_toggled_off ? "the hints draw in the eye pictures"
                        : "the hints show on the cards beside the wrists");
 }
 

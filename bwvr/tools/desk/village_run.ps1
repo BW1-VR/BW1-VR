@@ -154,6 +154,8 @@ $keys = "$keys;seek_plan=$Plan;village_test_chants=$Chants;village_test_census=$
 if ($Set -ne '') { $keys = "$keys;$Set" }
 & (Join-Path $sp 'spawn_run.ps1') -Name $Name -Dll $Dll -Choice keep -Steps $Steps `
     -Points $points -Set $keys -Seconds $Seconds
+# spawn_run.ps1 gave up: no run, so no log of this run to read.
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 $log = Join-Path $sp "desk-$Name\bwvr.log"
 if (-not (Test-Path $log)) { "no log at $log"; exit 1 }
 $pattern = '^village      :|^miracle      : (?!miracle_)|^hand pick    : seek plan|^hand bulk    :|^hand press   : the grip pressed|' +

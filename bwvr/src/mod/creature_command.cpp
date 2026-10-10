@@ -720,10 +720,9 @@ void LogRule(const char* from) {
            far_choice_math::CommandRangeM(FarGrabChoice(), g_settings.max_m),
            g_settings.behind_cm, g_frame);
   } else {
-    ModLog("creature cmd : %s: creature_command_rule=1, the rule of the "
-           "builds to 2026-10-04. The press fixes its kind, and an object "
-           "takes the aim in the cone of the grab from a distance, at each "
-           "distance, frame %llu", from, g_frame);
+    ModLog("creature cmd : %s: creature_command_rule=1. The press fixes its "
+           "kind, and an object takes the aim in the cone of the grab from a "
+           "distance, at each distance, frame %llu", from, g_frame);
   }
 }
 

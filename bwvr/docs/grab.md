@@ -476,7 +476,7 @@ put the leash on from a new game.
 
 | Key | Default | What it does |
 | --- | --- | --- |
-| `near_rule` | 2 | 2 is one target. 1 is the nearest body within the reach, with the game's pick at the pixel for an object that is not near, and the search at the palm. 0 gives the pick of the first builds: a reach of 60 percent of the Hand's length, no tap choice, no rule of the near objects and no far touch |
+| `near_rule` | 2 | 2 is one target. 1 is the nearest body within the reach, with the game's pick at the pixel for an object that is not near, and the search at the palm. 0 gives a pick with a reach of 60 percent of the Hand's length, no tap choice, no rule of the near objects and no far touch |
 | `hand_pick_cm` | 4 | The reach of the pick from the Hand's point, in cm of the room. 1 to 20 |
 | `hand_wide_pick_cm` | 15 | The reach of the pick for an object that the Hand can hold, when no object that a press acts on is nearer, in cm of the room. 0 turns it off. 0 to 30. The test key Ctrl Shift Page Up goes between 0 and the value (`test_keys=1`) |
 | `hand_touch_cm` | 1 | The point touches a body when the gap is this or less, in cm of the room. 0 to `hand_pick_cm` |
@@ -1584,8 +1584,9 @@ the target at the next close and opening of the grip.
 | `hold_target` | 1 | 0: the pick record of an object in the Hand is the object behind the pixel of the Hand's point |
 | `hold_target_cm` | 6 | The reach of a thing, from the Hand's point or from the object in the Hand to its body, in cm of the room. 1 to 50 |
 
-`scaffold_join` and `scaffold_join_cm` are older names. They still count when the
-new keys are not in the file. The keys are not in the launcher.
+`scaffold_join` and `scaffold_join_cm` are second names of the two keys. The mod
+reads them when `hold_target` and `hold_target_cm` are not in the file. The keys
+are not in the launcher.
 
 **The A/B key**, with `test_keys=1`: Ctrl with the 2 key of the number pad changes
 `hold_target`. The pointing controller gives a long pulse for 1 and a short pulse

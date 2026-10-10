@@ -45,12 +45,13 @@
 // ON THE TABLE (docs/tabletop.md, "The spirits beside the table"). The world is s units per
 // meter, not 7.5. The room camera then stands at the recenter pose over the
 // table (P0), with the table's basis, and the latched pitch stays between 0
-// and 15 degrees, so the spirits float at eye level beside the table, not on
-// it. The spirits' depth range and their size are multiplied by s / 7.5 for
-// as long as the table owns the view, so they float 1 to 1.5 m away in the
-// room at the size they have off the table. The light's depth gets the same
-// factor. A grab of the table moves the land, not the room, so it does not
-// move the spirits.
+// and 15 degrees, so the room camera does not look down at the table. The
+// spirits are at the screen points of the game in that camera: beside the
+// table and below eye level. The spirits' depth range and their size are
+// multiplied by s / 7.5 for as long as the table owns the view, so they
+// float 1 to 1.5 m away in the room at the size they have off the table. The
+// light's depth gets the same factor. A grab of the table moves the land,
+// not the room, so it does not move the spirits.
 //
 // AT A PLACE OF THE WORLD. A script can send a spirit to a place of the
 // world, for example to point at a scroll. HelpDude::Update1 (0x005BDDA0)
@@ -199,7 +200,7 @@ const float kDegrees = 57.29578f;
 const float kPitchLowest = -35.0f / kDegrees;
 const float kPitchHighest = 20.0f / kDegrees;
 // On the table the player looks down at the table, and a latch there would
-// stand the spirits on its edge. So they float at eye level beside it.
+// stand the spirits on its edge. So the room camera looks level or up there.
 const float kTablePitchLowest = 0.0f;
 const float kTablePitchHighest = 15.0f / kDegrees;
 // A gap between two lines of speech is shorter than this. A spirit that is

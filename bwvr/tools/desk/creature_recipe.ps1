@@ -49,14 +49,20 @@
 #   creature stay: ...                              the stay, from start to end
 #   creature cmd : the leash is on / off
 #   haptics      : ...                              the pulses
+#
+# spawn_run.ps1 waits for an idle PC (10 minutes, no game) and gives up after
+# -Minutes. The last line of the output is RUN DONE (exit code 0) or GAVE UP
+# (exit code 2). The lines of the log come only after a run.
 param(
     [Parameter(Mandatory = $true)][string]$Name,
     [Parameter(Mandatory = $true)][string]$Dll,
     [string]$Kind = 'state',
     [string]$Set = '',
-    [int]$Seconds = 65
+    [int]$Seconds = 65,
+    [int]$Minutes = 115
 )
 $sp = Split-Path -Parent $MyInvocation.MyCommand.Path
+. (Join-Path $sp 'game.ps1')
 # The zoom steps of this recipe keep the land under the head in its place
 # (god_zoom_about=0), so the Creature stays in front of the head.
 $keys = 'god_zoom_about=0;seek_plan=creature;far_test_creature=1;far_test_influence=1;grab_hand=1;' +
@@ -82,8 +88,12 @@ if ($Kind -eq 'stay') {
              'rot@1460+1 rot@1530+1 slap@1580+1 slap@1660+1 ' +
              'point@1800+1 aimfar@1830+1 shot@1840+1 grip@1850+300'
 }
-& (Join-Path $sp 'spawn_run.ps1') -Name $Name -Dll $Dll -Choice keep -Steps $steps `
-    -Points '0,-30,60' -Set $keys -Seconds $Seconds
+$o = & (Join-Path $sp 'spawn_run.ps1') -Name $Name -Dll $Dll -Choice keep -Steps $steps `
+    -Points '0,-30,60' -Set $keys -Seconds $Seconds -Minutes $Minutes
+# The RUN DONE of spawn_run.ps1 is not shown: this script gives it as its
+# last line, after the lines of the log.
+$o | Where-Object { "$_" -cnotmatch '^RUN DONE' }
+if (-not (Test-BwvrVerdict $o 'RUN DONE')) { exit 2 }
 $log = Join-Path $sp "desk-$Name\bwvr.log"
 if (-not (Test-Path $log)) { "no log at $log"; exit 1 }
 $pattern = '^hand creature: (the body of|a press|the Creature state|the hand of|a stroke|a slap|a hard slap|the press ends)|' +
@@ -94,3 +104,5 @@ $pattern = '^hand creature: (the body of|a press|the Creature state|the hand of|
 Get-Content $log | Where-Object { $_ -match $pattern } | ForEach-Object {
     $_.Substring(0, [Math]::Min(300, $_.Length))
 } | Select-Object -First 80
+"RUN DONE"
+exit 0

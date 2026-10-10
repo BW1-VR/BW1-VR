@@ -1013,7 +1013,7 @@ void HandExactInstall() {
   LoadSettings();
   if (!g_set.exact) {
     ModLog("hand exact   : hand_exact=0, the game's Hand turns with the screen "
-           "ray as before");
+           "ray");
     return;
   }
   g_installed = Hook(kCompose, reinterpret_cast<void*>(&h_Compose),

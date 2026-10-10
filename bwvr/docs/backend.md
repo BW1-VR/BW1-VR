@@ -1157,9 +1157,12 @@ which would smooth a hold. Its duration override at `0x00460229` reads a stack s
 that `0x0045E359` clears before the move switch, and only a fight fills that slot. The mod sets the glide to 0 (`camera_glide=0`), so a
 pointer fault shows at once.
 
-Test note: `SetCursorPos` does not reach the drag, because the drag takes its
-motion from DirectInput. A drag test has to send relative mouse input,
-`mouse_event` with `MOUSEEVENTF_MOVE`.
+Test note: the drag takes its motion from DirectInput, as relative mouse
+motion. A change of the place of the cursor (`SetCursorPos`) does not reach the
+drag. A drag test uses the test mouse (`fake_mouse_script`, `god-view.md`,
+section 10). Its words `button` and `move_right` act inside the mod, and each
+move also goes into the mouse motion that the camera code reads
+(`ControlMap::MouseDelta`). The real mouse stays where it is.
 
 ### Dragging the land when looking down or behind
 
@@ -1217,16 +1220,34 @@ camera, and the land would slide under the Hand.
 ### Testing the pointer
 
 `0x00C5E680` holds the Hand's world position, so the claim "the Hand does not move
-when the head turns" can be read as numbers. Three traps:
+when the head turns" can be read as numbers.
+
+A test of the pointer never moves or clicks the real mouse. Two tools move the
+pointer inside the game process:
+
+- The test mouse (`fake_mouse_script`, `god-view.md`, section 10) moves the
+  pointer in render pixels and presses the left button.
+- The scripted controller (`fake_controller_script`, `controllers.md`, section
+  4) places the hands, and the mod puts the pointer where the pointing hand
+  points.
+
+With `fake_head=1` the head has a fixed pose, and `fake_head_sweep=1` alternates
+that pose with a level head ("Testing without a headset"). The log of the mod
+gives the numbers.
+
+Three traps:
 
 - The creature select screen does not place the Hand from the cursor.
 - A cutscene has not settled. Take two samples at the same head angle to tell the
   game's own camera from the head.
-- A parked mouse never recomputes the Hand. Move the mouse by one or two pixels
-  between samples.
+- A pointer that does not move never recomputes the Hand. Move the pointer by
+  one or two pixels between samples: a word `move_right` of the test mouse for
+  one frame, with `fake_mouse_step_px=1`.
 
-To reach gameplay without a headset: start the game with `-NEWGAME`, or click
-Continue Game at (0.508, 0.406) of the client rect and send Escape five times.
+To reach gameplay without a headset, use a script of `bwvr/tools/desk/`. A run
+starts the game with `-NEWGAME`, and the scripted controller closes the start
+dialog. `spawn_run.ps1 -Choice keep` gives a game with no story. A test never
+loads a saved game.
 
 ## Moving around
 
@@ -1627,9 +1648,21 @@ test_keys=1
 
 Both eye images are written as BMP, which converts to PNG. `fake_head_pitch` and
 `fake_head_roll` take negative values. `fake_head_sweep=1` alternates the whole
-pose with a level head, so a pitch can be tested like a turn. The game can be
-driven: the options dialog takes clicks through `SetCursorPos` and `mouse_event` at
-fractions of the client rect.
+pose with a level head, so a pitch can be tested like a turn.
+
+A test drives the game from inside the game process. It never moves or clicks
+the real mouse, and it never brings a window to the front. The tools:
+
+- The scripted controller (`fake_controller`, `fake_controller_script`) holds the
+  buttons of a controller and steps its hands (`controllers.md`, section 4). It
+  also closes the start dialog of a new game: `tools/desk/dialog.ps1` gives the
+  points of the dialog for the render size.
+- The test mouse (`fake_mouse_script`) moves the pointer and presses the left
+  button inside the mod (`god-view.md`, section 10).
+- The scripts of `bwvr/tools/desk/` start the game with these keys, put the
+  player's files back, and read the log of the mod. `desk_run.ps1` is the only
+  script that starts the game, and `tools/desk/README.md` has the rules of a
+  run. Check the first lines of each run log.
 
 Three traps:
 
@@ -1638,10 +1671,8 @@ Three traps:
 - **Stereo can be checked as a number.** Distant things must be identical between the
   eyes and near things must not. On a good frame: sky 0.01 levels of difference,
   horizon 2.96, sea 2.08.
-- **The scene must hold still.** The options dialog before the tutorial is a fixed
-  camera and a good test scene.
-
-`bwvr/tools/desk/` holds the scripted runs. Check the first lines of each run log.
+- **The scene must hold still.** The start dialog of a new game, before the
+  tutorial, is a fixed camera and a good test scene.
 
 The launcher removes the retired keys from `bwvr.ini` on every save (the list is
 `kRetiredKeys` in `launcher.cpp`), and it writes `stereo=1`. Set test keys such as

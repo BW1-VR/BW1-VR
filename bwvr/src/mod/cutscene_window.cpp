@@ -280,7 +280,7 @@ void ReadSettings() {
              : g_set.depth == kDepthFixed
                    ? "The near plane of the game is on the screen, so all of "
                      "the scene is behind it"
-                   : "The stereo has no depth limit, as before");
+                   : "The stereo has no depth limit");
   ModLog("cut scene    : cutscene_subtitles=%d. %s", g_set.subtitles ? 1 : 0,
          g_set.subtitles
              ? (g_set.text_place == 1
@@ -507,7 +507,8 @@ bool CutsceneWindowBeginFlat(float ipd, uint64_t frame, float* separation,
     if (!g_said_no_depth) {
       g_said_no_depth = true;
       ModLog("cut scene    : frame %llu: no depth limit, because the mod "
-             "cannot read the camera of the game. The stereo is as before",
+             "cannot read the camera of the game. The stereo is the stereo "
+             "of cutscene_depth=0",
              frame);
     }
     return false;
@@ -877,8 +878,7 @@ void CutsceneWindowDepthToggle() {
   ModLog("test key     : cutscene_depth=%d. %s", g_set.depth,
          g_set.depth == kDepthNearest
              ? "The nearest thing in view is on the screen or behind it"
-             : "The stereo of the cut scene window has no depth limit, as "
-               "before");
+             : "The stereo of the cut scene window has no depth limit");
 }
 
 void CutsceneWindowReport() {

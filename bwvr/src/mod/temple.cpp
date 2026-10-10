@@ -158,7 +158,7 @@ void Load() {
              ? "On the land the three leash posts at the Temple are "
                "targets of the grip of the real hand"
              : "On the land the leash posts at the Temple are no targets of "
-               "the real hand, as in the builds before");
+               "the real hand");
   if (g_scan_grid < 0) g_scan_grid = 0;
   if (g_scan_grid > 40) g_scan_grid = 40;
   char path[MAX_PATH];
@@ -171,7 +171,7 @@ void Load() {
              ? "In a room of the Temple the pointing hand points with a ray "
                "that ends on the thing under it"
              : "In a room of the Temple the pointer is the place where you "
-               "see the point of the real hand, as in the builds before");
+               "see the point of the real hand");
   ModLog("temple       : temple_click=%d. %s", g_click,
          g_click != 0
              ? "In a room the trigger and the grip are both the Action "
@@ -190,7 +190,7 @@ void Load() {
              ? "In the Temple the stick of the pointing hand turns you in "
                "the room by one step, to the left or to the right"
              : "In the Temple the stick of the pointing hand does what it "
-               "does on the land, as in the builds before");
+               "does on the land");
   ModLog("temple       : temple_camera_follow=%d. %s", g_camera_follow,
          g_camera_follow != 0
              ? "The camera of a room turns to the place of the pointer, as "

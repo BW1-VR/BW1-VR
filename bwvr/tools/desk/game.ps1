@@ -30,6 +30,37 @@ function Test-BwvrFirstStart([string]$Game) {
     return ''
 }
 
+# The folder that the desktop test scripts of each git worktree of this PC
+# share. It holds the lock of a run (desk.lock) and the owner's "test now"
+# flag (test-now-until.txt). It is in the temp folder of the user, so it is
+# not in the repo and not in the game folder.
+function Get-BwvrDeskShared {
+    $dir = Join-Path ([System.IO.Path]::GetTempPath()) 'bwvr-desk'
+    [void](New-Item -ItemType Directory -Force -Path $dir)
+    return $dir
+}
+
+# True while the owner's "test now" holds: the time in test-now-until.txt is
+# in the future. The file is in the shared folder. A file beside the scripts
+# counts too, for the scripts of that worktree only.
+function Test-BwvrTestNow {
+    foreach ($dir in (Get-BwvrDeskShared), $PSScriptRoot) {
+        $flag = Join-Path $dir 'test-now-until.txt'
+        if (Test-Path -LiteralPath $flag) {
+            try { if ((Get-Date) -lt [datetime]((Get-Content -LiteralPath $flag -Raw).Trim())) { return $true } } catch { }
+        }
+    }
+    return $false
+}
+
+# True when a line of the output of a run script starts with the given
+# verdict (NOT RUN, RUN DONE, GAVE UP). The test keeps the case and reads
+# only the start of a line, so a line of a log that has the same words in it
+# does not count.
+function Test-BwvrVerdict($Output, [string]$Verdict) {
+    return [bool](@($Output | ForEach-Object { "$_" -split "`r?`n" }) -cmatch ('^' + [regex]::Escape($Verdict)))
+}
+
 # The mod DLL of the build of this repo.
 function Get-BwvrBuiltDll {
     $repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..')).Path

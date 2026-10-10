@@ -36,7 +36,8 @@ calls it. It keeps these rules, and a new script must keep them too:
 
 - A run starts only when nobody has used the keyboard or the mouse for 10
   minutes, and only when no game runs. A game that runs is the player's own
-  session. A test never stops it.
+  session. A test never stops it. Only the owner's "test now" flag turns the
+  wait for an idle PC off (see "The shared folder").
 - A run never moves or clicks the real mouse. The scripted controller acts
   inside the game process (`fake_controller=...`). `desk_test.ps1` gives each
   run the test key `pointer_leave_cursor=1`, so the mod does not hold or move
@@ -49,10 +50,13 @@ calls it. It keeps these rules, and a new script must keep them too:
   `fake_controller_front=1` lets the scripted controller act when the game
   window is behind (a run that starts soon after an input).
 - A run takes a lock (`desk.lock`), so two runs do not happen at one time.
+  The lock is in a folder that each git worktree of the repo on this PC
+  shares (see "The shared folder").
 - Before a run, the script keeps a copy of the mod DLL in the game folder,
   of `bwvr.ini`, of the `Profiles` folder (saved games, the Creature) and
   of the log. After the run it puts each of them back. A new game writes
-  save slot 20 and other files of the profile, so do not remove this guard.
+  the save of slot 20, two save pictures, `helpstats.dat` and `vortex.txt`,
+  all in the `Profiles` folder, so do not remove this guard.
 - A run never changes the registry. It starts `runblack.exe` directly, not
   the launcher. A run stops the game with `Stop-Process`, so the game never
   comes to its exit path, where it writes the profile to the registry. A run
@@ -64,9 +68,9 @@ calls it. It keeps these rules, and a new script must keep them too:
 | Script | What it is |
 | --- | --- |
 | `desk_run.ps1`, `desk_test.ps1` | One run of a DLL with extra ini keys. The base of each other script |
-| `idle_seconds.ps1` | The time since the last input |
+| `idle_seconds.ps1` | The time since the last input. A large number while the owner's "test now" flag holds |
 | `desk_state.ps1` | Reads the place of the real cursor, the window in front and the idle time |
-| `game.ps1` | Gives the game folder (`local\game-path.txt`), and stops a run on a game folder where the launcher never ran |
+| `game.ps1` | Gives the game folder (`local\game-path.txt`), and stops a run on a game folder where the launcher never ran. Gives the shared folder, reads the "test now" flag, and tests the output of a script for a verdict line |
 | `dialog.ps1` | Measures the start dialog for a render size, and gives the dialog points |
 | `verify_build.ps1` | The three runs before a merge |
 | `exit_run.ps1` | A run in which the game ends by itself, and the check of its end |
@@ -97,6 +101,67 @@ scripts for one area (`hand_run.ps1`, `village_run.ps1`, `temple_run.ps1`,
 `miracle_run.ps1`) have run on one PC only, and can need a correction on a
 different PC.
 
+## The shared folder
+
+The lock of a run and the owner's "test now" flag are in one folder for the
+PC: `bwvr-desk` in the temp folder of the user (`%TEMP%\bwvr-desk`).
+`Get-BwvrDeskShared` in `game.ps1` gives the folder and makes it. The folder
+is not in the repo and not in the game folder, so each git worktree of the
+repo on this PC uses the same two files. A shell that has a different `TEMP`
+has a different folder, and then only the test for a game that runs keeps
+its runs apart from the others.
+
+- `desk.lock`. `desk_run.ps1` makes it before a run and removes it after the
+  run. It holds the name of the run, the time, and the folder of the scripts
+  that made it. A second run waits for it (`-WaitMinutes`, 30 by default) and
+  then stops with `NOT RUN: another run held the lock ...`. A lock that is
+  older than 20 minutes is from a run that died, and the next run takes it.
+- `test-now-until.txt`. This is the owner's "test now". It holds one time,
+  and while that time is in the future, a run does not wait for an idle PC.
+  Each other guard stays: the lock, the test for a game that runs, and the
+  copies. `desk_run.ps1` and `idle_seconds.ps1` read it (`Test-BwvrTestNow`
+  in `game.ps1`). A file of the same name beside the scripts counts too, for
+  the scripts of that worktree only. Only the owner makes this file:
+
+  ```powershell
+  . .\bwvr\tools\desk\game.ps1
+  Set-Content (Join-Path (Get-BwvrDeskShared) 'test-now-until.txt') (Get-Date).AddMinutes(30).ToString('s')
+  ```
+
+## The wait and the verdict lines
+
+`aim_run.ps1`, `spawn_run.ps1`, `hand_run.ps1` and `temple_run.ps1` wait for
+an idle PC. Each 30 s they read the idle time and look for a game that runs.
+They start the run when the PC is idle for 10 minutes and no game runs, and
+they give up after `-Minutes`. `creature_recipe.ps1`, `miracle_run.ps1` and
+`village_run.ps1` wait through `spawn_run.ps1`. `verify_build.ps1`,
+`aim_queue.ps1` and `throw_queue.ps1` wait through the scripts that they
+call. `desk_run.ps1` and `exit_run.ps1` do not wait for an idle PC:
+`desk_run.ps1` stops with `NOT RUN`, and `exit_run.ps1` with `EXIT NOT RUN`.
+
+A script gives its result in a verdict line. A verdict line starts with fixed
+words in capital letters:
+
+| Verdict line | Who writes it | What it says |
+| --- | --- | --- |
+| `NOT RUN: <why>` | `desk_run.ps1`, and each script before it starts a run | No game started |
+| `RUN DONE` | `aim_run.ps1`, `spawn_run.ps1`, `creature_recipe.ps1`, `hand_run.ps1`, `temple_run.ps1` | The script made one run. It is the last line, and the exit code is 0 |
+| `GAVE UP: the PC was not idle for 10 minutes in N minutes` | The same scripts | No run started in `-Minutes`. It is the last line, and the exit code is 2 |
+| `QUEUE DONE`, `QUEUE STOPPED at <run>` | `aim_queue.ps1`, `throw_queue.ps1` | Each run of the list was made, or the named run was not |
+| `VERIFIED`, `NOT VERIFIED: <why>` | `verify_build.ps1` | The check before a merge |
+| `EXIT CLEAN`, `EXIT FAULT`, `EXIT NOT RUN` | `exit_run.ps1` | See "A run in which the game ends by itself" |
+
+`creature_recipe.ps1` prints the lines of the log only after a run, and then
+`RUN DONE`. `miracle_run.ps1` and `village_run.ps1` print the verdict line of
+`spawn_run.ps1` before their lines of the log, and they stop when it gave up.
+
+A script that reads the output of a different script counts a verdict line
+only when the line starts with the words, in capital letters
+(`Test-BwvrVerdict` in `game.ps1`). The log of the mod and the lines of
+`desk_run.ps1` can have the words "not run" in them, and such a line is not a
+verdict. Do the same in a wait script of your own. In PowerShell, `-match`
+ignores the case, so use `-cmatch '^NOT RUN'` on each line.
+
 ## A run in which the game ends by itself
 
 `desk_test.ps1` waits until the game is gone or until `-Seconds` are over.
@@ -107,8 +172,9 @@ mod, so each other run tests nothing of the end of the game.
 The test key `exit_test_frame=N` makes the game end by itself. At frame N the
 mod posts the message of the close button to the game window. The game then
 goes its usual exit path (`docs/backend.md`, "The end of the mod"). On that
-path the game writes the save of slot 20, `helpstats.dat`, and the profile
-and the sound volumes in the registry. Two guards keep the player's state:
+path the game writes the save of slot 20, two save pictures and
+`helpstats.dat` in the `Profiles` folder, and the values of the profile and
+the sound volumes in the registry. Two guards keep the player's state:
 
 - `desk_run.ps1` puts each file of the `Profiles` folder back, as for each
   run.

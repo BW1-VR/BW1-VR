@@ -232,7 +232,7 @@ times as long.
 
 | Key | Default | What it does |
 | --- | --- | --- |
-| `throw_law` | 2 | 2 is the real flight, in the God view and on the table. 1 is the square root law with the game's physics. 0 is the old gain |
+| `throw_law` | 2 | 2 is the real flight, in the God view and on the table. 1 is the square root law with the game's physics. 0 is the fixed gain (`throw_gain_pct`) with the game's physics |
 | `throw_log` | 0 | 1 logs each turn of a flight and each third frame of its draw, for the desktop runs. 2 also logs each substep and each frame after the first contact |
 | `throw_gain_pct` | 150 | The gain of `throw_law=0`, and the gain in the set down rule |
 | `throw_slow_x10` | 20 | The time factor k times 10, from 10 to 100. 20 is k = 2.0: the flight has the arc of the real throw, 2 times slower |

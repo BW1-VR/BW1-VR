@@ -29,6 +29,7 @@ param(
     [hashtable]$Extra = @{}
 )
 $sp = Split-Path -Parent $MyInvocation.MyCommand.Path
+. (Join-Path $sp 'game.ps1')
 $keys = @{ exit_shutdown = $(if ($Old) { 0 } else { 1 }); exit_test_frame = $Frame }
 if (-not $NoBridge) { $keys['capture_every_seconds'] = 10 }
 foreach ($k in $Extra.Keys) { $keys[$k] = $Extra[$k] }
@@ -36,8 +37,8 @@ foreach ($k in $Extra.Keys) { $keys[$k] = $Extra[$k] }
 $started = Get-Date
 $out = & (Join-Path $sp 'desk_run.ps1') -Name $Name -Dll $Dll -Extra $keys -Seconds $Seconds -WaitMinutes $WaitMinutes 2>&1
 $out | Where-Object { "$_" -notmatch '^desk watch' }
-if (($out -join "`n") -match 'NOT RUN') { 'EXIT NOT RUN'; exit 3 }
-$self = ($out -join "`n") -match 'game exited on its own: True'
+if (Test-BwvrVerdict $out 'NOT RUN') { 'EXIT NOT RUN'; exit 3 }
+$self = Test-BwvrVerdict $out 'game exited on its own: True'
 
 # Windows writes the record of a fault some seconds after the fault.
 Start-Sleep -Seconds 10

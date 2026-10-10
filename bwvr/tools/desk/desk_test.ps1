@@ -63,8 +63,8 @@ $p = $null
 Copy-Item $ini $backup -Force
 
 try {
-    # The rig from docs/backend.md, "A headset is not needed to test most of
-    # this", then the extra keys of this test.
+    # The rig from docs/backend.md, "Testing without a headset", then the
+    # extra keys of this test.
     # Two test keys keep the rule of the real cursor. pointer_leave_cursor=1:
     # the mod does not hold or move the cursor of Windows, also when Windows
     # gives the front to the game window. cursor_trace=1: the log of the mod

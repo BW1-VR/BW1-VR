@@ -832,7 +832,7 @@ bool AudioVoicesInstall(bool on) {
                              reinterpret_cast<void*>(&h_Activate),
                              reinterpret_cast<void**>(&o_Activate));
   if (!on) {
-    ModLog("audio mixer  : audio_mixer=0, QMixer pans each sound as before");
+    ModLog("audio mixer  : audio_mixer=0, QMixer of the game pans each sound");
     return activate;
   }
   InitializeCriticalSection(&g_lock);
@@ -876,7 +876,7 @@ bool AudioVoicesInstall(bool on) {
          "bed turns with the world %s",
          ok ? "the mixer of the mod plays the sounds with a place "
               "(audio_mixer=1)"
-            : "a hook is missing, so QMixer pans each sound as before",
+            : "a hook is missing, so QMixer of the game pans each sound",
          g_height ? "on" : "off", g_near ? "on" : "off",
          g_far ? "on" : "off", g_bed ? "on" : "off");
   if (g_test_voice != 0) {

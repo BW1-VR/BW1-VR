@@ -563,7 +563,7 @@ names.
 - A profile with no stick (Simple) leaves the wheel lines as they are.
 
 The log lists each new line once. A line that the game changes later is left
-alone. The mod's sentences are no longer than the originals, so they fit the
+alone. The mod's sentences are not longer than the originals, so they fit the
 text boxes that the game sizes for the original.
 
 ### 8.5 Tests

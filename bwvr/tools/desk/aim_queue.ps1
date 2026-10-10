@@ -11,6 +11,7 @@ param(
     [int]$WaitMinutes = 60
 )
 $sp = Split-Path -Parent $MyInvocation.MyCommand.Path
+. (Join-Path $sp 'game.ps1')
 $base = 'shot@2900+1 point@2990+1 aimfar@3000+1 shot@3050+1 grip@3100+101 pull@3140+3 shot@3185+1 point@3200+1 shot@3215+1 point@3300+1 a@3320+50 shot@3350+1 aimfar@3400+1 grip@3460+101 pull@3500+3 shot@3545+1 point@3560+1'
 $defs = @{
     # The trim from the ini, the far fetch with it, the teleport, the trim
@@ -114,6 +115,6 @@ foreach ($run in $Runs) {
         $o = & (Join-Path $sp 'aim_run.ps1') -Name $name -Dll $Dll -Set $d.Set -Steps $d.Steps -Points $d.Points -Seconds $d.Seconds -Minutes $Minutes
     }
     $o
-    if (($o -join "`n") -notmatch 'RUN DONE') { "QUEUE STOPPED at $name"; exit 2 }
+    if (-not (Test-BwvrVerdict $o 'RUN DONE')) { "QUEUE STOPPED at $name"; exit 2 }
 }
 "QUEUE DONE $(Get-Date -Format s)"

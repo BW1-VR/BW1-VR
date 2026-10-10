@@ -675,8 +675,7 @@ void LogKeys(const char* from) {
                "record, and a shake or the second face button takes the "
                "miracle out of the Hand"
              : "The game places the Hand with a miracle on the land under "
-               "the pointer, as in the builds to 2026-10-04, and the mod "
-               "gives no target and no cancel",
+               "the pointer, and the mod gives no target and no cancel",
          g_frame);
 }
 

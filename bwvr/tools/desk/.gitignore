@@ -1,5 +1,7 @@
-# The output of the runs, the lock and the copy of the profile
+# The output of the runs and the copy of the profile
 desk-*/
-desk.lock
 profile-guard/
+# The owner's "test now" flag for the scripts of this worktree only. The flag
+# for each worktree and the lock of a run are in the shared folder, which is
+# not in the repo (README.md, "The shared folder").
 test-now-until.txt

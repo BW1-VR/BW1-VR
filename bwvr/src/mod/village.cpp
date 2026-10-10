@@ -640,7 +640,7 @@ void LogKeys(const char* from) {
              ? "The pole of the totem follows the real hand one to one "
                "while the grip holds it"
              : "The game moves the totem with the screen rows of the pixel "
-               "of the Hand's point, as in the builds to 2026-10-04",
+               "of the Hand's point",
          g_frame);
 }
 
@@ -652,8 +652,7 @@ void LogHoldKey(const char* from) {
                "the halo and is the object of the pick record, so the "
                "opening of the grip puts the object on it"
              : "The pick record of an object in the Hand is the object "
-               "behind the pixel of the Hand's point, as in the builds to "
-               "2026-10-04",
+               "behind the pixel of the Hand's point",
          g_settings.join_cm, g_frame);
 }
 

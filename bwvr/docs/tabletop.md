@@ -537,17 +537,21 @@ a screen point of plus or minus 0.66 and a depth of
 after `HelpDudeControl::Init` [V]. So a spirit sits 7 to 11 units from the
 camera. `HelpDude::Update1` copies the camera rotation into the spirit's
 matrix at `+0x3350` and scales it by `+0x35B4` (0.0255 or 0.0268) times
-`+0x37E4` (about 0.8) [V]. The spirit is about 1 unit across [I].
+`+0x37E4` (about 0.8) [V]. The size of the spirit is that scale times the
+size of its model (`HelpDude + 0x10`, 63.4): 1.36 units for the good spirit
+[M].
 
-At 7.5 units per meter that is a spirit of about 13 cm, about 1.2 m away. At
-2000 units per meter it would be 0.5 mm across, 5 mm from the eye, and behind
-the near plane. So while the table owns the view, the spirits' size
-(`+0x35B4`) and depth range (`+0x35B8`, `+0x35BC`) are `s / 7.5` times the
-game's values (263 times at 1973 units per meter). The spirits then float 1
-to 1.5 m away in the room, at the size they have off the table. The game's
-values go back when the table goes off, and a value that the game writes while
-the table is on becomes the one to put back. The spirits' light
-(`SpiritLight`) gets the same factor on its depth.
+At 7.5 units per meter that is a spirit of 18 cm, 0.9 to 1.5 m away. At
+2000 units per meter it would be 0.7 mm across, 5 mm from the eye, and behind
+the near plane. So while the table or the God view owns the view, the
+spirits' size (`+0x35B4`) and depth range (`+0x35B8`, `+0x35BC`) are `s / 7.5`
+times the game's values (263 times at 1973 units per meter). `ScaleSpirits`
+in `spirit_anchor.cpp` writes them one time for each frame, before the game
+places the spirits. The spirits then have the size and the distance in the
+room that they have off the table: in a desktop run the good spirit was 18 cm,
+1.27 m from the head [M]. The game's values go back when the table goes off, and a value that
+the game writes while the table is on becomes the one to put back. The
+spirits' light (`SpiritLight`) gets the same factor on its depth.
 
 The readers of these fields [V, a scan of the displacements]: the size builds
 the mesh matrix in `HelpDude::Update1` and sizes the glow in
@@ -555,13 +559,23 @@ the mesh matrix in `HelpDude::Update1` and sizes the glow in
 `HelpDude::ScreenToWorld`. The other readers use only the ratio of the size to
 the near depth, which the factor does not change.
 
-The room camera of `spirit_anchor.cpp` stands at `P0` with the table's basis.
-Then the spirits stay fixed in the room when the player leans or walks, which
-is right for things that float in the room. The latched pitch stays between 0
-and 15 degrees, so the spirits float at eye level beside the table, not on its
-edge. The screen points of plus or minus 0.66 in a 110 degree render are
-about 43 degrees left and right of the latched direction, which is beside a
-1.5 m table at 1 to 1.5 m.
+The mod does not choose the place of a spirit. The game places it at its
+screen point and its depth, and the mod gives the game the camera for that:
+the room camera of `spirit_anchor.cpp` (`BuildRoomCamera`). It stands at `P0`
+with the table's basis, it looks along the latched yaw and pitch of the head,
+and it has no roll. Then the spirits stay fixed in the room when the player
+leans or walks, which is right for things that float in the room. The latched
+pitch stays between 0 and 15 degrees (`LimitPitch`), so the room camera looks
+level or a little up, and never down at the table. The screen points of plus
+or minus 0.66 in a 110 degree render are about 43 degrees left and right of
+the latched direction, which is beside a 1.5 m table at 1 to 1.5 m.
+
+The spirits are not at eye level. In a desktop run of the God view, with the
+head 30 cm right and 40 cm forward of the recenter place, the good spirit at
+its usual place was 83 cm below the head and 1.27 m from it, which is about
+40 degrees below eye level [M]. The room camera does not look down, so the
+screen point of the game is that far below the middle of the view [I]. No
+headset session has checked where the spirits are for a real head.
 
 A grab of the table moves `P0` with the land, so the spirits stay where they
 are in the room. On the table the jumps and turns of the game camera are not

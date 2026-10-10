@@ -3,6 +3,8 @@
 #   desk_run.ps1 -Name tp2 -Dll <build>\src\mod\Release\ddraw.dll -Extra @{ play_mode = 4 } -Seconds 120
 #
 # 1. Takes the lock desk.lock (waits up to -WaitMinutes for another run).
+#    The lock is in the folder that Get-BwvrDeskShared of game.ps1 gives, so
+#    the runs of each git worktree of this PC wait for one another.
 # 2. Checks the idle time and that no game runs, as desk_test.ps1 does.
 # 3. Puts -Dll in the game folder, runs desk_test.ps1, and always puts the
 #    installed DLL back, then frees the lock.
@@ -25,7 +27,7 @@ $sp = Split-Path -Parent $MyInvocation.MyCommand.Path
 . (Join-Path $PSScriptRoot 'desk_state.ps1')
 $game = Get-BwvrGame
 $installed = Join-Path $game 'ddraw.dll'
-$lock = Join-Path $sp 'desk.lock'
+$lock = Join-Path (Get-BwvrDeskShared) 'desk.lock'
 if (-not (Test-Path $Dll)) { "NOT RUN: no DLL at $Dll"; exit 6 }
 
 # The lock. A lock older than 20 minutes is from a run that died.
@@ -34,7 +36,7 @@ $held = $false
 while (-not $held) {
     try {
         $fs = [System.IO.File]::Open($lock, 'CreateNew', 'Write', 'None')
-        $bytes = [System.Text.Encoding]::ASCII.GetBytes("$Name $(Get-Date -Format s)")
+        $bytes = [System.Text.Encoding]::ASCII.GetBytes("$Name $(Get-Date -Format s) $sp")
         $fs.Write($bytes, 0, $bytes.Length); $fs.Close()
         $held = $true
     } catch {
@@ -61,9 +63,7 @@ public static class IdleR {
     $idle = [IdleR]::Seconds()
     # The owner's "test now": while the time in test-now-until.txt is in the
     # future, the idle check is off. Each other guard stays.
-    $flag = Join-Path $sp 'test-now-until.txt'
-    $testNow = $false
-    if (Test-Path $flag) { try { $testNow = (Get-Date) -lt [datetime]((Get-Content $flag -Raw).Trim()) } catch { } }
+    $testNow = Test-BwvrTestNow
     if (-not $testNow -and $MinIdleMinutes -gt 0 -and $idle -lt $MinIdleMinutes * 60) {
         "NOT RUN: the PC was used $([int]$idle) s ago. A run needs $MinIdleMinutes minutes with no input."
         exit 3
@@ -84,10 +84,16 @@ public static class IdleR {
     # The old logs that are there before the run (the mod keeps the log of
     # each run before as bwvr-old-<date>-<time>.log).
     $before = @(Get-ChildItem $game -Filter 'bwvr-old-*.log' -ErrorAction SilentlyContinue | ForEach-Object { $_.Name })
-    # THE PROFILE GUARD. A new game writes the save slot 20, the save pictures
-    # and helpstats.dat, and a game that ends by itself writes creature.lhp.
-    # Those are the player's files. So the profile folder is copied before the
-    # run, and after the run each file goes back as it was.
+    # THE PROFILE GUARD. In a run a new game writes the save of slot 20
+    # (20.sav, Script_20.sav, SaveGame.inf), two save pictures (Saved
+    # Games\Pictures), helpstats.dat and Saved Games\vortex.txt. A game that
+    # ends by itself writes the save of slot 20, two save pictures and
+    # helpstats.dat on its exit path too, and the values of the profile in
+    # the registry. Each of those files is a file of the player, and each one
+    # is in the profile folder. So the profile folder is copied before the
+    # run, and after the run each file goes back as it was. The registry is
+    # not a part of this guard: a run stops the game before its exit path, and
+    # the mod drops the registry writes of a run with exit_test_frame.
     $player = Join-Path $game 'Profiles'
     $guard = Join-Path $sp 'profile-guard'
     $guardOk = $false

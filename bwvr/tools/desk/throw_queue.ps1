@@ -10,6 +10,7 @@ param(
     [string]$More = ''
 )
 $sp = Split-Path -Parent $MyInvocation.MyCommand.Path
+. (Join-Path $sp 'game.ps1')
 $common = 'fake_controller_play_frame=2750;intro_skip_test_frame=5;throw_log=2'
 # The first two points are the points of the start dialog. aim_run.ps1 puts
 # them in for the current render size.
@@ -76,6 +77,6 @@ foreach ($run in $Runs) {
     "=== $name $(Get-Date -Format s)"
     $o = & (Join-Path $sp 'aim_run.ps1') -Name $name -Dll $Dll -Set $set -Steps $d.Steps -Points $(if ($d.Points) { $d.Points } else { $points }) -Seconds $d.Seconds -Minutes $Minutes
     $o
-    if (($o -join "`n") -notmatch 'RUN DONE') { "QUEUE STOPPED at $name"; exit 2 }
+    if (-not (Test-BwvrVerdict $o 'RUN DONE')) { "QUEUE STOPPED at $name"; exit 2 }
 }
 "QUEUE DONE $(Get-Date -Format s)"

@@ -33,7 +33,7 @@ $aimSet = 'fake_controller_front=1;fake_controller_play_frame=2750;aim_test_touc
 $aimSteps = 'point@2990+1 aimfar@3000+1 shot@3040+1 grip@3060+90 pull@3100+3 pull@3170+3 point@3200+1 a@3215+30 shot@3230+1'
 & (Join-Path $sp 'aim_run.ps1') -Name "aim2$Tag" -Dll $Dll -Set $aimSet -Steps $aimSteps -Seconds 116 -Minutes 150 | Select-Object -Last 3
 & (Join-Path $sp 'throw_queue.ps1') -Dll $Dll -Runs land -Tag $Tag -Minutes 150 -More 'fake_controller_front=1' | Select-Object -Last 3
-& (Join-Path $sp 'creature_recipe.ps1') -Name "vc$Tag" -Dll $Dll | Select-Object -Last 4
+& (Join-Path $sp 'creature_recipe.ps1') -Name "vc$Tag" -Dll $Dll -Minutes 150 | Select-Object -Last 4
 
 function Lines($run, $pattern, $first) {
     $log = Join-Path $sp "desk-$run\bwvr.log"

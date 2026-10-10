@@ -268,8 +268,8 @@ moves while the Hand takes it.
 ### The repo, the release and the tools
 
 - **R1. The installer and a person.** No person has run the installer on a
-  real game folder and told the result: the install, an update over an
-  older build, and the uninstall.
+  real game folder and told the result: the install, an update over a
+  build that is installed, and the uninstall.
 - **R2. The run scripts of one area** (`village_run.ps1`, `temple_run.ps1`,
   `miracle_run.ps1` in `bwvr/tools/desk/`) have not run from this repo, and
   `hand_run.ps1` has run only with `-Kind one`. `-Box` of `hand_run.ps1` is

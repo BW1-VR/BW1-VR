@@ -17,6 +17,7 @@ param(
     [int]$WaitMinutes = 60
 )
 $sp = Split-Path -Parent $MyInvocation.MyCommand.Path
+. (Join-Path $sp 'game.ps1')
 # The first two points close the start dialog: the row "Skip straight to
 # the Creature select", then OK. They depend on the render size, so
 # dialog.ps1 gives them (it measures a new size one time), and they take the
@@ -54,7 +55,7 @@ if ($Now) {
     if (-not (Set-DialogPoints)) { 'NOT RUN NOW: the start dialog is not measured for this render size'; exit 3 }
     $o = & (Join-Path $sp 'desk_run.ps1') -Name $Name -Dll $Dll -Extra $extra -Seconds $Seconds -MinIdleMinutes 0 -WaitMinutes $WaitMinutes
     $o
-    if (($o -join "`n") -notmatch 'NOT RUN') { "RUN DONE"; exit 0 }
+    if (-not (Test-BwvrVerdict $o 'NOT RUN')) { "RUN DONE"; exit 0 }
     "NOT RUN NOW"
     exit 3
 }
@@ -66,7 +67,7 @@ while ((Get-Date) -lt $deadline) {
         if (-not (Set-DialogPoints)) { Start-Sleep -Seconds 30; continue }
         $o = & (Join-Path $sp 'desk_run.ps1') -Name $Name -Dll $Dll -Extra $extra -Seconds $Seconds
         $o
-        if (($o -join "`n") -notmatch 'NOT RUN') { "RUN DONE"; exit 0 }
+        if (-not (Test-BwvrVerdict $o 'NOT RUN')) { "RUN DONE"; exit 0 }
     }
     Start-Sleep -Seconds 30
 }

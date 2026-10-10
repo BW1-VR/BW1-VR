@@ -56,10 +56,14 @@ while ((Get-Date) -lt $deadline -and -not $done) {
                 exit 8
             }
         }
+        # One try of spawn_run.ps1: the wait for an idle PC is the loop of
+        # this script, which reads the registry right before each try. The
+        # RUN DONE or GAVE UP of spawn_run.ps1 is not shown: this script
+        # gives its own.
         $o = & (Join-Path $sp 'spawn_run.ps1') -Name $Name -Dll $Dll -Choice keep `
-            -Steps ("$enter $Steps").Trim() -Points $Points -Set $keys -Seconds $Seconds -WaitMinutes 45
-        $o
-        if (($o -join "`n") -notmatch 'NOT RUN') {
+            -Steps ("$enter $Steps").Trim() -Points $Points -Set $keys -Seconds $Seconds -Minutes 1 -WaitMinutes 45
+        $o | Where-Object { "$_" -cnotmatch '^(RUN DONE|GAVE UP)' }
+        if (Test-BwvrVerdict $o 'RUN DONE') {
             $after = RegText
             if ($SaveTest) {
                 # The profile guard takes the new files away, and the empty
@@ -100,3 +104,4 @@ Get-Content $log | Where-Object { $_ -match $Pattern } | ForEach-Object {
     $_.Substring(0, [Math]::Min(520, $_.Length))
 } | Select-Object -First 260
 "RUN DONE"
+exit 0

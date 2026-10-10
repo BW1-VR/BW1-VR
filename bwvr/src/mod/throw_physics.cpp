@@ -763,9 +763,9 @@ void FirstContact(Flight* f, uint8_t* ob, int step) {
          speed, speed * f->scale / f->s);
   ++g_flight_logs;
   if (f->land_mode == 0) {
-    ModLog("hand throw   : the landing of %p is as before (throw_land=0): "
-           "the game's step stays at %.2f times a substep, with the game's "
-           "bounce", f->object, f->rate_flight);
+    ModLog("hand throw   : the landing of %p is the game's landing "
+           "(throw_land=0): the game's step stays at %.2f times a substep, "
+           "with the game's bounce", f->object, f->rate_flight);
     return;
   }
   char rate[160];
@@ -1367,7 +1367,7 @@ void ThrowPhysicsInstall() {
   if (g_law != 2) {
     ModLog("hand throw   : throw_law=%d, %s", g_law,
            g_law == 1 ? "the square root law with the game's physics"
-                      : "the old gain with the game's physics");
+                      : "the fixed gain with the game's physics");
     return;
   }
   // The first bytes of each function that the mod hooks or calls, as the

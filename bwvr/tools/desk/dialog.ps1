@@ -14,6 +14,8 @@
 # render size (a value of the game in the registry, which a test only reads)
 # and takes its points from that file.
 
+. (Join-Path $PSScriptRoot 'game.ps1')
+
 # Where the controls of the dialog are, in pixels from the middle of the
 # render. Measured at 2560 by 1440 and at 2880 by 2880: the same in both.
 $script:DialogRowY = @{ normal = -64; select = -20; skip = 23; keep = 67 }
@@ -100,7 +102,7 @@ function Invoke-DialogCalibration([string]$Dll) {
     }
     "the start dialog is not measured for a render of $($size[0]) by $($size[1]) yet: one run of 45 s measures it"
     $o = & (Join-Path $PSScriptRoot 'desk_run.ps1') -Name 'dialogcal' -Dll $Dll -Extra $extra -Seconds 45 -WaitMinutes 30
-    if (($o -join "`n") -match 'NOT RUN') { $o | Select-Object -Last 1; return $false }
+    if (Test-BwvrVerdict $o 'NOT RUN') { $o | Select-Object -Last 1; return $false }
     $log = Join-Path $PSScriptRoot 'desk-dialogcal\bwvr.log'
     if (-not (Test-Path -LiteralPath $log)) { 'the measure run left no log'; return $false }
     $seen = @(Select-String -LiteralPath $log -Pattern 'the pixel is ([0-9.]+) ([0-9.]+) \(in the view\), frame (\d+)' | ForEach-Object {

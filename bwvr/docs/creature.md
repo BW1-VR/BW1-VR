@@ -618,9 +618,9 @@ its four fingers, and the finger pose moves the index finger only. The wave
 goes on only with the path of the real hand. A hand that is still has still
 fingers.
 
-### 2.6 The stroke of the older build (`creature_stroke_hand=3`)
+### 2.6 The fist stroke (`creature_stroke_hand=3`)
 
-Value 3 of `creature_stroke_hand` gives the older stroke:
+Value 3 of `creature_stroke_hand` gives the fist stroke:
 
 - The hand is a fist while the grip is closed, and the flat hand while it is
   open.
@@ -637,7 +637,7 @@ Value 3 of `creature_stroke_hand` gives the older stroke:
 | `creature_slap_mps` | 1.0 | The real speed of a slap, in m/s: the larger of the speed of the grip and of the Hand's point. A hard slap needs 1.8 times this. 0.2 to 10 |
 | `creature_touch_cm` | 5 | How far the body reaches past the Creature's 2D radius, in cm of the room. 0 to 50 |
 | `creature_slap_wait` | 0 | 1 keeps the game's wait of 1 s before the first slap |
-| `creature_stroke_hand` | 0 | 0 chooses the hand of a stroke by the size of the Creature. 1 is the flat hand always, 2 the index finger always. 3 is the older stroke (section 2.6) |
+| `creature_stroke_hand` | 0 | 0 chooses the hand of a stroke by the size of the Creature. 1 is the flat hand always, 2 the index finger always. 3 is the fist stroke (section 2.6) |
 | `creature_finger_below_pct` | 60 | The index finger while the body is below this percent of the hand's length. 10 to 500 |
 | `creature_flat_above_pct` | 90 | The flat hand over this percent. Not less than the finger limit |
 | `creature_open_wait` | 1 | The hand opens when a press on the Creature is 450 ms old. 0 gives a fist until the state starts |
@@ -650,11 +650,11 @@ Value 3 of `creature_stroke_hand` gives the older stroke:
   and 1.6 m/s. The pointing controller gives a pulse that is longer for each
   next value.
 - The 3 key of the number pad takes the next value of `creature_stroke_hand`:
-  by the size, the flat hand, the index finger, and the older stroke. The
+  by the size, the flat hand, the index finger, and the fist stroke. The
   pulse is longer for each next value.
-- Ctrl and the 3 key change between the limits of the ini and the limits 80
-  and 120. The pointing controller gives a long pulse for the limits of the
-  ini and a short pulse for the others.
+- Ctrl and the 3 key change between the limits of the ini and the fixed
+  limits 80 and 120. The pointing controller gives a long pulse for the
+  limits of the ini and a short pulse for the fixed limits.
 - Ctrl and the 9 key change `creature_palm_point` (a long pulse for the palm,
   a short pulse for the tip).
 
@@ -723,9 +723,9 @@ Without `BodyPlace`, the Creature is measured as each other object (a
 cylinder at its place on the map), and a press of the trigger with the aim on
 the Creature takes the land under it.
 
-`creature_bone` (default 1): 0 gives that older behavior. Then the mod knows
-the body only while the Creature is ready for the Hand. There is no test key
-for it.
+`creature_bone` (default 1): with 0 the mod does not use `BodyPlace`. Then it
+knows the body only while the Creature is ready for the Hand. There is no test
+key for it.
 
 ```
 hand creature: creature_bone=1. The body of a Creature is known before a press: the body bone, or the place on the map when the bone is not sane. The capsule of the choice and the Creature as a target of a command use it
@@ -912,7 +912,7 @@ With the mouse, the game's own test acts.
 | `creature_command` | 1 | 0: the trigger does not command the Creature, the grip on the land sends it as in the plain game, and no shake is read |
 | `creature_command_hold_ms` | 250 | A press on the land shorter than this is a tap, and it uses the aim of the press. A longer press uses the aim of the release. 0 to 2000 |
 | `leash_shake_mps` | 0.6 | The mean speed of each stroke of a shake, in m/s. 0 turns the shake off. 0.2 to 5 |
-| `creature_command_rule` | 3 | 3 is the live target, and a press that began on the land stays a walk (section 4.1). 2 is the live target, and a held walk can change to an object that stays in the aim for 100 ms. 1 is the older rule |
+| `creature_command_rule` | 3 | 3 is the live target, and a press that began on the land stays a walk (section 4.1). 2 is the live target, and a held walk can change to an object that stays in the aim for 100 ms. 1 is rule 1: the press fixes its kind (section 4.3) |
 | `creature_command_cone_deg` | 3 | A new target needs the aim this near to its body, in degrees. 0.5 to 20 |
 | `creature_command_keep_deg` | the cone plus 2 | The target stays while the aim is this near |
 | `creature_command_max_m` | -1 | The range from the head, in meters of the room along the floor. Less than 0 follows `far_grab_choice`: 10 m for 1, and 4 m for 0. 0 is no limit |
