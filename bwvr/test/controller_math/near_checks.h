@@ -12,6 +12,32 @@ inline void NearChecks() {
   using namespace near_math;
   printf("\nThe pick at the glow\n");
 
+  // AN OBJECT THAT MOVES. 100 units a second is 1 m/s at 100 units a meter.
+  {
+    const float a[3] = {10.0f, 5.0f, 20.0f}, b[3] = {10.0f, 5.0f, 21.0f};
+    Near("a move of 1 unit in 0.01 s is 100 units a second",
+         ObjectSpeed(a, b, 0.01f), 100.0, 1e-3);
+    Near("no time gives no speed", ObjectSpeed(a, b, 0.0f), 0.0, 1e-9);
+    Near("a still object gives no extra reach",
+         MovingExtra(10.0f, 15.0f, 0.1f, 8.0f), 0.0, 1e-9);
+    Near("a speed at the still limit gives no extra reach",
+         MovingExtra(15.0f, 15.0f, 0.1f, 8.0f), 0.0, 1e-9);
+    Near("a moving object gets (speed - still) x lag",
+         MovingExtra(75.0f, 15.0f, 0.1f, 8.0f), 6.0, 1e-4);
+    Near("a fast object gets the cap", MovingExtra(900.0f, 15.0f, 0.1f, 8.0f),
+         8.0, 1e-9);
+    Near("a lag of 0 gives no extra reach",
+         MovingExtra(75.0f, 15.0f, 0.0f, 8.0f), 0.0, 1e-9);
+    Near("a cap of 0 gives no extra reach",
+         MovingExtra(75.0f, 15.0f, 0.1f, 0.0f), 0.0, 1e-9);
+    Check(JustLetGo(0.2, 0.6), "the object let go 0.2 s ago is guarded", 0.2,
+          0.6);
+    Check(!JustLetGo(0.7, 0.6), "the object let go 0.7 s ago is not guarded",
+          0.7, 0.6);
+    Check(!JustLetGo(-1.0, 0.6), "a release in the future is no guard", -1.0,
+          0.6);
+  }
+
   // THE BODY. A tree: its base at the origin, radius 1.5, height 8. All in
   // world units.
   const float base[3] = {100.0f, 20.0f, 300.0f};

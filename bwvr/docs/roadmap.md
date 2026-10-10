@@ -42,9 +42,19 @@ is built, and no test has proven it.
   hole in it. While the tree has it, the tree can be planted again. It
   falls off when the tree is thrown or dropped, and then the tree cannot be
   planted again. A pull at a distance leaves that model behind.
-- **B2. A moving object cannot be grabbed**, at a distance or with the hand
-  at it. For example: a dropped tree that slides on the ground takes no
-  interaction at all.
+- **B2. A moving object is hard to take.** The pick reaches farther for an
+  object that moves (`catch_moving`, `grab.md`): check the defaults (100 ms,
+  8 cm) in a headset. The grab from a distance locks and fetches a rock
+  that falls and a rock that flies in a desktop run. Still open:
+  - A dropped tree does not come to rest. It moves up and down about 2.6
+    units for more than 2 s, and its far target shows and hides each 20
+    to 35 frames. This is the probable cause of a tree that slides and
+    takes no interaction.
+  - An object from 4 cm to 15 cm from the Hand's point is no target at
+    all: the near pick reaches 4 cm (`hand_pick_cm`), and the grab from a
+    distance is off within 10 cm and comes back past 15 cm.
+  - A thrown object is no candidate for 9 to 16 frames after the release,
+    while the mod draws it on its arc.
 - **B3. A fast grab of a rock breaks the rock at times.** The player closes
   the grip on a rock and moves the hand away quickly, with the grip still
   held. Then the rock breaks and does not go into the hand. A guess: the

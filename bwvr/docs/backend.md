@@ -1468,6 +1468,12 @@ in front. The mod reads the keys and never takes them from the game.
 | Ctrl Numpad 1 | `test_keys=1` | The game camera stands over the land under the head or over the recenter place (`god-view.md`, section 7) |
 | Ctrl Numpad 0 | `test_keys=1` | The God view follows the game camera or not (`god-view.md`) |
 | Ctrl Delete | `test_keys=1` | The choice of a far target: by the body of the object, or by one point (`far_grab_choice`, `grab.md`) |
+| Ctrl Page Up | `test_keys=1` | An object that moves has a longer reach of the pick, or the same reach as a still one (`catch_moving`, `grab.md`) |
+| Ctrl Insert | `test_keys=1` | The ring of the teleport: one size in the world, or one size in the room (`teleport_ring_mode`, `god-view.md`) |
+| Shift Scroll Lock | `test_keys=1` | A still hand high over the land lets the object fall, or sets it down at each height (`release_fall_cm`, `throw.md`) |
+| Ctrl End | `test_keys=1` | The prompt of a target shows at once, or after its dwell (`prompt_timing`, `controller-hints.md`) |
+| Ctrl Home | `test_keys=1` | A target has one text on the hint card, or the hint of the game takes the place of the prompt (`hint_words`, `controller-hints.md`) |
+| Ctrl Numpad 5 | `test_keys=1` | The rule of a Creature command: 3, 2 or 1 (`creature_command_rule`, `creature.md`) |
 
 The launcher shows `test_keys` as "Test keys", in a group named "Testing". It is off
 by default.

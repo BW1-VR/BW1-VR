@@ -444,6 +444,10 @@ put the leash on from a new game.
 | `near_rule` | 2 | 2 is one target. 1 is the nearest body within the reach, with the game's pick at the pixel for an object that is not near, and the search at the palm. 0 gives the pick of the first builds: a reach of 60 percent of the Hand's length, no tap choice, no rule of the near objects and no far touch |
 | `hand_pick_cm` | 4 | The reach of the pick from the Hand's point, in cm of the room. 1 to 20 |
 | `hand_touch_cm` | 1 | The point touches a body when the gap is this or less, in cm of the room. 0 to `hand_pick_cm` |
+| `catch_moving` | 1 | 1 gives an object that moves a longer reach of the pick (see "A target that moves, floats or dies"). 0 gives each object the reach of `hand_pick_cm`. The test key Ctrl Page Up goes between the two (`test_keys=1`) |
+| `catch_lag_ms` | 100 | The time that the speed of the object counts for, in ms. 0 to 500 |
+| `catch_cap_cm` | 8 | The most extra reach, in cm of the room. 0 to 20 |
+| `catch_grace_ms` | 600 | The object that the Hand let go has the plain reach for this time, in ms. 0 to 3000 |
 | `far_grab_near_cm` | 10 | The far grab goes off when an object that a press acts on is this near the Hand's point |
 | `far_grab_near_out_cm` | 15 | The far grab comes back past this distance |
 | `palm_search` | 0 | 1 leaves the game's search at the palm on |
@@ -963,7 +967,26 @@ the Hand's point (nothing, hold, take, tap or the Creature).
 ### A target that moves, floats or dies
 
 The game takes the object of the record by its pointer, where it is, so the
-fetch needs no change for an object that moves.
+fetch needs no change for an object that moves. The game also takes an object
+that is in its physics: a rock that falls or flies after a release is a far
+target, and the fetch puts it in the Hand while it moves.
+
+- **The pick reaches farther for an object that moves** (`catch_moving`). The
+  player closes the hand on the place where the object was a moment ago: the
+  eye, the hand and the closing of the grip take time, and the pick of a frame
+  is one frame old. So the reach of the pick for an object that the Hand can
+  hold is `hand_pick_cm` plus `near_math::MovingExtra`: the speed of the object
+  less 15 cm a second (`kCatchStillCmps`), times `catch_lag_ms`, and at most
+  `catch_cap_cm`. The speed comes from the place of the object in the draw of
+  this frame and of an earlier frame (`ObjectSpeedNow`, once a frame, for an
+  object that the draw offered in the last 3 frames). The first cut of
+  `Choose` is as long as the cap. The log has one line for each object that
+  only this reach chose ("moves at"). The object that the Hand let go has the
+  plain reach for `catch_grace_ms` after the release (`JustLetGo`), so a throw
+  does not come back to the hand in the same closing of the grip. Only the
+  pick up has the extra reach: a scroll, a house and a pile keep theirs. The
+  gap between this reach and `far_grab_near_out_cm` (15 cm) is still a gap
+  with no target for a moving object, as for a still one.
 
 - **The lock follows the object.** `FarGrabTrack` takes the place of the locked
   object, the land under it and the influence there on each frame. The tether,

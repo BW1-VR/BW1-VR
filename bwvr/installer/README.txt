@@ -408,6 +408,12 @@ halo, and on no other object. With no halo and no glow, a press of the
 grip does nothing. An object at your palm or at your wrist is not
 taken. Set hand_pick_cm in bwvr.ini to change the distance.
 
+An object that moves, for example a rock that rolls, can be taken from a
+little farther: the faster it moves, the longer the reach, up to 8 cm
+more. The object that you just let go has the plain reach for a short
+time, so a throw does not come back at once. Set catch_moving=0 in
+bwvr.ini to turn this off, and catch_cap_cm to change the most.
+
 When two objects are near the point, the object that the point
 touches wins, and of two such objects the smaller one. A scroll wins
 over a house, a tree or a forest that the point is in. A red halo

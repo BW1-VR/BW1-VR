@@ -70,6 +70,40 @@ inline bool Beats(const Gap& a, int kind_a, const Gap& b, int kind_b,
   return kind_a > kind_b;
 }
 
+// AN OBJECT THAT MOVES. The player closes the hand on the place where the
+// object was a moment ago: the eye, the hand and the closing of the grip take
+// some time, and the pick of a frame is one frame old. So the reach of the
+// pick is longer for an object that moves, by its speed times that lag. A
+// speed below kCatchStillCmps counts as still, so the noise of a draw gives
+// nothing. The extra reach never passes the cap.
+const int kCatchLagMs = 100;      // catch_lag_ms
+const int kCatchCapCm = 8;        // catch_cap_cm
+const int kCatchGraceMs = 600;    // catch_grace_ms
+const int kCatchStillCmps = 15;   // an object slower than this is still
+
+inline float ObjectSpeed(const float from[3], const float to[3], float seconds) {
+  if (!(seconds > 1e-4f)) return 0.0f;
+  const float dx = to[0] - from[0], dy = to[1] - from[1], dz = to[2] - from[2];
+  const float speed = sqrtf(dx * dx + dy * dy + dz * dz) / seconds;
+  return speed == speed ? speed : 0.0f;
+}
+
+// The extra reach in the units of the speed times seconds. still is the speed
+// that counts as 0, cap the most.
+inline float MovingExtra(float speed, float still, float lag_seconds,
+                         float cap) {
+  if (!(speed > still) || !(lag_seconds > 0.0f) || !(cap > 0.0f)) return 0.0f;
+  const float extra = (speed - still) * lag_seconds;
+  return extra > cap ? cap : extra;
+}
+
+// The object that the Hand let go just now gets no extra reach, so a throw
+// does not come back to the hand in the same closing of the grip. since is the
+// time from the release in seconds, grace the time that the guard holds.
+inline bool JustLetGo(double since, double grace) {
+  return since >= 0.0 && since < grace;
+}
+
 // THE BODY OF A SCROLL is a ball: the middle of the box of its mesh in the
 // world, and the half diagonal of that box. The game's own pick has a scroll
 // there (ScriptHighlight::Draw gives this point and this radius to

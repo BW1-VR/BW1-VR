@@ -792,6 +792,7 @@ const uint8_t* g_far_keep_model = nullptr;
 uint64_t g_far_keep_offers = 0;
 void* g_last_thrown = nullptr;
 void* g_last_thrown_vtable = nullptr;
+double g_last_thrown_time = 0.0;  // NowSeconds() at the release
 
 bool HandEmpty();
 void Inject();
@@ -877,6 +878,15 @@ const int kMaxRecordLogs = 40;
 int g_pick_cm = near_math::kPickCm;         // hand_pick_cm
 int g_near_in_cm = near_math::kNearInCm;    // far_grab_near_cm
 int g_near_out_cm = near_math::kNearOutCm;  // far_grab_near_out_cm
+// AN OBJECT THAT MOVES (docs/grab.md, "A target that moves, floats or
+// dies"): the keys catch_moving, catch_lag_ms, catch_cap_cm, catch_grace_ms.
+int g_catch_on = 1;
+int g_catch_lag_ms = near_math::kCatchLagMs;
+int g_catch_cap_cm = near_math::kCatchCapCm;
+int g_catch_grace_ms = near_math::kCatchGraceMs;
+bool g_catch_key_down = false;
+uint64_t g_catch_picks = 0;  // choices that the extra reach made, this window
+void* g_catch_logged = nullptr;
 bool g_far_touch = true;                    // far_touch
 bool g_near_key_down = false;
 bool g_scroll_key_down = false;  // Ctrl and the point key: scroll_draw
@@ -2016,6 +2026,7 @@ void __fastcall h_ReleaseAction(void* self, void* unused) {
     }
     g_last_thrown = thrown;
     g_last_thrown_vtable = *static_cast<void* const*>(thrown);
+    g_last_thrown_time = NowSeconds();
     ThrowPhysicsReleased(thrown);
   }
 }
@@ -3023,6 +3034,27 @@ void SetRule(int rule) {
 // 4 m). The pointing controller gives a long pulse for 1 and a short pulse
 // for 0. The key is read once a frame, only while a window of the game is in
 // front, and the mod does not take it from the game.
+void PollCatchKey() {
+  if (!g_release_key) return;
+  const bool down = (GetAsyncKeyState(VK_PRIOR) & 0x8000) != 0 &&
+                    (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
+  const bool pressed = down && !g_catch_key_down;
+  g_catch_key_down = down;
+  if (!pressed) return;
+  HWND window = GetForegroundWindow();
+  DWORD process = 0;
+  if (window != nullptr) GetWindowThreadProcessId(window, &process);
+  if (process != GetCurrentProcessId()) return;
+  g_catch_on = g_catch_on != 0 ? 0 : 1;
+  g_catch_logged = nullptr;
+  ControllersGesturePulse(0.5f, g_catch_on != 0 ? 0.30f : 0.08f);
+  ModLog("hand pick    : Ctrl and Page Up: catch_moving is %d now, frame %llu. %s",
+         g_catch_on, g_frame,
+         g_catch_on != 0
+             ? "An object that moves has a longer reach of the pick"
+             : "Each object has the same reach, moving or still");
+}
+
 void PollChoiceKey() {
   if (!g_release_key) return;
   const bool down = (GetAsyncKeyState(VK_DELETE) & 0x8000) != 0 &&
@@ -3923,6 +3955,57 @@ const char* KindName(int kind) {
 //
 // NEAR OBJECTS WIN. The gap of the nearest of these objects, the Creature
 // too, turns the grab from a distance off (near_math::NearBlocks).
+// THE SPEED OF AN OBJECT, from its place in the draw of this frame and the
+// place in the draw of an earlier frame. A table of 512 slots by the address of
+// the object. The speed is worked out once a frame. An object that was not
+// offered in the last 3 frames has no speed (0).
+struct SpeedSlot {
+  void* object;
+  float position[3];
+  double time;
+  uint64_t frame;
+  float speed;
+};
+const int kSpeedSlots = 512;
+SpeedSlot g_speeds[kSpeedSlots];
+
+float ObjectSpeedNow(const Candidate& c) {
+  SpeedSlot& slot =
+      g_speeds[(reinterpret_cast<uintptr_t>(c.object) >> 4) % kSpeedSlots];
+  if (slot.object == c.object && slot.frame == g_frame) return slot.speed;
+  const double now = NowSeconds();
+  float speed = 0.0f;
+  if (slot.object == c.object && g_frame > slot.frame &&
+      g_frame - slot.frame <= 3) {
+    speed = near_math::ObjectSpeed(slot.position, c.position,
+                                   static_cast<float>(now - slot.time));
+  }
+  slot.object = c.object;
+  for (int k = 0; k < 3; ++k) slot.position[k] = c.position[k];
+  slot.time = now;
+  slot.frame = g_frame;
+  slot.speed = speed;
+  return speed;
+}
+
+// The reach of the pick for a candidate: the reach, and for an object that the
+// Hand can hold and that moves, the extra reach of near_math::MovingExtra. The
+// object that the Hand let go a moment ago (catch_grace_ms) gets none, so a
+// throw does not come back in the same closing of the grip.
+float CatchReach(const Candidate& c, int kind, float reach, float units) {
+  if (g_catch_on == 0 || kind != near_math::kHold) return reach;
+  if (c.object == g_last_thrown &&
+      near_math::JustLetGo(NowSeconds() - g_last_thrown_time,
+                           g_catch_grace_ms * 0.001)) {
+    return reach;
+  }
+  const float cmps = ObjectSpeedNow(c) / units * 100.0f;
+  const float extra_cm = near_math::MovingExtra(
+      cmps, static_cast<float>(near_math::kCatchStillCmps),
+      g_catch_lag_ms * 0.001f, static_cast<float>(g_catch_cap_cm));
+  return reach + near_math::CmToUnits(extra_cm, units);
+}
+
 void Choose() {
   g_choice = nullptr;
   g_choice_take = false;
@@ -3948,7 +4031,11 @@ void Choose() {
       near_math::CmToUnits(static_cast<float>(g_near_in_cm), units);
   const float near_out =
       near_math::CmToUnits(static_cast<float>(g_near_out_cm), units);
-  const float limit = g_near_rule && near_out > reach ? near_out : reach;
+  const float limit =
+      (g_near_rule && near_out > reach ? near_out : reach) +
+      (g_catch_on != 0 ? near_math::CmToUnits(
+                             static_cast<float>(g_catch_cap_cm), units)
+                       : 0.0f);
   const float eps = near_math::CmToUnits(0.1f, units);
   const float touch =
       near_math::CmToUnits(static_cast<float>(g_touch_cm), units);
@@ -3965,6 +4052,7 @@ void Choose() {
   float nearest = 1e30f;
   float creature_gap = 1e30f;
   Measured chosen = {};
+  float chosen_reach = reach, chosen_speed = 0.0f;
   // The nearest object that a press acts on, past the first cut too, for the
   // line of a press with no target.
   g_any_object = nullptr;
@@ -3992,6 +4080,7 @@ void Choose() {
     }
     const int kind = PressKind(c.object, status);
     if (kind == near_math::kNone) continue;
+    const float c_reach = CatchReach(c, kind, reach, units);
     if (g_one_target) {
       // ONE TARGET: the body that the player sees, and the rule of
       // near_math::BeatsTarget. The Creature is a choice too.
@@ -4006,7 +4095,7 @@ void Choose() {
         g_any_object = c.object;
         g_any_kind = kind;
       }
-      if (!(m.target.gap.gap < (m.target.scroll ? scroll_reach : reach))) {
+      if (!(m.target.gap.gap < (m.target.scroll ? scroll_reach : c_reach))) {
         continue;
       }
       // A scroll past the reach of the pick is the last choice (rule 5).
@@ -4021,6 +4110,8 @@ void Choose() {
       g_choice = c.object;
       for (int k = 0; k < 3; ++k) g_choice_position[k] = c.position[k];
       g_choice_gap = m.target.gap.gap;
+      chosen_reach = c_reach;
+      chosen_speed = c_reach > reach ? ObjectSpeedNow(c) : 0.0f;
       continue;
     }
     if (kind == near_math::kTap) {
@@ -4050,7 +4141,7 @@ void Choose() {
       if (gap.gap < creature_gap) creature_gap = gap.gap;
       continue;
     }
-    if (!(gap.gap < reach)) continue;
+    if (!(gap.gap < c_reach)) continue;
     if (g_choice != nullptr &&
         !near_math::Beats(gap, kind, best, best_kind, eps)) {
       continue;
@@ -4060,6 +4151,8 @@ void Choose() {
     g_choice = c.object;
     for (int k = 0; k < 3; ++k) g_choice_position[k] = c.position[k];
     g_choice_gap = gap.gap;
+    chosen_reach = c_reach;
+    chosen_speed = c_reach > reach ? ObjectSpeedNow(c) : 0.0f;
   }
   // While a choice stands, the table hook keeps each other object from the
   // game's pick, the Creature too. A house beside the Creature must not do
@@ -4069,6 +4162,20 @@ void Choose() {
       creature_gap <= best.gap + eps) {
     g_choice = nullptr;
     best_kind = near_math::kNone;
+  }
+  // A choice that only the extra reach of a moving object made: one line for
+  // each new object.
+  if (g_choice != nullptr && best_kind == near_math::kHold &&
+      g_choice_gap >= reach && g_catch_logged != g_choice) {
+    g_catch_logged = g_choice;
+    ++g_catch_picks;
+    ModLog("hand pick    : the %s %p moves at %.0f cm of the room a second, so "
+           "its reach is %.1f cm of the room and not %d (catch_moving), gap "
+           "%.1f cm, frame %llu", ClassName(g_choice), g_choice,
+           chosen_speed / units * 100.0f, chosen_reach / units * 100.0f,
+           g_pick_cm, g_choice_gap / units * 100.0f, g_frame);
+  } else if (g_choice == nullptr) {
+    g_catch_logged = nullptr;
   }
   g_choice_take = g_choice != nullptr && best_kind == near_math::kTake;
   g_choice_tap = g_choice != nullptr && best_kind == near_math::kTap;
@@ -5564,6 +5671,22 @@ void InstallNear() {
            "the right press (the target of each press)");
     }
   }
+  g_catch_on = IniKey("catch_moving", 1) != 0 ? 1 : 0;
+  g_catch_lag_ms = IniKey("catch_lag_ms", near_math::kCatchLagMs);
+  if (g_catch_lag_ms < 0) g_catch_lag_ms = 0;
+  if (g_catch_lag_ms > 500) g_catch_lag_ms = 500;
+  g_catch_cap_cm = IniKey("catch_cap_cm", near_math::kCatchCapCm);
+  if (g_catch_cap_cm < 0) g_catch_cap_cm = 0;
+  if (g_catch_cap_cm > 20) g_catch_cap_cm = 20;
+  g_catch_grace_ms = IniKey("catch_grace_ms", near_math::kCatchGraceMs);
+  if (g_catch_grace_ms < 0) g_catch_grace_ms = 0;
+  if (g_catch_grace_ms > 3000) g_catch_grace_ms = 3000;
+  ModLog("hand pick    : catch_moving=%d. The reach of the pick for an object "
+         "that moves grows by its speed times %d ms, at most %d cm of the "
+         "room (catch_lag_ms, catch_cap_cm). The object that you let go has "
+         "the plain reach for %d ms (catch_grace_ms). Ctrl and the Page Up key "
+         "change catch_moving (test_keys=1)", g_catch_on, g_catch_lag_ms,
+         g_catch_cap_cm, g_catch_grace_ms);
   g_near_in_cm = IniKey("far_grab_near_cm", near_math::kNearInCm);
   if (g_near_in_cm < 0) g_near_in_cm = 0;
   if (g_near_in_cm > 100) g_near_in_cm = 100;
@@ -6216,6 +6339,7 @@ void HandDirectFrame() {
   PollReleaseKey();
   PollNearKey();
   PollChoiceKey();
+  PollCatchKey();
   LogRelease();
   const bool active = want && g_hand != nullptr;
   g_owns = active;
@@ -7666,6 +7790,23 @@ bool HandDirectSeekPoint(float out[3]) {
     }
   }
   if (g_candidate_count == 0) return false;
+  // The test key seek_thrown=1: the word steps the hand onto the object that
+  // the Hand threw last, where the draw of the last frame saw it. So a test
+  // can close the grip on an object that flies or rolls.
+  static const bool seek_thrown = TestKey("seek_thrown") != 0;
+  if (seek_thrown && g_last_thrown != nullptr && !plan_hold) {
+    if (!ObjectLives(g_last_thrown, g_last_thrown_vtable) ||
+        !CandidatePosition(g_last_thrown, out)) {
+      ModLog("hand pick    : seek: the draw did not offer the thrown object "
+             "%p, frame %llu", g_last_thrown, g_frame);
+      return false;
+    }
+    out[1] += 0.5f;
+    ModLog("hand pick    : seek goes to the thrown object %p (%s) at %.1f %.1f "
+           "%.1f, frame %llu", g_last_thrown, ClassName(g_last_thrown), out[0],
+           out[1], out[2], g_frame);
+    return true;
+  }
   void* status = *reinterpret_cast<void* const*>(g_face + kFaceStatus);
   // On the table the eye is far from the land, and the fake hand has no
   // reach curve. So the word seeks the nearest holdable object to the Hand,
