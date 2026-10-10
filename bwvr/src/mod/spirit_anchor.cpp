@@ -52,6 +52,24 @@
 // factor. A grab of the table moves the land, not the room, so it does not
 // move the spirits.
 //
+// AT A PLACE OF THE WORLD. A script can send a spirit to a place of the
+// world, for example to point at a scroll. HelpDude::Update1 (0x005BDDA0)
+// then moves the spirit from its usual place to that place by an amount from
+// 0 to 1 (+0x35DC), and it makes the mesh larger by 1 + 3 e, where e is the
+// ease of the amount: 4 times the usual size at the place. The 3 is the
+// constant at 0x008C2C50, in the fmul at 0x005BE947. With the size of the
+// table (s / 7.5) that is a spirit of 73 cm in the room, on the land at the
+// waist. So while the table owns the view, that fmul reads a number of the
+// mod (spirit_world_size=1): the spirit at the place has the angle of size
+// that it has at its near depth, seen from the room camera. It is not larger
+// than the game makes it, and not smaller than a quarter of its usual size
+// (spirit_size_math.h). The mod sets the number for each spirit in the hook
+// of ScreenToWorld, at the call of Update1 that gives the usual place
+// (return address 0x005BE6D7), a few instructions before the fmul. Off the
+// table, and with spirit_world_size=0, the number is the 3 of the game. The
+// distance from the place to the side and the height above it (+0x3674,
+// +0x3678) stay in units of the world.
+//
 // NOT DONE. When a spirit looks at the Hand, the game unprojects the pointer
 // through the room camera, but the pointer is a pixel of the live view. With
 // the head turned away from the anchor, a spirit then looks a little beside
@@ -71,6 +89,7 @@
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#include <intrin.h>
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -78,6 +97,7 @@
 
 #include "MinHook.h"
 #include "../common/bw_addresses.h"
+#include "spirit_size_math.h"
 
 extern void ModLog(const char* format, ...);
 // head_camera.cpp: the room, the game camera and the main call count.
@@ -85,8 +105,14 @@ bool HeadCameraStageBasis(float basis_out[9]);
 bool HeadCameraGameCamera(float position[3], float focus[3]);
 uint64_t HeadCameraMainSerial();
 bool HeadCameraEnabled();
+bool HeadCameraRenderBasis(float basis_out[9], float position_out[3]);
 // head_pose.cpp
 bool HeadPoseCurrent(float matrix_out[9], float translation_out[3]);
+// comfort_camera.cpp: where the game's own camera of the player goes.
+bool ComfortCameraDestinations(float position[3], float focus[3]);
+// controllers.cpp
+void ControllersGesturePulse(float amplitude, float seconds);
+uint64_t ControllersFrameCount();
 // stereo.cpp: true while the two eye passes run.
 bool StereoInPass();
 // tabletop.cpp: the room of the table in this frame.
@@ -112,21 +138,54 @@ const uintptr_t kWorldToScreen = 0x005BD390;
 const uintptr_t kLightCall = 0x005C0747;
 const uintptr_t kUnproject = 0x0081B370;
 const uint8_t kLightCallBytes[5] = {0xE8, 0x24, 0xAC, 0x25, 0x00};
+// The scale of a spirit at a place of the world, in HelpDude::Update1: fmul
+// dword ptr [0x008C2C50], which is the 3 of 1 + 3 e. Many other instructions
+// read that constant, so the mod changes the address in this one fmul.
+const uintptr_t kGrowSite = 0x005BE947;
+const uintptr_t kGrowConstant = 0x008C2C50;
+const uint8_t kGrowBytes[6] = {0xD8, 0x0D, 0x50, 0x2C, 0x8C, 0x00};
+// The return address of the call of ScreenToWorld in Update1 that gives the
+// usual place of the spirit. The code from there to the fmul has no jump in
+// from a different place.
+const uintptr_t kUsualPlaceReturn = 0x005BE6D7;
 
 // HelpDudeControl fields. Spirit 0 comes first, and spirit 1 is four bytes
 // after it.
 const int kControlSpirit = 0x04;  // HelpDude*
 const int kControlState = 0x0C;   // 0 means the spirit is not drawn
+// What a script lets a spirit point at (fn_005C3960, from the script words
+// SPIRIT_POINT_POS and SPIRIT_POINT_GAME_THING): 1 is a place of the world.
+// The byte is the last argument of the script word, "in world": with 1 the
+// spirit goes to the place, and with 0 it points from its place on the
+// screen.
+const int kControlInWorld = 0x2C;  // one byte for each spirit
+const int kControlPoints = 0x4C;   // one int for each spirit
+const size_t kControlPointBytes =
+    kControlPoints + sizeof(int32_t) * 2 - kControlInWorld;
 const int kSpiritCount = 2;
 const size_t kControlBytes = kControlState + sizeof(int32_t) * kSpiritCount;
 
 // HelpDude fields.
+const int kSpiritModel = 0x10;       // a size of the model, from the data file
 const int kSpiritMatrix = 0x3350;    // world matrix, 12 floats
 const int kSpiritPosition = 0x3374;  // the translation of that matrix
+const int kSpiritState = 0x3490;     // with 8 set, it points at a place
 const int kSpiritSize = 0x35B4;      // the size of the mesh and the glow
 const int kSpiritNear = 0x35B8;      // the depth range, from the data file
 const int kSpiritFar = 0x35BC;
 const size_t kSpiritBytes = kSpiritFar + sizeof(float) - kSpiritMatrix;
+// The spirit at a place of the world. The amount goes to the goal while the
+// state has 8 set, and to 0 without it, by the time of the frame.
+const int kSpiritAmount = 0x35DC;   // 0 at the usual place, 1 at the place
+const int kSpiritPlaceX = 0x35E0;   // the place: three Zoomers, 0x30 apart
+const int kSpiritPlaceY = 0x3610;
+const int kSpiritPlaceZ = 0x3640;
+const int kSpiritGoal = 0x3670;     // 1 when the spirit goes to the place
+const int kSpiritAside = 0x3674;    // the spirit stays this far to the left
+const int kSpiritAbove = 0x3678;    // of the place, and this far above it
+const int kSpiritBalance = 0x37E4;  // about 0.8, a factor on the size
+const size_t kWorldBytes = kSpiritBalance + sizeof(float) - kSpiritMatrix;
+const int32_t kStatePoints = 8;
 // The three that the table scales: the size, then the depth range.
 const int kScaledCount = 3;
 
@@ -216,6 +275,28 @@ struct ScaledSpirit {
 };
 ScaledSpirit g_scaled[kSpiritCount] = {};
 bool g_said_table = false;
+
+// THE SIZE AT A PLACE OF THE WORLD. g_grow is the number that the game's
+// fmul reads in place of its 3. The factor of a spirit is decided once for
+// each frame, so both eyes get one size.
+bool g_world_size = true;
+bool g_world_patched = false;
+bool g_world_keys = false;
+int g_world_test_frame = 0;
+bool g_world_test_done = false;
+bool g_world_test_point = false;
+bool g_world_test_point_said = false;
+float g_grow = spirit_size_math::kGameGrow;
+struct WorldSpirit {
+  bool have;
+  uint64_t serial;
+  float factor;
+  int phase;
+};
+WorldSpirit g_world[kSpiritCount] = {};
+bool g_world_log_all = false;
+int g_world_logged = 0;
+const int kWorldLogMost = 200;
 
 // The swap. The depth lets a helper hook run inside the Update hook without
 // a second swap.
@@ -687,6 +768,164 @@ void LogPositions(const uint8_t* control, int pass, bool room) {
          room ? "room" : "live", text[0], text[1]);
 }
 
+// THE SIZE AT A PLACE OF THE WORLD, for the spirit that Update1 places now.
+// It runs inside the swap, so the stored camera is the camera that the
+// spirit code has: the room camera when the anchor is on. The near depth
+// already has the factor of the table. The number stays the 3 of the game
+// off the table, with the key at 0, and for a spirit at its usual place.
+void WorldSize(const uint8_t* spirit) {
+  g_grow = spirit_size_math::kGameGrow;
+  int index = -1;
+  for (int i = 0; i < kSpiritCount; ++i) {
+    if (g_scaled[i].spirit == spirit) index = i;
+  }
+  if (index < 0 || spirit == nullptr) return;
+  WorldSpirit& w = g_world[index];
+  if (!g_world_size || !g_table ||
+      IsBadReadPtr(spirit + kSpiritMatrix, kWorldBytes)) {
+    w.have = false;
+    return;
+  }
+  const float amount =
+      *reinterpret_cast<const float*>(spirit + kSpiritAmount);
+  if (amount == 0.0f) {
+    w.have = false;
+    return;
+  }
+  if (!w.have || w.serial != g_decided_serial) {
+    const float place[3] = {
+        *reinterpret_cast<const float*>(spirit + kSpiritPlaceX),
+        *reinterpret_cast<const float*>(spirit + kSpiritPlaceY),
+        *reinterpret_cast<const float*>(spirit + kSpiritPlaceZ)};
+    const float* u = Unscaled();
+    const float right[3] = {u[0], u[3], u[6]};
+    float at[3];
+    spirit_size_math::WorldPlace(
+        place, right, *reinterpret_cast<const float*>(spirit + kSpiritAside),
+        *reinterpret_cast<const float*>(spirit + kSpiritAbove), at);
+    w.factor = spirit_size_math::WorldFactor(
+        spirit_size_math::Distance(at, StoredPosition()),
+        *reinterpret_cast<const float*>(spirit + kSpiritNear));
+    w.serial = g_decided_serial;
+    w.have = true;
+  }
+  g_grow = spirit_size_math::Grow(w.factor);
+}
+
+// THE LOG OF A SPIRIT AT A PLACE OF THE WORLD: one line for each change of
+// what a spirit does, with the numbers of its size. The scale is the length
+// of an axis of the mesh matrix, and the size is that scale times the size
+// of the model. The distances are to the head as the frame was drawn, to the
+// room camera and to the game's own camera of the player. A distance of -1
+// has no camera.
+void LogWorld(const uint8_t* control) {
+  static const char* const kPhaseText[spirit_size_math::kPhases] = {
+      "is at its usual place", "leaves for a place of the world",
+      "is at the place of the world", "returns to its usual place"};
+  const bool all = g_world_log_all;
+  g_world_log_all = false;
+  for (int i = 0; i < kSpiritCount; ++i) {
+    WorldSpirit& w = g_world[i];
+    const int32_t shown = *reinterpret_cast<const int32_t*>(
+        control + kControlState + sizeof(int32_t) * i);
+    const uint8_t* spirit = *reinterpret_cast<const uint8_t* const*>(
+        control + kControlSpirit + sizeof(void*) * i);
+    if (shown == 0 || spirit == nullptr ||
+        IsBadReadPtr(spirit + kSpiritModel, sizeof(float)) ||
+        IsBadReadPtr(spirit + kSpiritMatrix, kWorldBytes)) {
+      if (w.phase != spirit_size_math::kUsual &&
+          g_world_logged < kWorldLogMost) {
+        ++g_world_logged;
+        ModLog("advisors     : spirit %d is not shown now", i);
+      }
+      w.phase = spirit_size_math::kUsual;
+      continue;
+    }
+    const float amount =
+        *reinterpret_cast<const float*>(spirit + kSpiritAmount);
+    const int32_t state =
+        *reinterpret_cast<const int32_t*>(spirit + kSpiritState);
+    const float goal =
+        (state & kStatePoints) != 0
+            ? *reinterpret_cast<const float*>(spirit + kSpiritGoal)
+            : 0.0f;
+    const int phase = spirit_size_math::PhaseOf(amount, goal);
+    const bool changed = phase != w.phase;
+    w.phase = phase;
+    if (!changed && !(all && phase != spirit_size_math::kUsual)) continue;
+    if (g_world_logged >= kWorldLogMost) continue;
+    ++g_world_logged;
+    float head[3], head_basis[9], game[3], game_focus[3];
+    const bool have_head = HeadCameraRenderBasis(head_basis, head);
+    const bool have_game = ComfortCameraDestinations(game, game_focus);
+    const float* m = reinterpret_cast<const float*>(spirit + kSpiritMatrix);
+    const float* at = m + 9;
+    const float scale = sqrtf(m[0] * m[0] + m[1] * m[1] + m[2] * m[2]);
+    const float usual =
+        *reinterpret_cast<const float*>(spirit + kSpiritSize) *
+        *reinterpret_cast<const float*>(spirit + kSpiritBalance);
+    const float size =
+        scale * *reinterpret_cast<const float*>(spirit + kSpiritModel);
+    const float units_per_meter = g_gain * 7.5f;
+    const float from_head =
+        have_head ? spirit_size_math::Distance(at, head) : -1.0f;
+    const float from_room =
+        g_room_ok ? spirit_size_math::Distance(at, g_room_position) : -1.0f;
+    const float from_game =
+        have_game ? spirit_size_math::Distance(at, game) : -1.0f;
+    ModLog("advisors     : spirit %d %s. It is at %.1f %.1f %.1f, amount "
+           "%.2f. Scale %.4f, %.2f times the usual scale. Size %.2f units, "
+           "%.1f cm of the room at %.1f units for a meter. From the head "
+           "%.1f units, and the angle of the size from the head is %.1f "
+           "degrees. From the room camera %.1f units, from the game "
+           "camera %.1f units. spirit_world_size=%d%s",
+           i, kPhaseText[phase], at[0], at[1], at[2], amount, scale,
+           usual > 0.0f ? scale / usual : 0.0f, size,
+           size / units_per_meter * 100.0f, units_per_meter, from_head,
+           spirit_size_math::AngleDeg(size, from_head), from_room, from_game,
+           g_world_size ? 1 : 0, g_table ? "" : ", off the table");
+  }
+}
+
+// The test key spirit_world_size_test=N: the rule changes at frame N of the
+// controllers, with no key press, for a desktop run.
+void PollWorldTest() {
+  if (g_world_test_frame <= 0 || g_world_test_done) return;
+  if (ControllersFrameCount() < static_cast<uint64_t>(g_world_test_frame)) {
+    return;
+  }
+  g_world_test_done = true;
+  if (!g_world_patched) return;
+  g_world_size = !g_world_size;
+  g_world_log_all = true;
+  ModLog("advisors     : test key spirit_world_size_test: "
+         "spirit_world_size=%d from frame %llu", g_world_size ? 1 : 0,
+         ControllersFrameCount());
+}
+
+// The test key spirit_point_world_test=1, for a desktop run: a spirit that a
+// script lets point at a place of the world goes to that place, as with the
+// last argument 1 of the script word. The start of a land has no script
+// that gives 1.
+void ForcePointInWorld(uint8_t* control) {
+  if (!g_world_test_point ||
+      IsBadWritePtr(control + kControlInWorld, kControlPointBytes)) {
+    return;
+  }
+  for (int i = 0; i < kSpiritCount; ++i) {
+    const int32_t points = *reinterpret_cast<const int32_t*>(
+        control + kControlPoints + sizeof(int32_t) * i);
+    if (points != 1 || control[kControlInWorld + i] != 0) continue;
+    control[kControlInWorld + i] = 1;
+    if (!g_world_test_point_said) {
+      g_world_test_point_said = true;
+      ModLog("advisors     : test key spirit_point_world_test=1: spirit %d "
+             "points at a place from the screen, and the test sends it to "
+             "that place of the world", i);
+    }
+  }
+}
+
 void __fastcall h_ControlUpdate(void* self, void* unused, float dt,
                                 float balance) {
   const uint8_t* control = static_cast<const uint8_t*>(self);
@@ -694,6 +933,8 @@ void __fastcall h_ControlUpdate(void* self, void* unused, float dt,
   const bool readable = ReadPresent(control, &present);
   if (readable) Decide(control, present);
   const int pass = g_pass;
+  if (pass == 0) PollWorldTest();
+  if (readable) ForcePointInWorld(static_cast<uint8_t*>(self));
 
   const bool swapped = readable && SwapIn();
   const bool outer_swapped = g_update_swapped;
@@ -708,6 +949,7 @@ void __fastcall h_ControlUpdate(void* self, void* unused, float dt,
       pass < 2) {
     LogPositions(control, pass, swapped);
   }
+  if (readable && pass == 0) LogWorld(control);
 }
 
 float* __fastcall h_ScreenToWorld(void* spirit, void* unused, float* out,
@@ -716,6 +958,11 @@ float* __fastcall h_ScreenToWorld(void* spirit, void* unused, float* out,
   const bool swapped = HelperMaySwap() && SwapIn();
   float* result =
       o_ScreenToWorld(spirit, unused, out, sx, sy, bias, at_near);
+  // The call of Update1 for the usual place: the scale of this spirit comes
+  // next, so its number is set here, while the room camera is in.
+  if (reinterpret_cast<uintptr_t>(_ReturnAddress()) == kUsualPlaceReturn) {
+    WorldSize(static_cast<const uint8_t*>(spirit));
+  }
   if (swapped) SwapOut();
   return result;
 }
@@ -764,6 +1011,30 @@ bool PatchLightCall() {
   return true;
 }
 
+// Make the fmul of the scale at a place of the world read g_grow. Only when
+// the six bytes and the constant are the ones this was read from. False
+// leaves the code as it is.
+bool PatchGrow() {
+  uint8_t* site = reinterpret_cast<uint8_t*>(kGrowSite);
+  const float* constant = reinterpret_cast<const float*>(kGrowConstant);
+  if (IsBadReadPtr(site, sizeof(kGrowBytes)) ||
+      memcmp(site, kGrowBytes, sizeof(kGrowBytes)) != 0 ||
+      IsBadReadPtr(constant, sizeof(float)) ||
+      *constant != spirit_size_math::kGameGrow) {
+    return false;
+  }
+  DWORD old = 0;
+  if (!VirtualProtect(site, sizeof(kGrowBytes), PAGE_EXECUTE_READWRITE,
+                      &old)) {
+    return false;
+  }
+  const float* number = &g_grow;
+  memcpy(site + 2, &number, sizeof(number));
+  VirtualProtect(site, sizeof(kGrowBytes), old, &old);
+  FlushInstructionCache(GetCurrentProcess(), site, sizeof(kGrowBytes));
+  return true;
+}
+
 bool Hook(uintptr_t address, void* replacement, void** original,
           const char* name) {
   void* target = reinterpret_cast<void*>(address);
@@ -806,7 +1077,49 @@ void SpiritAnchorInstall() {
     ModLog("advisors     : the spirits' light %s",
            PatchLightCall() ? "is placed through the room camera"
                             : "call is not the expected one, left alone");
+    g_world_patched = PatchGrow();
   }
+  if (!g_world_patched) {
+    ModLog("hooks        : the scale of a spirit at a place of the world at "
+           "0x%08X is not the expected code, or a hook of the spirits "
+           "FAILED. spirit_world_size is 0", kGrowSite);
+    g_world_size = false;
+  } else {
+    ModLog("advisors     : spirit_world_size=%d. On the table and in the God "
+           "view a spirit at a place of the world %s%s",
+           g_world_size ? 1 : 0,
+           g_world_size ? "has the angle of size that it has at its near "
+                          "depth"
+                        : "is 4 times as large as at its usual place, as in "
+                          "the game",
+           g_world_keys ? ". Shift and Home change it" : "");
+  }
+}
+
+// spirit_world_size, the test keys and the two tests of a desktop run,
+// spirit_world_size_test and spirit_point_world_test. Call it before
+// SpiritAnchorInstall.
+void SpiritAnchorSetWorldSize(bool on, bool test_keys, int test_frame,
+                              bool test_point) {
+  g_world_size = on;
+  g_world_keys = test_keys;
+  g_world_test_frame = test_frame > 0 ? test_frame : 0;
+  g_world_test_point = test_point;
+}
+
+// THE TEST KEY of spirit_world_size (Shift and Home, with test_keys=1). The
+// pointing controller gives a long pulse for 1 and a short pulse for 0.
+void SpiritAnchorWorldSizeToggle() {
+  if (!g_installed || !g_world_keys || !g_world_patched) return;
+  g_world_size = !g_world_size;
+  g_world_log_all = true;
+  ControllersGesturePulse(0.5f, g_world_size ? 0.30f : 0.08f);
+  ModLog("test key     : spirit_world_size=%d. On the table and in the God "
+         "view a spirit at a place of the world %s",
+         g_world_size ? 1 : 0,
+         g_world_size ? "has the angle of size that it has at its near depth"
+                      : "is 4 times as large as at its usual place, as in "
+                        "the game");
 }
 
 void SpiritAnchorSetEnabled(bool on) {

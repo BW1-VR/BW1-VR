@@ -569,6 +569,105 @@ cuts. The table going on or off is a cut. With the passthrough mask on, the
 spirits are drawn over the real room, because they are nearer than the key
 depth.
 
+### A spirit at a place of the world
+
+A script can send a spirit to a place of the world. The script words
+`SPIRIT_POINT_POS` (`GScript::SpiritPointAtPos` `0x00710510`) and
+`SPIRIT_POINT_GAME_THING` (`0x007105B0`) have a last value, "in world". With
+0 the spirit points from its place on the screen. With 1 it goes to the
+place [V]. `HelpDudeControl` keeps that value in one byte for each spirit
+(`+0x2C`), with the place (`+0x34`), a distance to the side (`+0x1C`) and a
+height (`+0x24`) (`fn_005C3960`). `HelpDudeControl::Update` gives them to the
+spirit in each frame (`fn_005BC4A0`).
+
+`HelpDude::Update1` `0x005BDDA0` then moves an amount (`+0x35DC`) from 0 to 1
+in one second, and back to 0 when the script lets the spirit go. With the
+ease `e = (1 - cos(pi t)) / 2` (`fn_005BD250`) the spirit is at
+`usual + (place - usual) * e`, and the scale of its mesh is `1 + 3 e` times
+the usual scale (`0x005BE943` to `0x005BE96A`) [V]. So at the place the
+spirit is 4 times as large as at its usual place. [I: in the game a place of
+the world is far from the camera, and the spirit must not be too small
+there.] From an amount of 0.5 `HelpSystem::Draw3D` `0x005C59A0` draws the
+spirit, and below 0.5 the callback of the interface layers does
+(`fn_005C3920`) [V].
+
+The scripts that give 1 are the reminders of a scroll and some stories [V,
+`Scripts\Quests\challenge.chl`]: `CreatureDevelopmentHighlightNotify` and
+`CreatureDevelopmentHighlightNotifyTwo` (the scrolls of the Creature
+lessons), `QuestHighlightNotify`, `QuestReminder`,
+`CreatureDevInterimReminder`, `CreatureDevLeashAttachToHouse`,
+`SwapCreatures`, `GremlinAttackWarning`, `LeaveThroughVortexL1` and
+`HelpTalkAndPointInWorld`. A reminder of a Creature lesson starts when the
+camera is nearer to the scroll than a radius and the scroll is in the view,
+at most one time in 30 s. In the God view the camera of that test is the
+player (`god-view.md`, section 16). `ChallengeHighlightNotify` and its
+copies give 1 too, but their distance test is never true (`god-view.md`,
+16.1).
+
+The good spirit is 18 cm in the room at its usual place (the scale times the
+model size `HelpDude + 0x10`, 63.4) [M]. With the size of the table, 4 times
+the usual size is a spirit of 73 cm in the room at each scale. The place is
+on the land, about 1 m from the head, so the spirit fills the view. So while
+the table or the God view owns the view, the scale at the place follows a
+rule of the mod (`spirit_world_size=1`, `spirit_size_math.h`):
+
+- At the place the spirit has the angle of size that it has at its near
+  depth (`+0x35B8`), seen from the room camera at `P0`. So a lean of the head
+  does not change the size. The factor of the scale is the distance from the
+  room camera to the place, divided by the near depth.
+- The factor is at most the 4 of the game, and at least 1/4. A place more
+  than 4 near depths away (4.7 m of the room) gets the size of the game.
+- On the way the scale goes from the usual scale to the scale of the place,
+  with the ease of the game.
+
+The mod changes one instruction for this. The `fmul` at `0x005BE947` reads
+the 3 of `1 + 3 e` from the constant at `0x008C2C50`, and the mod makes it
+read a number of the mod. The hook of `HelpDude::ScreenToWorld` sets that
+number for each spirit at the call of `Update1` that gives the usual place
+(return address `0x005BE6D7`). The factor is decided one time for each
+frame, so both eyes get one size. Off the table, and with
+`spirit_world_size=0`, the number is the 3 of the game. The mod changes the
+instruction only when its six bytes and the constant are the expected ones.
+If they are not, the key is 0, and a line with the tag `hooks` says so.
+
+The distance to the side of the place and the height above it stay in units
+of the world, as the script gives them.
+
+With `test_keys=1`, Shift and Home change `spirit_world_size` between 1 and
+0. The pointing controller gives a long pulse for 1 and a short pulse for 0.
+
+The log has one line for each change of what a spirit does: it "leaves for a
+place of the world", "is at the place of the world", "returns to its usual
+place" and "is at its usual place".
+
+```
+advisors     : spirit_world_size=1. On the table and in the God view a spirit at a place of the world has the angle of size that it has at its near depth. Shift and Home change it
+advisors     : spirit 0 is at the place of the world. It is at 1878.4 29.7 3156.0, amount 1.00. Scale 1.2281, 0.85 times the usual scale. Size 77.89 units, 15.4 cm of the room at 506.2 units for a meter. From the head 500.3 units, and the angle of the size from the head is 8.9 degrees. From the room camera 500.3 units, from the game camera 716.6 units. spirit_world_size=1
+```
+
+The size in a line of the log is the scale times the model size. The figure
+in the picture is about 20 percent higher than that.
+
+**A desktop run.** With the start "Keep your old Creature" no script gives
+1, because the Creature lessons do not run. So the runs use a test,
+`spirit_point_world_test=1`, which sets the byte "in world" of a spirit that
+points at a place from the screen. `PointOutScroll` of the missionaries makes
+such a point when the player is nearer than 100 units to 1755 2692. The run:
+the start "Keep your old Creature", four zoom steps out (506 units for a
+meter, with `god_zoom_about=0`), two turns left, and the test word `go` to
+1779 2779. The good spirit then goes to the scroll at the ark, 1 m of the
+room in front of the head and 39 degrees below the middle of the view. The
+test `spirit_world_size_test=N` changes the key at frame `N`, so one run
+has both sizes [M]:
+
+| `spirit_world_size` | Scale | Size in the room | Angle from the head |
+| --- | --- | --- | --- |
+| 0 | 4.00 times the usual scale | 72.6 cm | 40.0 degrees |
+| 1 | 0.85 times the usual scale | 15.4 cm | 8.9 degrees |
+
+At 100 units for a meter the same place is 4.5 m of the room away. The rule
+gives 3.87 times the usual scale there, which is 8.9 degrees too.
+
 ## The interface
 
 The menus, the help text and the Creature panel draw flat on the view, the
@@ -857,6 +956,9 @@ All in `[bwvr]`. Only the play mode is in the launcher.
 | `table_key_color` | empty | A hex color, for example `FF00FF`. Empty or 0 keeps the sky |
 | `table_sweep` | 0 | A test: the table goes off and on at each report window (every 450 frames in the runs), so one run measures both |
 | `table_hand_cm` | 10 | The length of a controller's Hand on the table, in the room, 2 to 40 |
+| `spirit_world_size` | 1 | 1: a spirit at a place of the world has the angle of size that it has at its near depth. 0: the size of the game, 4 times the usual size. On the table and in the God view only. Shift and Home change it with `test_keys=1` |
+| `spirit_world_size_test` | 0 | A test with no key press: at this frame of the controllers the test key of `spirit_world_size` acts. 0 is never |
+| `spirit_point_world_test` | 0 | A test for a desktop run: 1 sends a spirit that points at a place from the screen to that place of the world |
 
 The fake lean keys are `fake_head_right_cm`, `fake_head_up_cm` and
 `fake_head_forward_cm`, a still lean for the fake head, in the room.
@@ -922,7 +1024,9 @@ Needs the headset: the size of the table in the room, the eye separation of
 130 units, the frame rate at 90 Hz, the look of the relief, the height of the
 table, the edge of the Virtual Desktop mask with the key color, the Hand's
 size and the ears by eye and ear, the grab of the table with real hands, the
-spirits beside the table (no advisor has appeared in a desktop run), and a
+spirits beside the table (no advisor has appeared in a desktop run of the
+table), the size of a spirit at a place of the world (no run of the table,
+and no run with a script that sends the spirit there by itself), and a
 throw once the throw fix has run. Also open: the table's place in the real
 room. The recenter pose moves the table with the head, which is right in a
 virtual room and wrong on a real desk. `table_down_cm` and `table_forward_cm`

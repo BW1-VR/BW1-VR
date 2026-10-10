@@ -809,6 +809,13 @@ The spirits float beside the player in the room, as on the table
 step of the view moves `P0` in the world, so the spirits stay where they are
 in the room.
 
+A script can send a spirit to a place of the world, for example to the
+scroll of a Creature lesson. The game makes the spirit 4 times as large
+there, which is 73 cm in the room. With `spirit_world_size=1` (default) the
+spirit at the place has the angle of size that it has at its near depth,
+about 9 degrees (`tabletop.md`, "A spirit at a place of the world"). With
+`test_keys=1`, Shift and Home change the key.
+
 ## 10. Buttons and keys
 
 | Input | In the God view |
@@ -1070,8 +1077,10 @@ and the camera events (0x304 for a wheel click and 0x308 for a land drag).
 ## 13. Open items and what needs the headset
 
 - **Not tested on the desktop:** a pick up, a set down and a throw in the God
-  view. The two hand zoom by the grips has only the math test. No advisor has
-  appeared in a desktop run, so the spirits and the sound are not seen.
+  view. The two hand zoom by the grips has only the math test. An advisor
+  goes to a place of the world in a desktop run only with a test
+  (`tabletop.md`, "A spirit at a place of the world"). No desktop run has the
+  sound.
 - **The mouse pan on the desktop** and the **tutorial events** (section 7)
   have not run in the game. The numbers and the bits come from the binary.
   The run is in section 12.

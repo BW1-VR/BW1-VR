@@ -75,11 +75,17 @@ is built, and no test has proven it.
   comparison. Then choose the default and the limit of the look
   (`god_zoom_about_far_cm`). The line of the look is the forward direction
   of the head, and the eyes can look lower than that.
-- **B8. The advisors are very large at times.** For example the good
-  advisor is very large while he points at a quest scroll, and then he
-  goes back to the normal size. A guess: the game uses a size in the world
-  when the advisor is at a place in the world, and that size is too large
-  in the God view.
+- **B8. The size of an advisor at a place of the world: check it in the
+  headset.** A script can send an advisor to a place of the world, for
+  example to the scroll of a Creature lesson. The game makes him 4 times as
+  large there, which is 73 cm in the room. With `spirit_world_size=1` he has
+  the angle of size of his usual place (`tabletop.md`, "A spirit at a place
+  of the world"). A desktop run shows the two sizes with a test that sends
+  the advisor to the place. Not run: a script that sends him there by itself,
+  and the table. Check in a headset at a scroll of a Creature lesson: the
+  size, and where the advisor stands at the scroll (the distance to the side
+  stays in units of the world). The test key (Shift and Home) gives the size
+  of the game for a comparison.
 - **B9. A crash at each exit of the game.** Windows records two crashes at
   the time the game closes: the faulting modules are
   `VirtualDesktop.LibOVRRT32_1.dll` (exception `0xc0000409`) and

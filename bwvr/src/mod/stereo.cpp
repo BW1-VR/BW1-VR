@@ -140,6 +140,7 @@ void UiDepthReportHelp();
 void SkyDetailReport();
 // spirit_anchor.cpp
 void SpiritAnchorReport();
+void SpiritAnchorWorldSizeToggle();
 // controllers.cpp
 void ControllersFrame();
 void ControllersReport();
@@ -549,6 +550,9 @@ bool GameHasFocus() {
 //   Ctrl Shift Delete  the point that a zoom of the God view keeps in the
 //               room: the land that the head looks at, the land under the
 //               head, or the Hand's point (god_zoom_about, tabletop.cpp)
+//   Shift Home  an advisor at a place of the world has the size for the eye
+//               that it has at its usual place, or the size of the game
+//               (spirit_world_size, spirit_anchor.cpp)
 //
 // With play_mode=3, the tabletop mode, or play_mode=4, the God view, one
 // more for everyone:
@@ -568,11 +572,11 @@ bool GameHasFocus() {
 // values chosen. The ini keys stay, except the ones the launcher rewrites on
 // every save. See launcher.cpp, kRetiredKeys.
 void PollHotkeys() {
-  static bool down[6] = {false, false, false, false, false, false};
-  const int keys[6] = {VK_F11,     VK_F12,    VK_NUMPAD0,
-                       VK_NUMPAD1, VK_INSERT, VK_DELETE};
-  bool now[6];
-  for (int i = 0; i < 6; ++i) {
+  static bool down[7] = {false, false, false, false, false, false, false};
+  const int keys[7] = {VK_F11,    VK_F12,    VK_NUMPAD0, VK_NUMPAD1,
+                       VK_INSERT, VK_DELETE, VK_HOME};
+  bool now[7];
+  for (int i = 0; i < 7; ++i) {
     now[i] = (GetAsyncKeyState(keys[i]) & 0x8000) != 0;
   }
   const bool shift = (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
@@ -629,10 +633,17 @@ void PollHotkeys() {
     if (g_test_keys && now[5] && !down[5] && ctrl && shift) {
       TabletopGodZoomAboutCycle();
     }
+    // An A/B of the size of an advisor at a place of the world
+    // (docs/tabletop.md, "The spirits beside the table"). Home with Ctrl is
+    // a key of the hint card (hint_card.cpp) and of the grip
+    // (controllers.cpp).
+    if (g_test_keys && now[6] && !down[6] && shift && !ctrl) {
+      SpiritAnchorWorldSizeToggle();
+    }
   }
   // Kept up to date without focus too, so a key that is already down when
   // the game comes to the front does not count as a new press.
-  for (int i = 0; i < 6; ++i) down[i] = now[i];
+  for (int i = 0; i < 7; ++i) down[i] = now[i];
 }
 
 // THE HEAD TRACKING SETUP, once. The render has to cover what the headset asks for,

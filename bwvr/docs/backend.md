@@ -1366,6 +1366,13 @@ drops the anchor. A long frame does not.
 `UnprojectScreenPoint` at `0x005C0747`. That call goes through the room camera too.
 The call site is patched only when its five bytes are the expected ones.
 
+A script can send a spirit to a place of the world. `HelpDude::Update1`
+(`0x005BDDA0`) then makes the mesh 4 times as large as at the usual place. On the
+table and in the God view the mod gives the spirit the angle of size of its usual
+place there (`spirit_world_size=1`, default). It changes the address in one `fmul`
+(`0x005BE947`), only when the bytes are the expected ones. See `tabletop.md`, "A
+spirit at a place of the world".
+
 Open: when a spirit looks at the Hand, the game unprojects the pointer through the
 room camera, but the pointer is a pixel of the live view. With the head turned away,
 the spirit looks a little beside the Hand.
@@ -1536,6 +1543,7 @@ in front. The mod reads the keys and never takes them from the game.
 | Ctrl Shift Page Down | `test_keys=1` | The roots pile of a tree from a distance stands at the roots, or on the way of the glide (`far_roots_at_tree`, `grab.md`) |
 | Ctrl Shift Home | `test_keys=1` | A dip of the squeeze in the first 300 ms of a press does not open the grip, or the fast fall opens it at any time (`grip_press_guard`, `grab.md`) |
 | Ctrl Shift End | `test_keys=1` | A small object in the Hand is held in a pinch between the thumb and the index finger, or in the fist (`hand_pinch`, `hand-model.md`) |
+| Shift Home | `test_keys=1` | An advisor at a place of the world has the size for the eye that it has at its usual place, or the size of the game (`spirit_world_size`, `tabletop.md`) |
 
 The launcher shows `test_keys` as "Test keys", in a group named "Testing". It is off
 by default.
@@ -1605,6 +1613,7 @@ keys that the launcher sets.
 | `subtitle_lift_pct`, `subtitle_deg` | 0, 35 | See "Subtitles" |
 | `cinema_bars` | 0 | 1 shows the story bars |
 | `spirit_anchor` | 1 | See "The advisors" |
+| `spirit_world_size` | 1 | The size of an advisor at a place of the world. See "The advisors" and `tabletop.md` |
 | `cloud_pole_pct`, `sun_glare`, `detail_distance` | 25, 0, 3 | See "Sky, clouds and detail" |
 | `freeze_time` | 1 | See "Time, bars and the second eye pass" |
 | `skip_desktop_present` | 1 | See "The copy to the monitor" |

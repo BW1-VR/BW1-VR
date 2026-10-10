@@ -151,6 +151,8 @@ void AudioSetRange(bool by_ears, bool keep_loops, int test_tag,
 void AudioInstall(bool head, bool advisors, bool trace);
 void AudioFrame();
 void SpiritAnchorSetEnabled(bool on);
+void SpiritAnchorSetWorldSize(bool on, bool test_keys, int test_frame,
+                              bool test_point);
 void DetailDistanceSet(float factor);
 void ComfortCameraRelease();
 void PointerMapInstall();
@@ -320,6 +322,13 @@ int g_cloud_pole_pct = 25;
 bool g_cinema_bars = false;
 // The advisors stay where the player looked when they came.
 bool g_spirit_anchor = true;
+// An advisor at a place of the world has the size for the eye that it has
+// at its usual place. 0: the size of the game, 4 times the usual size.
+bool g_spirit_world_size = true;
+// Test only: the rule above changes at this frame of the controllers.
+int g_spirit_world_size_test = 0;
+// Test only: an advisor that points at a place of the world goes to it.
+bool g_spirit_point_world_test = false;
 // Sound in the room. See docs/audio.md.
 bool g_audio_head = true;
 bool g_audio_advisors = true;
@@ -768,6 +777,14 @@ void ReadSettings() {
   g_cinema_bars = GetPrivateProfileIntA("bwvr", "cinema_bars", 0, path) != 0;
   g_spirit_anchor =
       GetPrivateProfileIntA("bwvr", "spirit_anchor", 1, path) != 0;
+  // Not in the launcher. See docs/tabletop.md, "The spirits beside the
+  // table". With test_keys=1, Shift and Home change it.
+  g_spirit_world_size =
+      GetPrivateProfileIntA("bwvr", "spirit_world_size", 1, path) != 0;
+  g_spirit_world_size_test = static_cast<int>(
+      GetPrivateProfileIntA("bwvr", "spirit_world_size_test", 0, path));
+  g_spirit_point_world_test =
+      GetPrivateProfileIntA("bwvr", "spirit_point_world_test", 0, path) != 0;
   // The ears follow the head, and the advisors speak from where they float.
   g_audio_head = GetPrivateProfileIntA("bwvr", "audio_head", 1, path) != 0;
   g_audio_advisors =
@@ -1090,6 +1107,9 @@ void StartVrOnce() {
     SkySetGlareMode(g_sun_glare);
     SkyDetailInstall();
     SpiritAnchorSetEnabled(g_spirit_anchor);
+    SpiritAnchorSetWorldSize(g_spirit_world_size, g_test_keys,
+                             g_spirit_world_size_test,
+                             g_spirit_point_world_test);
     SpiritAnchorInstall();
     AudioSetRoom(g_audio_room, g_audio_units_per_meter,
                  g_audio_flat_places);

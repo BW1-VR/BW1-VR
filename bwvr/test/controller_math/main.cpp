@@ -3390,6 +3390,7 @@ void CreatureChecks() {
 #include "window_checks.h"
 #include "intro_skip_checks.h"
 #include "spawn_checks.h"
+#include "spirit_size_checks.h"
 #include "ring_checks.h"
 #include "teleport_checks.h"
 #include "feel_checks.h"
@@ -3768,6 +3769,7 @@ int main() {
   window_checks::WindowChecks();
   intro_skip_checks::IntroSkipChecks();
   spawn_checks::SpawnChecks();
+  spirit_size_checks::SpiritSizeChecks();
   village_checks::VillageChecks();
   aim_checks::AimChecks();
   miracle_checks::MiracleChecks();
