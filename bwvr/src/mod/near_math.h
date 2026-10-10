@@ -104,6 +104,35 @@ inline bool JustLetGo(double since, double grace) {
   return since >= 0.0 && since < grace;
 }
 
+// THE RULE OF catch_moving. 0: each object has the same reach, moving or
+// still. 1: the extra reach is on the reach of the pick only, so an object
+// that moves has the larger of that sum and the wide reach, and each object
+// that the Hand let go has the guard. 2: the reach of an object that moves is
+// the reach that it has at rest and the extra reach, and the guard is for a
+// throw only.
+const int kCatchOff = 0;
+const int kCatchPick = 1;
+const int kCatchRest = 2;
+
+// The wide reach of an object that moves. At rest an object that the Hand can
+// hold has the wide reach (WidePick). With the rule 2 the extra reach of its
+// motion is on that reach too. A wide reach of 0 is off, and stays off.
+inline float WideMoving(float wide_reach, float extra, int rule) {
+  if (rule != kCatchRest || !(wide_reach > 0.0f) || !(extra > 0.0f)) {
+    return wide_reach;
+  }
+  return wide_reach + extra;
+}
+
+// The guard of JustLetGo with the rule. fell: the object left a hand that
+// was still (the height rule of the release, docs/throw.md), so it is no
+// throw. It starts with no speed, and a player who closes the grip on it in
+// its fall wants it back. With the rule 2 it has no guard.
+inline bool GuardHolds(double since, double grace, bool fell, int rule) {
+  if (rule == kCatchRest && fell) return false;
+  return JustLetGo(since, grace);
+}
+
 // THE BODY OF A SCROLL is a ball: the middle of the box of its mesh in the
 // world, and the half diagonal of that box. The game's own pick has a scroll
 // there (ScriptHighlight::Draw gives this point and this radius to

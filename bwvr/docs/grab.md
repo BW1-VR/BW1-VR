@@ -171,7 +171,7 @@ villager in the God view is 1 cm wide, and that needs a fine point.
 | Interaction | Where it takes its place from |
 | --- | --- |
 | The glow | The Hand's point (`g_target`) |
-| The pick up of an object, the take from a pile, a scroll, a house (`Choose`) | The nearest body within `hand_pick_cm` (4 cm of the room) of the Hand's point. For an object that the Hand can hold, the reach is `hand_wide_pick_cm` (15 cm) when no object that a press acts on is nearer ("The wide pick") |
+| The pick up of an object, the take from a pile, a scroll, a house (`Choose`) | The nearest body within `hand_pick_cm` (4 cm of the room) of the Hand's point. For an object that the Hand can hold, the reach is `hand_wide_pick_cm` (15 cm) when no object that a press acts on is nearer ("The wide pick"), and up to 8 cm more while the object moves (`catch_moving`) |
 | The Creature | The capsule of its body about the Hand's point (see [creature.md](creature.md)) |
 | The grab from a distance | The aim ray of the pointing controller. It is off while an object is near the Hand's point |
 | A held object | The palm of the mod's hand (`overlay_math::HoldCenter`) |
@@ -397,7 +397,8 @@ their reach. The far grab stays off while the object is within 10 cm, so each
 gap from 0 to 15 cm of a holdable object has a target, and past 15 cm the
 object is a far target when the aim is on it. The wide reach is the same
 from every side, so a hand at an object has the nearest object, and a far thing
-behind it is not taken. With `hand_wide_pick_cm=0` an object from
+behind it is not taken. An object that moves has a longer wide reach, by its
+speed (see "A target that moves, floats or dies"). With `hand_wide_pick_cm=0` an object from
 `hand_pick_cm` to 15 cm is no target. The test key Ctrl Shift Page Up goes
 between 0 and the value (`test_keys=1`).
 
@@ -426,7 +427,8 @@ palm on purpose.
 
 1. An object within 4 cm of the Hand's point: the grip acts on it.
 2. An object that the Hand can hold, within 15 cm of the Hand's point, with no
-   nearer object that a press acts on: the grip takes it (the wide pick).
+   nearer object that a press acts on: the grip takes it (the wide pick). An
+   object that moves has up to 8 cm more.
    A house, a scroll or a pile from 4 to 15 cm: no far target. The player
    moves the Hand to the object.
 3. A far target in the cone: the grip takes it, collects from it or activates
@@ -480,10 +482,10 @@ put the leash on from a new game.
 | `hand_pick_cm` | 4 | The reach of the pick from the Hand's point, in cm of the room. 1 to 20 |
 | `hand_wide_pick_cm` | 15 | The reach of the pick for an object that the Hand can hold, when no object that a press acts on is nearer, in cm of the room. 0 turns it off. 0 to 30. The test key Ctrl Shift Page Up goes between 0 and the value (`test_keys=1`) |
 | `hand_touch_cm` | 1 | The point touches a body when the gap is this or less, in cm of the room. 0 to `hand_pick_cm` |
-| `catch_moving` | 1 | 1 gives an object that moves a longer reach of the pick (see "A target that moves, floats or dies"). 0 gives each object the reach of `hand_pick_cm`. The test key Ctrl Page Up goes between the two (`test_keys=1`) |
+| `catch_moving` | 2 | The reach of the pick for an object that moves (see "A target that moves, floats or dies"). 2 puts the extra reach on the reach that the object has at rest, the wide reach too, and only a throw has the guard of `catch_grace_ms`. 1 puts the extra reach on `hand_pick_cm` only, and each object that the Hand let go has the guard. 0 gives each object the same reach, moving or still. The test key Ctrl Page Up goes through 2, 1 and 0, with a long pulse, a pulse of middle length and a short pulse (`test_keys=1`) |
 | `catch_lag_ms` | 100 | The time that the speed of the object counts for, in ms. 0 to 500 |
 | `catch_cap_cm` | 8 | The most extra reach, in cm of the room. 0 to 20 |
-| `catch_grace_ms` | 600 | The object that the Hand let go has the plain reach for this time, in ms. 0 to 3000 |
+| `catch_grace_ms` | 600 | The object that the Hand threw has no extra reach for this time, in ms. 0 to 3000 |
 | `far_grab_near_cm` | 10 | The far grab goes off when an object that a press acts on is this near the Hand's point |
 | `far_grab_near_out_cm` | 15 | The far grab comes back past this distance |
 | `palm_search` | 0 | 1 leaves the game's search at the palm on |
@@ -1010,7 +1012,7 @@ physics and falls.
 
 - The Hand is not fast (its speed across the land is at most 2 units a turn).
 - No other body is in the way: the game raises the object until it does not
-  intersect, and a raised object falls.
+  intersect, and a raised object falls (see "The test of a body in the way").
 - The land under the tree is dry land, or shallow water of the land block.
 - The mesh of the tree leans at most 0.2 rad about x and about z
   (`LHMatrix::GetYXZ` `0x007FAB30`).
@@ -1029,18 +1031,76 @@ Hand. With `tree_plant_hint=1` the card tests the same things in each frame
 fire. When the release plants the tree, the card keeps the text of the game.
 Else it says what the opening does: "Lower to plant. Open to drop", "Hold
 upright to plant. Open to drop", "Needs dry land. Open to drop" or "On fire.
-Open to drop". The test of a body in the way is not in the card: the game works
-it out in the physics at the release.
+Open to drop". The test of a body in the way is not in the card.
+
+**The test of a body in the way [V].** The release makes the physics object of
+the tree (`PhysicsObject::AddObject`), puts it on the land
+(`PhysOb::AdjustToGroundLevel` `0x007FCB80`) and calls
+`PhysicsObject::RaiseUntilNotIntersecting` `0x00644800`. When that call moved
+the tree up, the tree falls. The call has two parts:
+
+1. It reads each object in the map cells of a square about the tree, as wide
+   as the radius of the physics object (`PhysOb+0x150`). It asks each one
+   `Object::ShouldPhysicsRaiseObjectUntilNotIntersectingThis` `0x006377D0`
+   (the table slot `+0x7A4`), which gives the answer of
+   `InteractsWithPhysicsObjects` (`+0x79C`). An object that says yes and is not
+   in the physics goes into the physics now (`fn_00644DF0`, with
+   `PhysOb::Initialise` from its mesh).
+2. For each other object in the physics whose center is nearer than the sum
+   of the two radii, `fn_007FDD60` gives how deep the points of the one body
+   are in the other, along up. More than 0.001 units raises the tree by that
+   depth, and the call starts again.
+
+`InteractsWithPhysicsObjects` is yes for an object with a mesh
+(`Object`, `0x006377B0`), and for a rock, a scaffold, a Creature and a dead
+tree. A house or other building says yes by two of its own values
+(`MultiMapFixed`, `0x0052F3D0`). It is no for a tree that stands
+(`Tree`, `0x0074B6A0`), a forest, a field, a fish farm, a Worship Site, a
+graveyard and a bonfire. So the trees of a forest are never in the way of a
+planted tree.
+
+No call of the game gives this answer before the release with no change of
+state. The first part puts each near object into the physics of the game. The
+second part compares two physics bodies, and the tree has a physics body only
+from the release on. A test with the same answer needs a body of its own for
+the tree and for each near object (`PhysOb::Initialise` on memory of the mod,
+then `AdjustToGroundLevel` and `fn_007FDD60`). That is not built.
 
 **The log.** Tag `hand tree`: the settings, each roots pile that the game makes
 (with the place), each change of the answer for the tree in the Hand (the
-height, the lean, dry land, fire), the release, and what the tree is when it
-leaves the physics (its class and its forest).
+height, the lean, dry land, fire), the release with the lean of the last frame
+in the Hand, the first frame of the tree in the physics (the height of its
+mesh over the land, its lean, the count of the objects in the physics of the
+game that are nearer to the tree than the sum of the two radii, the nearest
+one, and the flag 8 of the tree), and what the tree is when it leaves the
+physics (its class and its forest).
 
-**Open.** A body in the way is not predicted. A tree held by the Hand at an angle
-of more than 0.2 rad is not seen in a desktop run (the hand of the script keeps
-the tree upright). Whether the pile at the roots is what the player means by the
-"pit" needs the headset.
+**The lean in a desktop run.** The tree in the Hand turns with the hand
+(`hand_hold_turn`, [hand.md](hand.md)). `throw_queue.ps1 -Runs treelean` turns
+the hand 30 degrees with a tree in it, 1.6 cm of the room over dry land. The
+tree then leans 0.26 and -0.46 rad, and the card says "Hold upright to plant.
+Open to drop". After the opening the tree is in the physics with the same
+lean and with no forest: the game did not plant it. The game does not plant
+an upright tree at that place either (the next paragraph). So the run shows
+the lean that the card and the game read, and it does not show that the lean
+alone stops the planting.
+
+**A tree that the card calls "plant" and the game does not plant.**
+`throw_queue.ps1 -Runs treeset` is the same recipe with a hand that does not
+turn. The hand takes a tree at the land and sets it down upright where it
+stood, 1.3 cm of the room over dry land. A rock lies 0.8 units from that
+place. The card says "Plant". The game does not plant the tree: it is in the
+physics with no forest, its mesh is 0.7 units over the land in its first
+frame there, and the flag 8 of its physics object is not set. The physics of
+the game then has 6 other objects with their center nearer to the tree than
+the sum of the two radii, and the nearest one is a rock. After a set down
+with a still hand, with no lean, on dry land and with no fire, the release
+leaves the flag 8 out only when it raised the tree. So a body was in the way.
+[I: which of the 6 objects raised the tree.]
+
+**Open.** A body in the way is not predicted, and the card says "Plant" for a
+tree that the game then lets fall (the run above). Whether the pile at the
+roots is what the player means by the "pit" needs the headset.
 
 ### The far touch
 
@@ -1073,17 +1133,41 @@ target, and the fetch puts it in the Hand while it moves.
 - **The pick reaches farther for an object that moves** (`catch_moving`). The
   player closes the hand on the place where the object was a moment ago: the
   eye, the hand and the closing of the grip take time, and the pick of a frame
-  is one frame old. So the reach of the pick for an object that the Hand can
-  hold is `hand_pick_cm` plus `near_math::MovingExtra`: the speed of the object
-  less 15 cm a second (`kCatchStillCmps`), times `catch_lag_ms`, and at most
+  is one frame old. So an object that the Hand can hold and that moves has an
+  extra reach (`near_math::MovingExtra`): the speed of the object less 15 cm a
+  second (`kCatchStillCmps`), times `catch_lag_ms`, and at most
   `catch_cap_cm`. The speed comes from the place of the object in the draw of
   this frame and of an earlier frame (`ObjectSpeedNow`, once a frame, for an
   object that the draw offered in the last 3 frames). The first cut of
   `Choose` is as long as the cap. The log has one line for each object that
-  only this reach chose ("moves at"). The object that the Hand let go has the
-  plain reach for `catch_grace_ms` after the release (`JustLetGo`), so a throw
-  does not come back to the hand in the same closing of the grip. Only the
-  pick up has the extra reach: a scroll, a house and a pile keep theirs.
+  only this reach chose ("moves at"). Only the pick up has the extra reach: a
+  scroll, a house and a pile keep theirs.
+
+  With `catch_moving=2` the extra reach is on the reach that the object has at
+  rest: on `hand_pick_cm`, and on the wide reach (`near_math::WideMoving`). So
+  a rock that falls at 95 cm a second or more is the target up to 23 cm from
+  the Hand's point, when no object that a press acts on is nearer. While such
+  an object is the target, there is no far target. With `catch_moving=1` the
+  extra reach is on `hand_pick_cm` only, so an object that moves is the target
+  up to 15 cm, as an object at rest is.
+
+  **The guard of a throw.** The object that the Hand threw has no extra reach
+  for `catch_grace_ms` after the release (`near_math::GuardHolds`), so a throw
+  does not come back to the hand in the same closing of the grip. It keeps
+  the reach that it has at rest. With `catch_moving=2` the guard is for a
+  throw only. An object that fell from a hand that was still (the height rule
+  of `release_fall_cm`) is no throw: it starts with no speed, and the player
+  who closes the grip on it in its fall wants it back. A fall from 46 cm of
+  the room lasts 0.63 s, so a guard of 600 ms is almost all of that time.
+  With `catch_moving=1` each object that the Hand let go has the guard.
+
+  **The frames after a release.** The game holds the object in the Hand from
+  the release action to the drop action of a game turn: 3 to 16 frames in the
+  desktop runs, 0.17 s at most. The mod draws the object on its arc in that
+  time. `Choose` has no target while the Hand of the game holds an object, so
+  the thrown object is no target in those frames. This is the state of the
+  game, and the mod does not change it. From the frame after that game turn
+  the object is a candidate again.
 
 - **The lock follows the object.** `FarGrabTrack` takes the place of the locked
   object, the land under it and the influence there on each frame. The tether,

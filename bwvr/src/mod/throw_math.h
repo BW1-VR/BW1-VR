@@ -251,15 +251,44 @@ inline void GameFreeStep(float p[3], float v[3]) {
 // 10 times a second, and it draws each object where the turn left it. A turn
 // of the real flight moves an object 50 cm of the room at 5 m/s. So
 // throw_physics.cpp keeps the object's matrix after each substep with its
-// time in the flight, and it draws the object where the flight is at the
+// time in the picture, and it draws the object where the flight is at the
 // time of the frame.
 struct FlightSample {
-  double time;      // seconds of the flight
+  double time;      // seconds of the picture
   float matrix[12]; // the mesh matrix: 3 rows of the axes, then the position
-  float velocity[3];  // the real flight, world units per second
+  float velocity[3];  // the speed of the picture, world units per second
   bool contact;     // the object touched the land or an object in this step
   float center[3];  // the center of the object (the mesh can be off center)
 };
+
+// THE TIME OF A SUBSTEP IN THE PICTURE (throw_draw). The game runs 20
+// substeps in a turn, and a turn is due each 100 ms. So a substep is 5 ms of
+// the real time, with each count of steps in it. In a substep of the flight
+// the steps are `rate` of them, and their time of the flight is 5 ms too. In
+// a substep where another object touches the thrown object, one step runs,
+// and its time of the flight is 5 ms / rate. With that short time in the
+// picture (the rule 0), a turn of 20 such substeps is 30 ms of the picture at
+// a rate of 3.33, while the real time goes on by 100 ms: the picture comes to
+// the newest step, stands there, and goes on from a new place after the next
+// turn.
+//
+// So with the rule 1 a substep with a touch of another object is 5 ms of the
+// picture, and the object moves through it at the speed of the game's own
+// time. `span` is the time of the flight of the substep.
+const int kDrawFlight = 0;
+const int kDrawReal = 1;
+
+inline double PictureSpan(double span, bool hit, int rule) {
+  return rule == kDrawReal && hit ? static_cast<double>(kSubstep) : span;
+}
+
+// The speed of the picture for one unit of the speed of the game: the steps
+// that ran in the substep, over the time that the substep has in the picture.
+inline float PictureRate(int steps, double picture_span) {
+  if (steps < 1 || !(picture_span > 1e-9)) return 1.0f;
+  return static_cast<float>(steps * static_cast<double>(kSubstep) /
+                            picture_span);
+}
 
 // After the newest sample the flight goes on for this time at most. A game
 // turn is due each 100 ms, and it comes one frame early or late.
@@ -271,9 +300,11 @@ const double kFlightAhead = 0.050;
 // on with the gravity of the real flight (s g), and an object in contact goes
 // on along its velocity across the land. Both stop kFlightAhead after the
 // newest sample. *late_out is the time of `clock` after the newest sample, 0
-// when it is not after it.
+// when it is not after it. velocity_out gets the speed of the picture at that
+// time, in world units per second.
 inline bool FlightAt(const FlightSample* samples, int count, double clock,
-                     float s, float matrix_out[12], double* late_out) {
+                     float s, float matrix_out[12], double* late_out,
+                     float* velocity_out = nullptr) {
   if (late_out != nullptr) *late_out = 0.0;
   if (count < 1 || clock < samples[0].time) return false;
   const FlightSample& last = samples[count - 1];
@@ -283,6 +314,7 @@ inline bool FlightAt(const FlightSample* samples, int count, double clock,
     if (ahead > kFlightAhead) ahead = kFlightAhead;
     for (int i = 0; i < 12; ++i) matrix_out[i] = last.matrix[i];
     for (int i = 0; i < 3; ++i) {
+      if (velocity_out != nullptr) velocity_out[i] = last.velocity[i];
       if (last.contact && i == 1) continue;
       matrix_out[9 + i] = static_cast<float>(last.matrix[9 + i] +
                                              last.velocity[i] * ahead);
@@ -304,8 +336,56 @@ inline bool FlightAt(const FlightSample* samples, int count, double clock,
   for (int i = 0; i < 3; ++i) {
     matrix_out[9 + i] = static_cast<float>(
         a.matrix[9 + i] + (b.matrix[9 + i] - a.matrix[9 + i]) * u);
+    if (velocity_out != nullptr) {
+      velocity_out[i] = span > 1e-9
+                            ? static_cast<float>(
+                                  (b.matrix[9 + i] - a.matrix[9 + i]) / span)
+                            : b.velocity[i];
+    }
   }
   return true;
+}
+
+// THE PICTURE DOES NOT GO BACK (throw_draw=1). A frame that the mod draws
+// after the newest step is a guess: the object goes on from that step with
+// its own speed. When the next steps come, the object can be behind the
+// guess, because a contact took a part of its speed. The picture then stays
+// at the place of the guess until the object comes to it. It does not go
+// back along the path.
+//
+// guess is the place of the guess, and dir the direction that the guess
+// moved in (it needs no unit length). place and velocity are the object at
+// the time of this frame, from the steps or from a new guess. The picture
+// stays while the object is behind the plane through `guess` across `dir`
+// and still moves to it. When the object turned in a contact, it does not
+// come to that place: the picture goes with the object at once. `held` is
+// the time that the picture stayed, and it never stays longer than `most`.
+inline bool GuessHolds(const float place[3], const float velocity[3],
+                       const float guess[3], const float dir[3], double held,
+                       double most) {
+  if (!(held < most)) return false;
+  const float behind = (place[0] - guess[0]) * dir[0] +
+                       (place[1] - guess[1]) * dir[1] +
+                       (place[2] - guess[2]) * dir[2];
+  if (!(behind < 0.0f)) return false;
+  return velocity[0] * dir[0] + velocity[1] * dir[1] + velocity[2] * dir[2] >
+         0.0f;
+}
+
+// THE CLOCK FALLS BACK (throw_draw=1). When the steps are more than
+// kFlightAhead behind the clock, the clock of the flight waits. It is then
+// kFlightAhead in front of the newest step, and with a turn each 100 ms each
+// second frame is a guess from then on. So the clock runs kFallBackShare
+// slower until it has given that time back. *debt is the time that is left,
+// and the answer is the time that this frame gives back.
+const double kFallBackShare = 0.2;
+
+inline double ClockFallBack(double* debt, double frame_seconds) {
+  if (!(*debt > 0.0) || !(frame_seconds > 0.0)) return 0.0;
+  double pay = kFallBackShare * frame_seconds;
+  if (pay > *debt) pay = *debt;
+  *debt -= pay;
+  return pay;
 }
 
 // THE TURN BETWEEN TWO MATRICES of the object, in radians. Each row is an
@@ -443,15 +523,30 @@ inline void LandingAdd(Landing* l, double time, const float center[3],
 // after the newest step of the physics. The picture turns back when the move
 // of a frame is against the move of the frame before, and each of the two is
 // `dead_band` or longer: a bounce does that, and so does a wrong guess of
-// the draw.
+// the draw. back_late counts the turns back that came in the frame after a
+// late frame: those are from a guess.
+//
+// The picture stands and jumps when it does not move in a frame (less than
+// `dead_band`), after a frame in which it moved, and the first move after
+// that is kJumpBands of `dead_band` or longer. top_jump is the longest of
+// those first moves, and top_step is the longest move of one frame.
+const float kJumpBands = 4.0f;
+
 struct DrawTrack {
   int frames;
   int late;
   double top_late;     // seconds
   int back;
+  int back_late;
   float top_back;      // the longest move against the move before
+  int jumps;
+  float top_jump;
+  float top_step;
   bool has_last;
   bool has_step;
+  bool was_late;
+  bool moved;          // the picture moved in a frame before the stand
+  bool stands;         // it does not move now
   float last[3];
   float step[3];
 };
@@ -472,11 +567,24 @@ inline void DrawTrackAdd(DrawTrack* d, const float p[3], double late,
         step[0] * d->step[0] + step[1] * d->step[1] + step[2] * d->step[2] <
             0.0f) {
       ++d->back;
+      if (d->was_late) ++d->back_late;
       if (length > d->top_back) d->top_back = length;
+    }
+    if (length > d->top_step) d->top_step = length;
+    if (length < dead_band) {
+      if (d->moved) d->stands = true;
+    } else {
+      if (d->stands && length >= kJumpBands * dead_band) {
+        ++d->jumps;
+        if (length > d->top_jump) d->top_jump = length;
+      }
+      d->stands = false;
+      d->moved = true;
     }
     for (int i = 0; i < 3; ++i) d->step[i] = step[i];
     d->has_step = true;
   }
+  d->was_late = late > 0.0;
   for (int i = 0; i < 3; ++i) d->last[i] = p[i];
   d->has_last = true;
 }

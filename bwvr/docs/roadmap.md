@@ -37,25 +37,54 @@ is built, and no test has proven it.
 
 ### Faults in play
 
-- **B2. A moving object is hard to take.** The pick reaches farther for an
-  object that moves (`catch_moving`, `grab.md`): check the defaults (100 ms,
-  8 cm) in a headset. The grab from a distance locks and fetches a rock
-  that falls and a rock that flies in a desktop run. Still open:
+- **B2. A moving object is hard to take: check it in a headset.** The pick
+  reaches farther for an object that moves. The extra reach is on the reach
+  that the object has at rest, so a rock that falls is the target up to 23 cm
+  from the Hand's point (`catch_moving=2`, `grab.md`, "A target that moves,
+  floats or dies"). A desktop run shows the near grip on a rock in its fall,
+  15.7 cm of the room from the Hand's point, and the miss with
+  `catch_moving=1` (`throw_queue.ps1 -Runs dropnear` in `bwvr/tools/desk`).
+  The grab from a distance locks and fetches a rock that flies in a desktop
+  run (`-Runs flyfar`). In the run with the aim at a rock that falls
+  (`-Runs dropfar`) the rock is 14 to 15 cm from the Hand's point at the
+  press, so the near grip takes it, with each rule. Still open:
+  - Check in a headset: the defaults (100 ms, 8 cm), and that an object that
+    fell from a still hand does not come back to the hand when the player
+    does not want it. Such an object has no guard of `catch_grace_ms`. The
+    test key (Ctrl and Page Up) gives the rules 1 and 0 for a comparison.
+  - Not shown: the grip on an object that rolls. The recipes `rollnear` and
+    `rollfar` do not reach that state on the desktop.
   - A tree that is let go comes to rest in about 1 s now
     (`throw_tree_settle`, `throw.md`, "The landing of a tree"). Not shown:
     a far target that hides and shows by itself (not seen in a desktop
     run), a tree thrown fast across the land, and the look in a headset.
-  - A thrown object is no candidate for 9 to 16 frames after the release,
-    while the mod draws it on its arc.
-  - The near grip misses a rock in its fall in a desktop run
-    (`throw_queue.ps1 -Runs dropnear` in `bwvr/tools/desk`). The grip closes
-    4 frames after the hand is at the rock. The rock is then 15.8 cm of the
-    room from the Hand's point, and the reach is 15 cm.
+    In one desktop run a tree thrown at 3 m/s did not move from 4.1 s after
+    the release, and the game kept it in its physics until 18.7 s
+    (`throw_queue.ps1 -Runs tree`). In the other throws of that recipe the
+    tree left the physics after 3.0 to 3.9 s.
 - **B4. The card does not know a body in the way of a planted tree.** The
   card says "plant" by the tests of the game that it can read (the height,
   the lean, dry land, fire, `grab.md`, "A tree in the Hand"). The game also
-  lets a tree fall when another body is where the tree would stand: the card
-  does not see that. No run had a tree that leans more than 0.2 rad.
+  lets a tree fall when it raised the tree over a body at the release, and
+  the card does not see that. A desktop run shows the fault: a tree set down
+  upright on dry land with a rock 0.8 units from its place has the card
+  "Plant", and the game does not plant it. The log has the 6 objects of the
+  game's physics that are near the tree, and the flag of the tree that the
+  release leaves out when it raised the tree (`throw_queue.ps1 -Runs
+  treeset` in `bwvr/tools/desk`).
+  The test of the game puts each near object into its physics and compares
+  two physics bodies, and the tree has a physics body only from the release
+  on (`grab.md`, "The test of a body in the way"). So no call of the game
+  gives the answer before the release with no change of state. A tree that
+  stands and a forest are never in the way. A rock, a scaffold, a Creature,
+  a dead tree and a building can be. Not built: the same test with physics
+  bodies that the mod makes for the tree and for each near object.
+  The lean is shown in a desktop run: a hand that turns 30 degrees makes the
+  tree lean 0.26 and -0.46 rad, the card says "Hold upright to plant", and the
+  tree has the same lean in the physics of the game (`-Runs treelean`). That
+  run is at the place with the rock, so it does not show that the lean alone
+  stops the planting. Not run: a tree that leans at a place where the game
+  plants an upright tree.
 - **B1b. The roots pile of a far grab.** `far_roots_at_tree=1` puts the pile
   at the roots, as for a tree that the Hand takes. Only a headset shows
   whether that is what the player means by the "pit" at the roots. Not
@@ -123,21 +152,18 @@ is built, and no test has proven it.
   faults of `runblack.exe` too, at the time of the run (the modules
   `unknown`, `nvd3dum.dll_unloaded` and `d3d9.dll`): those are from the test.
 
-- **B10. The picture of a thrown villager moves in steps after its first
-  contact.** A desktop run throws a villager at 2.6 m/s, at 44.4 units for
-  each meter (`village_run.ps1 -Kind throw` in `bwvr/tools/desk`). The first
-  contact is with an object, not with the land. For about 0.25 s after it,
-  the steps of the game are behind the real time (the lines `turn` of the
-  log). The mod draws 3 or 4 frames from one step, 11 to 71 ms after it, so
-  the picture slows and stops. The next frame is 0.6 to 1.7 units away (1.4
-  to 3.9 cm of the room). This occurs three times. In two runs the log
-  counts 47 of 144 and 96 of 175 frames after the newest step, and 2 and 4
-  times that the picture turned back (1.2 cm at most). The same line of the
-  other runs (a rock, a tree and a scaffold, at 44.4 to 225 units for each
-  meter) has 0 to 23 frames of 40 ms at most, and no picture that turned
-  back. Not known: whether the cause is the villager or the
-  contact with an object, and whether a player sees it in a headset.
-  `throw_log=2` gives each frame (the lines `d`).
+- **B10. A thrown object that touches another object: check the picture in
+  a headset.** In a substep where another object touches the thrown object,
+  the game runs one step, and the mod gives that substep 5 ms of the picture
+  (`throw_draw=1`, `throw.md`, "The picture between the steps"). So the
+  object moves through the touch at the speed of the game's own time, and
+  the picture does not stand and jump. A desktop run with a thrown villager
+  shows it, and the stand and jump with `throw_draw=0` (`village_run.ps1
+  -Kind throw` in `bwvr/tools/desk`). Only a headset shows whether the slower
+  move in the touch looks right. The test key (Ctrl and Scroll Lock) gives
+  the rule 0 for a comparison. Not run: a picture that stays at the place of
+  a guess (the math checks cover it). A run shows the clock that falls back
+  after a wait.
 
 B1b, B2 and B4 are one package: a thing that is held, thrown, or that
 moves while the Hand takes it.

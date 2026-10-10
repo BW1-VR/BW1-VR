@@ -381,6 +381,7 @@ int g_throw_land_rate_x10 = 10;
 int g_throw_bounce_pct = 50;
 int g_throw_land_brake_pct = 60;
 int g_throw_tree_settle = 1;
+int g_throw_draw = 1;
 GrabSettings g_grab;
 GestureSettings g_gesture;
 int g_fake_lean_cm[3] = {0, 0, 0};
@@ -983,6 +984,10 @@ void ReadSettings() {
     // throw_tree_settle: 1 lets a tree that falls turn down fast while it
     // touches the land and is slow. 0 keeps the game's turn.
     g_throw_tree_settle = number("throw_tree_settle", 1);
+    // throw_draw: 1 gives a substep with a touch of another object 5 ms of
+    // the picture of a thrown object, and the picture does not go back to a
+    // place behind a guess. 0 gives each substep its time of the flight.
+    g_throw_draw = number("throw_draw", 1);
     g_far_grab.throw_law = g_throw_law != 0;
     // far_grab_max_m: a far target is at most this many meters of the room
     // from the head, along the floor. 0 gives no limit.
@@ -1185,6 +1190,7 @@ void StartVrOnce() {
         ThrowPhysicsSetLanding(g_throw_land, g_throw_land_rate_x10,
                                g_throw_bounce_pct, g_throw_land_brake_pct);
         ThrowPhysicsSetSettle(g_throw_tree_settle != 0);
+        ThrowPhysicsSetDraw(g_throw_draw);
         ThrowPhysicsInstallEarly();
         FarGrabInstall();
         ThrowPhysicsInstall();

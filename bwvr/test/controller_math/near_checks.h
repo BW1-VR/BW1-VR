@@ -36,6 +36,40 @@ inline void NearChecks() {
           0.7, 0.6);
     Check(!JustLetGo(-1.0, 0.6), "a release in the future is no guard", -1.0,
           0.6);
+    // THE RULE OF catch_moving. A rock that falls at 75 cm a second has 6 cm
+    // of extra reach. With the rule 2 the wide reach of 15 cm is 21 cm for
+    // it, so a gap of 15.8 cm is in the reach.
+    const float extra = MovingExtra(75.0f, 15.0f, 0.1f, 8.0f);
+    Near("rule 2: the extra reach is on the wide reach",
+         WideMoving(15.0f, extra, kCatchRest), 21.0, 1e-4);
+    Near("rule 1: the wide reach is the same for an object that moves",
+         WideMoving(15.0f, extra, kCatchPick), 15.0, 1e-9);
+    Near("rule 0: the wide reach is the same for an object that moves",
+         WideMoving(15.0f, extra, kCatchOff), 15.0, 1e-9);
+    Near("rule 2: a wide reach that is off stays off",
+         WideMoving(0.0f, extra, kCatchRest), 0.0, 1e-9);
+    Near("rule 2: an object at rest has the wide reach",
+         WideMoving(15.0f, 0.0f, kCatchRest), 15.0, 1e-9);
+    Check(WidePick(15.8f, 4.0f, WideMoving(15.0f, extra, kCatchRest), 15.8f,
+                   0.1f),
+          "rule 2: the rock that falls 15.8 cm away is the target", 15.8, 21.0);
+    Check(!WidePick(15.8f, 4.0f, WideMoving(15.0f, extra, kCatchPick), 15.8f,
+                    0.1f),
+          "rule 1: the rock that falls 15.8 cm away is no target", 15.8, 15.0);
+    Check(!WidePick(21.5f, 4.0f, WideMoving(15.0f, extra, kCatchRest), 21.5f,
+                    0.1f),
+          "rule 2: past the wide reach and the extra reach is no target", 21.5,
+          21.0);
+    // THE GUARD. A throw has it in each rule. An object that fell from a hand
+    // that was still has it in the rule 1 only.
+    Check(GuardHolds(0.3, 0.6, false, kCatchRest),
+          "rule 2: a throw of 0.3 s ago is guarded", 0.3, 0.6);
+    Check(!GuardHolds(0.3, 0.6, true, kCatchRest),
+          "rule 2: an object that fell 0.3 s ago is not guarded", 0.3, 0.6);
+    Check(GuardHolds(0.3, 0.6, true, kCatchPick),
+          "rule 1: an object that fell 0.3 s ago is guarded", 0.3, 0.6);
+    Check(!GuardHolds(0.7, 0.6, false, kCatchRest),
+          "rule 2: a throw of 0.7 s ago is not guarded", 0.7, 0.6);
   }
 
   // THE BODY. A tree: its base at the origin, radius 1.5, height 8. All in

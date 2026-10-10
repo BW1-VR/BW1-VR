@@ -35,6 +35,13 @@ void ThrowPhysicsSetLanding(int land, int rate_x10, int bounce_pct,
 // the land and is slow (docs/throw.md, "The landing of a tree"). 0 keeps the
 // game's turn.
 void ThrowPhysicsSetSettle(bool settle);
+// throw_draw: where the mod draws a thrown object between the steps of the
+// game (docs/throw.md, "The picture between the steps"). 1: a substep in
+// which another object touches the thrown object is 5 ms of the picture, the
+// picture stays at a guess until the object comes to it, and the clock falls
+// back after a wait. 0: each substep has its time of the flight. With
+// test_keys=1, Ctrl with Scroll Lock goes between the two.
+void ThrowPhysicsSetDraw(int rule);
 // release_fall_cm: a hand that is still at the opening of the grip sets the
 // object down only when its point is this many cm of the room over the land
 // or less. Higher up the object falls. 0 sets it down at each height. With

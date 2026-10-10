@@ -61,8 +61,11 @@
 //
 //   THE DRAW. The game draws a physics object where the last turn left it,
 //   10 times a second. The mod keeps the object's matrix after each substep
-//   with its time in the flight, and a hook on PhysicsObject::DrawAll
+//   with its time in the picture, and a hook on PhysicsObject::DrawAll
 //   0x00646DE0 puts the object where the flight is at the time of the frame.
+//   A substep with a touch of another object runs one step, and it is 5 ms
+//   of the picture as each other substep is (throw_draw, throw_math.h,
+//   PictureSpan).
 //   Between the release action and the game's first turn with the object,
 //   the game still holds it in the Hand. Then the mod draws it on the real
 //   arc from the release.
@@ -214,6 +217,11 @@ float g_land_rate = 1.0f;
 float g_bounce = 0.5f;
 float g_brake = 0.6f;
 bool g_settle = true;      // throw_tree_settle: a tree that falls settles
+// THE PICTURE BETWEEN THE STEPS (throw_draw, throw_math.h, PictureSpan): 1
+// gives a substep with a touch of another object 5 ms of the picture, keeps
+// the picture at a guess until the object comes to it, and lets the clock
+// fall back after a wait. 0 is the time of the flight for each substep.
+int g_draw = throw_math::kDrawReal;
 bool g_contact_hook = false;
 bool g_installed = false;
 bool g_said_multiplayer = false;
@@ -284,6 +292,19 @@ struct Flight {
   bool draw_valid;
   float draw_matrix[12];
   int draw_logs;
+  // The picture between the steps. The flight latches throw_draw at the
+  // release. show is the time of the picture that the state is at: it is
+  // `time`, and with the rule 1 it has 5 ms for each substep with a touch of
+  // another object.
+  int draw_rule;
+  double show;
+  double draw_now;       // the real time of the last frame of the picture
+  double debt;           // the time that the clock gives back
+  bool guess;            // the last place that moved was a guess
+  float guess_place[3];
+  float guess_dir[3];
+  double hold;           // the time that the picture stayed at that place
+  int holds;             // the frames that it stayed, for the log
   // The numbers of the time after the first contact, for the log.
   throw_math::Landing landing;
   throw_math::DrawTrack track;
@@ -516,20 +537,22 @@ void ThrowCapture(void* hand) {
   g_hand_place.frame = frame;
 }
 
-void PushSample(Flight* f, void* ob) {
+// rate: the speed of the picture for one unit of the speed of the game at
+// this step (throw_math::PictureRate).
+void PushSample(Flight* f, void* ob, float rate) {
   if (f->count == kMaxSamples) {
     memmove(f->samples, f->samples + 1,
             sizeof(f->samples[0]) * (kMaxSamples - 1));
     --f->count;
   }
   throw_math::FlightSample& sample = f->samples[f->count++];
-  sample.time = f->time;
+  sample.time = f->show;
   WorldMatrix(ob, sample.matrix);
   const uint8_t* o = static_cast<const uint8_t*>(ob);
   const float* v = reinterpret_cast<const float*>(o + kObVelocity);
   const float* center = reinterpret_cast<const float*>(o + kObPosition);
   for (int i = 0; i < 3; ++i) {
-    sample.velocity[i] = v[i] * f->scale;
+    sample.velocity[i] = v[i] * rate;
     sample.center[i] = center[i];
   }
   sample.contact = *reinterpret_cast<const int32_t*>(o + kObContacts) > 0 ||
@@ -589,6 +612,17 @@ void LogLanding(Flight* f) {
          f->track.frames,
          f->track.late, f->track.top_late * 1000.0, f->track.back,
          f->track.top_back * cm);
+  if (g_flight_logs >= kMaxFlightLogs) return;
+  ++g_flight_logs;
+  ModLog("hand throw   : the picture of %p after the first contact "
+         "(throw_draw=%d): %d of the %d turns back came in the frame after a "
+         "frame that was drawn after the newest step. The picture stood and "
+         "then jumped %d times (%.1f cm at most). The longest move of one "
+         "frame was %.1f cm. The picture stayed at the place of a guess on %d "
+         "frames. %d substeps touched an object",
+         f->object, f->draw_rule, f->track.back_late, f->track.back,
+         f->track.jumps, f->track.top_jump * cm, f->track.top_step * cm,
+         f->holds, f->hit_substeps);
 }
 
 // The end of a flight. The game's drag goes back to the object, when the
@@ -680,9 +714,10 @@ void StartPhysics(Flight* f, uint8_t* entry, double now) {
   f->drag_off = true;
   f->phase = kPhysics;
   f->time = t;
+  f->show = t;
   f->remainder = 0.0f;
   f->count = 0;
-  PushSample(f, ob);
+  PushSample(f, ob, f->scale);
   if (g_flight_logs < kMaxFlightLogs) {
     ++g_flight_logs;
     ModLog("hand throw   : the game's physics has %p, %.0f ms after the "
@@ -949,11 +984,16 @@ int FlySubstep(Flight* f, uint8_t* ob) {
   const double span =
       done * static_cast<double>(throw_math::kSubstep) / f->scale;
   f->time += span;
+  // The time of this substep in the picture, and the speed of the picture
+  // in it (throw_math::PictureSpan).
+  const double shown = throw_math::PictureSpan(span, hit, f->draw_rule);
+  f->show += shown;
   f->last_code = code;
   ++f->substeps;
   f->steps += done;
   f->turn_steps += done;
-  PushSample(f, ob);
+  PushSample(f, ob, shown != span ? throw_math::PictureRate(done, shown)
+                                  : f->scale);
   if (f->contact && f->samples[f->count - 1].contact) f->touch += span;
   TrackLanding(f, ob);
   LARGE_INTEGER end, frequency;
@@ -1001,11 +1041,18 @@ void LatchDraw(Flight* f) {
   f->draw_frame = frame;
   f->draw_valid = false;
   const double now = NowSeconds();
+  const bool real = f->draw_rule == throw_math::kDrawReal;
+  const double frame_seconds = f->draw_now > 0.0 ? now - f->draw_now : 0.0;
+  f->draw_now = now;
+  // The clock gives back the time that it is in front of the steps after a
+  // wait (throw_math::ClockFallBack).
+  if (real) f->t0 += throw_math::ClockFallBack(&f->debt, frame_seconds);
   double clock = now - f->t0;
   float arc[3], arc_v[3];
   ArcAt(*f, clock, arc, arc_v);
   const char* from = "the real arc";
   double late = 0.0;
+  bool stays = false;
   if (f->phase == kHeld || f->count == 0 || clock < f->samples[0].time) {
     for (int i = 0; i < 9; ++i) f->draw_matrix[i] = f->matrix0[i];
     if (f->phase == kPhysics && f->count > 0) {
@@ -1016,14 +1063,45 @@ void LatchDraw(Flight* f) {
   } else {
     // After the newest step the object falls with the gravity of the
     // picture: the square of the rate, which is s / k^2 in the flight.
+    float velocity[3] = {0.0f, 0.0f, 0.0f};
     f->draw_valid = throw_math::FlightAt(
         f->samples, f->count, clock, f->contact ? f->scale * f->scale : f->gs,
-        f->draw_matrix, &late);
+        f->draw_matrix, &late, velocity);
     from = late > 0.0 ? "after the newest step" : "the game's steps";
     // The game ran no turn for some time (a pause, a slow turn). The clock
     // of the flight waits, so the flight goes on from where it stopped.
     if (late > throw_math::kFlightAhead) {
       f->t0 += late - throw_math::kFlightAhead;
+      if (real) f->debt = throw_math::kFlightAhead;
+    }
+    // THE PICTURE DOES NOT GO BACK (throw_math::GuessHolds). The place of a
+    // frame after the newest step is a guess. While the object is behind
+    // that place and comes to it, the picture stays there.
+    if (real && f->draw_valid) {
+      float* p = &f->draw_matrix[9];
+      if (f->guess &&
+          throw_math::GuessHolds(p, velocity, f->guess_place, f->guess_dir,
+                                 f->hold, throw_math::kFlightAhead)) {
+        f->hold += frame_seconds;
+        ++f->holds;
+        stays = true;
+        for (int i = 0; i < 3; ++i) p[i] = f->guess_place[i];
+      } else if (late > 0.0) {
+        // The direction of the guess is its own move from the newest step.
+        const float* last = &f->samples[f->count - 1].matrix[9];
+        float dir[3] = {p[0] - last[0], p[1] - last[1], p[2] - last[2]};
+        if (!(controller_math::Length(dir) > 1e-6f)) {
+          for (int i = 0; i < 3; ++i) dir[i] = velocity[i];
+        }
+        f->guess = controller_math::Length(dir) > 1e-6f;
+        f->hold = 0.0;
+        for (int i = 0; i < 3; ++i) {
+          f->guess_place[i] = p[i];
+          f->guess_dir[i] = dir[i];
+        }
+      } else {
+        f->guess = false;
+      }
     }
   }
   // After a release in the glide of a far fetch the picture comes from the
@@ -1042,9 +1120,9 @@ void LatchDraw(Flight* f) {
                              f->s * 0.0005f);
     if (g_log >= 2 && f->trace_logs < kMaxTraceLogs) {
       ++f->trace_logs;
-      ModLog("hand throw   : d %llu %.4f p %.2f %.2f %.2f l %.1f", frame,
+      ModLog("hand throw   : d %llu %.4f p %.2f %.2f %.2f l %.1f h %d", frame,
              clock, f->draw_matrix[9], f->draw_matrix[10], f->draw_matrix[11],
-             late * 1000.0);
+             late * 1000.0, stays ? 1 : 0);
     }
   }
   if (g_log && f->draw_valid && f->draw_logs < 90 && frame % 3 == 0) {
@@ -1099,8 +1177,10 @@ void PollLawKey() {
   const uint64_t frame = ControllersFrameCount();
   if (frame == last_frame) return;
   last_frame = frame;
+  // Ctrl must be up: Ctrl and Scroll Lock is the key of throw_draw.
   const bool now = (GetAsyncKeyState(VK_SCROLL) & 0x8000) != 0 &&
-                   (GetAsyncKeyState(VK_SHIFT) & 0x8000) == 0;
+                   (GetAsyncKeyState(VK_SHIFT) & 0x8000) == 0 &&
+                   (GetAsyncKeyState(VK_CONTROL) & 0x8000) == 0;
   if (now && !down) {
     DWORD process = 0;
     const HWND window = GetForegroundWindow();
@@ -1111,6 +1191,42 @@ void PollLawKey() {
              g_law == 2 ? "the real flight (throw_law=2)"
                         : "the square root law with the game's physics "
                           "(throw_law=1)");
+    }
+  }
+  down = now;
+}
+
+// THE PICTURE BETWEEN THE STEPS IN THE HEADSET. With test_keys=1, Ctrl with
+// Scroll Lock goes between the two rules of throw_draw. A long pulse means
+// the rule 1, a short pulse means the rule 0. A flight that is in the air
+// keeps its rule. Read once a frame, and only while a window of the game is
+// in front.
+void PollDrawKey() {
+  static uint64_t last_frame = 0;
+  static bool down = false;
+  if (!g_test_keys) return;
+  const uint64_t frame = ControllersFrameCount();
+  if (frame == last_frame) return;
+  last_frame = frame;
+  const bool now = (GetAsyncKeyState(VK_SCROLL) & 0x8000) != 0 &&
+                   (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0 &&
+                   (GetAsyncKeyState(VK_SHIFT) & 0x8000) == 0;
+  if (now && !down) {
+    DWORD process = 0;
+    const HWND window = GetForegroundWindow();
+    if (window != nullptr) GetWindowThreadProcessId(window, &process);
+    if (process == GetCurrentProcessId()) {
+      g_draw = g_draw == throw_math::kDrawReal ? throw_math::kDrawFlight
+                                               : throw_math::kDrawReal;
+      ControllersGesturePulse(
+          0.5f, g_draw == throw_math::kDrawReal ? 0.30f : 0.06f);
+      ModLog("hand throw   : Ctrl and Scroll Lock: throw_draw is %d now. %s",
+             g_draw,
+             g_draw == throw_math::kDrawReal
+                 ? "A substep with a touch of another object is 5 ms of the "
+                   "picture, and the picture does not go back to a place "
+                   "behind a guess"
+                 : "Each substep has its time of the flight in the picture");
     }
   }
   down = now;
@@ -1274,6 +1390,7 @@ void PollSlowKeys() {
 
 void __cdecl h_DrawAll() {
   PollLawKey();
+  PollDrawKey();
   PollFallKey();
   PollLandKey();
   PollSettleKey();
@@ -1326,6 +1443,10 @@ void ThrowPhysicsSetSlow(int slow_x10, bool trees) {
 }
 
 void ThrowPhysicsSetSettle(bool settle) { g_settle = settle; }
+
+void ThrowPhysicsSetDraw(int rule) {
+  g_draw = rule != 0 ? throw_math::kDrawReal : throw_math::kDrawFlight;
+}
 
 void ThrowPhysicsSetFall(int limit_cm) {
   if (limit_cm < 0) limit_cm = 0;
@@ -1454,11 +1575,20 @@ void ThrowPhysicsInstall() {
              g_land_rate);
     }
   }
+  ModLog("hand throw   : throw_draw=%d: %s", g_draw,
+         g_draw == throw_math::kDrawReal
+             ? "between the steps of the game, a substep with a touch of "
+               "another object is 5 ms of the picture, the picture stays at "
+               "a guess until the object comes to it, and the clock falls "
+               "back after a wait"
+             : "between the steps of the game, each substep has its time of "
+               "the flight in the picture");
   if (ok && g_test_keys) {
     ModLog("hand throw   : test_keys=1: Scroll Lock goes between the real "
            "flight and the square root law. Numpad Plus and Numpad Divide "
            "change the time factor by 0.25, and with Ctrl the rate of the "
-           "land. Pause goes through the three landings");
+           "land. Pause goes through the three landings. Ctrl and Scroll "
+           "Lock change throw_draw");
   }
 }
 
@@ -1595,6 +1725,7 @@ void ThrowPhysicsReleased(void* held) {
   f->object = held;
   f->frame0 = frame;
   f->tree = tree;
+  f->draw_rule = g_draw;
   f->t0 = NowSeconds();
   f->s = plan.s;
   f->gs = plan.t.gravity;
@@ -1741,11 +1872,13 @@ void ThrowPhysicsTurnEnd() {
       const float* p = reinterpret_cast<const float*>(ob + kObPosition);
       const float* v = reinterpret_cast<const float*>(ob + kObVelocity);
       ModLog("hand throw   : turn %d of the flight of %p: %d steps in %.2f "
-             "ms. The physics is at %.3f s of the flight, and the real time "
-             "is %.3f s. The center is at %.1f %.1f %.1f, the speed is %.1f "
+             "ms. The physics is at %.3f s of the flight and at %.3f s of "
+             "the picture, and the real time is %.3f s. The center is at "
+             "%.1f %.1f %.1f, the speed is %.1f "
              "units/s in the game's time, %d points touch, the last step "
              "gave %d", f.turns, f.object, f.turn_steps,
-             f.turn_seconds * 1000.0, f.time, now - f.t0, p[0], p[1], p[2],
+             f.turn_seconds * 1000.0, f.time, f.show, now - f.t0, p[0], p[1],
+             p[2],
              controller_math::Length(v),
              *reinterpret_cast<const int32_t*>(ob + kObContacts),
              f.last_code);

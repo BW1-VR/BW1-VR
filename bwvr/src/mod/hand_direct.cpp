@@ -795,6 +795,9 @@ uint64_t g_far_keep_offers = 0;
 void* g_last_thrown = nullptr;
 void* g_last_thrown_vtable = nullptr;
 double g_last_thrown_time = 0.0;  // NowSeconds() at the release
+// The object left a hand that was still: it fell by the height rule, or the
+// game set it down. It is no throw (near_math::GuardHolds).
+bool g_last_thrown_fell = false;
 
 bool HandEmpty();
 void Inject();
@@ -882,7 +885,9 @@ int g_near_in_cm = near_math::kNearInCm;    // far_grab_near_cm
 int g_near_out_cm = near_math::kNearOutCm;  // far_grab_near_out_cm
 // AN OBJECT THAT MOVES (docs/grab.md, "A target that moves, floats or
 // dies"): the keys catch_moving, catch_lag_ms, catch_cap_cm, catch_grace_ms.
-int g_catch_on = 1;
+// g_catch_on is the rule of catch_moving: near_math::kCatchOff, kCatchPick or
+// kCatchRest.
+int g_catch_on = near_math::kCatchRest;
 int g_catch_lag_ms = near_math::kCatchLagMs;
 int g_catch_cap_cm = near_math::kCatchCapCm;
 int g_catch_grace_ms = near_math::kCatchGraceMs;
@@ -890,9 +895,11 @@ bool g_catch_key_down = false;
 int g_wide_cm = near_math::kWideCm;       // hand_wide_pick_cm
 bool g_wide_key_down = false;
 bool g_choice_wide = false;               // the choice is a wide pick
+float g_choice_wide_cm = 0.0f;            // and the wide reach that it had
 void* g_wide_logged = nullptr;
 uint64_t g_catch_picks = 0;  // choices that the extra reach made, this window
 void* g_catch_logged = nullptr;
+void* g_wide_catch_logged = nullptr;  // the same for a wide choice
 bool g_far_touch = true;                    // far_touch
 bool g_near_key_down = false;
 bool g_scroll_key_down = false;  // Ctrl and the point key: scroll_draw
@@ -949,6 +956,9 @@ uint64_t g_throw_frame = 0;
 float g_throw_sent[3] = {0.0f, 0.0f, 0.0f};
 float g_throw_expected = 0.0f;  // units: s times the real range, no drag
 bool g_throw_flies = false;
+// The release of this frame is from a hand that was still: the real flight
+// lets the object fall (the height rule), or the game sets it down.
+bool g_throw_still = false;
 int g_throw_logs = 0;
 const int kMaxThrowLogs = 60;
 uint64_t g_throws = 0;
@@ -1798,6 +1808,7 @@ void PrepareThrow() {
   const float life = HeadPoseScale();
   bool drop = false;
   g_throw_expected = 0.0f;
+  g_throw_still = false;
   // THE REAL FLIGHT (throw_law=2, docs/throw.md, "The throw physics"). The
   // speed is the top speed of the swing, and throw_physics.cpp flies the
   // object in the room as a real object flies. It logs the release too.
@@ -1828,6 +1839,7 @@ void PrepareThrow() {
       for (int i = 0; i < 3; ++i) sent[i] = plan.sent[i];
       drop = plan.drop;
       real = plan.real_mps;
+      g_throw_still = plan.fall || plan.drop;
     }
   }
   if (real_flight) {
@@ -1865,6 +1877,7 @@ void PrepareThrow() {
   // (InitialisePhysicsFromHand), and sets the object down otherwise.
   g_throw_flies =
       sent[0] * sent[0] + sent[2] * sent[2] > kDropSpeed * kDropSpeed;
+  if (drop || !moving) g_throw_still = true;
   if (real_flight) return;
   if (g_throw_logs >= kMaxThrowLogs) return;
   ++g_throw_logs;
@@ -2033,6 +2046,7 @@ void __fastcall h_ReleaseAction(void* self, void* unused) {
     g_last_thrown = thrown;
     g_last_thrown_vtable = *static_cast<void* const*>(thrown);
     g_last_thrown_time = NowSeconds();
+    g_last_thrown_fell = g_throw_still;
     ThrowPhysicsReleased(thrown);
   }
 }
@@ -3052,13 +3066,23 @@ void PollCatchKey() {
   DWORD process = 0;
   if (window != nullptr) GetWindowThreadProcessId(window, &process);
   if (process != GetCurrentProcessId()) return;
-  g_catch_on = g_catch_on != 0 ? 0 : 1;
+  g_catch_on = g_catch_on == near_math::kCatchRest   ? near_math::kCatchPick
+               : g_catch_on == near_math::kCatchPick ? near_math::kCatchOff
+                                                     : near_math::kCatchRest;
   g_catch_logged = nullptr;
-  ControllersGesturePulse(0.5f, g_catch_on != 0 ? 0.30f : 0.08f);
+  g_wide_catch_logged = nullptr;
+  ControllersGesturePulse(0.5f, g_catch_on == near_math::kCatchRest   ? 0.30f
+                                : g_catch_on == near_math::kCatchPick ? 0.15f
+                                                                      : 0.08f);
   ModLog("hand pick    : Ctrl and Page Up: catch_moving is %d now, frame %llu. %s",
          g_catch_on, g_frame,
-         g_catch_on != 0
-             ? "An object that moves has a longer reach of the pick"
+         g_catch_on == near_math::kCatchRest
+             ? "An object that moves has the reach that it has at rest and "
+               "the extra reach. An object that fell from a still hand has "
+               "no guard"
+         : g_catch_on == near_math::kCatchPick
+             ? "An object that moves has the extra reach on the reach of the "
+               "pick only, and each object that you let go has the guard"
              : "Each object has the same reach, moving or still");
 }
 
@@ -4027,22 +4051,26 @@ float ObjectSpeedNow(const Candidate& c) {
   return speed;
 }
 
-// The reach of the pick for a candidate: the reach, and for an object that the
-// Hand can hold and that moves, the extra reach of near_math::MovingExtra. The
-// object that the Hand let go a moment ago (catch_grace_ms) gets none, so a
-// throw does not come back in the same closing of the grip.
-float CatchReach(const Candidate& c, int kind, float reach, float units) {
-  if (g_catch_on == 0 || kind != near_math::kHold) return reach;
+// The extra reach of the pick for a candidate, in world units: for an object
+// that the Hand can hold and that moves, the extra reach of
+// near_math::MovingExtra. The object that the Hand threw a moment ago
+// (catch_grace_ms, near_math::GuardHolds) gets none, so a throw does not come
+// back in the same closing of the grip.
+float CatchExtra(const Candidate& c, int kind, float units) {
+  if (g_catch_on == near_math::kCatchOff || kind != near_math::kHold) {
+    return 0.0f;
+  }
   if (c.object == g_last_thrown &&
-      near_math::JustLetGo(NowSeconds() - g_last_thrown_time,
-                           g_catch_grace_ms * 0.001)) {
-    return reach;
+      near_math::GuardHolds(NowSeconds() - g_last_thrown_time,
+                            g_catch_grace_ms * 0.001, g_last_thrown_fell,
+                            g_catch_on)) {
+    return 0.0f;
   }
   const float cmps = ObjectSpeedNow(c) / units * 100.0f;
   const float extra_cm = near_math::MovingExtra(
       cmps, static_cast<float>(near_math::kCatchStillCmps),
       g_catch_lag_ms * 0.001f, static_cast<float>(g_catch_cap_cm));
-  return reach + near_math::CmToUnits(extra_cm, units);
+  return near_math::CmToUnits(extra_cm, units);
 }
 
 void Choose() {
@@ -4105,6 +4133,9 @@ void Choose() {
   float wide_position[3] = {0, 0, 0};
   near_math::Gap wide_gap = {1e30f, 1e30f};
   Measured wide_measured = {};
+  // The wide reach of that object: with catch_moving=2 the extra reach of an
+  // object that moves is on it (near_math::WideMoving).
+  float wide_own = wide_reach, wide_speed = 0.0f;
   // The nearest object that a press acts on, past the first cut too, for the
   // line of a press with no target.
   g_any_object = nullptr;
@@ -4132,7 +4163,9 @@ void Choose() {
     }
     const int kind = PressKind(c.object, status);
     if (kind == near_math::kNone) continue;
-    const float c_reach = CatchReach(c, kind, reach, units);
+    const float c_extra = CatchExtra(c, kind, units);
+    const float c_reach = reach + c_extra;
+    const float c_wide = near_math::WideMoving(wide_reach, c_extra, g_catch_on);
     if (g_one_target) {
       // ONE TARGET: the body that the player sees, and the rule of
       // near_math::BeatsTarget. The Creature is a choice too.
@@ -4149,11 +4182,13 @@ void Choose() {
       }
       if (!(m.target.gap.gap < (m.target.scroll ? scroll_reach : c_reach))) {
         if (kind == near_math::kHold && !m.target.scroll &&
-            m.target.gap.gap < wide_reach &&
+            m.target.gap.gap < c_wide &&
             (wide_object == nullptr || m.target.gap.gap < wide_gap.gap)) {
           wide_object = c.object;
           wide_gap = m.target.gap;
           wide_measured = m;
+          wide_own = c_wide;
+          wide_speed = c_wide > wide_reach ? ObjectSpeedNow(c) : 0.0f;
           for (int k = 0; k < 3; ++k) wide_position[k] = c.position[k];
         }
         continue;
@@ -4202,10 +4237,12 @@ void Choose() {
       continue;
     }
     if (!(gap.gap < c_reach)) {
-      if (kind == near_math::kHold && gap.gap < wide_reach &&
+      if (kind == near_math::kHold && gap.gap < c_wide &&
           (wide_object == nullptr || gap.gap < wide_gap.gap)) {
         wide_object = c.object;
         wide_gap = gap;
+        wide_own = c_wide;
+        wide_speed = c_wide > wide_reach ? ObjectSpeedNow(c) : 0.0f;
         for (int k = 0; k < 3; ++k) wide_position[k] = c.position[k];
       }
       continue;
@@ -4223,17 +4260,18 @@ void Choose() {
     chosen_speed = c_reach > reach ? ObjectSpeedNow(c) : 0.0f;
   }
   if (g_choice == nullptr && wide_object != nullptr &&
-      near_math::WidePick(wide_gap.gap, reach, wide_reach, nearest, eps)) {
+      near_math::WidePick(wide_gap.gap, reach, wide_own, nearest, eps)) {
     g_choice = wide_object;
     chosen = wide_measured;
     best = wide_gap;
     best_kind = near_math::kHold;
     for (int k = 0; k < 3; ++k) g_choice_position[k] = wide_position[k];
     g_choice_gap = wide_gap.gap;
-    chosen_reach = wide_reach;
-    chosen_speed = 0.0f;
+    chosen_reach = wide_own;
+    chosen_speed = wide_speed;
     g_choice_wide = true;
-    if (g_wide_logged != g_choice) {
+    g_choice_wide_cm = wide_own / units * 100.0f;
+    if (g_wide_logged != g_choice && g_choice_gap < wide_reach) {
       g_wide_logged = g_choice;
       ModLog("hand pick    : the %s %p is %.1f cm of the room from the Hand's "
              "point, past the reach of %d cm and inside the wide reach of %d "
@@ -4241,8 +4279,20 @@ void Choose() {
              "target, frame %llu", ClassName(g_choice), g_choice,
              g_choice_gap / units * 100.0f, g_pick_cm, g_wide_cm, g_frame);
     }
+    // A wide choice that only the extra reach of a moving object made: one
+    // line for each new object.
+    if (!(g_choice_gap < wide_reach) && g_wide_catch_logged != g_choice) {
+      g_wide_catch_logged = g_choice;
+      ++g_catch_picks;
+      ModLog("hand pick    : the %s %p moves at %.0f cm of the room a second, "
+             "so its wide reach is %.1f cm of the room and not %d "
+             "(catch_moving=2), gap %.1f cm, frame %llu", ClassName(g_choice),
+             g_choice, wide_speed / units * 100.0f, g_choice_wide_cm,
+             g_wide_cm, g_choice_gap / units * 100.0f, g_frame);
+    }
   } else if (g_choice == nullptr) {
     g_wide_logged = nullptr;
+    g_wide_catch_logged = nullptr;
   }
   // While a choice stands, the table hook keeps each other object from the
   // game's pick, the Creature too. A house beside the Creature must not do
@@ -4410,7 +4460,7 @@ void Choose() {
              units > 0.0f ? g_choice_gap / units * 100.0f : 0.0f,
              g_choice_touched ? "the point touches it, in"
                               : "the point does not touch it, in",
-             g_choice_wide ? g_wide_cm
+             g_choice_wide ? static_cast<int>(g_choice_wide_cm + 0.5f)
              : chosen.target.scroll && g_scroll_reach_cm > g_pick_cm
                  ? g_scroll_reach_cm
                  : g_pick_cm,
@@ -5464,6 +5514,8 @@ int g_tree_held_verdict = -1;
 void* g_tree_watch = nullptr;  // the tree that the Hand let go
 int g_tree_watch_verdict = -1;
 bool g_tree_watch_physics = false;
+float g_tree_watch_height_cm = 0.0f;  // the Hand's point before the release
+float g_tree_lean[2] = {0.0f, 0.0f};  // the lean of the tree in the Hand
 uint64_t g_tree_watch_start = 0;
 int g_roots_count = -1;
 const uint8_t* g_roots_head = nullptr;
@@ -5544,6 +5596,70 @@ void WatchRootsPiles() {
   }
 }
 
+// THE BODIES THAT THE RELEASE COMPARED WITH THE TREE, for the log. The game's
+// physics is an array of 0x1DC bytes an entry at *0x00D47814, with the count
+// at 0x00D47818 (throw_physics.cpp). An entry has its Object at +0x18, its
+// center at +0xC8, its radius at +0x178 and its flags at +0x1D8.
+// PhysicsObject::RaiseUntilNotIntersecting 0x00644800 compares the tree with
+// each other entry whose center is nearer than the sum of the two radii. The
+// release sets the flag 8 of the tree only when it did not raise the tree:
+// with that flag the landing plants the tree.
+void LogTreeBodies(void* tree) {
+  const uintptr_t kArray = 0x00D47814, kCount = 0x00D47818;
+  const int kEntry = 0x1DC, kEntryObject = 0x18, kEntryCenter = 0xC8;
+  const int kEntryRadius = 0x178, kEntryFlags = 0x1D8;
+  const uint8_t* base = *reinterpret_cast<const uint8_t* const*>(kArray);
+  const int32_t count = *reinterpret_cast<const int32_t*>(kCount);
+  if (base == nullptr || count <= 0 || count > 4096 ||
+      IsBadReadPtr(base, static_cast<size_t>(count) * kEntry)) {
+    return;
+  }
+  const uint8_t* own = nullptr;
+  for (int i = 0; i < count; ++i) {
+    const uint8_t* entry = base + i * kEntry;
+    if (*reinterpret_cast<void* const*>(entry + kEntryObject) == tree) {
+      own = entry;
+    }
+  }
+  if (own == nullptr) {
+    ModLog("hand tree    : the physics of the game has no entry for the tree "
+           "%p, frame %llu", tree, g_frame);
+    return;
+  }
+  const float* at = reinterpret_cast<const float*>(own + kEntryCenter);
+  const float radius = *reinterpret_cast<const float*>(own + kEntryRadius);
+  int near_count = 0;
+  float nearest = 1e30f;
+  void* nearest_object = nullptr;
+  for (int i = 0; i < count; ++i) {
+    const uint8_t* entry = base + i * kEntry;
+    if (entry == own) continue;
+    const float* p = reinterpret_cast<const float*>(entry + kEntryCenter);
+    const float reach =
+        radius + *reinterpret_cast<const float*>(entry + kEntryRadius);
+    const float gap = Distance(at, p);
+    if (!(gap < reach)) continue;
+    ++near_count;
+    if (gap < nearest) {
+      nearest = gap;
+      nearest_object = *reinterpret_cast<void* const*>(entry + kEntryObject);
+    }
+  }
+  const uint32_t flags = *reinterpret_cast<const uint32_t*>(own + kEntryFlags);
+  char name[48] = "nothing";
+  if (nearest_object != nullptr && !IsBadReadPtr(nearest_object, 0x44)) {
+    strcpy_s(name, ClassName(nearest_object));
+  }
+  ModLog("hand tree    : the physics of the game has %d objects, and %d of "
+         "them have their center nearer to the tree than the sum of the two "
+         "radii (the radius of the tree is %.2f units). The nearest is %p "
+         "(%s), %.2f units from the center of the tree. The flags of the "
+         "tree are 0x%X: the flag 8 (the landing plants the tree) is %s",
+         count, near_count, radius, nearest_object, name,
+         near_count > 0 ? nearest : 0.0f, flags,
+         (flags & 8) != 0 ? "set" : "not set");
+}
+
 void TreeReleaseFrame() {
   ReadTreeHintKey();
   WatchRootsPiles();
@@ -5579,6 +5695,8 @@ void TreeReleaseFrame() {
     g_tree_verdict = tree_plant_math::ReleaseVerdict(
         height_m, ThrowPhysicsFallLimitM(), lean_x, lean_z, dry, burning);
     g_tree_height_cm = height_m * 100.0f;
+    g_tree_lean[0] = lean_x;
+    g_tree_lean[1] = lean_z;
     if (held != g_tree_held || g_tree_verdict != g_tree_held_verdict) {
       g_tree_held_verdict = g_tree_verdict;
       if (g_tree_logs < 80) {
@@ -5604,15 +5722,18 @@ void TreeReleaseFrame() {
   if (g_tree_held != nullptr) {
     g_tree_watch = g_tree_held;
     g_tree_watch_verdict = g_tree_held_verdict;
+    g_tree_watch_height_cm = g_tree_height_cm;
     g_tree_watch_physics = false;
     g_tree_watch_start = g_frame;
     if (g_tree_logs < 80) {
       ++g_tree_logs;
       ModLog("hand tree    : the Hand let go of the tree %p, frame %llu. The "
-             "card said %s before the release. The mod watches the tree until "
-             "it leaves the physics", g_tree_watch, g_frame,
+             "card said %s before the release, and the tree leaned %.2f and "
+             "%.2f rad on its last frame in the Hand. The mod watches the "
+             "tree until it leaves the physics", g_tree_watch, g_frame,
              g_tree_watch_verdict == tree_plant_math::kPlants ? "plant"
-                                                               : "it falls");
+                                                               : "it falls",
+             g_tree_lean[0], g_tree_lean[1]);
     }
     g_tree_held = nullptr;
     g_tree_held_verdict = -1;
@@ -5629,8 +5750,29 @@ void TreeReleaseFrame() {
         (*reinterpret_cast<const uint16_t*>(object + kTreeFlags) & 0x40) != 0;
     if (physics && !g_tree_watch_physics && g_tree_logs < 80) {
       ++g_tree_logs;
-      ModLog("hand tree    : the tree %p is in the physics, frame %llu",
-             g_tree_watch, g_frame);
+      // The release puts a tree that the Hand sets down on the land, and
+      // then raises it until it is in no other body (docs/grab.md, "The
+      // test of a body in the way"). So a mesh that is over the land now,
+      // after a set down, is a tree that the game raised.
+      float over = 0.0f, y = 0.0f, lean_x = 0.0f, lean_z = 0.0f;
+      const uint8_t* mesh =
+          *reinterpret_cast<const uint8_t* const*>(object + kObjectMesh);
+      if (mesh != nullptr && !IsBadReadPtr(mesh, 0x50)) {
+        const float* at =
+            reinterpret_cast<const float*>(mesh + kMeshTranslation);
+        const int32_t coords[3] = {static_cast<int32_t>(at[0] * kMapScale),
+                                   static_cast<int32_t>(at[2] * kMapScale), 0};
+        over = at[1] - reinterpret_cast<GetAltitudeFn>(kGetAltitude)(coords);
+        reinterpret_cast<GetYXZFn>(kGetYXZ)(mesh + 0x14, nullptr, &y, &lean_x,
+                                            &lean_z);
+      }
+      ModLog("hand tree    : the tree %p is in the physics, frame %llu. Its "
+             "mesh is %.2f units over the land now and leans %.2f and %.2f "
+             "rad, and the Hand's point was %.1f cm of the room over the "
+             "land before the release",
+             g_tree_watch, g_frame, over, lean_x, lean_z,
+             g_tree_watch_height_cm);
+      LogTreeBodies(g_tree_watch);
     }
     if (physics) g_tree_watch_physics = true;
     static void* said = nullptr;
@@ -5993,7 +6135,9 @@ void InstallNear() {
            "the right press (the target of each press)");
     }
   }
-  g_catch_on = IniKey("catch_moving", 1) != 0 ? 1 : 0;
+  g_catch_on = IniKey("catch_moving", near_math::kCatchRest);
+  if (g_catch_on < near_math::kCatchOff) g_catch_on = near_math::kCatchOff;
+  if (g_catch_on > near_math::kCatchRest) g_catch_on = near_math::kCatchRest;
   g_catch_lag_ms = IniKey("catch_lag_ms", near_math::kCatchLagMs);
   if (g_catch_lag_ms < 0) g_catch_lag_ms = 0;
   if (g_catch_lag_ms > 500) g_catch_lag_ms = 500;
@@ -6005,10 +6149,17 @@ void InstallNear() {
   if (g_catch_grace_ms > 3000) g_catch_grace_ms = 3000;
   ModLog("hand pick    : catch_moving=%d. The reach of the pick for an object "
          "that moves grows by its speed times %d ms, at most %d cm of the "
-         "room (catch_lag_ms, catch_cap_cm). The object that you let go has "
-         "the plain reach for %d ms (catch_grace_ms). Ctrl and the Page Up key "
-         "change catch_moving (test_keys=1)", g_catch_on, g_catch_lag_ms,
-         g_catch_cap_cm, g_catch_grace_ms);
+         "room (catch_lag_ms, catch_cap_cm). %s for %d ms (catch_grace_ms). "
+         "Ctrl and the Page Up key go through the values 2, 1 and 0 of "
+         "catch_moving (test_keys=1)", g_catch_on, g_catch_lag_ms,
+         g_catch_cap_cm,
+         g_catch_on == near_math::kCatchRest
+             ? "The extra reach is on the reach that the object has at rest, "
+               "the wide reach too. The object that you threw has the reach "
+               "at rest"
+             : "The extra reach is on the reach of the pick only. The object "
+               "that you let go has the reach at rest",
+         g_catch_grace_ms);
   g_wide_cm = IniKey("hand_wide_pick_cm", near_math::kWideCm);
   if (g_wide_cm < 0) g_wide_cm = 0;
   if (g_wide_cm > 30) g_wide_cm = 30;

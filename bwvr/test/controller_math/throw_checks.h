@@ -793,6 +793,106 @@ inline void ThrowChecks() {
           d.back, 2);
     Near("the longest move against the move before is 1 unit", d.top_back,
          1.0, 1e-5);
+    Check(d.back_late == 0, "no turn back came after a late frame",
+          d.back_late, 0);
+    Check(d.jumps == 0, "the picture did not stand and jump", d.jumps, 0);
+    Near("the longest move of one frame is 1 unit", d.top_step, 1.0, 1e-5);
+    // The picture moves, stands for 2 frames, and goes on with a move of 0.8
+    // units. Then it goes back by 0.3 in the frame after a late frame.
+    DrawTrack j = {};
+    float q[3] = {0.0f, 0.0f, 0.0f};
+    const float moves[8] = {0.5f, 0.4f, 0.0f, 0.0f, 0.8f, 0.3f, -0.3f, 0.3f};
+    for (int k = 0; k < 8; ++k) {
+      q[0] += moves[k];
+      DrawTrackAdd(&j, q, k == 5 ? 0.020 : 0.0, 0.05f);
+    }
+    Check(j.jumps == 1, "one stand and jump", j.jumps, 1);
+    Near("the jump is 0.8 units", j.top_jump, 0.8, 1e-5);
+    Check(j.back == 2 && j.back_late == 1,
+          "one of the two turns back came after a late frame", j.back_late, 1);
+    // A picture that comes to rest stands, and it does not jump.
+    DrawTrack r = {};
+    float at[3] = {0.0f, 0.0f, 0.0f};
+    for (int k = 0; k < 8; ++k) {
+      at[0] += k < 4 ? 0.5f : 0.0f;
+      DrawTrackAdd(&r, at, 0.0, 0.05f);
+    }
+    Check(r.jumps == 0, "a picture that comes to rest does not jump", r.jumps,
+          0);
+  }
+
+  // THE PICTURE BETWEEN THE STEPS (throw_draw).
+  {
+    // A substep of the flight at a rate of 3.33: 3 steps, 4.5 ms.
+    const double flight = 3 * 0.005 / 3.33;
+    Near("a substep of the flight keeps its time in the picture",
+         PictureSpan(flight, false, kDrawReal), flight, 1e-12);
+    // A substep with a touch of another object: one step, 1.5 ms of the
+    // flight.
+    const double touch = 1 * 0.005 / 3.33;
+    Near("rule 1: a substep with a touch is 5 ms of the picture",
+         PictureSpan(touch, true, kDrawReal), 0.005, 1e-8);
+    Near("rule 0: a substep with a touch has its time of the flight",
+         PictureSpan(touch, true, kDrawFlight), touch, 1e-12);
+    // A turn of 20 substeps with a touch is 100 ms of the picture with the
+    // rule 1, and 30 ms with the rule 0.
+    double with = 0.0, without = 0.0;
+    for (int k = 0; k < kSubstepsInTurn; ++k) {
+      with += PictureSpan(touch, true, kDrawReal);
+      without += PictureSpan(touch, true, kDrawFlight);
+    }
+    Near("rule 1: a turn of substeps with a touch is 100 ms of the picture",
+         with, 0.100, 1e-7);
+    Near("rule 0: it is 30 ms of the picture", without, 0.030, 1e-4);
+    Near("in the flight the picture has the rate of the flight",
+         PictureRate(3, flight), 3.33, 1e-4);
+    Near("in a touch the picture has the speed of the game's own time",
+         PictureRate(1, PictureSpan(touch, true, kDrawReal)), 1.0, 1e-6);
+    Near("no time gives the rate 1", PictureRate(1, 0.0), 1.0, 1e-9);
+
+    // The speed of the picture between two samples and after the newest one.
+    FlightSample f[2] = {};
+    f[0].time = 1.0;
+    f[1].time = 1.005;
+    f[1].matrix[9] = 0.5f;
+    f[1].velocity[0] = 80.0f;
+    float m[12], v[3];
+    double late = 0.0;
+    FlightAt(f, 2, 1.002, 100.0f, m, &late, v);
+    Near("between two samples the speed is their distance over their time",
+         v[0], 100.0, 1e-2);
+    FlightAt(f, 2, 1.010, 100.0f, m, &late, v);
+    Near("after the newest sample the speed is that of the sample", v[0],
+         80.0, 1e-4);
+
+    // THE PICTURE DOES NOT GO BACK. The guess is at x 10 and moved along x.
+    const float guess[3] = {10.0f, 5.0f, 0.0f};
+    const float dir[3] = {2.0f, 0.0f, 0.0f};
+    const float behind[3] = {9.5f, 5.2f, 0.0f};
+    const float past[3] = {10.1f, 4.0f, 0.0f};
+    const float comes[3] = {30.0f, -5.0f, 0.0f};
+    const float turned[3] = {-30.0f, 5.0f, 0.0f};
+    Check(GuessHolds(behind, comes, guess, dir, 0.0, kFlightAhead),
+          "the object is behind the guess and comes to it: the picture stays",
+          1, 1);
+    Check(!GuessHolds(past, comes, guess, dir, 0.0, kFlightAhead),
+          "the object is past the guess: the picture goes with it", 0, 0);
+    Check(!GuessHolds(behind, turned, guess, dir, 0.0, kFlightAhead),
+          "the object turned in a contact: the picture goes with it", 0, 0);
+    Check(!GuessHolds(behind, comes, guess, dir, kFlightAhead, kFlightAhead),
+          "the picture never stays longer than the limit", 0, 0);
+
+    // THE CLOCK FALLS BACK: 50 ms at a fifth of each frame of 20 ms.
+    double debt = kFlightAhead, paid = 0.0;
+    int frames = 0;
+    while (debt > 0.0 && frames < 100) {
+      paid += ClockFallBack(&debt, 0.020);
+      ++frames;
+    }
+    Near("the clock gives back all of the time", paid, kFlightAhead, 1e-12);
+    Check(frames == 13, "in 13 frames of 20 ms", frames, 13);
+    Near("with no debt the clock gives nothing back",
+         ClockFallBack(&debt, 0.020), 0.0, 1e-12);
   }
 
   // A RELEASE IN THE GLIDE OF A FAR FETCH.

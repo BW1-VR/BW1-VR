@@ -1699,12 +1699,13 @@ in front. The mod reads the keys and never takes them from the game.
 | Ctrl Numpad 1 | `test_keys=1` | The game camera stands over the land under the head or over the recenter place (`god-view.md`, section 7) |
 | Ctrl Numpad 0 | `test_keys=1` | The God view follows the game camera or not (`god-view.md`) |
 | Ctrl Delete | `test_keys=1` | The choice of a far target: by the body of the object, or by one point (`far_grab_choice`, `grab.md`) |
-| Ctrl Page Up | `test_keys=1` | An object that moves has a longer reach of the pick, or the same reach as a still one (`catch_moving`, `grab.md`) |
+| Ctrl Page Up | `test_keys=1` | The reach of the pick for an object that moves: the reach at rest and the extra reach (2), the extra reach on `hand_pick_cm` only (1), or the same reach as a still object (0). A long pulse, a pulse of middle length and a short pulse (`catch_moving`, `grab.md`) |
 | Ctrl Shift Page Up | `test_keys=1` | A holdable object up to 15 cm from the Hand's point is the target when nothing is nearer, or the pick reaches only `hand_pick_cm` (`hand_wide_pick_cm`, `grab.md`) |
 | Ctrl Insert | `test_keys=1` | The ring of the teleport: one size in the world, or one size in the room (`teleport_ring_mode`, `god-view.md`) |
 | Ctrl Shift Insert | `test_keys=1` | The stick of the God view zooms in steps, or while it is held (`god_zoom_smooth`, `god-view.md`, section 2) |
 | Ctrl Shift Delete | `test_keys=1` | The point that a zoom of the God view keeps at its place in the room: the land that the head looks at, the land under the head, or the Hand's point (`god_zoom_about`, `god-view.md`, section 2) |
 | Shift Scroll Lock | `test_keys=1` | A still hand high over the land lets the object fall, or sets it down at each height (`release_fall_cm`, `throw.md`) |
+| Ctrl Scroll Lock | `test_keys=1` | The picture of a thrown object between the steps of the game: a touch of another object has the real time and the picture does not go back behind a guess, or each substep has its time of the flight (`throw_draw`, `throw.md`, "The picture between the steps"). Shift must be up |
 | Shift Pause | `test_keys=1` | A tree that falls turns down fast on the land, or keeps the game's turn (`throw_tree_settle`, `throw.md`) |
 | Ctrl End | `test_keys=1` | The prompt of a target shows at once, or after its dwell (`prompt_timing`, `controller-hints.md`) |
 | Ctrl Home | `test_keys=1` | The words of a target on the hint card: 3, 2, 1 or 0, with one short pulse for each unit of the value and one long pulse for 0. With 3 the prompt "Pull to fetch" stays from the end of the far target until the Hand holds the object, and a hint of the game that a prompt owned does not show for 0.25 s after the prompt went. With 2 only the prompt "Take" stays, from the close of the grip until the Hand holds the object. With 1 the hint of the game shows in those frames. With 0 the hint of the game takes the place of each prompt (`hint_words`, `controller-hints.md`) |

@@ -870,7 +870,7 @@ The words that act on the first frame of the word only:
 | `pose2` | Moves the right hand to the second pose (`fake_controller_sweep_yaw`, `fake_controller_sweep_pitch`) for the rest of the run |
 | `point` | Steps the right hand to the next of `fake_controller_points`. After the last one the list starts again |
 | `lpoint` | The same for the left hand and `fake_controller_left_points` |
-| `rot` | Turns the right hand to the next of `fake_controller_rots` |
+| `rot` | Turns the right hand to the next of `fake_controller_rots`. After a word that turns the aim (`aimfar`, `aimcmd`, `aimturn`) the hand keeps that aim, and `rot` does not turn it: use `aimturn` there |
 | `seek` | Steps the right hand once onto the nearest holdable object (see `hand.md` and `grab.md`). On the table it first asks for a wider pick, and steps 2 frames later |
 | `seekc` | The same for a point on the line to the nearest Creature |
 | `touchc` | The same for the body bone of the nearest Creature |

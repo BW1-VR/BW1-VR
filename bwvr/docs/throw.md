@@ -166,11 +166,10 @@ game sees the speeds of its own physics.
    not hurt more. With the fall from the hand, a throw from 30 cm over the
    land at 67 units per meter lands at 20 units per second or more.
 9. **The draw.** The mod keeps the matrix of the object after each substep
-   with its time in the flight (`fn_007FD140` gives the matrix). A hook on
+   with its time in the picture (`fn_007FD140` gives the matrix). A hook on
    `DrawAll` puts the object where the flight is at the time of the frame
-   (`FlightAt`), once a frame for both eyes. A turn that comes late lets the
-   flight go on for 50 ms (`kFlightAhead`), and then the clock of the flight
-   waits. On the first turn the mod compares its matrix of the last substep
+   (`FlightAt`), once a frame for both eyes. See "The picture between the
+   steps". On the first turn the mod compares its matrix of the last substep
    with the mesh matrix that the game wrote. When they agree it draws the
    axes of each substep. If not, it moves the object only, and the log gives
    the difference.
@@ -207,6 +206,44 @@ and the mod draws it as the time comes. So the Object of the game is up to
 0.1 s ahead of the picture, or 0.2 s after the extra turn of a release. The
 sound of a landing can come that much before the picture.
 
+### The picture between the steps
+
+A game turn is due each 100 ms, and it gives 20 substeps. The clock of the
+picture is the real time from the release. The mod draws the object at the
+place that the substeps have for that time, on the line between two of them
+(`FlightAt` in `throw_math.h`). Only the place of the picture is in this
+part: the physics of the game, and where the object comes to rest, do not
+change.
+
+- **The time of a substep.** A substep of the flight runs `sqrt(s) / k`
+  steps, and it is 5 ms of the flight. A substep in which another object
+  touches the thrown object runs one step (see "Other objects" above), and
+  that step is `5 ms / rate` of the flight: 1.5 ms at a rate of 3.33. The
+  game runs it in 5 ms of the real time. With `throw_draw=1` such a substep
+  is 5 ms of the picture (`PictureSpan`), so each turn gives 100 ms of the
+  picture, and the object moves through a touch at the speed of the game's
+  own time. With `throw_draw=0` the substep has its time of the flight. A
+  turn of 20 such substeps is then 30 ms of the picture: the picture comes
+  to the newest step, stands there, and goes on from a new place after the
+  next turn.
+- **After the newest step.** A turn comes one frame early or late. When the
+  clock is past the newest step, the place is a guess: the object goes on
+  from that step with its own speed, for 50 ms at most (`kFlightAhead`). A
+  free flight falls with the gravity of the picture, and an object in contact
+  goes on across the land. After 50 ms the clock of the flight waits.
+- **The picture does not go back.** The steps that come after a guess can
+  have the object behind the place of the guess, because a contact took a
+  part of its speed. With `throw_draw=1` the picture stays at the place of
+  the guess until the object comes to it (`GuessHolds`), for 50 ms at most.
+  An object that turned in a contact does not come to that place, and the
+  picture goes with it at once: a bounce is a real move back.
+- **The clock falls back.** After a wait the clock is 50 ms in front of the
+  newest step, and each second frame is a guess from then on. With
+  `throw_draw=1` the clock runs 20 percent slower until it has given the 50
+  ms back (`ClockFallBack`), which takes 0.25 s.
+
+A flight keeps the rule of `throw_draw` that it started with.
+
 ### The time factor k
 
 The real flight in a small world looks too fast and heavy. So the flight has
@@ -238,6 +275,7 @@ times as long.
 | `throw_slow_x10` | 20 | The time factor k times 10, from 10 to 100. 20 is k = 2.0: the flight has the arc of the real throw, 2 times slower |
 | `release_fall_cm` | 15 | The height of the Hand's point over the land, in cm of the room, above which a still hand lets the object fall. 0 sets it down at each height |
 | `throw_trees` | 1 | 1 lets a thrown tree fly as a rock does. 0 gives the tree the game's physics |
+| `throw_draw` | 1 | Where the mod draws a thrown object between the steps of the game (see "The picture between the steps"). 1: a substep with a touch of another object is 5 ms of the picture, the picture stays at a guess until the object comes to it, and the clock falls back after a wait. 0: each substep has its time of the flight |
 
 Outside the God view and the table (play modes 0 to 2) the throw uses the
 gain of `throw_law=0`.
@@ -249,7 +287,10 @@ gain of `throw_law=0`.
   each press.
 - Shift with Scroll Lock goes between the height rule of a release
   (`release_fall_cm`) and the set down at each height (see "The height of a
-  release"). Scroll Lock alone does not read while Shift is down.
+  release"). Scroll Lock alone does not read while Shift or Ctrl is down.
+- Ctrl with Scroll Lock goes between the two rules of `throw_draw`. A long
+  pulse of the pointing hand means 1, and a short pulse means 0. A flight
+  that is in the air keeps its rule.
 - Numpad Plus makes k larger by 0.25 (slower), and Numpad Divide makes it
   smaller by 0.25 (faster), from 1.0 to 10.0. Each press gives a short pulse
   of the pointing hand (weaker at the end of the range) and a log line with
@@ -288,6 +329,12 @@ turns and steps, and the time that the steps took.
   units per meter.
 - The draw: the place between two samples, 10 ms after the newest one, the
   stop after 50 ms, and an object in contact.
+- The picture between the steps: a substep with a touch is 5 ms of the
+  picture with the rule 1 and 1.5 ms with the rule 0, a turn of such substeps
+  is 100 ms and 30 ms, the speed of the picture in the flight and in a touch,
+  when the picture stays at a guess, and the time that the clock gives back.
+  The counts of the log: a picture that stands and jumps, and a turn back in
+  the frame after a late frame.
 - The time factor: at 7.5, 100 and 1000 units per meter and k = 1, 2 and 4,
   the plan gives the velocity `sqrt(s) v` and `sqrt(s) / k` steps, the object
   lands where the real throw lands, and the flight takes k times the real
@@ -306,13 +353,37 @@ first contact, in cm of the room.
 | `throw_queue.ps1 -Runs landin` | A rock, two throws of 3.0 and 3.1 m/s, at 66.7 units per meter | After 0.83 s and 0.82 s, 0.3 cm and 1.2 cm from the arc | At rest |
 | `throw_queue.ps1 -Runs tree` | A tree, 3.0 m/s, at 100 units per meter | After 1.03 s, 2.3 cm from the arc | The tree settles, and the game takes it out of the physics 2.7 s after the release |
 | `throw_queue.ps1 -Runs sea` | A rock, 8.3 m/s toward the sea, at 100 units per meter | After 2.64 s on the sea, about 7.8 m from the release, 0.4 cm from the arc | The flight ends 20 s later, when the object is under the sea |
-| `village_run.ps1 -Kind throw` | A villager, 2.6 m/s, at 44.4 units per meter | After 0.54 s on an object, 2.7 to 3.1 cm from the arc | At rest 3.5 to 4.2 s after the release. For about 0.25 s after the first contact the picture moves in steps: the steps of the game are behind the real time |
+| `village_run.ps1 -Kind throw` | A villager, 2.6 m/s, at 44.4 units per meter | After 0.51 to 0.55 s on an object, 1.5 to 3.1 cm from the arc | At rest 3.1 to 4.5 s after the release, 0.76 m from it. 32 to 42 substeps have a touch of the object |
+
+The same throw of the villager shows the picture between the steps. With
+`throw_draw=1` the log counts 1 of 197 frames after the newest step, no turn
+back, and no time that the picture stood and jumped. With `throw_draw=0` it
+counts 86 of 178 frames after the newest step (70 ms at most), 3 turns back
+(1.6 cm of the room at most, each one after a guess), and 5 times that the
+picture stood and then jumped (4.4 cm at most). The place of rest is the same.
+The two throws of the rock of `throw_queue.ps1 -Runs land` touch no other
+object: with `throw_draw=1` they count 0 of 342 and 9 of 337 frames after the
+newest step (8 ms at most), and no turn back. In `throw_queue.ps1 -Runs tree`
+the second tree lands on the first one, and 186 substeps have a touch: with
+`throw_draw=1` the log counts 2 of 192 frames after the newest step (6 ms at
+most), no turn back, and no time that the picture stood and jumped.
+
+A frame of about 150 ms at the first contact of the villager (the word `shot`
+makes one) gives 4 of 120 frames after the newest step with `throw_draw=1`
+(17 ms at most), and 19 of 93 with `throw_draw=0` (129 ms at most). In a
+second run with `throw_draw=1` such a frame came 56 ms after the newest step,
+so the clock waited. It then ran 20 percent slower for 13 frames (0.25 s),
+and no later frame was after the newest step. No run had a picture that
+stayed at the place of a guess: the math checks cover that rule.
 
 ### Open
 
 - The last 0.1 to 0.2 s of a roll is not drawn: when the object comes to
   rest, the picture goes to the place of rest at once.
 - A Miracle and the objects that a thrown object pushes keep the game's time.
+- While another object touches a thrown object, the thrown object moves at
+  the speed of the game's own time (`sqrt(s) / k` times slower than in the
+  flight). Only a headset shows whether that looks right.
 - A flying tree is tested in desktop runs only (a throw of 3.0 m/s, and a
   fall from the Hand, see "The landing of a tree"), and not in the headset.
 - Only a headset shows: whether a throw feels like a real throw at 7.5, 67
@@ -469,10 +540,17 @@ longest, the part of the time in the air), the changes of the vertical
 direction of the center (a move of 0.5 mm of the room or more counts), the
 turns, the rate at the first contact and at the end, the steps with a cut
 force, the frames that the mod drew after the newest step, and the times that
-the picture turned back. With `throw_log=2` the lines `s` (each substep: the
-time, the center, its height over the land, the points in contact, the
-velocity, the turn, the rate) and `d` (each frame: the drawn place, and how
-late it was) follow each first contact.
+the picture turned back. "The picture of": the rule of `throw_draw`, the
+turns back in the frame after a frame that the mod drew after the newest
+step (those are from a guess, and each other one is a bounce), the times that
+the picture stood for a frame and then moved 2 mm of the room or more, the
+longest move of one frame, the frames that the picture stayed at a guess, and
+the substeps with a touch of another object. With `throw_log=2` the lines `s`
+(each substep: the time of the picture, the center, its height over the land,
+the points in contact, the velocity, the turn, the rate) and `d` (each frame:
+the drawn place, how late it was, and `h 1` when the picture stayed at a
+guess) follow each first contact. The line of each turn has the time of the
+flight and the time of the picture of the physics, and the real time.
 
 ### Checks
 

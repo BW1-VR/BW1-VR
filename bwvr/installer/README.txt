@@ -444,11 +444,12 @@ farther: up to 15 cm from your finger tip, when no other object that a
 press acts on is nearer. The halo shows which object it is. Set
 hand_wide_pick_cm in bwvr.ini to change the distance (0 turns it off).
 
-An object that moves, for example a rock that rolls, can be taken from a
-little farther: the faster it moves, the longer the reach, up to 8 cm
-more. The object that you just let go has the plain reach for a short
+An object that moves, for example a rock that falls, can be taken from
+farther: the faster it moves, the longer the reach, up to 8 cm more.
+An object that you threw does not have the longer reach for a short
 time, so a throw does not come back at once. Set catch_moving=0 in
-bwvr.ini to turn this off, and catch_cap_cm to change the most.
+bwvr.ini to turn this off, and catch_cap_cm to change the most. With
+catch_moving=1 an object that moves is taken from 15 cm at most.
 
 When two objects are near the point, the object that the point
 touches wins, and of two such objects the smaller one. A scroll wins
@@ -567,6 +568,11 @@ After a thrown object touches the land, it slows to the pace of the
 game, bounces low and comes to rest soon. Set throw_land=0 in bwvr.ini
 if you want the landing of the physics of the game at the speed of
 the flight.
+
+The mod draws a thrown object between the game turns. While the
+object touches a different object, it moves at the pace of the game,
+and its picture does not stop and jump. Set throw_draw=0 in bwvr.ini
+for a comparison.
 
 
 MIRACLES
@@ -784,6 +790,9 @@ before you start a quest. These faults are known:
   - With the leash on, a held trigger near trees can select a
     tree when you want the Creature to walk to the land.
   - An advisor can be very large for a short time.
+  - With a tree in your Hand, the card can say "Grip Plant" when a
+    rock or a different object is at that place. The tree then
+    falls and is not planted.
   - The motion controllers are tested with a Quest 3 through
     Virtual Desktop only.
 
