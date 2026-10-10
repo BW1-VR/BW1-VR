@@ -44,6 +44,10 @@ void ThrowPhysicsInstallEarly();
 // the real flight are not there, and in a multiplayer game.
 int ThrowPhysicsLaw();
 
+// The height rule (release_fall_cm) in meters of the room, now: 0 when the
+// key is 0 or the A/B key sets it off.
+float ThrowPhysicsFallLimitM();
+
 // What hand_direct.cpp gives at a release in the God view or on the table,
 // from its release hook.
 struct ThrowPlanIn {

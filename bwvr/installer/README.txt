@@ -380,6 +380,14 @@ at once and stays while you are on it. The other prompts show for a few
 seconds, and only the first times. Set prompts=2 in bwvr.ini to show
 those always, or prompts=0 for none. Set hint_card_size_pct=150 for larger cards.
 
+With a tree in your Hand, the card says "Grip Plant" only when opening
+the grip plants the tree. If your Hand is more than 15 cm over the land,
+or the tree leans, or the land is not dry, it says "Lower to plant. Open
+to drop" (or a line for the other cause), and the tree falls. Set
+tree_plant_hint=0 in bwvr.ini for the text of the game. A tree that comes
+from a distance leaves its roots pile at the roots, on the land. Set
+far_roots_at_tree=0 to leave the pile where the game puts it.
+
 The game shows its hints, the amount that you take and the subtitles
 only when its own help options are on. If you see none of them, open
 the game options, then "Help Options". Set "Intelligent ToolTips",

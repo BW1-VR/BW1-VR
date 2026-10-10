@@ -37,11 +37,6 @@ is built, and no test has proven it.
 
 ### Faults in play
 
-- **B1. A far grab of a tree leaves the "pit" behind.** A tree that the
-  Hand pulls out of the ground has a model at its roots, the base with a
-  hole in it. While the tree has it, the tree can be planted again. It
-  falls off when the tree is thrown or dropped, and then the tree cannot be
-  planted again. A pull at a distance leaves that model behind.
 - **B2. A moving object is hard to take.** The pick reaches farther for an
   object that moves (`catch_moving`, `grab.md`): check the defaults (100 ms,
   8 cm) in a headset. The grab from a distance locks and fetches a rock
@@ -63,10 +58,17 @@ is built, and no test has proven it.
   have the same fault when the player is fast. Find first how the plain
   game breaks a rock with the mouse. Then read in the log what the mod
   sends when the hand leaves the rock before the pick up is over.
-- **B4. The hint of a tree is not always true.** The card can say that the
-  open grip plants the tree, and then the tree falls to the ground. At
-  times a tree does not plant at all and falls over. The player must see
-  when a release plants the tree and when it does not.
+- **B4. The card does not know a body in the way of a planted tree.** The
+  card says "plant" by the tests of the game that it can read (the height,
+  the lean, dry land, fire, `grab.md`, "A tree in the Hand"). The game also
+  lets a tree fall when another body is where the tree would stand: the card
+  does not see that. No run had a tree that leans more than 0.2 rad.
+- **B1b. The roots pile of a far grab.** `far_roots_at_tree=1` puts the pile
+  at the roots, as for a tree that the Hand takes. Only a headset shows
+  whether that is what the player means by the "pit" at the roots. Not
+  run: a tree that comes from a distance and is then planted again. A
+  tree that is thrown, or that falls from more than `release_fall_cm`,
+  is not planted by the game: it takes the path of a dead tree.
 - **B5. The hint card at the close of the grip.** For about 15 frames after
   the grip closes on an object to take, the card shows the hint of the game
   ("Pick Up") where it showed the prompt "Take". The context has no target
@@ -102,7 +104,7 @@ is built, and no test has proven it.
   and the Direct3D devices shut down, and whether the crash can cut the
   last lines of the log or a write of the profile.
 
-B1, B2, B3 and B4 are one package: a thing that is held, thrown, or that
+B1b, B2, B3 and B4 are one package: a thing that is held, thrown, or that
 moves while the Hand takes it.
 
 ### Changes to the controls

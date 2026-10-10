@@ -632,6 +632,13 @@ bool FarGrabFetching(void** object, float position[3], float land[2]) {
   return true;
 }
 
+bool FarGrabGlideOrigin(void** object, float origin[3]) {
+  if (!g_glide.armed || g_glide.object == nullptr) return false;
+  *object = g_glide.object;
+  for (int i = 0; i < 3; ++i) origin[i] = g_glide.p0[i];
+  return true;
+}
+
 bool FarGrabPumpGrip(bool grip, bool ok) {
   const bool edge = grip && !g_pump_grip;
   g_pump_grip = grip;

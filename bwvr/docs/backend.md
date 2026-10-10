@@ -1474,6 +1474,8 @@ in front. The mod reads the keys and never takes them from the game.
 | Ctrl End | `test_keys=1` | The prompt of a target shows at once, or after its dwell (`prompt_timing`, `controller-hints.md`) |
 | Ctrl Home | `test_keys=1` | A target has one text on the hint card, or the hint of the game takes the place of the prompt (`hint_words`, `controller-hints.md`) |
 | Ctrl Numpad 5 | `test_keys=1` | The rule of a Creature command: 3, 2 or 1 (`creature_command_rule`, `creature.md`) |
+| Ctrl Page Down | `test_keys=1` | The card says what the opening of the grip does with a tree, or shows the text of the game (`tree_plant_hint`, `grab.md`) |
+| Ctrl Shift Page Down | `test_keys=1` | The roots pile of a tree from a distance stands at the roots, or on the way of the glide (`far_roots_at_tree`, `grab.md`) |
 
 The launcher shows `test_keys` as "Test keys", in a group named "Testing". It is off
 by default.

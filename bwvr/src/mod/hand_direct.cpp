@@ -136,6 +136,7 @@
 #include "near_math.h"
 #include "table_math.h"
 #include "throw_physics.h"
+#include "tree_plant_math.h"
 
 extern void ModLog(const char* format, ...);
 
@@ -5341,6 +5342,233 @@ void LogCheck() {
          *reinterpret_cast<void* const*>(g_hand + kHandHeld));
 }
 
+// A TREE IN THE HAND AND ITS RELEASE (docs/grab.md, "A tree in the Hand").
+// Once a frame, while the Hand holds a tree, this works out what the opening
+// of the grip does with the same tests as the game (tree_plant_math.h) and
+// latches the answer for the hint card. After the release it logs what the
+// tree did. It also logs each change of the roots piles of the game, the
+// pieces of mesh that the Tug of a tree puts in the land.
+// tree_plant_hint=0 keeps the text of the game. Ctrl and Page Down
+// (test_keys=1) switch it.
+typedef void(__fastcall* GetYXZFn)(const void* matrix, void*, float* y,
+                                   float* x, float* z);
+typedef int(__fastcall* CoordsTestFn)(const int32_t* coords, void*);
+const uintptr_t kGetYXZ = 0x007FAB30;         // LHMatrix::GetYXZ
+const uintptr_t kIsDryLand = 0x00603620;      // MapCoords::IsDryLand
+const uintptr_t kRootsPileList = 0x00EB9A00;  // the head of the roots piles
+const int kTreeBurning = 0x44;                // Tree: nonzero when on fire
+const int kTreeFlags = 0x24;                  // Object: bit 0x40 is "in physics"
+const int kTreeForest = 0x68;                 // Tree: its Forest
+
+int g_tree_hint = 1;
+bool g_tree_hint_read = false;
+int g_tree_verdict = -1;  // -1: no tree in the Hand now
+uint64_t g_tree_frame = 0;
+float g_tree_height_cm = 0.0f;
+void* g_tree_held = nullptr;
+int g_tree_held_verdict = -1;
+void* g_tree_watch = nullptr;  // the tree that the Hand let go
+int g_tree_watch_verdict = -1;
+bool g_tree_watch_physics = false;
+uint64_t g_tree_watch_start = 0;
+int g_roots_count = -1;
+const uint8_t* g_roots_head = nullptr;
+int g_roots_at_tree = 1;  // far_roots_at_tree, and its test key
+bool g_roots_read = false;
+int g_tree_logs = 0;
+
+void ReadTreeHintKey() {
+  if (g_tree_hint_read) return;
+  g_tree_hint_read = true;
+  g_roots_at_tree = IniKey("far_roots_at_tree", 1) != 0 ? 1 : 0;
+  ModLog("hand tree    : far_roots_at_tree=%d. %s", g_roots_at_tree,
+         g_roots_at_tree != 0
+             ? "The roots pile of a tree that comes from a distance stands at "
+               "the roots, on the land where the tree stood"
+             : "The roots pile stays where the game puts it, on the way of the "
+               "glide");
+  g_tree_hint = IniKey("tree_plant_hint", 1) != 0 ? 1 : 0;
+  ModLog("hand tree    : tree_plant_hint=%d. %s", g_tree_hint,
+         g_tree_hint != 0
+             ? "The card says what the opening of the grip does with a tree "
+               "in the Hand, by the tests of the game and the height rule"
+             : "The card shows the text of the game for a tree in the Hand");
+}
+
+// The roots piles of the game: a list of entries (next, LH3DObject, life).
+void WatchRootsPiles() {
+  const void* const* head =
+      reinterpret_cast<const void* const*>(kRootsPileList);
+  if (IsBadReadPtr(head, sizeof(void*))) return;
+  int count = 0;
+  const uint8_t* newest = static_cast<const uint8_t*>(*head);
+  for (const uint8_t* e = newest; e != nullptr && count < 64; ++count) {
+    if (IsBadReadPtr(e, 12)) break;
+    e = *reinterpret_cast<const uint8_t* const*>(e);
+  }
+  if (newest == g_roots_head && count == g_roots_count) return;
+  const bool added = newest != g_roots_head && count > 0 && newest != nullptr;
+  g_roots_head = newest;
+  g_roots_count = count;
+  float* at = nullptr;
+  if (newest != nullptr && !IsBadReadPtr(newest, 12)) {
+    uint8_t* mesh = *reinterpret_cast<uint8_t* const*>(newest + 4);
+    if (mesh != nullptr && !IsBadWritePtr(mesh + kMeshTranslation, 12)) {
+      at = reinterpret_cast<float*>(mesh + kMeshTranslation);
+    }
+  }
+  float was[3] = {0.0f, 0.0f, 0.0f};
+  if (at != nullptr) {
+    for (int i = 0; i < 3; ++i) was[i] = at[i];
+  }
+  // A far grab: the Tug of the game breaks the roots after the glide has begun
+  // to move the tree, so the new pile stands in the air on the way. The pile
+  // belongs at the roots, on the land where the tree stood.
+  void* glider = nullptr;
+  float origin[3];
+  bool moved = false;
+  if (added && at != nullptr && g_roots_at_tree != 0 &&
+      FarGrabGlideOrigin(&glider, origin) && IsTreeObject(glider)) {
+    for (int i = 0; i < 3; ++i) at[i] = origin[i];
+    moved = true;
+  }
+  if (g_tree_logs >= 80) return;
+  ++g_tree_logs;
+  if (moved) {
+    ModLog("hand tree    : the game put a roots pile at %.1f %.1f %.1f, on the "
+           "way of the glide of the tree %p. far_roots_at_tree=1 moved it to "
+           "%.1f %.1f %.1f, where the tree stood. Piles now %d, frame %llu",
+           was[0], was[1], was[2], glider, origin[0], origin[1], origin[2],
+           count, g_frame);
+  } else {
+    ModLog("hand tree    : the game has %d roots piles now, the newest at %.1f "
+           "%.1f %.1f%s, frame %llu", count, was[0], was[1], was[2],
+           added && g_roots_at_tree == 0 && FarGrabGlideOrigin(&glider, origin)
+               ? " (far_roots_at_tree=0: it stays where the game put it)"
+               : "",
+           g_frame);
+  }
+}
+
+void TreeReleaseFrame() {
+  ReadTreeHintKey();
+  WatchRootsPiles();
+  if (g_tree_frame == g_frame) return;
+  g_tree_frame = g_frame;
+  g_tree_verdict = -1;
+  void* held = g_hand != nullptr
+                   ? *reinterpret_cast<void* const*>(g_hand + kHandHeld)
+                   : nullptr;
+  const bool holding_tree =
+      g_hand != nullptr && State(g_hand) == kStateHolding && held != nullptr &&
+      !IsBadReadPtr(held, 0x70) && IsTreeObject(held) && !IsForest(held);
+  if (holding_tree) {
+    uint8_t* object = static_cast<uint8_t*>(held);
+    const uint8_t* mesh =
+        *reinterpret_cast<const uint8_t* const*>(object + 0x40);
+    float y = 0.0f, lean_x = 0.0f, lean_z = 0.0f;
+    if (mesh != nullptr && !IsBadReadPtr(mesh, 0x50)) {
+      reinterpret_cast<GetYXZFn>(kGetYXZ)(mesh + 0x14, nullptr, &y, &lean_x,
+                                          &lean_z);
+    }
+    const float table = TabletopViewScale();
+    float height_m = 0.0f;
+    if (table > 0.0f && !VillageTakesObject()) {
+      height_m = (g_target[1] - g_land_y) / table;
+    }
+    const int32_t coords[3] = {static_cast<int32_t>(g_target[0] * 6553.6f),
+                               static_cast<int32_t>(g_target[2] * 6553.6f), 0};
+    const bool dry =
+        reinterpret_cast<CoordsTestFn>(kIsDryLand)(coords, nullptr) != 0;
+    const bool burning =
+        *reinterpret_cast<const int32_t*>(object + kTreeBurning) != 0;
+    g_tree_verdict = tree_plant_math::ReleaseVerdict(
+        height_m, ThrowPhysicsFallLimitM(), lean_x, lean_z, dry, burning);
+    g_tree_height_cm = height_m * 100.0f;
+    if (held != g_tree_held || g_tree_verdict != g_tree_held_verdict) {
+      g_tree_held_verdict = g_tree_verdict;
+      if (g_tree_logs < 80) {
+        ++g_tree_logs;
+        ModLog("hand tree    : the tree %p in the Hand: an opening of the grip "
+               "now %s (the hand is %.1f cm over the land and the limit is "
+               "%.0f cm, the tree leans %.2f and %.2f rad, dry land %d, fire "
+               "%d), frame %llu",
+               held,
+               g_tree_verdict == tree_plant_math::kPlants
+                   ? "plants it"
+                   : "does not plant it, and the tree falls",
+               g_tree_height_cm, ThrowPhysicsFallLimitM() * 100.0f, lean_x,
+               lean_z, dry ? 1 : 0, burning ? 1 : 0, g_frame);
+      }
+    }
+    g_tree_held = held;
+    g_tree_watch = nullptr;
+    return;
+  }
+  // The Hand let go of a tree: watch it until it leaves the physics.
+  if (g_tree_held != nullptr && held == g_tree_held) return;  // in the Tug
+  if (g_tree_held != nullptr) {
+    g_tree_watch = g_tree_held;
+    g_tree_watch_verdict = g_tree_held_verdict;
+    g_tree_watch_physics = false;
+    g_tree_watch_start = g_frame;
+    if (g_tree_logs < 80) {
+      ++g_tree_logs;
+      ModLog("hand tree    : the Hand let go of the tree %p, frame %llu. The "
+             "card said %s before the release. The mod watches the tree until "
+             "it leaves the physics", g_tree_watch, g_frame,
+             g_tree_watch_verdict == tree_plant_math::kPlants ? "plant"
+                                                               : "it falls");
+    }
+    g_tree_held = nullptr;
+    g_tree_held_verdict = -1;
+  }
+  if (g_tree_watch != nullptr) {
+    uint8_t* object = static_cast<uint8_t*>(g_tree_watch);
+    if (IsBadReadPtr(object, 0x70)) {
+      ModLog("hand tree    : the tree %p can not be read now, frame %llu",
+             g_tree_watch, g_frame);
+      g_tree_watch = nullptr;
+      return;
+    }
+    const bool physics =
+        (*reinterpret_cast<const uint16_t*>(object + kTreeFlags) & 0x40) != 0;
+    if (physics && !g_tree_watch_physics && g_tree_logs < 80) {
+      ++g_tree_logs;
+      ModLog("hand tree    : the tree %p is in the physics, frame %llu",
+             g_tree_watch, g_frame);
+    }
+    if (physics) g_tree_watch_physics = true;
+    static void* said = nullptr;
+    if (g_frame - g_tree_watch_start >= 25 && said != g_tree_watch &&
+        g_tree_logs < 80) {
+      said = g_tree_watch;
+      ++g_tree_logs;
+      ModLog("hand tree    : 25 frames after the release the tree %p is in the "
+             "physics %d, its forest is %p (a forest means that it is "
+             "planted), class %s", g_tree_watch, physics ? 1 : 0,
+             *reinterpret_cast<void* const*>(object + kTreeForest),
+             ClassName(g_tree_watch));
+    }
+    if (!physics && g_tree_watch_physics) {
+      void* forest = *reinterpret_cast<void* const*>(object + kTreeForest);
+      if (g_tree_logs < 80) {
+        ++g_tree_logs;
+        ModLog("hand tree    : the tree %p is out of the physics %llu frames "
+               "after the release. The card said %s. Class now %s, forest %p "
+               "(a forest means that it is planted), frame %llu",
+               g_tree_watch, g_frame - g_tree_watch_start,
+               g_tree_watch_verdict == tree_plant_math::kPlants ? "plant"
+                                                                 : "it falls",
+               ClassName(g_tree_watch), forest, g_frame);
+      }
+      g_tree_watch = nullptr;
+    } else if (g_frame - g_tree_watch_start > 1500) {
+      g_tree_watch = nullptr;
+    }
+  }
+}
+
 // THE TEST LOG OF A FETCH. On each frame of a pull or a fetch: the Hand's
 // state and the interface hand mode, the object under the Hand now (+0x3C8),
 // the next record (+0x400), the object in the Hand, the Hand's position
@@ -6586,6 +6814,35 @@ bool HandDirectLeashClick(void* creature) {
   return true;
 }
 
+// For hint_card.cpp: what an opening of the grip does with the tree in the
+// Hand now, as a tree_plant_math::Verdict, or -1 with no tree in the Hand or
+// with tree_plant_hint=0. Latched once a frame.
+int HandDirectTreeVerdict() {
+  return g_tree_hint != 0 ? g_tree_verdict : -1;
+}
+
+// The A/B key of the roots pile (test_keys=1, Ctrl, Shift and Page Down).
+void HandDirectRootsToggle() {
+  ReadTreeHintKey();
+  g_roots_at_tree = g_roots_at_tree != 0 ? 0 : 1;
+  ControllersGesturePulse(0.5f, g_roots_at_tree != 0 ? 0.24f : 0.08f);
+  ModLog("test key     : Ctrl, Shift and Page Down: far_roots_at_tree is %d now "
+         "(%s)", g_roots_at_tree,
+         g_roots_at_tree != 0 ? "the roots pile stands at the roots"
+                              : "the roots pile stays on the way of the glide");
+}
+
+// The A/B key of the card (test_keys=1, Ctrl and Page Down).
+void HandDirectTreeHintToggle() {
+  ReadTreeHintKey();
+  g_tree_hint = g_tree_hint != 0 ? 0 : 1;
+  ControllersGesturePulse(0.5f, g_tree_hint != 0 ? 0.24f : 0.08f);
+  ModLog("test key     : Ctrl and Page Down: tree_plant_hint is %d now (%s)",
+         g_tree_hint, g_tree_hint != 0 ? "the card says what the opening of "
+                                         "the grip does with a tree"
+                                       : "the card shows the text of the game");
+}
+
 // For overlay.cpp: the hand of a stroke of the Creature, and what the tickle
 // adds to the curl of each finger (StrokeHand).
 int HandDirectStrokeHand(float curl[5]) { return StrokeHand(curl); }
@@ -6782,6 +7039,7 @@ void HandDirectPassDone(int eye) {
     VillageSelect();
     ForestTakeSelect();
     LogFetch();
+    TreeReleaseFrame();
     LogCheck();
     LogPickState();
   }

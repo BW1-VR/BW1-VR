@@ -89,6 +89,7 @@
 #include "radial_menu.h"
 #include "temple.h"
 #include "teleport.h"
+#include "tree_plant_math.h"
 #include "village.h"
 
 extern void ModLog(const char* format, ...);
@@ -104,6 +105,11 @@ void ControllersGesturePulse(float amplitude, float seconds);
 // hand_direct.cpp: the Hand's point and what a press does there.
 bool HandDirectGlowFacts(float point[3], float* length, int32_t* mode,
                          bool* holding, int* eye, uint64_t* frame);
+// hand_direct.cpp: what the opening of the grip does with a tree in the Hand
+// (tree_plant_math.h), or -1. And the A/B key of that text.
+int HandDirectTreeVerdict();
+void HandDirectTreeHintToggle();
+void HandDirectRootsToggle();
 // tabletop.cpp: the God view or the table makes the picture.
 bool TabletopOwnsView();
 // eye_capture.cpp
@@ -951,7 +957,16 @@ void KeepTrueHints(const Content& noted, Content* out) {
       }
       continue;
     }
-    if (out->count < kMaxGameLines) out->line[out->count++] = line;
+    // A tree in the Hand: the game says "Plant" for each release. When the
+    // opening of the grip will not plant it, the card says what it does.
+    Line shown = line;
+    if (line.code == 2) {
+      const int verdict = HandDirectTreeVerdict();
+      const wchar_t* words =
+          verdict > 0 ? tree_plant_math::VerdictText(verdict) : nullptr;
+      if (words != nullptr) wcsncpy_s(shown.text, words, _TRUNCATE);
+    }
+    if (out->count < kMaxGameLines) out->line[out->count++] = shown;
   }
   if (false_trigger) ++g_false_trigger;
   if (false_grip) ++g_false_grip;
@@ -1053,6 +1068,7 @@ void HintCardLatchContext(int eye) {
 
 static void PollTimingKey();
 static void PollWordsKey();
+static void PollTreeKey();
 
 void HintCardEndFrame() {
   CardsStart();
@@ -1086,6 +1102,7 @@ void HintCardEndFrame() {
 
   PollTimingKey();
   PollWordsKey();
+  PollTreeKey();
 
   // The prompt of the context.
   int shown = kCtxNone;
@@ -1385,6 +1402,29 @@ static void PollWordsKey() {
   ModLog("test key     : Ctrl and Home: hint_words is %d now (%s)", g_words,
          g_words != 0 ? "a target has one text"
                       : "a hint of the game takes the place of the prompt");
+}
+
+// THE A/B KEYS (test_keys=1): Ctrl with Page Down switches tree_plant_hint
+// between 1 and 0, and Ctrl with Shift and Page Down switches
+// far_roots_at_tree (hand_direct.cpp). The pointing controller gives a long
+// pulse for 1 and a short pulse for 0.
+static void PollTreeKey() {
+  static bool was = false;
+  if (!g_test_keys) return;
+  const bool down = (GetAsyncKeyState(VK_NEXT) & 0x8000) != 0 &&
+                    (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
+  const bool pressed = down && !was;
+  was = down;
+  if (!pressed) return;
+  DWORD process = 0;
+  const HWND window = GetForegroundWindow();
+  if (window != nullptr) GetWindowThreadProcessId(window, &process);
+  if (process != GetCurrentProcessId()) return;
+  if ((GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0) {
+    HandDirectRootsToggle();
+  } else {
+    HandDirectTreeHintToggle();
+  }
 }
 
 void HintCardToggle() {

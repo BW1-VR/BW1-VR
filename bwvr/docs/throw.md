@@ -183,9 +183,14 @@ disassembly shows that a tree is a physics object like a rock:
 `PhysicsObject::AddObject` for each object. The only differences are the
 argument that `PhysOb::AdjustToGroundLevel` `0x007FCB80` gets (`0x00637075`,
 `0x006370D5`: 1 for a thing that is not a tree) and that a tree is not a
-gentle drop (`IsAnyKindOfTree`). When a tree comes to rest,
-`Tree::EndPhysics` `0x0074B830` plants it (dust from `SmokyStuff::Create`, a
-pulse of the hand and the search for a place). That is the game's own code and
+gentle drop (`IsAnyKindOfTree`). A tree that the Hand sets down on dry land
+is planted at once by `Tree::EndPhysics` `0x0074B830` (dust from
+`SmokyStuff::Create`, a pulse of the hand and the search for a place). A tree
+that falls does not get the flag of that landing (flag 8 of the physics
+object, set only at the release), so it never leaves the physics as a `Tree`:
+the game gives it the path of a dead tree. A desktop run showed both: a tree
+set down at 2.4 cm was a planted `Tree` 25 frames later, and a tree let go at
+45 cm stayed in the physics. See [grab.md](grab.md), "A tree in the Hand". That is the game's own code and
 it comes at the end, so it does not matter for the flight. [I for the safety:
 the hooks do not read the class. A flying tree has not been tested in the
 headset.]
@@ -526,7 +531,7 @@ What each kind does:
 | Object | At the limit or lower | Higher up |
 | --- | --- | --- |
 | A rock, a ball, a crop, a scaffold, an animal, a villager | Set down | Falls. The game's landing damage is the game's own (see "The damage") |
-| A tree | Set down, and the game plants it | Falls, and the game plants it where it comes to rest (`Tree::EndPhysics`) |
+| A tree | Set down, and the game plants it | Falls, and the game does not plant it (see "A tree in the Hand" in grab.md). The card says so before the opening |
 | A pot of wood or food | Pours out at the place | Falls as an object (the speed squared is 6.25, above 5), and does not pour |
 | A Miracle | Set down | Set down. A Miracle keeps its own rules and the game's release |
 | A thing that goes onto a thing (a store, a building site, the altar) | Its own rule, `grab.md`, "An object in the Hand that goes onto a thing" | The same. While a thing at the Hand takes the object (`VillageTakesObject` in `village.cpp`), the height rule does not act |

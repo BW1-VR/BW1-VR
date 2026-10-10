@@ -943,6 +943,64 @@ the game would cancel the pick up on the frame after the press.
   on a forest often. A grip that closes for a grab of the world must not take a
   tree each time.
 
+### A tree in the Hand
+
+**The roots pile [V].** When the Tug of the game pulls a tree free
+(`HandStateTug::Update`, the call at `0x005B847E` of `fn_0074BD20`), the game
+makes a roots pile: a mesh (`0x251` in the mesh pack) at the mesh translation of
+the tree, with dust. It is a decoration with a life of 15 s, and it fades out
+(`fn_00825240` makes it, `fn_00825350` ages it, the list head is at
+`0x00EB9A00`). It does not follow the tree. With the Hand at the tree the pile
+stands at the roots, on the land where the tree stood. At a distance the Tug
+breaks after the glide has begun to move the tree, so the game put the pile on
+the way of the glide, in the air.
+
+With `far_roots_at_tree=1` the mod moves the new pile to the place of the tree at
+the lock (`FarGrabGlideOrigin`), so a tree from a distance leaves the same pile
+at the roots as a tree that the Hand took. The pile is the game's own object:
+the mod only gives it the place. A tree in the Hand has no piece of the pile
+with it in the game's code, and the game has no test of a pile for the planting.
+
+**What decides that a release plants the tree [V].** The release is
+`Object::InitialisePhysicsFromHand` `0x00636F00`. The game sets the tree down
+and plants it on the spot (`Tree::EndPhysics` `0x0074B830`, with the flag 8 of
+the physics object) when all of these are true. Else the tree goes into the
+physics and falls.
+
+- The Hand is not fast (its speed across the land is at most 2 units a turn).
+- No other body is in the way: the game raises the object until it does not
+  intersect, and a raised object falls.
+- The land under the tree is dry land, or shallow water of the land block.
+- The mesh of the tree leans at most 0.2 rad about x and about z
+  (`LHMatrix::GetYXZ` `0x007FAB30`).
+- The tree is not on fire (`Tree+0x44`).
+
+A tree that falls has no flag 8, because only the release sets it. When it
+comes to rest, `EndPhysics` makes a `DeadTree` (`fn_00510B70`) in its place
+[I]. A desktop run showed the two ends: a tree set down at 2.4 cm of the room
+was a `Tree` in a forest 25 frames later, and a tree let go at 45 cm never
+left the physics as a `Tree` (the dead tree path does not clear its flag).
+
+**The card.** The text "Plant" of the game is the same for each tree in the
+Hand. With `tree_plant_hint=1` the card tests the same things in each frame
+(`tree_plant_math.h`, `HandDirectTreeVerdict`): the height rule of
+`release_fall_cm` (throw.md), the lean, dry land (`MapCoords::IsDryLand`) and
+fire. When the release plants the tree, the card keeps the text of the game.
+Else it says what the opening does: "Lower to plant. Open to drop", "Hold
+upright to plant. Open to drop", "Needs dry land. Open to drop" or "On fire.
+Open to drop". The test of a body in the way is not in the card: the game works
+it out in the physics at the release.
+
+**The log.** Tag `hand tree`: the settings, each roots pile that the game makes
+(with the place), each change of the answer for the tree in the Hand (the
+height, the lean, dry land, fire), the release, and what the tree is when it
+leaves the physics (its class and its forest).
+
+**Open.** A body in the way is not predicted. A tree held by the Hand at an angle
+of more than 0.2 rad is not seen in a desktop run (the hand of the script keeps
+the tree upright). Whether the pile at the roots is what the player means by the
+"pit" needs the headset.
+
 ### The far touch
 
 A scroll in the cone of the aim ray is a far target, with the range of
@@ -1064,6 +1122,8 @@ not jump.
 | `far_grab_near_cm`, `far_grab_near_out_cm` | 10, 15 | See "Near objects win" |
 | `far_touch` | 1 | 1 makes a scroll in the aim a far target that the grip activates |
 | `far_leash` | 1 | The leash click on the player's own Creature at a distance (see [creature.md](creature.md)) |
+| `far_roots_at_tree` | 1 | 1 puts the roots pile of a tree that comes from a distance at the roots, on the land where the tree stood. 0 leaves it where the game puts it, on the way of the glide. Test key: Ctrl, Shift and Page Down |
+| `tree_plant_hint` | 1 | 1 makes the card say what the opening of the grip does with a tree in the Hand. 0 shows the text of the game ("Plant") each time. Test key: Ctrl and Page Down |
 | `throw_law` | 2 | The law of the throw (see [throw.md](throw.md)) |
 
 With `test_keys=1`, Ctrl with the Delete key changes `far_grab_choice` between 1

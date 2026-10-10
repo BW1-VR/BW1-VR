@@ -3394,6 +3394,7 @@ void CreatureChecks() {
 #include "teleport_checks.h"
 #include "feel_checks.h"
 #include "temple_checks.h"
+#include "tree_plant_checks.h"
 
 int main() {
   const float eye[3] = {120.0f, 45.0f, -300.0f};
@@ -3774,6 +3775,7 @@ int main() {
   forest_checks::ForestGripChecks();
   feel_checks::FeelChecks();
   temple_checks::TempleChecks();
+  tree_plant_checks::TreePlantChecks();
 
   printf("\n%d checks, %d failed\n", g_checks, g_failures);
   return g_failures == 0 ? 0 : 1;

@@ -108,6 +108,10 @@ void FarGrabGone();
 // the next record, its position and the land under it. Pull and Fetch only.
 bool FarGrabFetching(void** object, float position[3], float land[2]);
 
+// The object that glides to the Hand now and the place that it came from (the
+// mesh translation at the lock). False when no glide is armed.
+bool FarGrabGlideOrigin(void** object, float origin[3]);
+
 // For controllers.cpp, once a pump, before the grip goes to the grip machine.
 // grip is the grip button, and ok is true when the hand may act now. The
 // answer is true while the grip must be held back from the machine.

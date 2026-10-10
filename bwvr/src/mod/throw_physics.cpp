@@ -1401,6 +1401,8 @@ void ThrowPhysicsInstall() {
   }
 }
 
+float ThrowPhysicsFallLimitM() { return g_fall_off ? 0.0f : g_fall_m; }
+
 bool ThrowPhysicsPlan(const ThrowPlanIn& in, ThrowPlanOut* out) {
   if (ThrowPhysicsLaw() != 2 || !(in.units_per_meter > 0.0f) ||
       !(in.life > 0.0f)) {
