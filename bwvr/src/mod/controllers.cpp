@@ -56,6 +56,7 @@
 #include "controllers.h"
 #include "creature_command.h"
 #include "far_grab.h"
+#include "frame_profile.h"
 #include "haptics.h"
 #include "hand_exact_math.h"
 #include "miracle.h"
@@ -244,6 +245,9 @@ enum FakeInput {
   // The mod asks the game to end by itself, on its usual exit path
   // (exit_test.cpp).
   kExit,
+  // The frame cost measure: the frames of the word are one scene
+  // (frame_profile.cpp). It moves nothing.
+  kBench,
   kInputCount
 };
 
@@ -256,7 +260,7 @@ const char* const kInputName[kInputCount] = {
     "rot",        "aimfar",     "pull",       "aimcmd",     "aimturn",
     "nofocus",    "deactivate",
     "lstick_left", "lstick_right", "lstick_up", "lstick_down", "ltrigger",
-    "aimtemple",  "gripdip",    "exit"};
+    "aimtemple",  "gripdip",    "exit",       "bench"};
 
 // The fake hand positions for the word "point", in cm from the head center.
 const int kMaxPoints = 16;
@@ -1021,6 +1025,9 @@ void UpdateScript() {
     // The next pump tells the game (FakeDeactivate).
     if (step.input == kDeactivate && t == step.start) g_fake_deactivate = true;
     if (step.input == kExit && t == step.start) ExitTestNow(g_frame);
+    if (step.input == kBench && t == step.start) {
+      FrameProfileSceneStart(step.frames, g_frame);
+    }
     if ((step.input == kNudge || step.input == kSlap) &&
         t == step.start) {
       const float side = step.input == kNudge ? 2.0f : 12.0f;
@@ -1046,7 +1053,7 @@ void UpdateScript() {
         i == kSlap || i == kLPoint || i == kTrace || i == kShot ||
         i == kTouchCreature || i == kRot || i == kAimFar || i == kPull ||
         i == kAimCommand || i == kAimTurn || i == kDeactivate ||
-        i == kAimTemple || i == kExit) {
+        i == kAimTemple || i == kExit || i == kBench) {
       continue;
     }
     if (i == kPose2) {

@@ -18,6 +18,7 @@ add_library(bwvr_mod SHARED
     present_watch.cpp
     pass_guard.cpp
     frame_timers.cpp
+    frame_profile.cpp
     fov.cpp
     input_watch.cpp
     head_pose.cpp

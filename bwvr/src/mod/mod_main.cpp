@@ -24,6 +24,7 @@
 #include "build_id.h"
 #include "../vr/xr_screen.h"
 #include "controllers.h"
+#include "frame_profile.h"
 #include "tabletop.h"
 #include "far_grab.h"
 #include "throw_physics.h"
@@ -48,7 +49,7 @@ void StereoSetFixes(bool freeze_time, bool move_camera_point);
 void DrawProbeArm(bool on, int frames);
 void DrawProbeDelay(int frames);
 void StereoSetHeadless(bool on);
-void StereoSetProfile(bool on);
+void StereoSetProfile(int level);
 void StereoSetTestKeys(bool on);
 void StereoSetCaptureInterval(int seconds);
 void StereoSetHeadlessGrab(bool on);
@@ -262,7 +263,10 @@ float g_ui_shift_max = 24.0f;
 // Anisotropic filtering, which the game could not afford in 2001 and a
 // modern GPU gives away. 0 or 1 leaves the filtering alone.
 int g_anisotropy = 16;
-bool g_profile = false;
+// profile of bwvr.ini, a test key. 0 is off. 1 is the frame cost measure
+// with a timer on each Direct3D draw call. 2 is the measure with no such
+// timer. See frame_profile.cpp.
+int g_profile = 0;
 bool g_headless_grab = false;
 bool g_skip_desktop = true;
 int g_capture_seconds = 0;
@@ -499,7 +503,9 @@ void ReadSettings() {
   g_anisotropy = GetPrivateProfileIntA("bwvr", "anisotropy", 16, path);
   g_filter_survey =
       GetPrivateProfileIntA("bwvr", "filter_survey", 0, path) != 0;
-  g_profile = GetPrivateProfileIntA("bwvr", "profile", 0, path) != 0;
+  g_profile =
+      static_cast<int>(GetPrivateProfileIntA("bwvr", "profile", 0, path));
+  if (g_profile < 0 || g_profile > 2) g_profile = 1;
   g_skip_desktop =
       GetPrivateProfileIntA("bwvr", "skip_desktop_present", 1, path) != 0;
   g_capture_seconds =
@@ -1182,6 +1188,8 @@ void StartVrOnce() {
     SnapshotGuardInstall();
     PresentWatchSetEnabled(true);
     PresentWatchInstall();
+    FrameProfileSetLevel(g_profile);
+    FrameProfileInstall();
     GpuBridgeProbeInterop();
     ModLog("vr           : game renders at %ux%u", width, height);
     // The pointer is scaled onto this, so the window may be any size.
@@ -1857,6 +1865,9 @@ void EndOfDll(bool process_ends) {
 
 void ModLog(const char* format, ...) {
   if (g_log == nullptr) return;
+  // The frame cost measure counts the time of a line, with the wait for the
+  // lock.
+  const uint64_t profile_start = FrameProfileOn() ? FrameProfileTicks() : 0;
   // At the end of the process a stopped thread can hold the lock for ever.
   // No other thread runs then, so the line goes out without the lock.
   bool locked = true;
@@ -1872,6 +1883,10 @@ void ModLog(const char* format, ...) {
   fputc('\n', g_log);
   fflush(g_log);
   if (locked) LeaveCriticalSection(&g_lock);
+  if (profile_start != 0) {
+    FrameProfileAdd(kFpLog, FrameProfileTicks() - profile_start);
+    FrameProfileCount(kFpcLogLines, 1);
+  }
 }
 
 BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, LPVOID reserved) {

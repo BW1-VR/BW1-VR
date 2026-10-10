@@ -29,6 +29,7 @@
 #include <stdint.h>
 
 #include "MinHook.h"
+#include "frame_profile.h"
 
 extern void ModLog(const char* format, ...);
 // hand_exact.cpp: the drawn Hand after its draw setup, and the calls of later
@@ -259,6 +260,7 @@ void __fastcall h_ProcessNetworkPackets(void* self, void* unused) {
   o_ProcessNetworkPackets(self, unused);
   QueryPerformanceCounter(&after);
   const uint64_t spent = after.QuadPart - before.QuadPart;
+  if (FrameProfileOn()) FrameProfileAdd(kFpTurn, spent);
   g_turn_ticks += spent;
   if (spent > g_turn_worst) g_turn_worst = spent;
   ++g_turn_calls;

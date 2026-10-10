@@ -885,6 +885,7 @@ The words that act on the first frame of the word only:
 | `aimtemple` | Turns the aim to the next target of `temple_test_targets` (11.6) |
 | `lean`, `look` | `lean` holds the lean of `fake_head_*_cm` for the frames of the word. `look` turns the invented head 30 degrees left and 20 degrees down for the frames. With no `lean` word in the script, a lean that is set holds for the whole run |
 | `shot` | Saves a picture of both eyes 3 frames later. It moves nothing |
+| `bench` | The frames of the word are one scene of the frame cost measure (`profile=1`, `backend.md`, "The frame cost measure"). It moves nothing. The scene starts with the frame after the first frame of the word |
 | `deactivate` | The game gets `WM_ACTIVATEAPP` with 0 and `WM_KILLFOCUS`, as when the player clicks a different program. See 9.5 |
 | `exit` | The mod asks the game to end by itself, on its usual exit path, as `exit_test_frame` does. From that frame the mod drops each write of the game to the registry. See `backend.md`, "The test of the end" |
 

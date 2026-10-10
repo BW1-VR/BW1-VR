@@ -147,6 +147,29 @@ inline float Elevation(const float basis[9], const float ears[3],
   return atan2f(u, sqrtf(r * r + f * f)) * 57.29578f;
 }
 
+// THE RELEASE OF A VOICE OF THE MIXER (docs/audio.md, 7.4 and "7.6 The wait
+// of a stop"). When the DLL flushes the channel of a voice, the level of the
+// voice goes to 0 and a count runs. The count starts at ReleaseStart, and it
+// goes down by 1 in each kReleaseSeconds. The slot of the voice is free at
+// kReleaseEnd. So a voice has 80 ms from the flush to the free slot.
+//
+// The audio DLL waits kStopWaitSeconds between the volume 0 of a stop and
+// the flush. When the mod skips that wait, the flush comes that much sooner,
+// and the count starts that much higher. The slot is then free at the same
+// time after the volume 0 as with the wait.
+const float kReleaseSeconds = 0.008f;
+const float kReleaseEnd = -9.0f;
+const float kStopWaitSeconds = 0.020f;
+
+inline float ReleaseStart(bool wait_skipped) {
+  return 1.0f + (wait_skipped ? kStopWaitSeconds / kReleaseSeconds : 0.0f);
+}
+
+// The seconds from the flush of the channel to the free slot.
+inline float ReleaseLength(float start) {
+  return (start - kReleaseEnd) * kReleaseSeconds;
+}
+
 // A POINT IN THE WORLD from a direction in the frame of the ears (x right,
 // y up, z forward, as the DLL reads a relative position), at distance from
 // the ears. False when the direction has no length.

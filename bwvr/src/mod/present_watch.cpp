@@ -27,10 +27,12 @@
 #include <windows.h>
 #include <ddraw.h>
 #include <d3d.h>
+#include <intrin.h>
 #include <stdint.h>
 
 #include "MinHook.h"
 #include "../common/bw_addresses.h"
+#include "frame_profile.h"
 
 extern void ModLog(const char* format, ...);
 
@@ -120,6 +122,14 @@ HRESULT WINAPI h_Blt(IDirectDrawSurface7* self, LPRECT destination,
   QueryPerformanceCounter(&after);
   g_blt_ticks += after.QuadPart - before.QuadPart;
   ++g_blt_calls;
+  // The copy to the monitor is in the time of GGame::FlipScreen.
+  if (FrameProfileOn() && !IsPrimary(self)) {
+    FrameProfileAdd(kFpCopy, after.QuadPart - before.QuadPart);
+    FrameProfileCount(kFpcCopies, 1);
+    FrameProfileCaller(kFpCallCopy, _ReturnAddress(), 0,
+                       after.QuadPart - before.QuadPart,
+                       _AddressOfReturnAddress());
+  }
   if (destination != nullptr) {
     const uint32_t width =
         static_cast<uint32_t>(destination->right - destination->left);

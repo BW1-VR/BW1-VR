@@ -93,6 +93,7 @@ calls it. It keeps these rules, and a new script must keep them too:
 | `creature_recipe.ps1` | The Creature state, strokes and a slap. With `-Kind leash`, `-Kind stay` or `-Kind tie`: the leash, the stay from a distance, and the leash tied to an object. With `-Kind click`: a text that waits for a click |
 | `hand_run.ps1`, `village_run.ps1`, `temple_run.ps1`, `miracle_run.ps1` | Runs for the near hand, the village, the Temple and miracles. See "The scripts of one area" |
 | `intro_run.ps1` | The Lionhead logo in stereo, with a picture of each eye each few seconds. The run does not skip the logos. See "The logos" |
+| `bench_run.ps1` | The frame cost measure: six still scenes, the numbers of each scene, the spread of some runs, and the comparison of two builds or of two sets of keys. See "The frame cost measure" |
 
 The scripted controller is driven by ini keys: `fake_controller_script` (words
 such as `point@400+1`, `grip@3100+101`, `trigger@440+8`: the word, the frame
@@ -161,6 +162,77 @@ Known limits of the recipes:
 - A run in which a person uses the PC does not count: the game window can
   lose the front, and the real mouse can take the pointer from the scripted
   controller. `desk_run.ps1` says when a person used the PC in a run.
+
+## The frame cost measure
+
+`bench_run.ps1` says what a frame costs, and whether a change makes a frame
+cheaper. The numbers come from the log of the mod (`profile=1`,
+`docs/backend.md`, "The frame cost measure").
+
+```powershell
+.\bwvr\tools\desk\bench_run.ps1 -Name b -Runs 3
+.\bwvr\tools\desk\bench_run.ps1 -Name ab -Dll <build A> -Dll2 <build B> -Runs 3
+.\bwvr\tools\desk\bench_run.ps1 -Name k -Set "audio_stop_wait=1" -Set2 "audio_stop_wait=0" -Runs 3
+.\bwvr\tools\desk\bench_run.ps1 -Read b1,b2,b3
+```
+
+A run starts in the test save `temple` and takes 122 s. The scripted
+controller and the fake head put the view at six places. At each place
+nothing of the player moves for 600 frames (`-Frames`), and the word `bench`
+of the script makes those frames one scene of the measure:
+
+| Scene | The view |
+| --- | --- |
+| 1 | The door of the Temple at the scale of the start (100 units for each meter), with a level head: the land to the horizon. The Creature of the profile stands at that door |
+| 2 | The same place with the head 30 degrees to the left and 20 degrees down (the word `look`). The head stays so for the rest of the run |
+| 3 | The Village Store, two zoom steps in (44.4 units for each meter): villagers, trees and buildings |
+| 4 | The same place with a tree in the Hand |
+| 5 | Five zoom steps out (337.5 units for each meter) |
+| 6 | The widest zoom (4000 units for each meter) |
+
+The script prints these tables:
+
+- **One table for each run**, with one row for each scene. `frame` is the
+  mean of the whole frame. `work` is the frame less the copy to the monitor:
+  its mean, its median, its 99th percentile and its worst frame. The next
+  columns have the mean of each part of a frame. The parts are the game
+  turn, each eye pass, the frame and pass functions of the mod, the copy to
+  the monitor and the rest. `D3D` is the time in Direct3D draw calls, which
+  is inside the eye passes. Below the table, one line for each scene has the
+  count of the slow frames and the part that is their cause.
+- **The spread**, with `-Runs` at 2 or more. For each number of each scene
+  the table has the value of each run, the mean, and the largest value less
+  the smallest one. The villagers and the Creature move by themselves, and a
+  game turn comes each 100 ms of game time. So two runs are not the same
+  frame for frame. A difference between two builds counts only when it is
+  larger than the spread.
+- **The comparison**, with `-Dll2` (a second build) or `-Set2` (a second set
+  of ini keys, `key=value;key=value`). The runs go A, B, A, B. For each
+  number the table has the mean of A, the mean of B, the difference and the
+  larger spread of the two. Three runs give only a rough spread. So the
+  result is `clear` only when the difference is more than two times that
+  spread, and `near the spread` when it is more than the spread.
+
+The runs of `-Name b` have the names `b1`, `b2` and `b3`. With a comparison
+they have the names `ab-a1`, `ab-b1`, `ab-a2` and so on. `-Read` and `-Read2`
+make no run. They take the logs of runs that are there, by the name of each
+run or by the path of each log.
+
+Rules for a measure:
+
+- Read the first line of each run table: the build, the render size and the
+  value of `profile`. Compare only runs with the same render size.
+- A run in which a person used the PC does not count. The script prints the
+  lines of `desk_run.ps1` that say so, and its lines about the files that
+  the run put back.
+- `profile=1` puts a timer on each Direct3D draw call. Those timers are in
+  the numbers of each run: 0.2 to 0.4 ms of a frame with 2000 to 2900 draw
+  calls. `-ProfileLevel 2` gives the measure with no such timer.
+- A desktop run has no headset. `docs/backend.md`, "The measure on the
+  desktop", says which costs such a run has and which it does not have.
+
+The last line is `BENCH DONE`, or `BENCH STOPPED at <run>` when a run was not
+made.
 
 ## A fast start
 
@@ -350,6 +422,7 @@ Hand in the loaded game (`fake_controller_play_frame`).
 | `miracle_run.ps1` | The test save `temple` | 800 | 75 s, 375 s for the five kinds | 44 to 57 s, 247 s for the five kinds |
 | `temple_run.ps1` | The test save `temple` | 800 | 190 s | 180 s |
 | `temple_run.ps1 -SaveTest` | A new game, `keep` | | 190 s | This run keeps the new game: its check reads the slots of the profile, and a run in a test save has the files of the test save in slot 20 |
+| `bench_run.ps1` | The test save `temple` | 800 | | 122 s for each run |
 | `exit_run.ps1` | A new game, with the start dialog up | | 150 s | This run tests the end of the game, and it needs no state of the game |
 
 The start in the test save `pen` is 49 s shorter than the start of a new game
@@ -395,8 +468,8 @@ its runs apart from the others.
 `aim_run.ps1`, `spawn_run.ps1`, `hand_run.ps1` and `temple_run.ps1` wait for
 an idle PC. Each 30 s they read the idle time and look for a game that runs.
 They start the run when the PC is idle for 10 minutes and no game runs, and
-they give up after `-Minutes`. `creature_recipe.ps1`, `miracle_run.ps1` and
-`village_run.ps1` wait through `spawn_run.ps1`. `verify_build.ps1`,
+they give up after `-Minutes`. `creature_recipe.ps1`, `miracle_run.ps1`,
+`village_run.ps1` and `bench_run.ps1` wait through `spawn_run.ps1`. `verify_build.ps1`,
 `aim_queue.ps1` and `throw_queue.ps1` wait through the scripts that they
 call. `desk_run.ps1` and `exit_run.ps1` do not wait for an idle PC:
 `desk_run.ps1` stops with `NOT RUN`, and `exit_run.ps1` with `EXIT NOT RUN`.
@@ -413,6 +486,7 @@ words in capital letters:
 | `VERIFIED`, `NOT VERIFIED: <why>` | `verify_build.ps1` | The check before a merge |
 | `SAVE MADE: <name>`, `SAVE NOT MADE: <why>` | `make_test_save.ps1` | A test save is in the folder of the test saves, or it is not. It is the last line |
 | `EXIT CLEAN`, `EXIT FAULT`, `EXIT NOT RUN` | `exit_run.ps1` | See "A run in which the game ends by itself" |
+| `BENCH DONE`, `BENCH STOPPED at <run>` | `bench_run.ps1` | Each run of the measure was made, or the named run was not |
 
 `creature_recipe.ps1` prints the lines of the log only after a run, and then
 `RUN DONE`. `miracle_run.ps1` and `village_run.ps1` print the verdict line of

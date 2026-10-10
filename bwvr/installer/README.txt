@@ -198,6 +198,11 @@ The advisors and the speech of a story sound as the game made them.
 Set audio_mixer=0 in bwvr.ini to let the sound system of the game
 (QMixer) pan each sound, with no mixing by the mod.
 
+When a sound stops, the sound system of the game holds the picture
+for 20 ms. The mod skips that wait for each sound that it plays, so
+the picture does not stop. Set audio_stop_wait=1 in bwvr.ini to keep
+the wait of the game.
+
 
 THE KEYS
 --------

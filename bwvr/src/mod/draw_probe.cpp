@@ -77,6 +77,7 @@
 
 #include "MinHook.h"
 #include "../common/bw_addresses.h"
+#include "frame_profile.h"
 
 extern void ModLog(const char* format, ...);
 
@@ -345,6 +346,9 @@ HRESULT WINAPI h_DrawPrimitive(void* self, D3DPRIMITIVETYPE type, DWORD fvf,
   g_d3d_ticks += b.QuadPart - a.QuadPart;
   ++g_d3d_calls;
   g_d3d_vertices += count;
+  FrameProfileAdd(kFpD3d, b.QuadPart - a.QuadPart);
+  FrameProfileCount(kFpcDraws, 1);
+  FrameProfileCount(kFpcVertices, count);
   return hr;
 }
 
@@ -370,6 +374,9 @@ HRESULT WINAPI h_DrawIndexedPrimitive(void* self, D3DPRIMITIVETYPE type,
   ++g_d3d_calls;
   g_d3d_vertices += count;
   g_d3d_indices += index_count;
+  FrameProfileAdd(kFpD3d, b.QuadPart - a.QuadPart);
+  FrameProfileCount(kFpcDraws, 1);
+  FrameProfileCount(kFpcVertices, count);
   return hr;
 }
 

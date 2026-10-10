@@ -857,6 +857,66 @@ snap turn, a grab that turns the land, and a real turn of the head all turn
 the bed. The level of the bed is the game's (the volume of its channel), and
 it moves in steps of 15 ms. `audio_bed=0` leaves the bed flat in QMixer.
 
+### 7.6 The wait of a stop
+
+The audio DLL stops a sample that plays in three steps. Three functions of
+`LHaudiodllR.dll` have these steps, at RVA `0x12CC1`, `0x12D79` and `0x12E6E`
+[V]:
+
+1. `QSWaveMixSetPanRate(session, channel, 0, 20)` and
+   `QSWaveMixSetVolume(session, channel, 0, 0)`: the volume of the channel
+   goes to 0, with a pan rate of 20.
+2. `Sleep(20)`, on the thread of the caller.
+3. `QSWaveMixSetPanRate(session, channel, 0, 100)` and
+   `QSWaveMixFlushChannel`.
+
+The caller is the frame thread of the game. `GAudio::ProcessAudioGameTurn`
+(`0x00427080`, from `GGame::EndTurn` in each game turn) calls
+`LHSampleUpdate3DChannels`, which stops each positional sample that is out of
+range (section 6.4). So each such stop holds the frame for 20 ms, and two
+stops in one game turn hold it for 40 ms. In a village at 44 units a meter a
+desktop run has 4 to 8 of these stops in 10 s (`backend.md`, "The slow
+frames").
+
+QMixer has the volume 0 for a channel that a voice of the mod plays, from the
+start of the play (7.4). So the wait lets nothing fade there. With
+`audio_stop_wait=0`, the default, the mod skips the `Sleep` of step 2 for such
+a channel:
+
+- The mod has its own function in the import slot of `Sleep` of the audio DLL.
+  Each other `Sleep` of the DLL goes to Windows. The function knows a stop
+  by the address that the call returns to: RVA `0x12CEB`, `0x12DAD` or
+  `0x12EA2`. The stops of `LHSampleUpdate3DChannels` return to `0x12EA2`.
+- The hook on `QSWaveMixSetVolume` keeps the channel of the last call with the
+  volume 0 and the flags 0, and the thread that made it. The mod skips the
+  wait only when the same thread made that call. The channel must be one that
+  a voice of the mod plays, and QMixer must have it at the volume 0.
+- The voice of the mod sounds the same. Its level goes to 0 from the volume
+  call, with the time constant of each control (7.4). With no wait the flush
+  comes 20 ms sooner, so the voice gets 20 ms more before its slot is free.
+  The slot is free 100 ms after the volume call, as with the wait
+  (`audio_math::ReleaseStart`).
+- A channel that QMixer plays (a flat sound, an advisor, the speech of a
+  story) keeps the wait. There the wait is the time that the DLL gives QMixer
+  for its own fade.
+
+The mod first tests the 4 bytes at 8 before each of the three addresses. They
+must be `6A 14 FF 15`. If they are not, the audio DLL is not the known one:
+the mod changes nothing, and the log says so. `audio_stop_wait=1` gives each
+stop its wait, as in the game. The mixer report (each 30 s) counts the stops:
+
+```
+audio mixer  : audio_stop_wait=0. The audio DLL calls Sleep(20) on the thread of the game when it stops a sound that plays. The mod skips that wait for a sound that the mixer of the mod plays: QMixer is silent for it, and the voice of the mod fades the same way. A sound that QMixer plays keeps the wait
+audio mixer  : the audio DLL stopped 26 sounds that played. The mod skipped the wait of 20 ms for 24 of them, and 2 kept it (audio_stop_wait=0)
+```
+
+With `test_keys=1`, Ctrl and Pause change `audio_stop_wait` between 0 and 1
+while the game runs. The pointing controller gives a long pulse when the mod
+skips the wait and a short pulse when each stop has it. Windows gives the key
+`VK_CANCEL` for Pause with Ctrl down, so the keys of Pause alone (`throw.md`)
+do not see the press. The test `audio_stop_wait_test=N` does the same at
+frame `N` of the controllers, for a desktop run.
+
 ## 8. Cues for the moves of the player
 
 `audio_cues.cpp`. A short, quiet cue plays for a move that the mod makes,
@@ -920,6 +980,7 @@ behavior is in the last column.
 | `audio_bed` | 1 | The bed of the atmosphere turns with the world | 0: QMixer plays the bed flat |
 | `audio_atmos_mixer` | 1 | The single sounds of the atmosphere (birds, waves) go through the mixer | 0: QMixer plays them, steered by 6.5 |
 | `audio_atmos_toward` | 1 | A single sound of the atmosphere goes toward the land of its kind | 0: a random place on the ring |
+| `audio_stop_wait` | 0 | The mod skips the wait of 20 ms of the audio DLL at the stop of a sound that the mixer of the mod plays (7.6) | 1: each stop holds the frame thread for 20 ms |
 | `audio_cues` | 1 | Soft sounds for the player's moves | 0 |
 | `audio_cues_pct` | 100 | Their level, 0 to 300 | |
 | `audio_latency_ms` | 0 | The latency that QMixer starts with (section 10) | 0: QMixer's own value, 50 ms |
@@ -927,6 +988,7 @@ behavior is in the last column.
 | `audio_capture` | 0 | Test only: write the stream to `bwvr-audio.wav` | |
 | `audio_test_voice`, `audio_test_path`, `audio_test_step_ms`, `audio_test_solo` | 0, empty, 3000, 0 | Test only: the test voice and the test bed (section 11) | |
 | `audio_test_tag`, `audio_test_tag_bank`, `audio_test_bank` | 0, 1, -1 | Test only: a sound tag on the Creature, and a list of the loops of a bank | |
+| `audio_stop_wait_test` | 0 | Test only: the frame of the controllers at which `audio_stop_wait` changes, as the test key does (7.6) | |
 
 `audio_test_tag` is a sample number. The mod puts a sound tag with this sample
 on the player's Creature, 120 frames after the table or the God view has the
@@ -948,6 +1010,8 @@ Hand while the mouse moves.
 5. The ears are on the game camera. This is the sound of the game, exactly. The
    room factor is 1, the sounds at the listener go back to the game camera, and
    every steered sound goes back to the DLL's polar position.
+
+Ctrl and Pause (with `test_keys=1`) change `audio_stop_wait` (7.6).
 
 ## 10. Latency
 
@@ -1055,7 +1119,8 @@ headset is `fake_head=1` with `fake_head_yaw`, which turns an invented head
 listener forward must equal the render basis forward.
 
 A desktop run cannot show: that the sign of the azimuth is right by ear, that
-a loop fades to silence without a click, the late sound of a fast head turn
+a loop fades to silence without a click, that a sound that stops with
+`audio_stop_wait=0` ends as it does with 1, the late sound of a fast head turn
 on the real device, the pause of the game and its menu (the fake Esc needs
 the game window in front), and the level balance by ear.
 
@@ -1099,6 +1164,9 @@ the game window in front), and the level balance by ear.
   with a license that lets the mod ship it.
 - Which sound is a "large portal" sound in the God view, and so which loop
   drops out, is not known. The `audio range` lines name each loop.
+- The stop of a sound that QMixer plays holds the frame thread for 20 ms
+  (7.6). A desktop run of 110 s has 2 such stops. Which sounds they are is
+  not known.
 
 **Open questions.**
 

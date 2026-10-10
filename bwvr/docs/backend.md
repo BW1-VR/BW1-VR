@@ -817,7 +817,9 @@ The split is stable: about 37 percent driver and 63 percent game code. The cost
 follows the draw call count (5.3 to 6.3 microseconds per call), not the vertex
 count. The workload is draw call bound. Walking the scene once and deriving the
 second eye would save about half of the game code share (about 3 ms of 9.8 ms)
-and nothing of the driver share, because each batch is submitted twice.
+and nothing of the driver share, because each batch is submitted twice. These
+numbers are from sessions in a headset. "The measure on the desktop" has the
+numbers of six fixed scenes on the desktop.
 
 The streaming session can decide the outcome. The same heavy scene gave 60.9 fps
 with Virtual Desktop degraded and 86.9 fps with it healthy, for 0.3 ms of
@@ -853,12 +855,206 @@ each of them. The call runs 460 to 488 times for 450 frames, so it does not run
 exactly once a frame. `GGame::Loop` takes `LHKeyboard::CriticalSection` before the
 call, so a lock wait is not in that number.
 
-Open: the worst frames run 31 to 52 ms in every configuration tested, and no timed
-call or game turn explains them. Candidates:
-`ScriptedScreenShot::Process`, `GPlayer::SavePlayerAlignment` (it takes an
-argument), `CreatureRoom::ProcessScreenShot` and a preempted process between two
-frame loops. The runtime counter stays at 28 skipped frames for a run of 12,154
-frames, so these frames do not cost presented frames.
+### The frame cost measure
+
+`profile=1` (a test key) turns the frame cost measure on (`frame_profile.cpp`).
+The measure keeps the time of each frame and of each part of it, and the log
+gets a summary for each group of frames. With `profile=0` nothing of it runs:
+its hooks are not in, and each caller tests one flag.
+
+A frame is one turn of the frame loop of `GGame::Loop` (`0x0054D262` to
+`0x0054D460`), from one call of `ControlMap::ProcessActionsPerformed` to the
+next. The parts of a frame do not overlap, and their sum is the frame:
+
+| Part | What it is |
+| --- | --- |
+| input | `ProcessActionsPerformed`, `ProcessBufferedKeys` and `ProcessFrameInputs` |
+| game turn | `GGame::ProcessNetworkPackets`. It runs one game turn when 100 ms of game time are over (`GGame::LocalTimerSaysDoATurn`, `0x0054C4A0`). A single player game runs one turn in a call at most (`0x0054CD52`) |
+| before the scene | `GGame::ProcessGraphicsEngine` before the stereo hook: the mouse and the camera of the game |
+| mod frame | The stereo hook less the next four parts: the head, the frame functions of the mod (the controllers, the Hand, the teleport, the overlay), the frame to the runtime, and the report of each 450 frames |
+| wait | The wait for the runtime of the headset |
+| eye 0, eye 1 | The scene walk of each eye pass, with the pass functions of the mod around it |
+| to the headset | The copy of each eye picture to the bridge, or the read back |
+| after the scene | The rest of `GGame::ProcessGraphicsEngine` |
+| desktop copy | `GGame::FlipScreen`: the copy to the monitor |
+| other | The rest of the loop: `ScriptedScreenShot::Process`, `GPlayer::SavePlayerAlignment`, `CreatureRoom::ProcessScreenShot` and the network flush |
+
+Timers inside those parts say what a part is made of:
+
+- the frame functions and the pass functions of the mod, the frame to the
+  runtime, and the report,
+- the Direct3D draw calls,
+- the lines of the log,
+- the surface calls: `Lock`, `Unlock` and `BltFast`, and each `Blt` but the
+  copy to the monitor,
+- `CreateFile`, `ReadFile` and `Sleep`.
+
+The hooks of the surface calls, of `ReadFile` and of `Sleep` are in only with
+the measure. A call counts only on the frame thread.
+
+A group is a scene or a window. The word `bench` of the scripted controller
+(`controllers.md`, 4.2) makes the frames of the word one scene. A run with no
+such word has one window for each 450 frames, so a session in a headset gets
+the same lines. A frame with no eye passes (a menu, a load) is in no group.
+The lines of a group start with `frame cost   : scene N` or with `frame cost
+: window`:
+
+```
+frame cost   : scene 3, 600 frames in 10.80 s (55.6 fps), frames 1552 to 2151 of the controllers. Frame ms: mean 18.00, median 17.75, 99th percentile 20.57, worst 21.76. Less the desktop copy: mean 9.68, median 9.63, 99th percentile 10.79, worst 12.23
+frame cost   : scene 3, mean ms of a frame by part: input 0.010, game turn 0.078, before the scene 0.029, mod frame 0.061, wait 0.000, eye 0 4.813, eye 1 4.680, to the headset 0.000, after the scene 0.001, desktop copy 8.321, other 0.003
+frame cost   : scene 3, inside those parts, mean ms of a frame: frame functions 0.041, pass functions 0.002, frame to the runtime 0.000, report 0.001, Direct3D draw calls 4.721, log 0.002, surface locks 0.015, surface copies 0.023, file opens 0.000, file reads 0.001, sleep 0.006
+frame cost   : scene 3, the frame functions of the mod, mean ms of a frame (and the worst call): controllers 0.012 (0.135), hand 0.009 (0.126), teleport 0.001 (0.037), Creature command 0.002 (0.039), miracle 0.001 (0.017), village 0.002 (0.011), overlay 0.014 (0.040), water 0.000 (0.000), table 0.000 (0.001)
+frame cost   : scene 3, 108 game turns in 108 frames. The turn of such a frame, ms: mean 0.43, median 0.40, 99th percentile 0.72, worst 0.83. A frame has 2828 draw calls and 106345 vertices in both passes. In the 600 frames: 1200 surface locks, 1200 surface copies, 0 file opens, 14 file reads, 98 lines of the log, 7822 calls of Sleep
+frame cost   : scene 3, 0 slow frames of 600 (over 14.45 ms less the desktop copy), 0 of them with a game turn. The part that is the most over its median: none
+frame cost   : scene 3, the worst frame is frame 1566 of the controllers, 12.23 ms less the desktop copy, with 1 game turns and 2778 draw calls. Its parts, ms: ...
+frame cost   : scene 3, the callers of the surface locks with the most time: 0x008711AA (runblack.exe+0x4711AA) a surface of 32 by 32, 1200 times, 5.88 ms in all, worst 0.03. ...
+```
+
+- **The frame less the desktop copy.** A headset session has no copy to the
+  monitor (see "The copy to the monitor"). So each summary also has the frame
+  less that copy. The slow frames and the worst frame use that number.
+- **A slow frame** is over 1.5 times the median, and 4 ms over the median at
+  least (`frame_stats_math.h`). The cause of a slow frame is the part that is
+  the most over its own median.
+- **The callers.** For `Sleep`, the surface calls and `ReadFile` the summary
+  names the code that made the calls with the most time, by the address that
+  the call returns to. For the longest call it also lists the code of the game
+  that the stack has above the call. The game has no frame pointers, so that
+  list comes from a read of the stack. It has each value that is an address
+  in the code of `runblack.exe` with a call instruction before it. A value of
+  an old call can be in the list. `python bwvr\tools\disasm.py <address>`
+  shows each one.
+- **A frame with 2 ms or more in file calls** gets a line of its own, with
+  its longest part and the last file that it opened (40 lines at most).
+
+`profile=1` also puts a timer on each Direct3D draw call and on each call of
+`DrawTriangle`. The report of each 450 frames then has the lines of "What the
+scene walk is made of". `profile=2` is the measure with no such timer. Its
+numbers of the Direct3D draw calls (the time, the draw calls and the vertices)
+are 0. Those timers cost 0.2 to 0.4 ms of a frame with 2000 to 2900 draw calls
+(2.3 to 3.8 percent). A frame of `profile=2` is that much shorter.
+
+In a headset session, set `profile=1` in `bwvr.ini` after the last save of the
+launcher, because the launcher removes the key (see "Testing without a
+headset"). The windows then give the parts that only a headset has: the wait,
+the copy to the bridge and the frame to the runtime.
+
+### The measure on the desktop
+
+`bwvr/tools/desk/bench_run.ps1` makes desktop runs of one recipe and prints
+the numbers (`tools/desk/README.md`, "The frame cost measure"). A run starts
+in the test save `temple`. The scripted controller and the fake head put the
+view at six places, and at each place nothing of the player moves for 600
+frames. The script prints a table for each run, the spread of some runs, and
+the comparison of two builds or of two sets of ini keys.
+
+**What a desktop run has, and what it does not have.** A desktop run draws
+both eye passes (`stereo_headless=1`). So it has the game turn, the calls of
+the frame loop, and both scene walks with the calls into the backend. It has
+the frame functions and the hooks of the mod, the surface calls and the file
+calls. It also has the copy to the monitor, which a headset session does not
+have. A desktop run does not have these costs of a headset session:
+
+- the wait for the runtime, and the frame to the runtime (`xrEndFrame`),
+- the copy of each eye picture to the bridge, and the wait for the GPU there
+  (the GPU drain),
+- the compositor and the encoder of the headset link, which take time of the
+  CPU and of the GPU from the game,
+- the poses and the buttons of real controllers.
+
+In a desktop run the frame waits for the GPU only in the copy to the monitor.
+So the eye passes of a desktop run are time of the CPU, and the time that the
+GPU needs for the scene is not in them.
+
+The logs of three sessions in a headset give the size of those costs. The
+sessions had a Quest 3 through Virtual Desktop, a render of 2880 by 2880 and
+175,500 frames, with `profile=0`. A frame took 13.0 ms as a mean. Both scene
+walks were 6.5 ms of it, and the wait was 3.9 ms. The two copies to the
+bridge were 1.55 ms, and 1.5 ms of that was the GPU drain. The rest was
+1.0 ms. The median window of 450 frames had 88.7 frames a second, and one
+window in ten had less than 56.
+
+**The numbers.** The PC has an Intel Core Ultra 7 265KF, a GeForce RTX 3090
+and Windows 11. The render is 2208 by 2208 for each eye at 110 degrees, with
+`profile=1` and each other key at its default. The table has the mean of
+four runs, in ms of a frame, less the copy to the monitor (8.0 to 8.8 ms at
+this size). The worst frame is the range of the four runs:
+
+| Scene | Mean | Median | 99th percentile | Worst frame | Both eye passes | In Direct3D draw calls | Draw calls |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 1. The door of the Temple, level head | 8.69 | 8.62 | 9.94 | 14.7 to 18.4 | 8.48 | 3.32 | 1989 |
+| 2. The same, head down | 9.99 | 9.91 | 11.06 | 15.0 to 19.4 | 9.80 | 3.96 | 2471 |
+| 3. The village | 9.59 | 9.55 | 10.68 | 10.7 to 12.2 | 9.41 | 4.69 | 2827 |
+| 4. A tree in the Hand | 9.35 | 9.31 | 10.26 | 10.3 to 11.4 | 9.16 | 4.65 | 2850 |
+| 5. 337.5 units for each meter | 9.74 | 9.70 | 10.88 | 13.2 to 14.3 | 9.54 | 4.94 | 2932 |
+| 6. The widest zoom | 2.08 | 2.02 | 2.66 | 2.7 to 4.4 | 1.91 | 0.77 | 306 |
+
+- The two eye passes are 92 to 98 percent of a frame. In scenes 1 to 5 one
+  eye pass costs as much as the other, within 4 percent.
+- The Direct3D draw calls are 39 to 52 percent of the eye passes. In scenes 1
+  to 5 a draw call costs 3.2 to 4.3 microseconds, and 1.6 to 1.7 of them are
+  in Direct3D.
+- A game turn takes 0.4 ms (the median), in one frame of six at 56 frames a
+  second. Its mean for a frame is 0.05 to 0.11 ms.
+- The frame work of the mod is 0.06 to 0.07 ms. The frame functions are
+  0.04 ms of it. The pass functions add 0.06 ms in scenes 1 and 2, and 0.002
+  to 0.006 ms in the other scenes. The report of each 450 frames takes under
+  1 ms, in one frame. A line of the log takes 0.01 to 0.02 ms. The hooks of
+  the mod inside the scene walk are in the eye passes, and they have no
+  number of their own.
+- At the widest zoom a frame has 306 draw calls and takes 2.1 ms.
+
+**The spread.** The spread of a number is its largest value in some runs of
+one build, less its smallest value. For three runs, the spread of the mean of
+a frame is 0.02 to 0.21 ms (0.5 to 2.4 percent). The spread of the median is
+0.02 to 0.16 ms, and the spread of the 99th percentile is 0.01 to 0.80 ms.
+The worst frame of a scene changes by 0.2 to 4.4 ms. A difference between two
+builds counts only when it is larger than the spread of each build. Three
+runs give only a rough spread. So `bench_run.ps1` calls a difference clear
+only when it is more than two times the spread.
+
+**The texture of 32 by 32.** A scene walk writes a texture of 32 by 32 for an
+item of the land draw. The code is `LH3DIsland::Draw` (`0x007FF610`) and
+`fn_00878350`, and the texture write is in `fn_00837DF0` and `fn_008704C0`.
+Scenes 3 to 5 have one write in each scene walk, and its `Lock` takes
+0.005 ms. Scenes 1 and 2 have two writes in each scene walk, and the two
+calls of `Lock` then take 0.6 ms together. That is 1.2 to 1.5 ms of a frame.
+The cause is not known (`roadmap.md`, N1).
+
+### The slow frames
+
+A session at 90 Hz has frames of 11 ms. A frame of 31 or 52 ms there has a
+game turn that waits 20 ms, one time or two times. In the logs of sessions in a
+headset in which each stop had its wait, 71 percent of the windows with a
+worst frame of 31 to 52 ms have a worst game turn of 18 to 24 ms or of 38 to
+45 ms. The other windows have that time inside `GGame::ProcessGraphicsEngine`,
+and no desktop run shows it. The measure gives these causes of a slow frame, in the
+order of their cost:
+
+| Cause | How long | How often | The part |
+| --- | --- | --- | --- |
+| The audio DLL calls `Sleep(20)` on the frame thread when it stops a sound that plays (`audio.md`, 7.6). `GAudio::ProcessAudioGameTurn` stops each positional sound that is out of range, in the game turn | 20.5 to 21 ms for each stop. Two stops in one turn are 41 ms, and three are 62 ms | With `audio_stop_wait=1`: 1 stop in 10 s at the door of the Temple with the head down, 4 to 8 at the village, and none at the far zooms. With `audio_stop_wait=0`, the default, only a sound that QMixer plays keeps the wait: 2 stops in a run of 110 s, and none in a scene of the measure | game turn |
+| The Creature reads an animation from the disk at its first use (`Creature::ProcessSubAction`, `Morphable::GetSetAnim` `0x00619690`, `CAnim::ReadBinary` `0x00860860`). One animation is 2400 to 5600 calls of `ReadFile` | The game turn takes 4.5 to 9.5 ms | 3 times in the first 20 s of play, and 3 times in the 60 s after them. The same animations load in each run, at about the same frames | game turn |
+| The first use of a texture or of an effect file in a scene walk: 2 to 5 calls of `CreateFile`, and the load | The eye pass takes 8 to 15 ms more when Windows does not have the file in memory. When it has, the calls take 0.03 ms each | 8 times in the first minute of the first run of a row of runs, and no time in the runs after it | eye 0 |
+| Each 600 game turns the game writes the mind of the Creature and two more files to the disk, and the alignment of the player to the registry | The game turn takes 3 to 4 ms, with 2 ms in 10 calls of `CreateFile`. In the first run of a row of runs those calls took 28 ms | One time a minute | game turn |
+
+No frame of the measure has two game turns. With `audio_stop_wait=0` the six
+scenes have 3 slow frames in 3600 frames. Each of them is an animation of the
+Creature, and the worst frame less the desktop copy is 18 to 19 ms. With
+`audio_stop_wait=1` the scenes have 13 slow frames, and the worst frame is 51
+to 72 ms.
+
+By the measure, these are not a cause: the lines of the log, the report of
+each 450 frames and the frame functions of the mod. A read back of a surface
+and `Sleep` from other code are not a cause too. The backend calls `Sleep(0)`
+about 12 times a frame, which is 0.005 ms in all.
+
+The runtime does not count a slow frame as a skipped frame. In a session in a
+headset its counter stayed at 28 skipped frames for 12,154 frames.
+
+Only a headset session can show what the wait, the copy to the bridge and the
+frame to the runtime cost in a slow frame. Only a person can say if a sound
+that stops sounds the same with `audio_stop_wait` 0 and 1.
 
 ## The world around you
 
@@ -1828,6 +2024,7 @@ in front. The mod reads the keys and never takes them from the game.
 | Shift Page Up | `test_keys=1` | While the Lionhead logo plays in stereo: the motion of the view steps through 1, 2, 3 and 0. With 1 the camera goes along the path of the game and does not turn, with 2 the orbs are a model in a room that stays still, with 3 the camera of the game turns the view, with 0 the camera is still. One short pulse for each unit of the value and one long pulse for 0 (`intro_motion`, `intro.md`). Ctrl must be up |
 | Shift Page Down | `test_keys=1` | While the Lionhead logo plays in stereo: each eye has its own trails, or each eye pass draws over the picture of the other eye and each orb shows two times (`intro_eye_trails`, `intro.md`). Ctrl must be up |
 | Shift Delete | `test_keys=1` | While the Lionhead logo plays in stereo: the mark beside the logo has the depth of the logo, or the same pixel in each eye (`intro_text_place`, `intro.md`). Ctrl must be up |
+| Ctrl Pause | `test_keys=1` | The mod skips the wait of 20 ms of the audio DLL at the stop of a sound that the mixer of the mod plays, or each stop has the wait. A long pulse and a short pulse (`audio_stop_wait`, `audio.md`, 7.6). Shift must be up |
 
 The launcher shows `test_keys` as "Test keys", in a group named "Testing". It is off
 by default.
@@ -1912,7 +2109,8 @@ keys that the launcher sets.
 | `anisotropy`, `force_mips` | 16, 1 | Texture filter. `force_mips` forces the mip filter |
 | `skip_snapshot` | 1 | |
 | `test_keys` | 0 | The test keys |
-| `profile`, `draw_probe`, `capture_every_seconds` | 0 | Reports and eye pictures |
+| `profile` | 0 | A test key. 1 is the frame cost measure with a timer on each Direct3D draw call, 2 is the measure with no such timer. See "The frame cost measure" |
+| `draw_probe`, `capture_every_seconds` | 0 | Reports and eye pictures |
 | `fake_head`, `fake_head_yaw`, `fake_head_pitch`, `fake_head_roll`, `fake_head_sweep`, `stereo_headless`, `fov_absolute_deg`, `head_fov_deg` | 0 | See "Testing without a headset" |
 
 ## Ready to hand out

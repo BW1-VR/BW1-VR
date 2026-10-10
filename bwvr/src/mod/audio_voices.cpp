@@ -29,14 +29,33 @@
 // stop fades in 8 ms, and the sum is kept inside 16 bits. The waves are copies
 // in buffers that the slots keep and use again.
 //
+// THE WAIT OF A STOP (docs/audio.md, "7.6 The wait of a stop"). The audio DLL
+// stops a sample that plays in three steps. The volume of the channel goes
+// to 0 with a pan rate of 20. The DLL calls Sleep(20). Then it flushes
+// the channel. Three functions of the DLL have these steps (RVA 0x12CC1,
+// 0x12D79 and 0x12E6E). The Sleep is on the thread of the caller.
+//
+// In each game turn, GAudio::ProcessAudioGameTurn (0x00427080) stops each
+// positional sample that is out of range (LHSampleUpdate3DChannels). So each
+// such stop holds the frame for 20 ms, and two stops in one turn hold it for
+// 40 ms.
+//
+// QMixer has the volume 0 for a channel that a voice of the mod plays, from
+// the start of the play. So the wait lets nothing fade there, and the mod
+// skips that Sleep for such a channel. The voice of the mod gets the 20 ms
+// in its own fade, so it sounds the same. A channel that QMixer plays keeps
+// the wait.
+//
 // Ini: audio_mixer (default 1, 0 is QMixer's own panning), audio_height,
 // audio_near, audio_far, audio_bed, audio_atmos_mixer (each default 1),
-// audio_height_pct (100, the strength of the height band, 0 to 200). Test
-// only:
+// audio_height_pct (100, the strength of the height band, 0 to 200),
+// audio_stop_wait (default 0, 1 is the wait of the audio DLL at each stop).
+// Test only:
 // audio_test_voice, audio_test_path, audio_test_step_ms, audio_test_solo.
 
 #include <windows.h>
 #include <mmsystem.h>
+#include <intrin.h>
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -51,6 +70,12 @@
 void ModLog(const char* format, ...);
 float TabletopViewScale();
 float HeadPoseScale();
+// controllers.cpp: a pulse on the pointing hand, for a test key. The frame
+// of the controllers, and the number that a test key with a frame compares
+// with its frame (fake_controller_play_frame).
+void ControllersGesturePulse(float amplitude, float seconds);
+uint64_t ControllersFrameCount();
+uint64_t ControllersTestFrame(uint64_t key_frame, uint64_t frame);
 
 namespace {
 
@@ -96,7 +121,7 @@ const DWORD kMaxWaveBytes = 16u * 1024u * 1024u;
 // A buffer larger than this many samples is freed when its voice ends. A
 // slot keeps a smaller one for its next voice, so 40 slots keep 8 MB at most.
 const int kKeepSamples = 100 * 1024;
-const float kReleaseSeconds = 0.008f;
+const float kReleaseSeconds = audio_math::kReleaseSeconds;
 // A voice this near its end, in seconds, plays to its end when QMixer stops
 // its channel. QMixer is the clock, and the voice can be a block behind.
 const float kTailSeconds = 0.30f;
@@ -139,6 +164,7 @@ struct ChannelState {
   int frequency_play;   // the play in which it was set
   bool shadowed;        // a voice of the mod plays this channel's sample
   bool muted;           // QMixer has the volume 0 for it, from the mod
+  bool stop_skipped;    // the mod skipped the wait of the stop that runs now
   float point[3];
   int point_play;       // the play in which the place was set
   float map[3];
@@ -197,6 +223,31 @@ long g_test_frame = 0;      // the capture frame at which the step started
 long g_test_seen = 0;       // the capture frame of the last frame
 int g_test_slot = -1;
 int g_test_wait = 0;
+
+// The wait of a stop. A site is the address that the Sleep of a stop returns
+// to, in the audio DLL: its RVA. The 8 bytes before each site start with
+// "push 20" and the call through the import slot.
+const int kStopSites = 3;
+const uintptr_t kStopSleepReturn[kStopSites] = {0x12CEB, 0x12DAD, 0x12EA2};
+const uint8_t kStopSleepBytes[4] = {0x6A, 0x14, 0xFF, 0x15};  // push 20, call
+const DWORD kStopWaitMs = 20;
+typedef void(WINAPI* SleepFn)(DWORD);
+SleepFn o_StopSleep = nullptr;
+int g_stop_wait = 0;          // audio_stop_wait
+// The sites in this process. All 0 when the audio DLL is not the known one.
+uintptr_t g_stop_site[kStopSites] = {0, 0, 0};
+bool g_stop_hooked = false;
+// The channel that the DLL set to the volume 0 for a stop, and the thread
+// that did it. The channel is -1 when the last volume call was no such call.
+int g_stop_channel = -1;
+DWORD g_stop_thread = 0;
+volatile LONG g_stop_skipped = 0;
+volatile LONG g_stop_kept = 0;
+LONG g_stop_reported = -1;
+// audio_stop_wait_test: the frame of the controllers at which the test key
+// acts by itself, for a desktop run. 0 is off.
+int g_stop_test_frame = 0;
+uint64_t g_stop_test_seen = 0;
 
 // For the report.
 volatile LONG g_started[kKinds] = {0, 0, 0, 0};
@@ -364,7 +415,7 @@ void Render(int16_t* stereo, int frames, int rate) {
             // free when it is there.
             s.fade -= release * n;
             gain = 0.0f;
-            if (s.fade <= -9.0f) alive = false;
+            if (s.fade <= audio_math::kReleaseEnd) alive = false;
           }
           sp::ProcessBed(&s.bed, yaw, gain, out_rate, source, n, left, right);
         } else {
@@ -376,7 +427,7 @@ void Render(int16_t* stereo, int frames, int rate) {
             // when it is there (80 ms, more than 5 time constants).
             s.fade -= release * n;
             t.gain = 0.0f;
-            if (s.fade <= -9.0f) alive = false;
+            if (s.fade <= audio_math::kReleaseEnd) alive = false;
           }
           sp::Process(&s.dsp, t, out_rate, source, n, left, right);
         }
@@ -442,7 +493,7 @@ void StartSlot(Slot* s, int channel, int kind, int frames, int channels,
   s->loops_left = loops;
   s->paused = false;
   s->releasing = false;
-  s->fade = 1.0f;
+  s->fade = audio_math::ReleaseStart(false);
   s->test_part = -1.0f;
   s->have_map = false;
   s->fixed_gain = -1.0f;
@@ -572,10 +623,17 @@ DWORD WINAPI h_PlayEx(void* session, int channel, DWORD flags, void* wave,
 
 DWORD WINAPI h_SetVolume(void* session, int channel, DWORD flags,
                          DWORD volume) {
+  g_stop_channel = -1;
   if (g_on && channel >= 0 && channel < kChannels) {
     ChannelState& c = g_channels[channel];
     c.volume = volume;
     c.volume_flags = flags;
+    // The first step of a stop of the DLL: the volume 0 with the flags 0.
+    // h_StopSleep reads the channel.
+    if (volume == 0 && flags == 0) {
+      g_stop_channel = channel;
+      g_stop_thread = GetCurrentThreadId();
+    }
     if (c.shadowed) {
       {
         Lock lock;
@@ -614,8 +672,84 @@ DWORD WINAPI h_SetFrequency(void* session, int channel, DWORD flags,
 void StopVoice(int channel) {
   if (!g_on || channel < 0 || channel >= kChannels) return;
   Lock lock;
+  ChannelState& c = g_channels[channel];
+  // The mod skipped the wait of this stop, so the flush comes 20 ms sooner.
+  // The voice gets those 20 ms in its fade: its slot is free at the same
+  // time after the volume 0 as with the wait.
+  Slot* s = c.stop_skipped ? SlotOfChannel(channel) : nullptr;
   ReleaseChannel(channel, true);
-  g_channels[channel].shadowed = false;
+  if (s != nullptr && s->releasing) s->fade = audio_math::ReleaseStart(true);
+  c.stop_skipped = false;
+  c.shadowed = false;
+}
+
+// THE SLEEP OF THE AUDIO DLL. Each Sleep of the DLL comes here. The mod
+// skips only the Sleep of a stop of a sample. The channel of that stop must
+// be silent in QMixer because a voice of the mod plays its sample. See the
+// note at the top of this file.
+void WINAPI h_StopSleep(DWORD ms) {
+  const uintptr_t site = reinterpret_cast<uintptr_t>(_ReturnAddress());
+  bool stop = false;
+  for (int i = 0; i < kStopSites; ++i) {
+    if (site == g_stop_site[i] && site != 0) stop = true;
+  }
+  if (!stop) {
+    o_StopSleep(ms);
+    return;
+  }
+  const int channel =
+      g_stop_thread == GetCurrentThreadId() ? g_stop_channel : -1;
+  g_stop_channel = -1;
+  if (g_stop_wait == 0 && g_on && ms == kStopWaitMs && channel >= 0 &&
+      channel < kChannels) {
+    ChannelState& c = g_channels[channel];
+    if (c.shadowed && c.muted) {
+      c.stop_skipped = true;
+      InterlockedIncrement(&g_stop_skipped);
+      return;
+    }
+  }
+  InterlockedIncrement(&g_stop_kept);
+  o_StopSleep(ms);
+}
+
+// The hook of the Sleep of the audio DLL, when the DLL is the known one.
+void InstallStopWait() {
+  g_stop_wait = AudioIni("audio_stop_wait", 0) != 0 ? 1 : 0;
+  g_stop_test_frame = AudioIni("audio_stop_wait_test", 0);
+  const HMODULE dll = AudioAudioDll();
+  const uint8_t* base = reinterpret_cast<const uint8_t*>(dll);
+  for (int i = 0; i < kStopSites; ++i) {
+    const uint8_t* call =
+        base != nullptr ? base + kStopSleepReturn[i] - 8 : nullptr;
+    if (call == nullptr || !Readable(call, 8) ||
+        memcmp(call, kStopSleepBytes, sizeof(kStopSleepBytes)) != 0) {
+      ModLog("audio mixer  : the audio DLL has no call of Sleep(20) at its "
+             "RVA 0x%X, so each stop of a sound keeps its wait of 20 ms on "
+             "the thread of the game",
+             static_cast<unsigned>(kStopSleepReturn[i] - 8));
+      return;
+    }
+  }
+  if (!AudioPatchImport(dll, "KERNEL32.dll", "Sleep",
+                        reinterpret_cast<void*>(&h_StopSleep),
+                        reinterpret_cast<void**>(&o_StopSleep))) {
+    ModLog("audio mixer  : the audio DLL has no import of Sleep, so each stop "
+           "of a sound keeps its wait of 20 ms on the thread of the game");
+    return;
+  }
+  for (int i = 0; i < kStopSites; ++i) {
+    g_stop_site[i] = reinterpret_cast<uintptr_t>(base) + kStopSleepReturn[i];
+  }
+  g_stop_hooked = true;
+  ModLog("audio mixer  : audio_stop_wait=%d. The audio DLL calls Sleep(20) on "
+         "the thread of the game when it stops a sound that plays. %s",
+         g_stop_wait,
+         g_stop_wait == 0
+             ? "The mod skips that wait for a sound that the mixer of the mod "
+               "plays: QMixer is silent for it, and the voice of the mod "
+               "fades the same way. A sound that QMixer plays keeps the wait"
+             : "Each stop keeps that wait, as in the game");
 }
 
 DWORD WINAPI h_Stop(void* session, int channel, DWORD flags) {
@@ -814,6 +948,13 @@ void Report() {
          g_refused_slots, g_most_voices, mean, g_render_worst_us, g_clipped);
   g_render_us = 0.0;
   g_render_worst_us = 0.0;
+  if (g_stop_hooked && g_stop_skipped + g_stop_kept != g_stop_reported) {
+    g_stop_reported = g_stop_skipped + g_stop_kept;
+    ModLog("audio mixer  : the audio DLL stopped %ld sounds that played. The "
+           "mod skipped the wait of 20 ms for %ld of them, and %ld kept it "
+           "(audio_stop_wait=%d)", g_stop_reported, g_stop_skipped,
+           g_stop_kept, g_stop_wait);
+  }
   float lead = 0.0f, most = 0.0f, least = 0.0f;
   long passed = 0;
   if (AudioCaptureLead(&lead, &most, &least, &passed)) {
@@ -872,6 +1013,7 @@ bool AudioVoicesInstall(bool on) {
   ParseTestPath(path);
   g_on = ok;
   if (ok) AudioCaptureSetRender(&Render);
+  if (ok) InstallStopWait();
   ModLog("audio mixer  : %s. Height %s, near field %s, far filter %s, the "
          "bed turns with the world %s",
          ok ? "the mixer of the mod plays the sounds with a place "
@@ -952,6 +1094,15 @@ void AudioVoicesListener(const float position[3], const float forward[3],
 
 void AudioVoicesFrame() {
   if (!g_on) return;
+  // The test audio_stop_wait_test=N: the test key acts at one frame.
+  if (g_stop_test_frame > 0) {
+    const uint64_t frame = ControllersFrameCount();
+    const uint64_t at = static_cast<uint64_t>(g_stop_test_frame);
+    if (frame != g_stop_test_seen) {
+      g_stop_test_seen = frame;
+      if (ControllersTestFrame(at, frame) == at) AudioStopWaitToggle();
+    }
+  }
   float k = 1.0f;
   const bool room = AudioRoomNow(&k);
   if (!room) k = 1.0f;
@@ -1037,6 +1188,28 @@ bool AudioVoicesCue(const int16_t* data, int frames, float gain, float pan) {
   s->pan_right = gain * sinf(angle) * 1.41421f;
   InterlockedIncrement(&g_started[kCue]);
   return true;
+}
+
+// The test key of audio_stop_wait (Ctrl and Pause, test_keys=1). The wait of
+// the audio DLL at the stop of a sound goes off and on while the game runs.
+// A long pulse says that the mod skips the wait. A short pulse says that
+// each stop has it.
+void AudioStopWaitToggle() {
+  if (!g_on || !g_stop_hooked) {
+    ModLog("audio mixer  : test key, but the mod has no hook on the wait of a "
+           "stop (audio_mixer=0, or the audio DLL is not the known one)");
+    return;
+  }
+  g_stop_wait = g_stop_wait == 0 ? 1 : 0;
+  ControllersGesturePulse(0.5f, g_stop_wait == 0 ? 0.30f : 0.08f);
+  ModLog("audio mixer  : test key, audio_stop_wait is %d now: %s. So far the "
+         "mod skipped %ld waits, and %ld stops kept the wait", g_stop_wait,
+         g_stop_wait == 0
+             ? "the mod skips the wait of 20 ms at the stop of a sound that "
+               "the mixer of the mod plays"
+             : "each stop of a sound holds the thread of the game for 20 ms, "
+               "as in the game",
+         g_stop_skipped, g_stop_kept);
 }
 
 // The test key. false gives each shadowed channel back to QMixer, at once,

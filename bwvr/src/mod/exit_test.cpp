@@ -24,6 +24,7 @@
 #include <string.h>
 
 #include "MinHook.h"
+#include "frame_profile.h"
 
 void ModLog(const char* format, ...);
 
@@ -293,6 +294,11 @@ bool IsDevice(const char* name) {
          _strnicmp(name, "\\\\.\\", 4) == 0;
 }
 
+// THE FRAME COST MEASURE (profile=1, frame_profile.cpp) gets the time and the
+// name of each file that the frame thread opens. One of the two hooks can
+// call the other one in Windows, so only the outer call counts.
+int g_open_depth = 0;
+
 HANDLE WINAPI h_CreateFileA(LPCSTR name, DWORD access, DWORD share,
                             LPSECURITY_ATTRIBUTES security, DWORD creation,
                             DWORD flags, HANDLE model) {
@@ -300,7 +306,21 @@ HANDLE WINAPI h_CreateFileA(LPCSTR name, DWORD access, DWORD share,
       !IsDevice(name) && FileRoom()) {
     ModLog("%s: the game opens a file for a write: %s", g_tag, name);
   }
-  return o_CreateFileA(name, access, share, security, creation, flags, model);
+  if (!FrameProfileOn()) {
+    return o_CreateFileA(name, access, share, security, creation, flags,
+                         model);
+  }
+  const uint64_t start = FrameProfileTicks();
+  ++g_open_depth;
+  const HANDLE file =
+      o_CreateFileA(name, access, share, security, creation, flags, model);
+  --g_open_depth;
+  if (g_open_depth == 0 && name != nullptr && !IsDevice(name)) {
+    FrameProfileAdd(kFpOpen, FrameProfileTicks() - start);
+    FrameProfileCount(kFpcOpens, 1);
+    FrameProfileFile(name);
+  }
+  return file;
 }
 
 HANDLE WINAPI h_CreateFileW(LPCWSTR name, DWORD access, DWORD share,
@@ -313,12 +333,31 @@ HANDLE WINAPI h_CreateFileW(LPCWSTR name, DWORD access, DWORD share,
       ModLog("%s: the game opens a file for a write: %s", g_tag, plain);
     }
   }
-  return o_CreateFileW(name, access, share, security, creation, flags, model);
+  if (!FrameProfileOn()) {
+    return o_CreateFileW(name, access, share, security, creation, flags,
+                         model);
+  }
+  const uint64_t start = FrameProfileTicks();
+  ++g_open_depth;
+  const HANDLE file =
+      o_CreateFileW(name, access, share, security, creation, flags, model);
+  --g_open_depth;
+  if (g_open_depth == 0 && name != nullptr) {
+    char plain[300];
+    Plain(name, plain, sizeof(plain));
+    if (!IsDevice(plain)) {
+      FrameProfileAdd(kFpOpen, FrameProfileTicks() - start);
+      FrameProfileCount(kFpcOpens, 1);
+      FrameProfileFile(plain);
+    }
+  }
+  return file;
 }
 
 // The functions of Windows that the game and its libraries write with. The
 // guards go in one time. Returns how many of the 8 are there.
 int g_guards = -1;
+int g_file_guards = 0;  // of the 2 of CreateFile
 int InstallGuards() {
   if (g_guards >= 0) return g_guards;
   struct Guard {
@@ -355,6 +394,10 @@ int InstallGuards() {
         MH_CreateHook(target, g.hook, g.original) == MH_OK &&
         MH_EnableHook(target) == MH_OK) {
       ++ok;
+      if (g.hook == reinterpret_cast<void*>(&h_CreateFileA) ||
+          g.hook == reinterpret_cast<void*>(&h_CreateFileW)) {
+        ++g_file_guards;
+      }
     }
   }
   g_guards = ok;
@@ -395,6 +438,14 @@ void AskTheGameToClose(const char* why, uint64_t frame) {
 }  // namespace
 
 void ExitTestSetFrame(int frame) { g_frame_wanted = frame; }
+
+// For the frame cost measure (frame_profile.cpp): the hooks go in, and no
+// guard goes on. Each hook passes its call while no guard is on. Returns how
+// many of the 2 hooks of CreateFile are there.
+int ExitTestFileHooks() {
+  InstallGuards();
+  return g_file_guards;
+}
 
 // registry_test_guard=1, from Startup: the guard of the registry from the
 // start of the mod. The game reads the registry as it is, and the mod drops

@@ -583,4 +583,18 @@ void AudioChecks() {
     Near("a head that faces +x has a yaw of 90 degrees",
          sp::HeadYaw(turned) / kDeg, 90.0, 1e-3);
   }
+
+  printf("The release of a voice, and the wait of a stop\n");
+  {
+    using namespace audio_math;
+    Near("a voice has 80 ms from the flush of its channel to the free slot",
+         ReleaseLength(ReleaseStart(false)), 0.080, 1e-5);
+    Near("with the wait of the stop skipped it has 100 ms",
+         ReleaseLength(ReleaseStart(true)), 0.100, 1e-5);
+    Near("the slot is free at the same time after the volume 0: the wait "
+         "and 80 ms, or no wait and 100 ms",
+         ReleaseLength(ReleaseStart(true)),
+         kStopWaitSeconds + ReleaseLength(ReleaseStart(false)), 1e-5);
+    Near("the wait of the audio DLL is 20 ms", kStopWaitSeconds, 0.020, 1e-6);
+  }
 }

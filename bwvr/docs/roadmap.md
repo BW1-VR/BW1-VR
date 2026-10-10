@@ -259,12 +259,55 @@ moves while the Hand takes it.
 
 ### Built, and not proven or not finished
 
-- **N1. The frame time.** Headset sessions gave means between 73 and 80
-  fps, and the scenes were not the same. Measure one scene with a fixed
-  recipe before and after a change. The cause of the worst frames (31 to
-  52 ms) is not known. Ideas for the render are in `backend.md`: one walk
-  of the scene for both eyes, a projection off the centre for each eye,
-  and the game turn off the render thread.
+- **N1. The frame time.** `bench_run.ps1` measures six fixed scenes on the
+  desktop, and `profile=1` gives the same numbers for a session in a headset
+  (`backend.md`, "Frame cost"). Still open:
+  - **A session in a headset with `profile=1`.** No such session has run. A
+    desktop run has no wait for the runtime, no copy to the bridge, no
+    compositor and no encoder. The lines `frame cost   : window` of the log
+    say what these cost. They also say what a slow frame is made of when it
+    is not a game turn. Set the key after the last save of the launcher.
+  - **The wait at the stop of a sound, by ear.** The mod skips the 20 ms that
+    the audio DLL waits on the frame thread at the stop of a sound
+    (`audio_stop_wait=0`, `audio.md`, 7.6). In a desktop run the worst frame
+    at the village, less the copy to the monitor, is 10 to 12 ms with the key
+    at 0, and 32 to 72 ms with the key at 1. Not checked by ear: that a sound
+    that stops sounds the same. With `test_keys=1`, Ctrl and Pause change the
+    key while the game runs. A sound that QMixer plays (an advisor, the
+    speech of a story) keeps the wait.
+  - **Slow frames that stay.** The Creature reads an animation from the disk
+    at its first use, and the game turn then takes 4.5 to 9.5 ms. The first
+    use of a texture or of an effect file makes an eye pass 8 to 15 ms
+    longer, when Windows does not have the file in memory. One time a minute
+    the game writes the alignment of the player and the mind of the Creature.
+    Its file calls take 2 ms most times, and they took 28 ms one time. A load
+    of these files before the game needs them is not built.
+  - **The texture of 32 by 32 that the land draw writes.** With two writes
+    in one scene walk, its two locks take 0.6 ms for each eye pass. That is
+    1.2 to 1.5 ms of a frame of 8.7 to 10 ms at the door of the Temple. With
+    one write the lock takes 0.005 ms. The cause is not known: a wait for
+    the GPU in the backend is the first candidate. First step: read what
+    `Lock` of dxwrapper does for a surface that a copy used in the same
+    frame. Then name the thing that the second write is for (the list at
+    `0x00FAA7E0` of `LH3DIsland::Draw`).
+  - **One walk of the scene for both eyes.** This is the render idea with the
+    largest gain. The two eye passes are 92 to 98 percent of a frame. The
+    Direct3D draw calls are 39 to 52 percent of the eye passes, and each eye
+    needs its own. The rest is the walk and the transform of the game: 2.3
+    to 2.9 ms for each eye pass. So one walk can save 2.3 to 2.9 ms of a
+    frame of 8.7 to 10 ms at the most. The time to project each vertex for
+    the second eye comes off that gain. First step: a test key that records
+    the batches of eye pass 0 and draws them for eye pass 1 with no second
+    walk. The test projects each vertex again from its `rhw`. The draw probe
+    and a picture of each eye then say which batches are wrong (the clip at
+    the near plane, the sprites that face the eye, the flat interface).
+  - **The other render ideas have a small gain.** A projection off the centre
+    for each eye: a view of 70 to 98 degrees changes the walk by 4 percent
+    (`backend.md`, "A wide view is nearly free"). So a narrower cull saves
+    0.4 ms at the most. The gain for the GPU is not measured. The game turn
+    off the render thread: a game turn is 0.4 ms in one frame of six, which
+    is 0.05 to 0.11 ms as a mean. So the mean does not change. It can only
+    take the turns of 4.5 to 9.5 ms out of the frame.
 - **N2. The hands that react.** The part for bodies that the hand passes
   is built and off (`hand_feel_bodies`): no picture proves it. Not shown: a
   tree taken with the palm to the side. The idle wave is off

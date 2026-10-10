@@ -62,6 +62,7 @@
 #include "../common/bw_addresses.h"
 #include "../vr/xr_screen.h"
 #include "cutscene_window.h"
+#include "frame_profile.h"
 #include "ui_panel.h"
 
 extern void ModLog(const char* format, ...);
@@ -189,6 +190,8 @@ void WorldGrabReport();
 void WorldGrabCycleTest();
 void ControllersCycleOwnerMode();
 void AudioCycleMode();
+// audio_voices.cpp: the A/B of audio_stop_wait.
+void AudioStopWaitToggle();
 void InputWatchAskPointer(int count);
 void InputWatchFrame();
 void FovSetScale(float scale);
@@ -288,7 +291,9 @@ DWORD g_next_capture_tick = 0;
 // F12 and Shift F12, for tests. Off for players. See PollHotkeys.
 bool g_test_keys = false;
 bool g_enabled = false;
-bool g_profile = false;
+// profile=1: a timer on each Direct3D draw call. profile=1 and profile=2 are
+// the frame cost measure (frame_profile.cpp).
+bool g_profile_draws = false;
 bool g_profile_ready = false;
 
 // Read the frame back even with no headset, so the cost of the readback can be
@@ -557,6 +562,10 @@ bool GameHasFocus() {
 //   Shift Home  an advisor at a place of the world has the size for the eye
 //               that it has at its usual place, or the size of the game
 //               (spirit_world_size, spirit_anchor.cpp)
+//   Ctrl Pause  the wait of the audio DLL at the stop of a sound goes off and
+//               on (audio_stop_wait, audio_voices.cpp). Windows gives the key
+//               VK_CANCEL for Pause with Ctrl down, so the keys of Pause
+//               alone (throw_physics.cpp) do not see it
 //
 // With play_mode=3, the tabletop mode, or play_mode=4, the God view, one
 // more for everyone:
@@ -576,11 +585,13 @@ bool GameHasFocus() {
 // values chosen. The ini keys stay, except the ones the launcher rewrites on
 // every save. See launcher.cpp, kRetiredKeys.
 void PollHotkeys() {
-  static bool down[7] = {false, false, false, false, false, false, false};
-  const int keys[7] = {VK_F11,    VK_F12,    VK_NUMPAD0, VK_NUMPAD1,
-                       VK_INSERT, VK_DELETE, VK_HOME};
-  bool now[7];
-  for (int i = 0; i < 7; ++i) {
+  const int kKeys = 8;
+  static bool down[kKeys] = {false, false, false, false,
+                             false, false, false, false};
+  const int keys[kKeys] = {VK_F11,    VK_F12,    VK_NUMPAD0, VK_NUMPAD1,
+                           VK_INSERT, VK_DELETE, VK_HOME,    VK_CANCEL};
+  bool now[kKeys];
+  for (int i = 0; i < kKeys; ++i) {
     now[i] = (GetAsyncKeyState(keys[i]) & 0x8000) != 0;
   }
   const bool shift = (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
@@ -644,10 +655,13 @@ void PollHotkeys() {
     if (g_test_keys && now[6] && !down[6] && shift && !ctrl) {
       SpiritAnchorWorldSizeToggle();
     }
+    // An A/B of the wait at the stop of a sound (docs/audio.md, "7.6 The
+    // wait of a stop").
+    if (g_test_keys && now[7] && !down[7] && !shift) AudioStopWaitToggle();
   }
   // Kept up to date without focus too, so a key that is already down when
   // the game comes to the front does not count as a new press.
-  for (int i = 0; i < 7; ++i) down[i] = now[i];
+  for (int i = 0; i < kKeys; ++i) down[i] = now[i];
 }
 
 // THE HEAD TRACKING SETUP, once. The render has to cover what the headset asks for,
@@ -729,9 +743,23 @@ void PrepareHeadView(bool to_headset) {
 void __fastcall Process3dEngineBody(void* self, void* unused);
 
 void __fastcall h_Process3dEngine(void* self, void* unused) {
+  FrameProfileHook(true);
   HeadCameraBeginScene();
   Process3dEngineBody(self, unused);
   HeadCameraEndScene();
+  FrameProfileHook(false);
+}
+
+// One frame function of the mod. With profile=1 or 2 its time goes to the
+// frame cost measure.
+void FrameFunction(int index, void (*function)()) {
+  if (!FrameProfileOn()) {
+    function();
+    return;
+  }
+  const uint64_t start = FrameProfileTicks();
+  function();
+  FrameProfileFunction(index, FrameProfileTicks() - start);
 }
 
 void __fastcall Process3dEngineBody(void* self, void* unused) {
@@ -750,7 +778,7 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
   }
 
   if (g_frequency.QuadPart == 0) QueryPerformanceFrequency(&g_frequency);
-  if (g_profile && !g_profile_ready) {
+  if (g_profile_draws && !g_profile_ready) {
     g_profile_ready = DrawProbeProfile(true);
     UiDepthTimeSubmit(true);
   }
@@ -1001,15 +1029,15 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
   HeadCameraWorldIsUp();
   GameStartFrame();
   // The hands of this frame, after the head pose of this frame.
-  ControllersFrame();
-  HandDirectFrame();
-  TeleportFrame();
-  CreatureCommandFrame();
-  MiracleFrame();
-  VillageFrame();
-  OverlayFrame();
-  WaterModeApply();
-  TabletopApplyFrame();
+  FrameFunction(kFpFnControllers, ControllersFrame);
+  FrameFunction(kFpFnHand, HandDirectFrame);
+  FrameFunction(kFpFnTeleport, TeleportFrame);
+  FrameFunction(kFpFnCreatureCommand, CreatureCommandFrame);
+  FrameFunction(kFpFnMiracle, MiracleFrame);
+  FrameFunction(kFpFnVillage, VillageFrame);
+  FrameFunction(kFpFnOverlay, OverlayFrame);
+  FrameFunction(kFpFnWater, WaterModeApply);
+  FrameFunction(kFpFnTable, TabletopApplyFrame);
   g_in_pass = true;
   // ONE ROLL FOR BOTH EYES.
   //
@@ -1020,6 +1048,8 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
   const float frame_roll = HeadCameraRoll();
 
   uint64_t scene = 0, grab = 0;
+  uint64_t eye_scene[2] = {0, 0};
+  const bool profile = FrameProfileOn();
   for (int eye = 0; eye < 2; ++eye) {
     // Left eye is negative, right eye is positive, both about the camera the
     // game chose, so the mono view stays the average of the two.
@@ -1097,13 +1127,21 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
     QueryPerformanceCounter(&t2);
     HandDirectPassBegin(eye);
     OverlayPassEye(eye);
+    const uint64_t walk_start = profile ? FrameProfileTicks() : 0;
     o_Process3dEngine(self, unused);
+    const uint64_t walk_end = profile ? FrameProfileTicks() : 0;
     OverlayPassEye(-1);
     HandDirectPassDone(eye);
     QueryPerformanceCounter(&t3);
     // This eye pass is over. Nothing after it may put its camera back.
     g_eye_placement = kEyeNotPlaced;
     scene += t3.QuadPart - t2.QuadPart;
+    eye_scene[eye] = t3.QuadPart - t2.QuadPart;
+    // The pass functions of the mod, before and after the walk of the game.
+    if (profile) {
+      FrameProfileAdd(kFpModPass, (walk_start - t2.QuadPart) +
+                                      (t3.QuadPart - walk_end));
+    }
 
     // With no headset there is nowhere to send the picture, and reading the
     // render target back would cost a millisecond for nothing.
@@ -1193,8 +1231,14 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
   if (raw_time != nullptr) *raw_time = saved_raw_time;
 
   // The screen or the walls of the cut scene window go out with this frame.
-  CutsceneWindowStage(to_headset, g_frames + 1, eyes_apart);
-  if (to_headset) g_screen->EndFrame();
+  {
+    const uint64_t end_start = profile ? FrameProfileTicks() : 0;
+    CutsceneWindowStage(to_headset, g_frames + 1, eyes_apart);
+    if (to_headset) g_screen->EndFrame();
+    if (profile) {
+      FrameProfileAdd(kFpEndFrame, FrameProfileTicks() - end_start);
+    }
+  }
   ++g_frames;
   g_last_present_tick = GetTickCount();
   // The state of the next frame, set here and nowhere else.
@@ -1203,6 +1247,13 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
     if (save != 0) EyeCaptureArmNow(save);
   }
 
+  if (profile) {
+    FrameProfileStereoFrame(ControllersFrameCount());
+    FrameProfileAdd(kFpWait, t1.QuadPart - t0.QuadPart);
+    FrameProfileAdd(kFpEye0, eye_scene[0]);
+    FrameProfileAdd(kFpEye1, eye_scene[1]);
+    FrameProfileAdd(kFpGrab, grab);
+  }
   g_wait_ticks += t1.QuadPart - t0.QuadPart;
   g_scene_ticks += scene;
   g_grab_ticks += grab;
@@ -1243,6 +1294,7 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
   QueryPerformanceCounter(&g_mark_hook_end);
 
   if ((g_frames % 450) == 0 && g_timed > 0) {
+    const uint64_t report_start = profile ? FrameProfileTicks() : 0;
     g_timed_now = g_timed;
     g_scene_ticks_now = g_scene_ticks;
     const double total = Ms(g_total_ticks);
@@ -1339,6 +1391,9 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
     g_frames_missed = 0;
     g_worst_wait = g_worst_scene = g_worst_grab = g_worst_rest = 0;
     g_timed = 0;
+    if (profile) {
+      FrameProfileAdd(kFpReport, FrameProfileTicks() - report_start);
+    }
   }
 }
 
@@ -1401,7 +1456,7 @@ void StereoSetFixes(bool freeze_time, bool move_camera_point) {
 
 void StereoSetHeadless(bool on) { g_headless = on; }
 
-void StereoSetProfile(bool on) { g_profile = on; }
+void StereoSetProfile(int level) { g_profile_draws = level == 1; }
 
 // The two test keys, F12 and Shift F12. See PollHotkeys.
 void StereoSetTestKeys(bool on) { g_test_keys = on; }

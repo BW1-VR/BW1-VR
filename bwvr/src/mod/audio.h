@@ -71,6 +71,10 @@ bool AudioCaptureLead(float* mean_ms, float* most_ms, float* least_ms,
                       long* passed);
 // The rate of the stream in Hz, or 0 when it is not 16 bit stereo PCM.
 int AudioOutRate();
+// Puts `hook` in the slot of one import of a module, and gives the pointer
+// that was there. False when the module has no such import.
+bool AudioPatchImport(HMODULE module, const char* dll, const char* function,
+                      void* hook, void** original);
 // Once per rendered frame: the log lines of the hook.
 void AudioCaptureFrame();
 
@@ -109,6 +113,9 @@ void AudioVoicesListener(const float position[3], const float forward[3],
 void AudioVoicesFrame();
 // The test key: false gives the sounds with a place back to QMixer.
 void AudioVoicesAudible(bool audible);
+// The test key of audio_stop_wait. The wait of the audio DLL at the stop of
+// a sound goes off and on (docs/audio.md, "7.6 The wait of a stop").
+void AudioStopWaitToggle();
 // A flat cue through the mixer: mono, 22050 Hz, pan -1 to 1.
 bool AudioVoicesCue(const int16_t* data, int frames, float gain, float pan);
 // audio_rolloff.cpp, the test key: true gives a room factor that is the same

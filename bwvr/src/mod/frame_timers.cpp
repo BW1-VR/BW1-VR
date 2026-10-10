@@ -38,6 +38,7 @@
 #include <stdint.h>
 
 #include "MinHook.h"
+#include "frame_profile.h"
 
 extern void ModLog(const char* format, ...);
 // tabletop.cpp: the render bracket of the table ends with
@@ -89,6 +90,15 @@ void Record(int slot, uint64_t spent) {
   ++g_slots[slot].calls;
 }
 
+// The timer of the frame cost measure (frame_profile.cpp) that a slot goes
+// to, or -1. The network flush is in the part "other" of that measure.
+int ProfileTimer(int slot) {
+  if (slot == kActions || slot == kBufferedKeys || slot == kFrameInputs) {
+    return kFpInput;
+  }
+  return slot == kFlipScreen ? kFpFlip : -1;
+}
+
 // One stub per slot, so each one knows which slot it is timing.
 template <int N>
 void __fastcall MemberStub(void* self, void* unused) {
@@ -97,13 +107,25 @@ void __fastcall MemberStub(void* self, void* unused) {
   reinterpret_cast<VoidMemberFn>(g_slots[N].original)(self, unused);
   QueryPerformanceCounter(&after);
   Record(N, after.QuadPart - before.QuadPart);
+  if (FrameProfileOn() && ProfileTimer(N) >= 0) {
+    FrameProfileAdd(ProfileTimer(N), after.QuadPart - before.QuadPart);
+  }
+}
+
+// ControlMap::ProcessActionsPerformed is the first call of the frame loop,
+// so the frame of the frame cost measure starts there.
+void __fastcall ActionsStub(void* self, void* unused) {
+  FrameProfileLoopTop();
+  MemberStub<kActions>(self, unused);
 }
 
 void __fastcall GraphicsStub(void* self, void* unused, uint32_t a, uint32_t b) {
   LARGE_INTEGER before, after;
+  FrameProfileGraphics(true);
   QueryPerformanceCounter(&before);
   reinterpret_cast<GraphicsFn>(g_slots[kGraphics].original)(self, unused, a, b);
   QueryPerformanceCounter(&after);
+  FrameProfileGraphics(false);
   Record(kGraphics, after.QuadPart - before.QuadPart);
   // This is the one hook on this function, so the table ends its bracket
   // here. See tabletop.cpp.
@@ -128,7 +150,7 @@ void FrameTimersInstall() {
   if (g_installed) return;
   QueryPerformanceFrequency(&g_frequency);
   int ok = 0;
-  ok += Hook(kActions, reinterpret_cast<void*>(&MemberStub<kActions>)) ? 1 : 0;
+  ok += Hook(kActions, reinterpret_cast<void*>(&ActionsStub)) ? 1 : 0;
   ok += Hook(kBufferedKeys,
              reinterpret_cast<void*>(&MemberStub<kBufferedKeys>)) ? 1 : 0;
   ok += Hook(kNetworkFlush,

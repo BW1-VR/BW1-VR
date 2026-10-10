@@ -506,6 +506,11 @@ bool Patch(void** slot, void* hook, void** original) {
 
 }  // namespace
 
+bool AudioPatchImport(HMODULE module, const char* dll, const char* function,
+                      void* hook, void** original) {
+  return Patch(ImportSlot(module, dll, function), hook, original);
+}
+
 bool AudioCaptureInstall(bool capture, bool report) {
   g_capture = capture;
   g_report = report;
