@@ -18,6 +18,17 @@
 # game window is not in front. desk_run.ps1 prints the place of the real
 # cursor and the window in front before and after the run.
 #
+# -Save <name>: the run starts in a test save and not in a new game
+#    (README.md, "A fast start"). The run has no start dialog, so -Choice
+#    does nothing. The game opens its Main Menu over the loaded game, and the
+#    script clicks "Continue Game" there (dialog.ps1 gives the point and the
+#    words). Then come -Steps and -Points. With fake_controller_play_frame=N
+#    in -Set, the steps from frame N on count from the frame at which the
+#    controller first places the Hand after frame 60
+#    (fake_controller_play_after). A key of -Set with a frame of its own
+#    does not count that way.
+# -KeepSave <name>: see desk_run.ps1.
+#
 # The last line of the output is RUN DONE (exit code 0) or GAVE UP (exit
 # code 2).
 param(
@@ -29,10 +40,20 @@ param(
     [string]$Set = '',
     [int]$Seconds = 110,
     [int]$Minutes = 115,
-    [int]$WaitMinutes = 45
+    [int]$WaitMinutes = 45,
+    [string]$Save = '',
+    [string]$KeepSave = ''
 )
 $sp = Split-Path -Parent $MyInvocation.MyCommand.Path
 . (Join-Path $sp 'game.ps1')
+if ($Save -ne '' -and -not (Get-BwvrTestSave $Save)) {
+    "NOT RUN: there is no test save named '$Save' in $(Get-BwvrTestSaves). Make it first: make_test_save.ps1 -Name $Save"
+    exit 9
+}
+# The test save of the run, and the test save that the run makes.
+$saves = @{}
+if ($Save -ne '') { $saves.Save = $Save }
+if ($KeepSave -ne '') { $saves.KeepSave = $KeepSave }
 # The points of the start dialog depend on the render size. dialog.ps1
 # measures a new size one time and gives the points. The
 # first pose (yaw 8, pitch 1) points at a row, and the second pose (yaw 8,
@@ -46,7 +67,12 @@ while ((Get-Date) -lt $deadline) {
     if ($idle -ge 620 -and -not $running) {
         if (-not (Confirm-DialogCalibration -Dll $Dll)) { Start-Sleep -Seconds 30; continue }
         $dp = Get-DialogPoints $Choice
-        if ($Choice -eq 'normal') {
+        if ($Save -ne '') {
+            # A test save has no start dialog. The script clicks "Continue
+            # Game" of the Main Menu.
+            $dialog = $script:MenuContinueWords
+            $first = Get-MenuContinuePoint
+        } elseif ($Choice -eq 'normal') {
             $dialog = 'pose2@500+1 point@520+1 trigger@560+8'
             $first = $dp.Ok
         } else {
@@ -62,10 +88,11 @@ while ((Get-Date) -lt $deadline) {
             fake_controller_points = ("$first $Points").Trim()
             fake_controller_script = ("$dialog $Steps").Trim()
         }
+        if ($Save -ne '') { $extra.fake_controller_play_after = 60 }
         foreach ($pair in $Set.Split(';')) {
             if ($pair -match '^\s*([^=\s]+)\s*=\s*(.*)$') { $extra[$Matches[1]] = $Matches[2] }
         }
-        $o = & (Join-Path $sp 'desk_run.ps1') -Name $Name -Dll $Dll -Extra $extra -Seconds $Seconds -WaitMinutes $WaitMinutes
+        $o = & (Join-Path $sp 'desk_run.ps1') -Name $Name -Dll $Dll -Extra $extra -Seconds $Seconds -WaitMinutes $WaitMinutes @saves
         $o
         if (-not (Test-BwvrVerdict $o 'NOT RUN')) { "RUN DONE"; exit 0 }
     }

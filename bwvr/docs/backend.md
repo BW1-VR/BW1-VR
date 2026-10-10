@@ -37,7 +37,8 @@ Other docs: `software-tnl.md` (the CPU transform and the camera matrix),
 | `src/mod/fov.cpp` | `LH3DTech::ChangeFov` hook |
 | `src/mod/pointer_map.cpp` | The pointer in render pixels, the head lock of the cursor |
 | `src/mod/cursor_trace.cpp` | A test aid: the log names each caller that touches the cursor of Windows or takes the front |
-| `src/mod/exit_test.cpp` | A test aid: the game ends by itself at one frame, and its writes to the registry are dropped |
+| `src/mod/exit_test.cpp` | A test aid: the game ends by itself at one frame, and its writes to the registry are dropped. The same guard from the start of the mod, for a run that loads a test save |
+| `src/mod/game_start.cpp` | A test aid: one line of the log says how the game started (a new game or a saved game) and how long the start took |
 | `src/mod/comfort_camera.cpp` | Snap turns, jumps, zoom steps |
 | `src/mod/script_camera.cpp` | The camera of the story |
 | `src/mod/draw_hooks.cpp` | Hints, tooltips, subtitles, interface depth and size |
@@ -433,6 +434,14 @@ follow.
 Each write of the profile is in steps 1 to 3, so a fault in step 5 or 6 does
 not cut a write of the profile. It cuts the log of the mod.
 
+In steps 1 to 3 the game also writes files that are not in the profile folder
+[R]. When the game has the Creature of the profile, it writes the mind of
+that Creature in the game folder: `Scripts\CreatureMind\<file>` and
+`Scripts\CreatureMind\Physique<file>`. `<file>` is the value `file` of the
+profile in the registry, a name that ends in `.erc`. A game with no Creature
+of the profile, for example a game at the Creature pens, does not write
+them. The game also writes `MemoryLeaks.txt` in the game folder.
+
 ### What must be true at step 5 and at step 6
 
 - The device of the backend must not be destroyed while the shared textures
@@ -517,19 +526,96 @@ process (a desktop run, the Task Manager), or a fault did.
 A desktop run stops the game with `Stop-Process`, and a stopped process never
 comes to the exit path. `exit_test_frame=N` makes the game end by itself: at
 frame N of `FinishFrame` the mod posts the message of the close button to the
-game window (`exit_test.cpp`). From that frame to the end of the process, the
-mod drops each write of the process to the registry: `RegSetValueEx`,
-`RegDeleteValue` and `RegDeleteKey`. The log names each one. The log also
-names each file that the process opens for a write. The run scripts put the
-files of the profile back. `bwvr/tools/desk/exit_run.ps1` makes the run and
-reads the faults that Windows recorded. The launcher removes the key from
-`bwvr.ini` on each save.
+game window (`exit_test.cpp`). The word `exit` of the scripted controller does
+the same at a frame of the script (`controllers.md`, 4.2). From that frame to
+the end of the process, the mod drops each write of the process to the
+registry: `RegSetValueEx`, `RegDeleteValue` and `RegDeleteKey`. The log names
+each one, with its key. The log also names each file that the process opens
+for a write. `desk_run.ps1` puts those files back: the profile folder, the
+folder `Scripts\CreatureMind` and `MemoryLeaks.txt`.
+`bwvr/tools/desk/exit_run.ps1` makes the run and reads the faults that Windows
+recorded. The launcher removes the key from `bwvr.ini` on each save.
 
 A desktop run has no OpenXR session. With `capture_every_seconds`, the self
 test of the bridge makes the shared textures on a Direct3D 11 device of its
 own. So a run shows the fault of the device with `exit_shutdown=0`, and a
 clean end with 1. Only a headset session shows the end of the OpenXR session
 and the record of `VirtualDesktop.LibOVRRT32_1.dll`.
+
+### A test save
+
+A desktop run can start in a saved game that a test run made
+(`tools/desk/README.md`, "A fast start"). The mod has four test aids for it.
+`[V]` is from the disassembly, `[R]` from a run.
+
+**How the game starts [V].** `ScanParameters` (`0x00641AA0`) knows no word
+that loads a saved game. `pc_main` (`0x00641C60`) gives `GGame` a mode at
+`GGame+0x25017C` before `GGame::StartGame` (`0x0054C190`), and `GGame::Init`
+reads it in a switch at `0x0054F6EF`:
+
+| Mode | When | What `GGame::Init` does |
+| --- | --- | --- |
+| 0 | No word on the command line | `GameOSFile::AutoLoad` (`0x00563FF0`) loads `Saved Games\20\20.sav` of the profile. When the load fails, the mode becomes 1 |
+| 1 | `-NEWGAME`, or no saved game in slot 20 | A new game: `GSetup::LoadMapScript` and `GGame::OnNewGame` (`0x005538E0`) |
+| 2 | After a load in play (the Temple, or the quick load, which calls `fn_00793380(19)`) | `GameOSFile::LoadAllGame` (`0x005587B0`) with the file name at `0x00D01838` |
+
+Slot 20 is the saved game that the game writes each time its loop ends
+(`SaveGameRoom::InstantSaveGame(20)` at `0x0054D5DD`). It is a whole saved
+game of that moment. So the game loads a saved game with no menu only at its
+start, and only from slot 20. With the mode 0, `GGame::Loop` opens the Main
+Menu over the loaded game before its first frame (`0x0054CF58`, `0x0054D086`).
+The game waits there, and "Continue Game" starts the play. A load in play is
+not a way for a test: the game then runs `GGame::Close`, which writes the
+profile to the registry.
+
+**The registry in the start [R].** In each start, with a new game or with a
+load, the game writes the values of the profile to the registry before its
+first frame: `Profile` in `LHMultiplayer`, and in the key of the profile
+`creature name`, `login name`, `login password`, `stuff`, `player symbol`,
+`timestarted`, `numberofsaves`, `numberofloads`, `pitchaboutcentre`,
+`pushscroll`, `IMMERSION_KEY` and `HAND_ORIENTATION`. These are the values of
+`PlayerProfile::WriteBackToRegistry` (`0x0066BCD0`). When "Continue Game"
+closes the Main Menu, the game also writes the key bindings of the profile:
+`Key 0 Primary`, `Key 0 Primary Mod`, `Key 0 Mouse Button` and so on to `Key
+32`, 99 values. Each number is the number that the game read, so the registry
+is the same after such a write. In play the game writes `LoveBuckets`, the
+alignment of the player, each 600 game turns (`GPlayer::SavePlayerAlignment`,
+`0x0064D280`, called from `GGame::Loop` at `0x0054D419`) [V]. So a test that
+changes the alignment, in a run with no guard that is longer than those
+turns, changes that value of the profile. Windows writes to other keys in
+the game process
+too: DirectInput keeps a value for each input device under
+`MediaProperties\PrivateProperties\DirectInput`.
+
+**`registry_test_guard=1`.** The guard of `exit_test.cpp` from the start of
+the mod. The mod drops each write to a key under `Lionhead Studios Ltd`, and
+the log names each one with its key (lines `registry test`). A write to a
+different key passes, as in each other run. The log names the first 6 and
+counts each one. The log also names each file that the process opens for a
+write. `desk_run.ps1 -Save` gives a run this key.
+
+**The line of the start.** `game_start.cpp` writes one line at the first
+frame of the scene:
+
+```
+game start   : a new game starts, frame 0 (game mode 1, land 1), 8.9 s after the start of the game process
+game start   : the saved game is loaded, frame 0. The game loaded the saved game of slot 20, and it opens its Main Menu over it (game mode 0, land 1), 9.6 s after the start of the game process. In the start the mod dropped 17 writes of the game to its keys of the registry, and 41 writes of the process to other keys passed
+```
+
+The land is `GGame+0x205A08`. A run script reads from this line that the
+load was good: a load that fails gives a new game.
+
+**The clock of the log.** The log has the date of the start only. Three
+kinds of lines have a frame of the scripted controller and the seconds from
+the start of the game process: the line of the start, each line `stereo` with
+the frame rate (one for each 450 frames), and the line of
+`fake_controller_play_frame`. `Get-BwvrFrameSeconds` in
+`tools/desk/game.ps1` gives the time of a frame from them.
+
+**The word `exit`.** The game writes slot 20 on its exit path. So a run
+that ends with the word `exit` leaves a saved game of that frame in the
+profile folder, and `make_test_save.ps1` keeps a copy of it before the
+profile goes back.
 
 ## The depth buffer
 
@@ -1246,8 +1332,9 @@ Three traps:
 
 To reach gameplay without a headset, use a script of `bwvr/tools/desk/`. A run
 starts the game with `-NEWGAME`, and the scripted controller closes the start
-dialog. `spawn_run.ps1 -Choice keep` gives a game with no story. A test never
-loads a saved game.
+dialog. `spawn_run.ps1 -Choice keep` gives a game with no story. A run with
+`-Save <name>` starts in a test save, which a test run made ("A test save").
+A test never loads a saved game of the player.
 
 ## Moving around
 
@@ -1655,8 +1742,9 @@ the real mouse, and it never brings a window to the front. The tools:
 
 - The scripted controller (`fake_controller`, `fake_controller_script`) holds the
   buttons of a controller and steps its hands (`controllers.md`, section 4). It
-  also closes the start dialog of a new game: `tools/desk/dialog.ps1` gives the
-  points of the dialog for the render size.
+  also closes the start dialog of a new game, and it clicks "Continue Game" in
+  the Main Menu of a run with a test save: `tools/desk/dialog.ps1` gives the
+  points for the render size.
 - The test mouse (`fake_mouse_script`) moves the pointer and presses the left
   button inside the mod (`god-view.md`, section 10).
 - The scripts of `bwvr/tools/desk/` start the game with these keys, put the
@@ -1778,6 +1866,7 @@ keys that the launcher sets.
 | `pointer_leave_cursor`, `cursor_trace` | 0, 0 | Test keys of the desktop runs. See "Who moves the cursor of Windows" |
 | `exit_shutdown` | 1 | 1: the mod shuts down on the exit path of the game. 0: in `DllMain`. See "The end of the mod" |
 | `exit_test_frame` | 0 | A test key of the desktop runs: the frame at which the game ends by itself. See "The test of the end" |
+| `registry_test_guard` | 0 | A test key of the desktop runs. 1: from the start of the mod, the mod drops each write of the game to its keys of the registry, and the log names each one. See "A test save" |
 | `window_width`, `window_height` | 0 | A forced window size |
 | `snap_turn`, `blink`, `instant_jumps`, `camera_glide` | 2, 0, 1, 0 | See "Moving around" |
 | `zoom_step` | 2 | See "Zoom in steps" |

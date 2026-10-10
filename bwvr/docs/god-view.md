@@ -1094,7 +1094,10 @@ and the camera events (0x304 for a wheel click and 0x308 for a land drag).
   the game's own size, which grows with the distance, and its throw has the
   speeds of the life size scale. These are in `hand_direct.cpp`.
 - **A load** on the same land is not tested. Save, pan far away, and load:
-  the view must come back at the place of the save, with the same scale.
+  the view must come back at the place of the save, with the same scale. A
+  load at the start of the game has a run: in a run with a test save
+  (`tools/desk/README.md`, "A fast start") the view is built at the game
+  camera of the saved game.
 - **The tilt keys.** Which key of the game sets a tilt of more than 0 is not
   checked. If the keys move the ground the wrong way, change the sign in
   `GodTiltKeys`.

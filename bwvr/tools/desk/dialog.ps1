@@ -22,6 +22,16 @@ $script:DialogRowY = @{ normal = -64; select = -20; skip = 23; keep = 67 }
 $script:DialogRowX = -143
 $script:DialogOkX = -147
 $script:DialogOkY = 113
+# The button "Continue Game" of the Main Menu, in pixels from the middle of
+# the render. The game opens that menu over the saved game that it loads at
+# its start (a run with a test save). The button is 436 pixels wide and 60
+# high. Measured at 2208 by 2208.
+$script:MenuContinueX = 0
+$script:MenuContinueY = -122
+# The script words that click "Continue Game": the hand in its first pose
+# points at the button, the trigger clicks, and then the hand goes to its
+# second pose, as it does after the clicks of the start dialog.
+$script:MenuContinueWords = 'point@40+1 trigger@70+8 pose2@100+1'
 
 # The six places of the measure run, in cm: three for the first pose (it
 # points at a row), then three for the second pose (it points at OK).
@@ -80,6 +90,15 @@ function Get-DialogPoints([string]$Choice) {
     }
     $ok = ConvertTo-DialogPoint $cal.pose2 ($mx + $script:DialogOkX) ($my + $script:DialogOkY)
     return @{ Row = $row; Ok = $ok }
+}
+
+# The point that puts the pointer on "Continue Game" of the Main Menu, with
+# the first pose of the hand. Null when the render size is not measured.
+function Get-MenuContinuePoint {
+    $cal = Get-DialogCalibration
+    $size = Get-BwvrRenderSize
+    if (-not $cal -or -not $size) { return $null }
+    return (ConvertTo-DialogPoint $cal.pose1 ($size[0] / 2.0 + $script:MenuContinueX) ($size[1] / 2.0 + $script:MenuContinueY))
 }
 
 # One short run that measures the current render size. It goes through

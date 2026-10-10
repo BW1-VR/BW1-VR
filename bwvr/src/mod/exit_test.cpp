@@ -3,17 +3,25 @@
 //
 // exit_test_frame=N: at frame N the mod asks the game to end by itself, on
 // its usual exit path. A desktop run kills the game, and a killed process
-// never comes to that path.
+// never comes to that path. The word "exit" of the scripted controller asks
+// for the same thing at a frame of the script.
 //
 // The game writes the profile of the player on that path. From the frame of
 // the test to the end of the process, the mod drops each write of the game
 // process to the registry, and the log names each one. The log also names
 // each file that the process opens for a write. The run scripts put those
 // files back.
+//
+// registry_test_guard=1: a guard from the start of the mod, for a run that
+// loads a test save (docs/backend.md, "A test save"). The game writes the
+// values of the profile to the registry in its start too. The mod drops and
+// names each write to a key of the game. A write of Windows to a different
+// key passes, as in each other run.
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <stdint.h>
+#include <string.h>
 
 #include "MinHook.h"
 
@@ -22,10 +30,26 @@ void ModLog(const char* format, ...);
 namespace {
 
 int g_frame_wanted = 0;
-// The test asked for the exit. The registry is closed for writes from here.
+// The registry is closed for writes from here: the test asked for the exit,
+// or registry_test_guard=1 closed it at the start.
 bool g_guard = false;
+// The test asked for the exit.
+bool g_asked = false;
+// The first word of a line of the guard.
+const char* g_tag = "exit test    ";
+// The lines about a write that the mod drops, about a write that passes and
+// about a file have a limit each, so one kind does not take the lines of a
+// different kind.
 int g_lines = 0;
-const int kMaxLines = 80;
+const int kMaxLines = 120;
+int g_pass_lines = 0;
+const int kMaxPassLines = 6;
+int g_file_lines = 0;
+const int kMaxFileLines = 40;
+// The writes to the registry that the mod dropped, and the writes that
+// passed.
+int g_dropped = 0;
+int g_passed = 0;
 
 // The window of the game, as controllers.cpp reads it.
 const uintptr_t kGameWindow = 0x00E85078;
@@ -51,9 +75,107 @@ DeleteWFn o_RegDeleteKeyW = nullptr;
 CreateFileAFn o_CreateFileA = nullptr;
 CreateFileWFn o_CreateFileW = nullptr;
 
+// The path of an open key of the registry, for the log and for the test of
+// the game's own key. NtQueryKey gives it. A root key such as
+// HKEY_CURRENT_USER is not an open key: its path is empty here.
+typedef LONG(NTAPI* NtQueryKeyFn)(HANDLE, int, PVOID, ULONG, PULONG);
+const int kKeyNameInformation = 3;
+
+void KeyPath(HKEY key, char* out, int size) {
+  out[0] = 0;
+  static NtQueryKeyFn query = nullptr;
+  static bool looked = false;
+  if (!looked) {
+    looked = true;
+    const HMODULE ntdll = GetModuleHandleA("ntdll.dll");
+    if (ntdll != nullptr) {
+      query = reinterpret_cast<NtQueryKeyFn>(
+          GetProcAddress(ntdll, "NtQueryKey"));
+    }
+  }
+  if (query == nullptr || key == nullptr ||
+      (reinterpret_cast<uintptr_t>(key) & 0x80000000u) != 0) {
+    return;
+  }
+  struct {
+    ULONG bytes;
+    wchar_t name[512];
+  } info;
+  ULONG got = 0;
+  if (query(key, kKeyNameInformation, &info, sizeof(info), &got) != 0) return;
+  const int chars = static_cast<int>(info.bytes / sizeof(wchar_t));
+  int n = 0;
+  for (int i = 0; i < chars && i < 512 && n < size - 1; ++i) {
+    const wchar_t c = info.name[i];
+    out[n++] = c >= 32 && c < 127 ? static_cast<char>(c) : '?';
+  }
+  out[n] = 0;
+}
+
+// The place of a text in a path, with no difference between capital and
+// small letters. Null when it is not there.
+const char* FindNoCase(const char* path, const char* text) {
+  const size_t length = strlen(text);
+  for (const char* p = path; *p != 0; ++p) {
+    if (_strnicmp(p, text, length) == 0) return p;
+  }
+  return nullptr;
+}
+
+// The keys of the game are under "Lionhead Studios Ltd": the values of the
+// profile, the display size and the sound volumes.
+bool IsGameKey(const char* path) {
+  return FindNoCase(path, "\\Lionhead Studios Ltd") != nullptr;
+}
+
+// The part of a path that the log shows: from "\Software\" on.
+const char* ShortPath(const char* path) {
+  if (path[0] == 0) return "a root key";
+  const char* software = FindNoCase(path, "\\Software\\");
+  return software != nullptr ? software + 1 : path;
+}
+
+// WHAT THE GUARD DOES WITH A WRITE. After the test asked for the exit, the
+// mod drops each write of the process. Before that, with
+// registry_test_guard=1, it drops each write to a key of the game and each
+// write to a key with no path. A write to a different key passes: Windows
+// makes such writes in the game process at each start of the game
+// (DirectInput keeps its list of devices there), and they are not values of
+// the game. True when the mod drops the write.
+bool DropWrite(HKEY key, char* path, int size) {
+  KeyPath(key, path, size);
+  if (g_asked || path[0] == 0 || IsGameKey(path)) {
+    ++g_dropped;
+    return true;
+  }
+  ++g_passed;
+  return false;
+}
+
+// True when the log has room for a line about a write that the mod drops.
+// The last line with room says that no more lines come.
 bool Room() {
-  if (g_lines >= kMaxLines) return false;
+  if (g_lines > kMaxLines) return false;
   ++g_lines;
+  if (g_lines > kMaxLines) {
+    ModLog("%s: the log has %d lines about writes that the mod dropped, and "
+           "it gets no more. The mod drops each more write too", g_tag,
+           kMaxLines);
+    return false;
+  }
+  return true;
+}
+
+// The same for a write that passes, and for a file.
+bool PassRoom() {
+  if (g_pass_lines >= kMaxPassLines) return false;
+  ++g_pass_lines;
+  return true;
+}
+
+bool FileRoom() {
+  if (g_file_lines >= kMaxFileLines) return false;
+  ++g_file_lines;
   return true;
 }
 
@@ -63,72 +185,120 @@ long Number(DWORD type, const BYTE* data, DWORD size) {
   return static_cast<long>(*reinterpret_cast<const DWORD*>(data));
 }
 
+// The name of a value or of a key as plain text for the log.
+void Plain(const wchar_t* name, char* out, int size) {
+  int n = 0;
+  for (; name != nullptr && name[n] != 0 && n < size - 1; ++n) {
+    out[n] = name[n] >= 32 && name[n] < 127 ? static_cast<char>(name[n]) : '?';
+  }
+  out[n] = 0;
+}
+
+// One line for a write to a value. True when the mod drops the write.
+bool GuardValue(HKEY key, const char* name, DWORD type, const BYTE* data,
+                DWORD size) {
+  char path[300];
+  if (!DropWrite(key, path, sizeof(path))) {
+    if (PassRoom()) {
+      ModLog("%s: the process writes the registry value \"%s\" in the key "
+             "%s, which is not a key of the game. The write passes",
+             g_tag, name, ShortPath(path));
+    }
+    return false;
+  }
+  if (Room()) {
+    ModLog("%s: the game writes the registry value \"%s\" (type %lu, %lu "
+           "bytes, number %ld) in the key %s. The mod drops the write",
+           g_tag, name, type, size, Number(type, data, size), ShortPath(path));
+  }
+  return true;
+}
+
+// One line for a delete of a value or of a key. True when the mod drops it.
+bool GuardDelete(HKEY key, const char* what, const char* name) {
+  char path[300];
+  if (!DropWrite(key, path, sizeof(path))) {
+    if (PassRoom()) {
+      ModLog("%s: the process deletes the registry %s \"%s\" in the key %s, "
+             "which is not a key of the game. The call passes",
+             g_tag, what, name, ShortPath(path));
+    }
+    return false;
+  }
+  if (Room()) {
+    ModLog("%s: the game deletes the registry %s \"%s\" in the key %s. The "
+           "mod drops the call", g_tag, what, name, ShortPath(path));
+  }
+  return true;
+}
+
 LSTATUS WINAPI h_RegSetValueExA(HKEY key, LPCSTR name, DWORD reserved,
                                 DWORD type, const BYTE* data, DWORD size) {
-  if (!g_guard) return o_RegSetValueExA(key, name, reserved, type, data, size);
-  if (Room()) {
-    ModLog("exit test    : the game writes the registry value \"%s\" (type "
-           "%lu, %lu bytes, number %ld). The mod drops the write",
-           name != nullptr ? name : "", type, size, Number(type, data, size));
+  if (g_guard &&
+      GuardValue(key, name != nullptr ? name : "", type, data, size)) {
+    return ERROR_SUCCESS;
   }
-  return ERROR_SUCCESS;
+  return o_RegSetValueExA(key, name, reserved, type, data, size);
 }
 
 LSTATUS WINAPI h_RegSetValueExW(HKEY key, LPCWSTR name, DWORD reserved,
                                 DWORD type, const BYTE* data, DWORD size) {
-  if (!g_guard) return o_RegSetValueExW(key, name, reserved, type, data, size);
-  if (Room()) {
-    ModLog("exit test    : the game writes the registry value \"%ls\" (type "
-           "%lu, %lu bytes, number %ld). The mod drops the write",
-           name != nullptr ? name : L"", type, size, Number(type, data, size));
+  if (g_guard) {
+    char plain[128];
+    Plain(name, plain, sizeof(plain));
+    if (GuardValue(key, plain, type, data, size)) return ERROR_SUCCESS;
   }
-  return ERROR_SUCCESS;
+  return o_RegSetValueExW(key, name, reserved, type, data, size);
 }
 
 LSTATUS WINAPI h_RegDeleteValueA(HKEY key, LPCSTR name) {
-  if (!g_guard) return o_RegDeleteValueA(key, name);
-  if (Room()) {
-    ModLog("exit test    : the game deletes the registry value \"%s\". The "
-           "mod drops the call", name != nullptr ? name : "");
+  if (g_guard && GuardDelete(key, "value", name != nullptr ? name : "")) {
+    return ERROR_SUCCESS;
   }
-  return ERROR_SUCCESS;
+  return o_RegDeleteValueA(key, name);
 }
 
 LSTATUS WINAPI h_RegDeleteValueW(HKEY key, LPCWSTR name) {
-  if (!g_guard) return o_RegDeleteValueW(key, name);
-  if (Room()) {
-    ModLog("exit test    : the game deletes the registry value \"%ls\". The "
-           "mod drops the call", name != nullptr ? name : L"");
+  if (g_guard) {
+    char plain[128];
+    Plain(name, plain, sizeof(plain));
+    if (GuardDelete(key, "value", plain)) return ERROR_SUCCESS;
   }
-  return ERROR_SUCCESS;
+  return o_RegDeleteValueW(key, name);
 }
 
 LSTATUS WINAPI h_RegDeleteKeyA(HKEY key, LPCSTR name) {
-  if (!g_guard) return o_RegDeleteKeyA(key, name);
-  if (Room()) {
-    ModLog("exit test    : the game deletes the registry key \"%s\". The mod "
-           "drops the call", name != nullptr ? name : "");
+  if (g_guard && GuardDelete(key, "key", name != nullptr ? name : "")) {
+    return ERROR_SUCCESS;
   }
-  return ERROR_SUCCESS;
+  return o_RegDeleteKeyA(key, name);
 }
 
 LSTATUS WINAPI h_RegDeleteKeyW(HKEY key, LPCWSTR name) {
-  if (!g_guard) return o_RegDeleteKeyW(key, name);
-  if (Room()) {
-    ModLog("exit test    : the game deletes the registry key \"%ls\". The mod "
-           "drops the call", name != nullptr ? name : L"");
+  if (g_guard) {
+    char plain[128];
+    Plain(name, plain, sizeof(plain));
+    if (GuardDelete(key, "key", plain)) return ERROR_SUCCESS;
   }
-  return ERROR_SUCCESS;
+  return o_RegDeleteKeyW(key, name);
 }
 
 const DWORD kWriteAccess = GENERIC_WRITE | GENERIC_ALL | FILE_WRITE_DATA |
                            FILE_APPEND_DATA;
 
+// A device of Windows that the process opens as a file, for example a HID
+// device of DirectInput. It is not a file, so it has no line.
+bool IsDevice(const char* name) {
+  return _strnicmp(name, "\\\\?\\hid#", 8) == 0 ||
+         _strnicmp(name, "\\\\.\\", 4) == 0;
+}
+
 HANDLE WINAPI h_CreateFileA(LPCSTR name, DWORD access, DWORD share,
                             LPSECURITY_ATTRIBUTES security, DWORD creation,
                             DWORD flags, HANDLE model) {
-  if (g_guard && (access & kWriteAccess) != 0 && name != nullptr && Room()) {
-    ModLog("exit test    : the game opens a file for a write: %s", name);
+  if (g_guard && (access & kWriteAccess) != 0 && name != nullptr &&
+      !IsDevice(name) && FileRoom()) {
+    ModLog("%s: the game opens a file for a write: %s", g_tag, name);
   }
   return o_CreateFileA(name, access, share, security, creation, flags, model);
 }
@@ -136,14 +306,21 @@ HANDLE WINAPI h_CreateFileA(LPCSTR name, DWORD access, DWORD share,
 HANDLE WINAPI h_CreateFileW(LPCWSTR name, DWORD access, DWORD share,
                             LPSECURITY_ATTRIBUTES security, DWORD creation,
                             DWORD flags, HANDLE model) {
-  if (g_guard && (access & kWriteAccess) != 0 && name != nullptr && Room()) {
-    ModLog("exit test    : the game opens a file for a write: %ls", name);
+  if (g_guard && (access & kWriteAccess) != 0 && name != nullptr) {
+    char plain[300];
+    Plain(name, plain, sizeof(plain));
+    if (!IsDevice(plain) && FileRoom()) {
+      ModLog("%s: the game opens a file for a write: %s", g_tag, plain);
+    }
   }
   return o_CreateFileW(name, access, share, security, creation, flags, model);
 }
 
-// The functions of Windows that the game and its libraries write with.
+// The functions of Windows that the game and its libraries write with. The
+// guards go in one time. Returns how many of the 8 are there.
+int g_guards = -1;
 int InstallGuards() {
+  if (g_guards >= 0) return g_guards;
   struct Guard {
     const char* dll;
     const char* name;
@@ -180,31 +357,22 @@ int InstallGuards() {
       ++ok;
     }
   }
+  g_guards = ok;
   return ok;
 }
 
-}  // namespace
-
-void ExitTestSetFrame(int frame) { g_frame_wanted = frame; }
-
-// From FinishFrame, one time a frame.
-//
 // The message is the one of the close button of the window and of Alt and
 // F4, WM_SYSCOMMAND with SC_CLOSE. The window procedure of the game
 // (0x007DBF30) answers it with LHSystem::SetTerminate (0x007DB8A0), and
 // GGame::Loop (at 0x0054D424) reads that flag and ends the game. A plain
 // WM_CLOSE is not the way of the game: it destroys the window, and the game
 // runs on with no window.
-void ExitTestFrame(uint64_t frame) {
-  if (g_frame_wanted <= 0 || g_guard ||
-      frame != static_cast<uint64_t>(g_frame_wanted)) {
-    return;
-  }
+void AskTheGameToClose(const char* why, uint64_t frame) {
+  if (g_asked) return;
   const HWND window = *reinterpret_cast<const HWND*>(kGameWindow);
   if (window == nullptr) {
     ModLog("exit test    : frame %llu, the game has no window, so the mod "
-           "cannot ask it to close (exit_test_frame=%d)",
-           frame, g_frame_wanted);
+           "cannot ask it to close (%s)", frame, why);
     return;
   }
   // The game gets the message only if each guard is there. If not, the run
@@ -212,14 +380,63 @@ void ExitTestFrame(uint64_t frame) {
   const int guards = InstallGuards();
   if (guards != 8) {
     ModLog("exit test    : frame %llu, only %d of 8 guards are there, so the "
-           "mod does not ask the game to close (exit_test_frame=%d)",
-           frame, guards, g_frame_wanted);
+           "mod does not ask the game to close (%s)", frame, guards, why);
     return;
   }
   g_guard = true;
+  g_asked = true;
+  g_tag = "exit test    ";
   const BOOL posted = PostMessageA(window, WM_SYSCOMMAND, SC_CLOSE, 0);
   ModLog("exit test    : frame %llu, the mod asks the game to close its "
-         "window (exit_test_frame=%d). The message is %s. From here the mod "
-         "drops each write to the registry",
-         frame, g_frame_wanted, posted ? "posted" : "NOT posted");
+         "window (%s). The message is %s. From here the mod drops each write "
+         "to the registry", frame, why, posted ? "posted" : "NOT posted");
+}
+
+}  // namespace
+
+void ExitTestSetFrame(int frame) { g_frame_wanted = frame; }
+
+// registry_test_guard=1, from Startup: the guard of the registry from the
+// start of the mod. The game reads the registry as it is, and the mod drops
+// and names each write to a key of the game (DropWrite).
+void ExitTestGuardFromStart() {
+  const int guards = InstallGuards();
+  if (guards != 8) {
+    ModLog("registry test: only %d of 8 guards are there, so the registry is "
+           "NOT closed for writes (registry_test_guard=1)", guards);
+    return;
+  }
+  g_guard = true;
+  g_tag = "registry test";
+  ModLog("registry test: registry_test_guard=1 (a test). From here the mod "
+         "drops each write of the game process to a key of the game in the "
+         "registry (Lionhead Studios Ltd), and the log names each one. A "
+         "write to a different key passes: the log names the first %d and "
+         "counts each one. The log also names each file that the process "
+         "opens for a write", kMaxPassLines);
+}
+
+// How many writes to the registry the mod dropped and how many passed, and
+// whether the guard is on. For the line of the start of the game
+// (game_start.cpp).
+int ExitTestDropped(bool* guard, int* passed) {
+  if (guard != nullptr) *guard = g_guard;
+  if (passed != nullptr) *passed = g_passed;
+  return g_dropped;
+}
+
+// From FinishFrame, one time a frame, with the frame of FinishFrame.
+void ExitTestFrame(uint64_t frame) {
+  if (g_frame_wanted <= 0 || g_asked ||
+      frame != static_cast<uint64_t>(g_frame_wanted)) {
+    return;
+  }
+  char why[48];
+  wsprintfA(why, "exit_test_frame=%d", g_frame_wanted);
+  AskTheGameToClose(why, frame);
+}
+
+// The word "exit" of the scripted controller, with the frame of the script.
+void ExitTestNow(uint64_t frame) {
+  AskTheGameToClose("the word \"exit\" of the scripted controller", frame);
 }

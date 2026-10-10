@@ -5,6 +5,10 @@
 # Backs up the player's bwvr.ini, writes the rig keys and the extra keys on
 # top, starts runblack.exe directly (never the launcher, so nothing writes the
 # registry), waits, stops the game, keeps the log, and restores the ini.
+#
+# Each run skips the logos at the start of the game (intro_skip_test_frame=5
+# in the rig keys). A run that tests the logos gives intro_skip_test_frame=0,
+# or its own frame, in -Extra.
 param(
     [Parameter(Mandatory = $true)][string]$Name,
     [hashtable]$Extra = @{},
@@ -70,10 +74,18 @@ try {
     # gives the front to the game window. cursor_trace=1: the log of the mod
     # names each caller in the game process that touches the cursor or takes
     # the front.
+    # intro_skip_test_frame=5: at frame 5 of the logos a press comes that no
+    # hand made, and the mod skips the logos, which take 38 s.
+    # registry_test_guard=1: the mod drops each write of the game to its
+    # keys of the registry, and the log names it. The game writes values of
+    # the player's profile there by itself (the key bindings, and the
+    # alignment each 600 game turns), and a test must not change them.
     $keys = [ordered]@{
         vr = 0; stereo = 1; stereo_headless = 1; fake_head = 1;
         fake_head_yaw = 0; fake_head_pitch = 0; fov_absolute_deg = 110
         pointer_leave_cursor = 1; cursor_trace = 1
+        intro_skip_test_frame = 5
+        registry_test_guard = 1
     }
     foreach ($k in $Extra.Keys) { $keys[$k] = $Extra[$k] }
 

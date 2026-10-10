@@ -16,8 +16,14 @@ is in git, not in the docs.
 - Never add a file of the game to the repo, and never ship one. No art, no
   sound, no saved game, and nothing made from them.
 - Never load, change or delete a saved game or a profile of the player. The
-  desktop scripts copy the `Profiles` folder before a run and put it back.
-- Never change the registry.
+  desktop scripts copy the `Profiles` folder and the folder
+  `Scripts\CreatureMind` of the game before a run and put them back. A test
+  can load a test save: a saved game that a test run made
+  (`bwvr/tools/desk/make_test_save.ps1`). It is in `local\test-saves` of the
+  main checkout, never in the repo, and a run puts it into the profile only
+  after the scripts made their copy.
+- Never change the registry. The game writes values of the profile there by
+  itself, so each desktop run drops those writes (`registry_test_guard=1`).
 - Never start the game outside `bwvr/tools/desk/desk_run.ps1` in a test.
   Never move or click the real mouse, never bring a window to the front,
   never stop a process that you did not start. A run waits until nobody has

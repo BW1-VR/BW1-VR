@@ -208,6 +208,7 @@ void UiDepthReport();
 // exit_test.cpp: the game ends by itself at one frame, for a desktop run.
 void ExitTestSetFrame(int frame);
 void ExitTestFrame(uint64_t frame);
+void ExitTestGuardFromStart();
 
 void ModLog(const char* format, ...);
 
@@ -294,6 +295,8 @@ bool g_pointer_clip = true;
 // Test keys of the desktop runs. See pointer_map.cpp and cursor_trace.cpp.
 bool g_pointer_leave_cursor = false;
 bool g_cursor_trace = false;
+// A test key of the desktop runs. See exit_test.cpp.
+bool g_registry_test_guard = false;
 int g_window_w = 0;
 int g_window_h = 0;
 bool g_hand_anchored = true;
@@ -1075,6 +1078,10 @@ void ReadSettings() {
   // Test only: the frame at which the mod asks the game to end by itself.
   ExitTestSetFrame(static_cast<int>(
       GetPrivateProfileIntA("bwvr", "exit_test_frame", 0, path)));
+  // Test only: the mod drops each write of the game to the registry, from
+  // the start of the mod.
+  g_registry_test_guard =
+      GetPrivateProfileIntA("bwvr", "registry_test_guard", 0, path) != 0;
   ModLog("settings     : vr=%d, stereo=%d, screen %.2f m wide at %.2f m",
          g_vr_enabled ? 1 : 0, g_stereo ? 1 : 0, g_width, g_distance);
   ModLog("settings     : eye separation %.3f world units, interface shift "
@@ -1636,6 +1643,8 @@ void Startup() {
   }
   // Before the game makes its window, so the log has each call from the start.
   if (g_cursor_trace) CursorTraceInstall();
+  // Before the game reads its profile, so the guard has each write.
+  if (g_registry_test_guard) ExitTestGuardFromStart();
 
   void* target = reinterpret_cast<void*>(bw::render::kFinishFrame);
   MH_STATUS status =

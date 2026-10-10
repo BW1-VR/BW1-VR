@@ -818,6 +818,7 @@ The scripts in `bwvr/tools/desk/` use these keys and words.
 | `fake_controller_gestures` | empty | Template numbers of `Data\Gestures.jty` for the word `trace`, separated by spaces |
 | `fake_controller_gesture_cm` | 30 | The side of the square for `trace`, in front of the head, 5 to 200 |
 | `fake_controller_play_frame` | 0 | See 4.3. A test key |
+| `fake_controller_play_after` | 1000 | See 4.3. A test key |
 | `fake_controller_front` | 0 | 1 lets the fake controller act while the game window is not in front, also with `controller_window_behind=0`. The fake controller already stands for a headset session that has the focus of the runtime (section 9), so the key is rarely needed |
 | `fake_head_right_cm`, `fake_head_up_cm`, `fake_head_forward_cm` | 0 | A still lean of the invented head. The words `lean` and `look` use it |
 
@@ -885,6 +886,7 @@ The words that act on the first frame of the word only:
 | `lean`, `look` | `lean` holds the lean of `fake_head_*_cm` for the frames of the word. `look` turns the invented head 30 degrees left and 20 degrees down for the frames. With no `lean` word in the script, a lean that is set holds for the whole run |
 | `shot` | Saves a picture of both eyes 3 frames later. It moves nothing |
 | `deactivate` | The game gets `WM_ACTIVATEAPP` with 0 and `WM_KILLFOCUS`, as when the player clicks a different program. See 9.5 |
+| `exit` | The mod asks the game to end by itself, on its usual exit path, as `exit_test_frame` does. From that frame the mod drops each write of the game to the registry. See `backend.md`, "The test of the end" |
 
 The placement of the hand is in cm from the head center. Each pose word sets
 the position of the right hand until the next one.
@@ -896,8 +898,17 @@ which the player gets the Hand changes with the frame rate. The test key
 `fake_controller_play_frame=N` fixes this. The steps of the script from frame
 N on count from the frame at which the controller first places the Hand after
 frame 1000. That frame is N. The steps before N keep their frames, so the
-clicks of the start dialog stay where they are. The log gives the shift. The
-frame of `aim_test_keys` counts the same way.
+clicks of the start dialog stay where they are. The log gives the shift and
+the seconds from the start of the game process. The frame of `aim_test_keys`
+counts the same way.
+
+`fake_controller_play_after=M` gives a different frame than 1000. A run that
+starts in a test save has no start dialog and no first story: the controller
+places the Hand some frames after the click on "Continue Game" of the Main
+Menu. The run scripts give such a run `fake_controller_play_after=60`. The
+steps from frame N on then come sooner than their numbers, and the log says
+how many frames sooner. With M at 1000 or more, a script keeps its frames
+when the Hand comes before frame N.
 
 The clicks of the start dialog turn the pose of the fake hand. So a preset on
 the fake hand must start after the dialog (`aim_test_touch=N`).

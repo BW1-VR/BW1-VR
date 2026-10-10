@@ -77,6 +77,15 @@
 #   hint card    : ... the game gives its prompt    the prompt of that wait on the card
 #   haptics      : ...                              the pulses
 #
+# -Save <name>: the run starts in a test save and not in a new game
+#   (README.md, "A fast start"). The save must have the state of the start
+#   above: the test save "temple" has it. The steps and the points are the
+#   same. The steps count from frame 800 as the frame at which the controller
+#   first places the Hand in the loaded game (fake_controller_play_frame=800),
+#   so each frame in the log is about 720 less than in a run of a new game.
+#   -Kind click has no -Save: its test key text_click_test has frames of its
+#   own.
+#
 # spawn_run.ps1 waits for an idle PC (10 minutes, no game) and gives up after
 # -Minutes. The last line of the output is RUN DONE (exit code 0) or GAVE UP
 # (exit code 2). The lines of the log come only after a run.
@@ -86,14 +95,19 @@ param(
     [string]$Kind = 'state',
     [string]$Set = '',
     [int]$Seconds = 65,
-    [int]$Minutes = 115
+    [int]$Minutes = 115,
+    [string]$Save = ''
 )
 $sp = Split-Path -Parent $MyInvocation.MyCommand.Path
 . (Join-Path $sp 'game.ps1')
+if ($Save -ne '' -and $Kind -eq 'click') { 'NOT RUN: -Kind click has no -Save, because its test key text_click_test has frames of its own'; exit 7 }
 # The zoom steps of this recipe keep the land under the head in its place
 # (god_zoom_about=0), so the Creature stays in front of the head.
 $keys = 'god_zoom_about=0;seek_plan=creature;far_test_creature=1;far_test_influence=1;grab_hand=1;' +
         'far_grab_max_m=0;fake_controller_rots=-112,1,0 8,1,0'
+# In a test save the steps count from the frame at which the controller first
+# places the Hand, as frame 800.
+if ($Save -ne '') { $keys = "fake_controller_play_frame=800;$keys" }
 if ($Set -ne '') { $keys = "$keys;$Set" }
 # The points of the word "point", after the two points of the start dialog.
 $points = '0,-30,60'
@@ -134,7 +148,7 @@ if ($Kind -eq 'stay') {
              'point@1800+1 aimfar@1830+1 shot@1840+1 grip@1850+300'
 }
 $o = & (Join-Path $sp 'spawn_run.ps1') -Name $Name -Dll $Dll -Choice keep -Steps $steps `
-    -Points $points -Set $keys -Seconds $Seconds -Minutes $Minutes
+    -Points $points -Set $keys -Seconds $Seconds -Minutes $Minutes -Save $Save
 # The RUN DONE of spawn_run.ps1 is not shown: this script gives it as its
 # last line, after the lines of the log.
 $o | Where-Object { "$_" -cnotmatch '^RUN DONE' }

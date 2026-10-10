@@ -144,6 +144,10 @@ void SpiritAnchorWorldSizeToggle();
 // controllers.cpp
 void ControllersFrame();
 void ControllersReport();
+uint64_t ControllersFrameCount();
+// game_start.cpp: the line of the start of the game, and the clock of the log.
+void GameStartFrame();
+double SecondsSinceProcessStart();
 // hand_direct.cpp: the direct hand.
 void HandDirectFrame();
 void HandDirectPassBegin(int eye);
@@ -995,6 +999,7 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
   }
 
   HeadCameraWorldIsUp();
+  GameStartFrame();
   // The hands of this frame, after the head pose of this frame.
   ControllersFrame();
   HandDirectFrame();
@@ -1241,10 +1246,14 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
     g_timed_now = g_timed;
     g_scene_ticks_now = g_scene_ticks;
     const double total = Ms(g_total_ticks);
+    // The frame of the controllers and the time: the clock of the log. A
+    // run script reads from it at what time a frame of a script came.
     ModLog("stereo       : %.1f fps  (frame %.2f ms = wait %.2f + scene x2 "
-           "%.2f + grab x2 %.2f)",
+           "%.2f + grab x2 %.2f), frame %llu, %.1f s after the start of the "
+           "game process",
            total > 0.0 ? 1000.0 / total : 0.0, total, Ms(g_wait_ticks),
-           Ms(g_scene_ticks), Ms(g_grab_ticks));
+           Ms(g_scene_ticks), Ms(g_grab_ticks), ControllersFrameCount(),
+           SecondsSinceProcessStart());
     ModLog("worst frame  : %.2f ms, and %llu of %llu frames missed %.1f ms",
            (static_cast<double>(g_frame_worst) /
             static_cast<double>(g_frequency.QuadPart)) * 1000.0,

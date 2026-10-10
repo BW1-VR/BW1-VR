@@ -365,7 +365,7 @@ flag. The trigger and the face buttons also end the logo through the skip.
 | Key | Default | Meaning |
 | --- | --- | --- |
 | `intro_skip` | 1 | 1: a press of a trigger or of A, B, X or Y skips all that is left of the logos at the start. 2: a press is one Esc, so it skips one part. 0: off |
-| `intro_skip_test_frame` | 0 | A test: at this frame of the intro, a press comes that no hand made |
+| `intro_skip_test_frame` | 0 | A test: at this frame of the intro, a press comes that no hand made. The launcher removes the key from `bwvr.ini` on each save |
 
 ### The log
 
@@ -390,6 +390,10 @@ For a desktop run, `intro_skip_test_frame=30` sends a press at frame 30. The log
 then shows the logo screens and the Lionhead logo end early, and the game goes on
 to the land and to its start dialog. Keep the mouse and the keyboard still
 during a run, because the logo ends on each key and each mouse button.
+
+Each run of the scripts in `bwvr/tools/desk` has `intro_skip_test_frame=5`, so
+a run does not wait for the logos (`tools/desk/README.md`, "A fast start"). A
+run that tests the logos gives the key the value 0, or a frame of its own.
 
 **Needs the headset:** a press of a real controller. The hands come from
 `XrScreen` there, and no desktop run has them. Also how early in the first logo

@@ -267,6 +267,10 @@ Each sets one byte, and `pc_main` at `0x00641C60` reads them.
 `-NEWGAME` is the useful one for testing. It boots to gameplay with no menu
 click, so a test run needs no window focus and no mouse.
 
+No switch loads a saved game. With no switch, the game loads the saved game
+of slot 20 of the profile and opens its Main Menu over it (`backend.md`, "A
+test save").
+
 ## Tools and method
 
 The symbol file, `config/BW1W120/symbols.txt` of `bw1-decomp`, is the source

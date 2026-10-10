@@ -13,6 +13,21 @@
 #    The result is also in desk-<Name>\desk-state.txt. It does not change
 #    the result of the run.
 # The output is in desk-<Name>, as for desk_test.ps1.
+#
+# -Save <name>: the run starts in a test save (README.md, "A fast start").
+#    The game continues the saved game of slot 20 when it starts with no word
+#    on its command line. So, after the profile guard made its copy, the files
+#    of the test save take the place of the files of slot 20, and the game
+#    starts with no -NEWGAME. The profile guard puts the slot back. The run
+#    has the test key registry_test_guard=1: the mod drops each write of the
+#    game to the registry, and the log names each one.
+# -KeepSave <name>: when the game ended by itself in the run (the word "exit"
+#    of the scripted controller, or exit_test_frame), slot 20 holds the saved
+#    game of that moment. The script copies the files that the game wrote in
+#    the run to the folder of the test saves, before the profile guard puts
+#    the slot back. A file of the slot that the run did not write is a file
+#    of the player, and the script does not copy it. make_test_save.ps1 uses
+#    this.
 param(
     [Parameter(Mandatory = $true)][string]$Name,
     [Parameter(Mandatory = $true)][string]$Dll,
@@ -20,7 +35,9 @@ param(
     [int]$Seconds = 90,
     [string]$Args = '-NEWGAME',
     [int]$MinIdleMinutes = 10,
-    [int]$WaitMinutes = 30
+    [int]$WaitMinutes = 30,
+    [string]$Save = '',
+    [string]$KeepSave = ''
 )
 $sp = Split-Path -Parent $MyInvocation.MyCommand.Path
 . (Join-Path $PSScriptRoot 'game.ps1')
@@ -29,6 +46,45 @@ $game = Get-BwvrGame
 $installed = Join-Path $game 'ddraw.dll'
 $lock = Join-Path (Get-BwvrDeskShared) 'desk.lock'
 if (-not (Test-Path $Dll)) { "NOT RUN: no DLL at $Dll"; exit 6 }
+$saveFrom = $null
+if ($Save -ne '') {
+    $saveDir = Get-BwvrTestSave $Save
+    if (-not $saveDir) { "NOT RUN: there is no test save named '$Save' in $(Get-BwvrTestSaves). Make it first: make_test_save.ps1 -Name $Save"; exit 9 }
+    $saveFrom = Join-Path $saveDir '20'
+}
+
+# Puts each file of a folder back as its copy has it, and removes each file
+# and each empty folder that the run made. Gives the counts. Content is the
+# number of the files put back that were gone or had different bytes, and not
+# only a different time.
+function Restore-BwvrGuard([string]$Guard, [string]$Live) {
+    $restored = 0; $content = 0; $removed = 0; $folders = 0
+    foreach ($f in (Get-ChildItem -LiteralPath $Guard -Recurse -File)) {
+        $file = $Live + $f.FullName.Substring($Guard.Length)
+        $l = Get-Item -LiteralPath $file -ErrorAction SilentlyContinue
+        if ($null -eq $l -or $l.Length -ne $f.Length -or $l.LastWriteTimeUtc -ne $f.LastWriteTimeUtc) {
+            if ($null -eq $l -or (Get-FileHash -LiteralPath $file).Hash -ne (Get-FileHash -LiteralPath $f.FullName).Hash) { $content++ }
+            New-Item -ItemType Directory -Force -Path (Split-Path -Parent $file) | Out-Null
+            Copy-Item -LiteralPath $f.FullName -Destination $file -Force
+            $restored++
+        }
+    }
+    foreach ($l in (Get-ChildItem -LiteralPath $Live -Recurse -File)) {
+        if (-not (Test-Path -LiteralPath ($Guard + $l.FullName.Substring($Live.Length)))) {
+            [System.IO.File]::Delete($l.FullName); $removed++
+        }
+    }
+    # A folder that the run made (a new save slot) goes too, when it is empty
+    # after its files went. The deepest folders first.
+    foreach ($d in (Get-ChildItem -LiteralPath $Live -Recurse -Directory | Sort-Object { $_.FullName.Length } -Descending)) {
+        if (-not (Test-Path -LiteralPath ($Guard + $d.FullName.Substring($Live.Length))) -and
+            @(Get-ChildItem -LiteralPath $d.FullName -Force).Count -eq 0) {
+            [System.IO.Directory]::Delete($d.FullName, $false); $folders++
+        }
+    }
+    return @{ Restored = $restored; Content = $content; Removed = $removed; Folders = $folders }
+}
+if ($KeepSave -ne '' -and $KeepSave -notmatch '^[A-Za-z0-9_-]+$') { "NOT RUN: the name '$KeepSave' of a test save must have only letters, digits, '-' and '_'"; exit 9 }
 
 # The lock. A lock older than 20 minutes is from a run that died.
 $deadline = (Get-Date).AddMinutes($WaitMinutes)
@@ -102,10 +158,67 @@ public static class IdleR {
         Copy-Item -LiteralPath $player -Destination $guard -Recurse -Force
         $guardOk = $true
     }
+    # THE CREATURE GUARD. The mind of the Creature of the profile is not in
+    # the profile folder. It is in the game folder, in Scripts\CreatureMind:
+    # the .erc file that the value "file" of the profile names, and the file
+    # "Physique" with the same name. A game that ends by itself writes both
+    # on its exit path, and it writes MemoryLeaks.txt in the game folder. So
+    # the folder Scripts\CreatureMind and that file are copied before the
+    # run too, and after the run each file goes back as it was.
+    $mind = Join-Path $game 'Scripts\CreatureMind'
+    $mindGuard = Join-Path $sp 'creature-guard'
+    $mindOk = $false
+    if (Test-Path -LiteralPath $mind) {
+        if (Test-Path -LiteralPath $mindGuard) { [System.IO.Directory]::Delete($mindGuard, $true) }
+        Copy-Item -LiteralPath $mind -Destination $mindGuard -Recurse -Force
+        $mindOk = $true
+    }
+    $leaks = Join-Path $game 'MemoryLeaks.txt'
+    $leaksKeep = Join-Path $out 'MemoryLeaks.txt.before'
+    Remove-Item -LiteralPath $leaksKeep -Force -ErrorAction SilentlyContinue
+    if (Test-Path -LiteralPath $leaks) { Copy-Item -LiteralPath $leaks -Destination $leaksKeep -Force }
+    # THE TEST SAVE. Slot 20 is the saved game that the game continues: the
+    # folder Saved Games\20 of the profile that the game uses. A run touches
+    # it only after the profile guard has its copy.
+    $slot = $null
+    if ($Save -ne '' -or $KeepSave -ne '') {
+        $used = Get-BwvrProfileFolder $game
+        if (-not $guardOk -or -not $used) {
+            "NOT RUN: a run with a test save needs the folder of the profile that the game uses, and the copy of the profile guard. The folder of the profile: '$used'"
+            exit 9
+        }
+        $slot = Join-Path $used 'Saved Games\20'
+    }
     $deskBefore = Get-BwvrDeskState
+    $runStart = Get-Date
+    $testOut = @()
     try {
-        Copy-Item $Dll $installed -Force
-        & (Join-Path $sp 'desk_test.ps1') -Name $Name -Extra $Extra -Seconds $Seconds -Args $Args -MinIdleMinutes 0
+        $saveIn = $true
+        if ($Save -ne '') {
+            # Out of the slot goes each file that is there (the guard has
+            # it). In go the files of the test save, and nothing else.
+            New-Item -ItemType Directory -Force -Path $slot | Out-Null
+            foreach ($f in (Get-ChildItem -LiteralPath $slot -Recurse -File -Force)) { [System.IO.File]::Delete($f.FullName) }
+            foreach ($f in (Get-ChildItem -LiteralPath $saveFrom -Recurse -File -Force)) {
+                $to = $slot + $f.FullName.Substring($saveFrom.Length)
+                New-Item -ItemType Directory -Force -Path (Split-Path -Parent $to) | Out-Null
+                Copy-Item -LiteralPath $f.FullName -Destination $to -Force
+            }
+            $saveIn = (Get-BwvrFolderText $slot) -eq (Get-BwvrFolderText $saveFrom)
+            if ($saveIn) {
+                "the test save '$Save' is in slot 20 of the profile: $(@(Get-ChildItem -LiteralPath $slot -Recurse -File).Count) files, each one the same as in $saveFrom"
+            } else {
+                "NOT RUN: the files of the test save '$Save' are not whole in slot 20 of the profile, so the game does not start"
+            }
+            $Extra = $Extra.Clone()
+            $Extra['registry_test_guard'] = 1
+            $Args = ''
+        }
+        if ($saveIn) {
+            Copy-Item $Dll $installed -Force
+            & (Join-Path $sp 'desk_test.ps1') -Name $Name -Extra $Extra -Seconds $Seconds -Args $Args -MinIdleMinutes 0 |
+                Tee-Object -Variable testOut
+        }
     }
     finally {
         Start-Sleep -Milliseconds 500
@@ -150,32 +263,60 @@ public static class IdleR {
         if (-not (Get-Process runblack -ErrorAction SilentlyContinue)) {
             Copy-Item $keep $installed -Force
             "installed dll put back: " + ((Get-FileHash $installed).Hash -eq (Get-FileHash $keep).Hash)
+            if ($KeepSave -ne '' -and $slot) {
+                # The game writes slot 20 at the end of its loop. So the
+                # files are the saved game of the end of the run only when
+                # the game ended by itself.
+                $sav = Get-Item -LiteralPath (Join-Path $slot '20.sav') -ErrorAction SilentlyContinue
+                if (-not (Test-BwvrVerdict $testOut 'game exited on its own: True')) {
+                    "test save NOT kept: the game did not end by itself, so slot 20 does not hold the saved game of the end of the run"
+                } elseif (-not $sav -or $sav.LastWriteTime -lt $runStart) {
+                    "test save NOT kept: the game did not write 20.sav in slot 20 in this run"
+                } else {
+                    # Only the files that the game wrote in this run are the
+                    # test save. A file of the slot that is older than the run
+                    # is a file of the player: it is not copied.
+                    $keepDir = Join-Path (Get-BwvrTestSaves) $KeepSave
+                    $new = "$keepDir.new"
+                    Remove-BwvrTestSaveFolder $new
+                    New-Item -ItemType Directory -Force -Path (Join-Path $new '20') | Out-Null
+                    $whole = $true; $copied = 0; $older = 0
+                    foreach ($f in (Get-ChildItem -LiteralPath $slot -Recurse -File -Force)) {
+                        if ($f.LastWriteTime -lt $runStart) { $older++; continue }
+                        $to = (Join-Path $new '20') + $f.FullName.Substring($slot.Length)
+                        New-Item -ItemType Directory -Force -Path (Split-Path -Parent $to) | Out-Null
+                        Copy-Item -LiteralPath $f.FullName -Destination $to -Force
+                        if ((Get-FileHash -LiteralPath $to).Hash -ne (Get-FileHash -LiteralPath $f.FullName).Hash) { $whole = $false }
+                        $copied++
+                    }
+                    if ($whole) {
+                        Remove-BwvrTestSaveFolder $keepDir
+                        [System.IO.Directory]::Move($new, $keepDir)
+                        "test save kept: '$KeepSave', the $copied files of slot 20 that the game wrote in this run, in $keepDir. $older files of the slot are older than the run and are not copied"
+                    } else {
+                        Remove-BwvrTestSaveFolder $new
+                        "test save NOT kept: the copy of slot 20 was not whole"
+                    }
+                }
+            }
             if ($guardOk) {
-                $restored = 0; $removed = 0
-                foreach ($f in (Get-ChildItem -LiteralPath $guard -Recurse -File)) {
-                    $live = $player + $f.FullName.Substring($guard.Length)
-                    $l = Get-Item -LiteralPath $live -ErrorAction SilentlyContinue
-                    if ($null -eq $l -or $l.Length -ne $f.Length -or $l.LastWriteTimeUtc -ne $f.LastWriteTimeUtc) {
-                        New-Item -ItemType Directory -Force -Path (Split-Path -Parent $live) | Out-Null
-                        Copy-Item -LiteralPath $f.FullName -Destination $live -Force
-                        $restored++
-                    }
+                $back = Restore-BwvrGuard $guard $player
+                "profile put back: $($back.Restored) files restored, $($back.Removed) new files removed, $($back.Folders) new folders removed"
+            }
+            if ($mindOk) {
+                $back = Restore-BwvrGuard $mindGuard $mind
+                "Creature mind put back: $($back.Restored) files restored ($($back.Content) of them had different bytes, the others only a different time), $($back.Removed) new files removed"
+            }
+            if (Test-Path -LiteralPath $leaksKeep) {
+                $was = Get-Item -LiteralPath $leaksKeep
+                $now = Get-Item -LiteralPath $leaks -ErrorAction SilentlyContinue
+                if ($null -eq $now -or $now.Length -ne $was.Length -or $now.LastWriteTimeUtc -ne $was.LastWriteTimeUtc) {
+                    Copy-Item -LiteralPath $leaksKeep -Destination $leaks -Force
+                    'MemoryLeaks.txt of the game folder put back'
                 }
-                foreach ($l in (Get-ChildItem -LiteralPath $player -Recurse -File)) {
-                    if (-not (Test-Path -LiteralPath ($guard + $l.FullName.Substring($player.Length)))) {
-                        [System.IO.File]::Delete($l.FullName); $removed++
-                    }
-                }
-                # A folder that the run made (a new save slot) goes too, when it
-                # is empty after its files went. The deepest folders first.
-                $folders = 0
-                foreach ($d in (Get-ChildItem -LiteralPath $player -Recurse -Directory | Sort-Object { $_.FullName.Length } -Descending)) {
-                    if (-not (Test-Path -LiteralPath ($guard + $d.FullName.Substring($player.Length))) -and
-                        @(Get-ChildItem -LiteralPath $d.FullName -Force).Count -eq 0) {
-                        [System.IO.Directory]::Delete($d.FullName, $false); $folders++
-                    }
-                }
-                "profile put back: $restored files restored, $removed new files removed, $folders new folders removed"
+            } elseif (Test-Path -LiteralPath $leaks) {
+                [System.IO.File]::Delete($leaks)
+                'MemoryLeaks.txt of the game folder removed: the run made it'
             }
             # The log that was bwvr.log before this run goes back, so that
             # test runs do not push the player's logs out of the kept 20.

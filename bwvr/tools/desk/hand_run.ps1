@@ -1,9 +1,9 @@
 # Waits for an idle PC (10 minutes, no game), then one desktop run of the
 # given DLL through desk_run.ps1. Gives up after -Minutes.
 #
-#   hand_run.ps1 -Name hs1 -Dll <dll> -Kind one -Seconds 200
-#   hand_run.ps1 -Name hs2 -Dll <dll> -Kind old -Seconds 200
-#   hand_run.ps1 -Name hs3 -Dll <dll> -Kind creature -Seconds 260
+#   hand_run.ps1 -Name hs1 -Dll <dll> -Kind one -Seconds 163
+#   hand_run.ps1 -Name hs2 -Dll <dll> -Kind old -Seconds 163
+#   hand_run.ps1 -Name hs3 -Dll <dll> -Kind creature -Seconds 223
 #
 # -Kind chooses the script:
 #   one       One target: the air, the scroll and the crown, each with
@@ -29,7 +29,7 @@ param(
     [string]$Steps = '',
     [string]$Points = '',
     [string]$Box = '',
-    [int]$Seconds = 200,
+    [int]$Seconds = 163,
     [int]$Minutes = 600
 )
 $sp = Split-Path -Parent $MyInvocation.MyCommand.Path

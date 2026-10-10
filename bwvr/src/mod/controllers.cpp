@@ -118,6 +118,10 @@ void HandDirectWidenPick(int frames);
 // eye_capture.cpp: a picture of both eyes at a stereo frame, for the word
 // "shot".
 void EyeCaptureArmNow(uint64_t stereo_frame);
+// exit_test.cpp: the game ends by itself, for the word "exit".
+void ExitTestNow(uint64_t frame);
+// game_start.cpp: the clock of the log.
+double SecondsSinceProcessStart();
 // head_pose.cpp: the steps of the invented head, for the grab tests.
 void HeadPoseFakeLeanStep(bool on);
 void HeadPoseFakeLookStep(bool on);
@@ -236,6 +240,9 @@ enum FakeInput {
   // word, while the grip word holds: a real hand that jerks away loses part of
   // its squeeze for a frame or two (grip_press_guard).
   kGripDip,
+  // The mod asks the game to end by itself, on its usual exit path
+  // (exit_test.cpp).
+  kExit,
   kInputCount
 };
 
@@ -248,7 +255,7 @@ const char* const kInputName[kInputCount] = {
     "rot",        "aimfar",     "pull",       "aimcmd",     "aimturn",
     "nofocus",    "deactivate",
     "lstick_left", "lstick_right", "lstick_up", "lstick_down", "ltrigger",
-    "aimtemple",  "gripdip"};
+    "aimtemple",  "gripdip",    "exit"};
 
 // The fake hand positions for the word "point", in cm from the head center.
 const int kMaxPoints = 16;
@@ -844,11 +851,15 @@ void Seek(int kind) {
 // render size. With the key at N, the steps of the script from frame N on
 // count from the frame at which the controller first places the Hand after
 // frame 1000: that frame is N. The steps before N keep their frames. 0 is off.
+// fake_controller_play_after gives a different frame than 1000. A run that
+// loads a test save has no start dialog and no first story, so its script
+// can count from an early frame, and the shift is then less than 0.
 int IniInt(const char* key, int fallback);
 bool DirectHandNow();
 int g_script_play = -1;
+int g_script_play_after = 1000;
 bool g_script_shift_known = false;
-uint64_t g_script_shift = 0;
+int64_t g_script_shift = 0;
 // The word "deactivate" came. The pump acts on it.
 bool g_fake_deactivate = false;
 
@@ -858,7 +869,10 @@ uint64_t StepFrame(const ScriptStep& step) {
       step.start < static_cast<uint64_t>(g_script_play)) {
     return g_frame;
   }
-  return g_script_shift_known ? g_frame - g_script_shift : 0;
+  return g_script_shift_known
+             ? static_cast<uint64_t>(static_cast<int64_t>(g_frame) -
+                                     g_script_shift)
+             : 0;
 }
 
 // The word "aimtemple": the hand stays where it is, and its aim turns to the
@@ -888,16 +902,24 @@ void AimTemple() {
 void UpdateScript() {
   if (g_script_play < 0) {
     g_script_play = IniInt("fake_controller_play_frame", 0);
+    g_script_play_after = IniInt("fake_controller_play_after", 1000);
+    if (g_script_play_after < 0) g_script_play_after = 0;
   }
-  if (g_script_play > 0 && !g_script_shift_known && g_frame > 1000 &&
+  if (g_script_play > 0 && !g_script_shift_known &&
+      g_frame > static_cast<uint64_t>(g_script_play_after) &&
       DirectHandNow() && g_pointer_owned && g_point.have_grip) {
     g_script_shift_known = true;
-    const uint64_t play = static_cast<uint64_t>(g_script_play);
-    g_script_shift = g_frame > play ? g_frame - play : 0;
-    ModLog("controllers  : the controller places the Hand after the first "
-           "story at frame %llu. The steps of the script from frame %d on "
-           "are %llu frames later (fake_controller_play_frame)", g_frame,
-           g_script_play, g_script_shift);
+    g_script_shift = static_cast<int64_t>(g_frame) - g_script_play;
+    // With fake_controller_play_after at 1000 or more, a script keeps its
+    // frames when the Hand comes before frame N: the shift is then 0.
+    if (g_script_shift < 0 && g_script_play_after >= 1000) g_script_shift = 0;
+    ModLog("controllers  : the controller places the Hand after frame %d at "
+           "frame %llu. The steps of the script from frame %d on are %lld "
+           "frames %s (fake_controller_play_frame), %.1f s after the start "
+           "of the game process", g_script_play_after, g_frame, g_script_play,
+           g_script_shift < 0 ? -g_script_shift : g_script_shift,
+           g_script_shift < 0 ? "sooner" : "later",
+           SecondsSinceProcessStart());
   }
   bool now[kInputCount] = {false};
   for (int i = 0; i < g_script_count; ++i) {
@@ -1003,6 +1025,7 @@ void UpdateScript() {
     }
     // The next pump tells the game (FakeDeactivate).
     if (step.input == kDeactivate && t == step.start) g_fake_deactivate = true;
+    if (step.input == kExit && t == step.start) ExitTestNow(g_frame);
     if ((step.input == kNudge || step.input == kSlap) &&
         t == step.start) {
       const float side = step.input == kNudge ? 2.0f : 12.0f;
@@ -1028,7 +1051,7 @@ void UpdateScript() {
         i == kSlap || i == kLPoint || i == kTrace || i == kShot ||
         i == kTouchCreature || i == kRot || i == kAimFar || i == kPull ||
         i == kAimCommand || i == kAimTurn || i == kDeactivate ||
-        i == kAimTemple) {
+        i == kAimTemple || i == kExit) {
       continue;
     }
     if (i == kPose2) {
