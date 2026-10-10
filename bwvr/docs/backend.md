@@ -36,6 +36,7 @@ Other docs: `software-tnl.md` (the CPU transform and the camera matrix),
 | `src/mod/head_camera.cpp`, `head_pose.cpp`, `eye_camera.cpp` | The head on the camera, the per eye matrix |
 | `src/mod/fov.cpp` | `LH3DTech::ChangeFov` hook |
 | `src/mod/pointer_map.cpp` | The pointer in render pixels, the head lock of the cursor |
+| `src/mod/cursor_trace.cpp` | A test aid: the log names each caller that touches the cursor of Windows or takes the front |
 | `src/mod/comfort_camera.cpp` | Snap turns, jumps, zoom steps |
 | `src/mod/script_camera.cpp` | The camera of the story |
 | `src/mod/draw_hooks.cpp` | Hints, tooltips, subtitles, interface depth and size |
@@ -852,6 +853,59 @@ The clip is released the moment focus is lost, and on shutdown, because a clippe
 cursor outlives its process. The keys are `pointer_scale=0`, `pointer_clip=0`,
 `window_width` and `window_height` (a forced size).
 
+### Who moves the cursor of Windows
+
+Three calls of the mod can move the real cursor, and all are in
+`pointer_map.cpp`. `PointerMapApply` puts the cursor at the Hand in each frame
+in which the two differ (`SetCursorPos`), so the next frame measures the mouse
+from there. `h_MouseSetPosition` puts it where the game asks
+(`LHMouse::SetPosition` `0x007E4E40`). `ClipCursor` in `PointerMapApply` moves a
+cursor that is outside the window into it. Each of the three asks `HoldsCursor`:
+the game window is the window in front, and the test key `pointer_leave_cursor`
+is 0.
+
+The game has one more path to `SetCursorPos`, in `LHMouse::SetPosition` at
+`0x007E4EC2`. It runs when the mod gives the call to the game: with
+`pointer_scale=0`, or while the game has no window or no render size. It can
+also run before the first frame with a render target, when the mod puts its
+hooks in. The two other references to the import slot `0x008A97E4` sit after a
+`ret`. The game does not import `ClipCursor`. dxwrapper imports `ClipCursor`,
+`SetForegroundWindow` and `SetActiveWindow`. In the desktop runs the game and
+dxwrapper called none of these functions [R].
+
+The game and the mod do not take the front (`controllers.md`, 9.1). Windows gives
+the front to the window of a new process when no person gave an input for longer
+than the foreground lock time (`ForegroundLockTimeout`, 200 s by default). So a
+game that starts on a PC that nobody uses has the real focus from its first
+frame, with no call of the process [R].
+
+Two test keys are for the desktop runs (`tools/desk/README.md`). A run must not
+move the real cursor, and it starts only on a PC that nobody uses, so its game
+window is in front. Neither key is in the launcher, and the launcher removes
+both when it saves.
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `pointer_leave_cursor` | 0 | 1: the mod does not hold or move the cursor of Windows, also while the game window is in front. The point that `pointer_map.cpp` wrote last is then the cursor itself, as it is with the window behind. A real mouse that moves still moves the Hand. The controllers, the fake controller and the fake mouse work as with 0, because they write the pointer of the game and not the cursor |
+| `cursor_trace` | 0 | 1: `cursor_trace.cpp` hooks `SetCursorPos`, `ClipCursor`, `SetForegroundWindow` and `SetActiveWindow` of user32 for the whole process, and the log names each caller. Each call goes on to Windows with no change |
+
+The log of `cursor_trace=1`, each line with the frame:
+
+- "cursor_trace=1 (a test) ... At the start the cursor is at X Y, and in front is
+  ...", once.
+- "SetCursorPos(X, Y) from MODULE+0xOFFSET, call N of this caller. It moved the
+  cursor from A to B. The game window was in front" (or "The cursor stayed at
+  ..."). A caller is one function and the address that the call returns to. The
+  module `DDRAW.dll` is the mod, `runblack.exe` is the game. The log has the
+  first 3 calls of a caller, and then a call only when it differs from the call
+  before it: it moved the cursor or not, the game window was in front or not.
+- "in front is the game window" (or the class of a different window), for each
+  change of the window in front, with the place of the cursor.
+- "the cursor went from A to B with no call of the game process": a person or a
+  different program moved it.
+- In the report each 900 frames: "N calls of ClipCursor from ... since the
+  report before, and M of them moved the cursor".
+
 ### One pointer, not two
 
 The game takes the pointer in more than one place:
@@ -1540,6 +1594,7 @@ keys that the launcher sets.
 | `hand_anchored` | 1 | The Hand keeps its place in the room |
 | `game_camera_rebuild` | 1 | See "The game camera's own screen" |
 | `pointer_scale`, `pointer_clip` | 1, 1 | See "The window is the input device" |
+| `pointer_leave_cursor`, `cursor_trace` | 0, 0 | Test keys of the desktop runs. See "Who moves the cursor of Windows" |
 | `window_width`, `window_height` | 0 | A forced window size |
 | `snap_turn`, `blink`, `instant_jumps`, `camera_glide` | 2, 0, 1, 0 | See "Moving around" |
 | `zoom_step` | 2 | See "Zoom in steps" |

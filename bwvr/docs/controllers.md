@@ -1357,7 +1357,7 @@ The focus has two sides (`RealFocus` and `LogicalFocus` in `pointer_map.cpp`,
 | Side | Who asks for it |
 | --- | --- |
 | The logical focus: the game window is in front, or the headset session stands for it | `Usable` and `PumpEsc` in `controllers.cpp`. In `PointerMapApply`: the owner of the pointer (`ChooseOwner`), the true pointer, the lock to the room, the pixel of the controller and the write of the pointer of the game. `ClientToRender` |
-| The real focus: the game window is the window in front | Each call that touches the cursor of Windows: `ClipCursor` and `SetCursorPos` in `PointerMapApply`, and `SetCursorPos` in `h_MouseSetPosition`. The real mouse: its motion, its motion that is not taken yet, and a button of it that is down (`ChooseOwner`). The keys of the keyboard that the mod reads (F11, F12 and the test keys) |
+| The real focus: the game window is the window in front | Each call that touches the cursor of Windows: `ClipCursor` and `SetCursorPos` in `PointerMapApply`, and `SetCursorPos` in `h_MouseSetPosition` (`HoldsCursor`, which is also false with the test key `pointer_leave_cursor=1`). The real mouse: its motion, its motion that is not taken yet, and a button of it that is down (`ChooseOwner`). The keys of the keyboard that the mod reads (F11, F12 and the test keys) |
 
 What this means for each part:
 
@@ -1430,9 +1430,15 @@ session that has the focus. Two script words stand for the rest:
   mouse thread of the game sleeps, and `h_GetFocus` takes the answer of
   Windows as "no window".
 
-The desk scripts start the game from a background process, so the game window
-is behind from the start. A run keeps the real cursor and the window in front
-as they were. Seen in desktop runs [R]: with `controller_window_behind=1` the
+The desk scripts start the game from a background process. Which window is in
+front then depends on Windows (`backend.md`, "Who moves the cursor of
+Windows"). A run that waits for a PC that nobody uses gets the game window in
+front from its first frame [R]. A run that starts soon after an input of a
+person (the "test now" of the owner) can get the game window behind [R]. The
+fake controller acts in both cases. The run scripts set
+`pointer_leave_cursor=1`, so the real cursor stays where it is in both cases.
+
+Seen in desktop runs [R]: with `controller_window_behind=1` the
 controller takes the pointer, the clicks of the start dialog work, `nofocus`
 stops the presses, the trigger and the grip together give the both button
 mode, a land drag and Esc work after `deactivate`. With

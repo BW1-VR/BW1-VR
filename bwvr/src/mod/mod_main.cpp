@@ -113,11 +113,14 @@ void UiDepthSetHintFlat(bool on);
 void UiDepthSetSubtitleLift(int percent);
 void UiDepthSetUiScale(int percent);
 void UiDepthSetSubtitleDegrees(int degrees);
-void PointerMapSetOptions(bool scale, bool clip);
+void PointerMapSetOptions(bool scale, bool clip, bool leave_cursor);
 void PointerMapSetRenderSize(int width, int height);
 void PointerMapSetWindowSize(int width, int height);
 void PointerMapRelease();
 void PointerMapSetRebuild(bool on);
+// cursor_trace.cpp
+void CursorTraceInstall();
+void CursorTraceFrame(uint64_t frame);
 // comfort_camera.cpp
 void ComfortCameraSetOptions(int snap_degrees, bool instant_jumps, bool glide,
                              int blink_ms);
@@ -283,6 +286,9 @@ UiPanelSettings g_ui_panel;
 bool g_test_keys = false;
 bool g_pointer_scale = true;
 bool g_pointer_clip = true;
+// Test keys of the desktop runs. See pointer_map.cpp and cursor_trace.cpp.
+bool g_pointer_leave_cursor = false;
+bool g_cursor_trace = false;
 int g_window_w = 0;
 int g_window_h = 0;
 bool g_hand_anchored = true;
@@ -685,6 +691,11 @@ void ReadSettings() {
       GetPrivateProfileIntA("bwvr", "pointer_scale", 1, path) != 0;
   g_pointer_clip =
       GetPrivateProfileIntA("bwvr", "pointer_clip", 1, path) != 0;
+  // Not in the launcher. Test keys: a desktop test run must not hold or move
+  // the real cursor, and its log names each caller that does.
+  g_pointer_leave_cursor =
+      GetPrivateProfileIntA("bwvr", "pointer_leave_cursor", 0, path) != 0;
+  g_cursor_trace = GetPrivateProfileIntA("bwvr", "cursor_trace", 0, path) != 0;
   g_window_w = GetPrivateProfileIntA("bwvr", "window_width", 0, path);
   g_window_h = GetPrivateProfileIntA("bwvr", "window_height", 0, path);
   // Off is the control for the anchor test: the Hand should then move
@@ -1181,7 +1192,8 @@ void StartVrOnce() {
     UiDepthSetUiScale(g_ui_scale_pct);
     UiDepthSetCinemaBars(g_cinema_bars);
     PointerMapSetWindowSize(g_window_w, g_window_h);
-    PointerMapSetOptions(g_pointer_scale, g_pointer_clip);
+    PointerMapSetOptions(g_pointer_scale, g_pointer_clip,
+                         g_pointer_leave_cursor);
     HeadCameraSetHandAnchored(g_hand_anchored);
     StereoSetHeadTracking(g_head_tracking);
     StereoSetFixes(g_freeze_time, g_move_camera_point);
@@ -1289,6 +1301,7 @@ void __cdecl h_FinishFrame() {
   o_FinishFrame();
   UiBarsEnd(bars);
   ++g_frame;
+  if (g_cursor_trace) CursorTraceFrame(g_frame);
   // The rules for the switch (docs/ui-layer.md, "Rules for the switch"):
   // the game's target is back before anything else runs.
   UiPanelAfterFinish(in_pass, g_frame);
@@ -1564,6 +1577,8 @@ void Startup() {
     g_vr_enabled = false;
     return;
   }
+  // Before the game makes its window, so the log has each call from the start.
+  if (g_cursor_trace) CursorTraceInstall();
 
   void* target = reinterpret_cast<void*>(bw::render::kFinishFrame);
   MH_STATUS status =

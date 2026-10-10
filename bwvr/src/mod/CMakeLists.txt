@@ -26,6 +26,7 @@ add_library(bwvr_mod SHARED
     water_mode.cpp
     ui_worldlock.cpp
     pointer_map.cpp
+    cursor_trace.cpp
     comfort_camera.cpp
     script_camera.cpp
     cutscene_window.cpp

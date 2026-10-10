@@ -126,6 +126,8 @@ const uintptr_t kPointerY = 0x00E852C4;
 bool g_scale = true;
 bool g_clip = true;
 bool g_clipped = false;
+// The test key pointer_leave_cursor=1. See HoldsCursor.
+bool g_leave_cursor = false;
 HWND g_window = nullptr;
 int g_render_w = 0;
 int g_render_h = 0;
@@ -350,6 +352,18 @@ bool RealFocus(HWND window) { return GetForegroundWindow() == window; }
 bool LogicalFocus(HWND window) {
   return RealFocus(window) || ControllersActBehind();
 }
+
+// WHETHER THE MOD MAY HOLD AND MOVE THE CURSOR OF WINDOWS: with the real
+// focus, and never with the test key pointer_leave_cursor=1.
+//
+// A desktop test run must not move the real cursor (tools/desk/README.md).
+// But Windows gives the front to the window of a new process when nobody has
+// used the PC for some minutes, and a run starts only then. So the game
+// window of a run can have the real focus. The run scripts set the key. With
+// it the cursor is not held in the window and not put at the Hand, and the
+// point that this file wrote last is the cursor itself, as it is with the
+// window behind. A real mouse that moves still moves the Hand.
+bool HoldsCursor(HWND window) { return !g_leave_cursor && RealFocus(window); }
 
 // The render size, from whoever knows it. The VR start says so directly, and
 // without a headset the game's own projection block still knows.
@@ -1353,12 +1367,13 @@ int __fastcall h_MouseSetPosition(void* self, void* unused,
   }
   // With the window behind, the real cursor stays where it is: it is in a
   // different program (controller_window_behind=1, or the test key
-  // fake_controller_front). The written point is then the cursor itself, so
-  // the next frame reads no mouse movement.
+  // fake_controller_front). It also stays in a desktop test (HoldsCursor).
+  // The written point is then the cursor itself, so the next frame reads no
+  // mouse movement.
   POINT real_cursor = {0, 0};
-  const bool leave_cursor = ControllersLeaveCursor() && !RealFocus(window) &&
-                            GetCursorPos(&real_cursor) &&
-                            ScreenToClient(window, &real_cursor);
+  const bool leave_cursor =
+      (g_leave_cursor || (ControllersLeaveCursor() && !RealFocus(window))) &&
+      GetCursorPos(&real_cursor) && ScreenToClient(window, &real_cursor);
   if (!leave_cursor) {
     POINT screen = {client_x, client_y};
     ClientToScreen(window, &screen);
@@ -1479,13 +1494,19 @@ void PointerMapSetRenderSize(int width, int height) {
   g_render_h = height;
 }
 
-void PointerMapSetOptions(bool scale, bool clip) {
+void PointerMapSetOptions(bool scale, bool clip, bool leave_cursor) {
   g_scale = scale;
   g_clip = clip;
+  g_leave_cursor = leave_cursor;
   ModLog("pointer      : %s, and the cursor %s",
          scale ? "scaled onto the render, so any window size reaches it all"
                : "left as the game maps it",
          clip ? "is held inside the window" : "may leave the window");
+  if (leave_cursor) {
+    ModLog("pointer      : pointer_leave_cursor=1 (a test). The mod does not "
+           "hold or move the cursor of Windows, also while the game window "
+           "is in front");
+  }
 }
 
 // MAKE THE WINDOW FIT THE MONITOR, IN THE SHAPE OF THE RENDER.
@@ -1893,14 +1914,16 @@ void PointerMapApply() {
   if (client_w <= 0 || client_h <= 0) return;
 
   // The two sides of the focus (see RealFocus). The cursor of Windows is
-  // held and moved only with the real one.
+  // held and moved only with the real one, and not in a desktop test (see
+  // HoldsCursor).
   const bool real_focus = RealFocus(window);
   const bool focused = real_focus || ControllersActBehind();
+  const bool holds_cursor = HoldsCursor(window);
 
   // Only hold the cursor while the game is actually the window in front, or
   // alt and tab would become a trap.
   if (g_clip) {
-    if (real_focus) {
+    if (holds_cursor) {
       POINT top_left = {client.left, client.top};
       POINT bottom_right = {client.right, client.bottom};
       ClientToScreen(window, &top_left);
@@ -1991,13 +2014,13 @@ void PointerMapApply() {
   int want_y = static_cast<int>(g_true_y / sy + 0.5f);
   if (want_x > client_w - 1) want_x = client_w - 1;
   if (want_y > client_h - 1) want_y = client_h - 1;
-  if (real_focus && (want_x != cursor.x || want_y != cursor.y)) {
+  if (holds_cursor && (want_x != cursor.x || want_y != cursor.y)) {
     POINT screen = {want_x, want_y};
     ClientToScreen(window, &screen);
     SetCursorPos(screen.x, screen.y);
   }
-  g_written_x = real_focus ? want_x : cursor.x;
-  g_written_y = real_focus ? want_y : cursor.y;
+  g_written_x = holds_cursor ? want_x : cursor.x;
+  g_written_y = holds_cursor ? want_y : cursor.y;
 
   int32_t* px = reinterpret_cast<int32_t*>(kPointerX);
   int32_t* py = reinterpret_cast<int32_t*>(kPointerY);

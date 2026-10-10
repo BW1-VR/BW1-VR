@@ -43,6 +43,10 @@ function Lines($run, $pattern, $first) {
     $l | Select-Object -First $first
     $fps = Select-String -Path $log -Pattern ' fps ' | ForEach-Object { if ($_.Line -match '([0-9.]+) fps') { [double]$Matches[1] } } | Measure-Object -Minimum -Maximum
     "fps min $($fps.Minimum) max $($fps.Maximum)"
+    # What desk_run.ps1 found about the real cursor. It does not decide the
+    # result.
+    $deskState = Join-Path $sp "desk-$run\desk-state.txt"
+    if (Test-Path -LiteralPath $deskState) { Get-Content -LiteralPath $deskState | Select-Object -Skip 2 -First 1 }
     $bad = @(Select-String -Path $log -Pattern 'REFUSING|could not hook|hook failed|failed to hook|MH_ERROR')
     if ($bad.Count -gt 0) { "HOOK PROBLEM: $($bad[0].Line)" }
 }

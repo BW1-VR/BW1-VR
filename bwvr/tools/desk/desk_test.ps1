@@ -13,9 +13,9 @@ param(
     [int]$MinIdleMinutes = 10
 )
 
-# The player may be at this PC. A run pulls the game window to the front and
-# holds the cursor, so it only starts when nobody has touched the keyboard or
-# the mouse for a while. -MinIdleMinutes 0 skips the check.
+# The player may be at this PC. Windows gives the front to the game window of
+# a run, so a run only starts when nobody has touched the keyboard or the
+# mouse for a while. -MinIdleMinutes 0 skips the check.
 Add-Type @'
 using System; using System.Runtime.InteropServices;
 public static class Idle {
@@ -43,6 +43,7 @@ if (Get-Process runblack -ErrorAction SilentlyContinue) {
 }
 
 . (Join-Path $PSScriptRoot 'game.ps1')
+. (Join-Path $PSScriptRoot 'desk_state.ps1')
 $game = Get-BwvrGame
 $ini = Join-Path $game 'bwvr.ini'
 $log = Join-Path $game 'bwvr.log'
@@ -64,9 +65,15 @@ Copy-Item $ini $backup -Force
 try {
     # The rig from docs/backend.md, "A headset is not needed to test most of
     # this", then the extra keys of this test.
+    # Two test keys keep the rule of the real cursor. pointer_leave_cursor=1:
+    # the mod does not hold or move the cursor of Windows, also when Windows
+    # gives the front to the game window. cursor_trace=1: the log of the mod
+    # names each caller in the game process that touches the cursor or takes
+    # the front.
     $keys = [ordered]@{
         vr = 0; stereo = 1; stereo_headless = 1; fake_head = 1;
         fake_head_yaw = 0; fake_head_pitch = 0; fov_absolute_deg = 110
+        pointer_leave_cursor = 1; cursor_trace = 1
     }
     foreach ($k in $Extra.Keys) { $keys[$k] = $Extra[$k] }
 
@@ -94,14 +101,35 @@ try {
 
     $startArgs = @{ FilePath = (Join-Path $game 'runblack.exe'); WorkingDirectory = $game; PassThru = $true }
     if ($Args -and $Args.Trim().Length -gt 0) { $startArgs['ArgumentList'] = $Args }
+    # THE WATCH. While the game runs, one line for each change of the place
+    # of the real cursor or of the window in front, with the time and the idle
+    # time of Windows. It only reads.
+    $watch = Get-BwvrDeskState
+    $started = $watch.At
+    $watchLines = 0
+    function Watch-Desk([string]$When) {
+        $now = Get-BwvrDeskState
+        $cursorMoved = $now.Cursor -ne $watch.Cursor
+        $frontChanged = $now.Front -ne $watch.Front
+        if (($cursorMoved -or $frontChanged) -and $script:watchLines -lt 16) {
+            $script:watchLines++
+            $whose = if ($p -and $now.FrontPid -eq $p.Id) { ' (the game window)' } else { '' }
+            $cursor = if ($cursorMoved) { "the real cursor went from $($watch.Cursor) to $($now.Cursor)" } else { "the real cursor stays at $($now.Cursor)" }
+            $front = if ($frontChanged) { "The window in front changed from the class $($watch.Front) to the class $($now.Front)$whose" } else { "The window in front stays the class $($now.Front)$whose" }
+            "desk watch, ${When}: $cursor. $front. The last input was $([int]$now.Idle) s ago"
+        }
+        $script:watch = $now
+    }
     $p = Start-Process @startArgs
     $deadline = (Get-Date).AddSeconds($Seconds)
     while ((Get-Date) -lt $deadline -and -not $p.HasExited) {
         Start-Sleep -Seconds 2
+        Watch-Desk "$([int]((Get-Date) - $started).TotalSeconds) s after the start"
     }
     $exited = $p.HasExited
     if (-not $exited) { Stop-Process -Id $p.Id -Force }
     Start-Sleep -Milliseconds 800
+    Watch-Desk 'after the end of the game'
     Copy-Item $log (Join-Path $out 'bwvr.log') -Force
     "game exited on its own: $exited"
     Get-ChildItem $game -Filter 'bwvr-*.bmp' -ErrorAction SilentlyContinue |

@@ -246,14 +246,12 @@ moves while the Hand takes it.
   `miracle_run.ps1` in `bwvr/tools/desk/`) have not run from this repo, and
   `hand_run.ps1` has run only with `-Kind one`. `-Box` of `hand_run.ps1` is
   a place of the start dialog at one render size.
-- **R3. The real cursor is at a different place after some desktop runs.**
-  `spawn_run.ps1` prints the place of the real cursor before and after a
-  run, and the two must be the same. In some runs they are not: the cursor
-  ends at one fixed place of the screen, and no person used the PC. The mod
-  sets the cursor only while the game window has the real focus
-  (`pointer_map.cpp`). Not known: whether the game window has the focus
-  for a moment at its start, or the game itself sets the cursor. Find which
-  run scripts show it and what sets the cursor, and stop it.
+- **R3. The game window is in front in a desktop run.** Windows gives the
+  front to the game window of a run on a PC that nobody uses, with no call
+  of the game process (`bwvr/tools/desk/README.md`, and `backend.md`, "Who
+  moves the cursor of Windows"). The window stays in front until the run
+  ends. The real cursor stays where it is. Not tried: a start of the game
+  that keeps its window behind.
 - **R4. The names of the symbol file.** `bwvr/tools/check_names.py --all`
   lists about 70 decorated names whose parameter classes are not those of
   the Mac symbol, with each class by name (for example an `int` for an

@@ -6,6 +6,10 @@
 # 2. Checks the idle time and that no game runs, as desk_test.ps1 does.
 # 3. Puts -Dll in the game folder, runs desk_test.ps1, and always puts the
 #    installed DLL back, then frees the lock.
+# 4. Compares the place of the real cursor and the window in front before
+#    and after the run, and says so. A run must not move the real cursor.
+#    The result is also in desk-<Name>\desk-state.txt. It does not change
+#    the result of the run.
 # The output is in desk-<Name>, as for desk_test.ps1.
 param(
     [Parameter(Mandatory = $true)][string]$Name,
@@ -18,6 +22,7 @@ param(
 )
 $sp = Split-Path -Parent $MyInvocation.MyCommand.Path
 . (Join-Path $PSScriptRoot 'game.ps1')
+. (Join-Path $PSScriptRoot 'desk_state.ps1')
 $game = Get-BwvrGame
 $installed = Join-Path $game 'ddraw.dll'
 $lock = Join-Path $sp 'desk.lock'
@@ -91,12 +96,51 @@ public static class IdleR {
         Copy-Item -LiteralPath $player -Destination $guard -Recurse -Force
         $guardOk = $true
     }
+    $deskBefore = Get-BwvrDeskState
     try {
         Copy-Item $Dll $installed -Force
         & (Join-Path $sp 'desk_test.ps1') -Name $Name -Extra $Extra -Seconds $Seconds -Args $Args -MinIdleMinutes 0
     }
     finally {
         Start-Sleep -Milliseconds 500
+        # THE REAL CURSOR AND THE WINDOW IN FRONT, before and after. A move of
+        # the cursor counts against the run when the last input of a person is
+        # older than the run: SetCursorPos of a program is not an input.
+        $deskAfter = Get-BwvrDeskState
+        $took = ($deskAfter.At - $deskBefore.At).TotalSeconds
+        $state = @(
+            "before the run: the real cursor was at $($deskBefore.Cursor), and the window in front had the class $($deskBefore.Front)"
+            "after the run: the real cursor is at $($deskAfter.Cursor), and the window in front has the class $($deskAfter.Front)"
+        )
+        $moved = $false
+        if ($deskAfter.Cursor -eq $deskBefore.Cursor) {
+            $state += 'the real cursor: at the same place before and after the run'
+        } elseif ($deskAfter.Idle -ge $took) {
+            $moved = $true
+            $state += "THE REAL CURSOR MOVED in the run $Name, from $($deskBefore.Cursor) to $($deskAfter.Cursor), and nobody used the PC (the last input was $([int]$deskAfter.Idle) s ago, the run took $([int]$took) s). A run must not move it"
+            $runLog = Join-Path $out 'bwvr.log'
+            $callers = @()
+            if (Test-Path -LiteralPath $runLog) {
+                $callers = @(Select-String -LiteralPath $runLog -Pattern 'cursor trace : .*(It moved the cursor|with no call of the game process)' |
+                    Select-Object -First 8 | ForEach-Object { '  ' + $_.Line })
+            }
+            if ($callers.Count -gt 0) {
+                $state += 'the log of the mod names these moves:'
+                $state += $callers
+            } else {
+                $state += "the log of the mod names no call of the game process that moved it (lines 'cursor trace' of $runLog). So a different program moved it, or the run had cursor_trace=0"
+            }
+        } else {
+            $state += "the real cursor is at a different place than before the run ($($deskBefore.Cursor), now $($deskAfter.Cursor)). A person used the PC $([int]$deskAfter.Idle) s ago, so this does not count against the run"
+        }
+        if ($deskAfter.Front -ne $deskBefore.Front) {
+            $state += "the window in front has a different class than before the run ($($deskBefore.Front), now $($deskAfter.Front))"
+        }
+        $state
+        Set-Content -LiteralPath (Join-Path $out 'desk-state.txt') -Value $state -Encoding ascii
+        # A script that shows only the last lines of this output must not hide
+        # the move, so it also goes out as a warning.
+        if ($moved) { Write-Warning $state[2] }
         if (-not (Get-Process runblack -ErrorAction SilentlyContinue)) {
             Copy-Item $keep $installed -Force
             "installed dll put back: " + ((Get-FileHash $installed).Hash -eq (Get-FileHash $keep).Hash)

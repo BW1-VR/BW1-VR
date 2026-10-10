@@ -14,8 +14,8 @@
 # -Set is a list of ini keys, "key=value;key=value".
 #
 # The run uses fake_controller_front=1: the fake controller acts while the
-# game window is not in front. The script prints the place of the real cursor
-# and the window in front before and after the run. They must not change.
+# game window is not in front. desk_run.ps1 prints the place of the real
+# cursor and the window in front before and after the run.
 param(
     [Parameter(Mandatory = $true)][string]$Name,
     [Parameter(Mandatory = $true)][string]$Dll,
@@ -57,21 +57,4 @@ $extra = @{
 foreach ($pair in $Set.Split(';')) {
     if ($pair -match '^\s*([^=\s]+)\s*=\s*(.*)$') { $extra[$Matches[1]] = $Matches[2] }
 }
-Add-Type @'
-using System; using System.Runtime.InteropServices; using System.Text;
-public static class SpawnWatch {
-  [StructLayout(LayoutKind.Sequential)] public struct POINT { public int X; public int Y; }
-  [DllImport("user32.dll")] static extern bool GetCursorPos(out POINT p);
-  [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
-  [DllImport("user32.dll")] static extern int GetClassName(IntPtr h, StringBuilder s, int n);
-  public static string State() {
-    POINT p; GetCursorPos(out p);
-    StringBuilder s = new StringBuilder(256);
-    GetClassName(GetForegroundWindow(), s, 256);
-    return "the real cursor is at " + p.X + " " + p.Y + ", and the window in front has the class " + s.ToString();
-  }
-}
-'@
-"before the run: $([SpawnWatch]::State())"
 & (Join-Path $sp 'desk_run.ps1') -Name $Name -Dll $Dll -Extra $extra -Seconds $Seconds -WaitMinutes $WaitMinutes
-"after the run: $([SpawnWatch]::State())"

@@ -557,7 +557,7 @@ const char* const kRetiredKeys[] = {
     "radial_test_save", "village_test_chants", "village_test_census",
     "village_test_icon", "village_test_site", "seek_step_cm",
     "village_test_miracles", "village_test_scaffolds",
-    "village_test_workshop",
+    "village_test_workshop", "pointer_leave_cursor", "cursor_trace",
     // Settings that the launcher offered before. Each has one right answer
     // in a headset, and the mod's default is that answer. The other
     // settings that are not offered now (the sizes and the depth of the
