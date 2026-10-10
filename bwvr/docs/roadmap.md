@@ -47,14 +47,6 @@ is built, and no test has proven it.
     run), a tree thrown fast across the land, and the look in a headset.
   - A thrown object is no candidate for 9 to 16 frames after the release,
     while the mod draws it on its arc.
-- **B3. A fast grab of a rock breaks the rock at times.** The player closes
-  the grip on a rock and moves the hand away quickly, with the grip still
-  held. Then the rock breaks and does not go into the hand. A guess: the
-  mod sees an open grip when the hand leaves the rock that fast, so the
-  game breaks the rock and does not pick it up. Other interactions can
-  have the same fault when the player is fast. Find first how the plain
-  game breaks a rock with the mouse. Then read in the log what the mod
-  sends when the hand leaves the rock before the pick up is over.
 - **B4. The card does not know a body in the way of a planted tree.** The
   card says "plant" by the tests of the game that it can read (the height,
   the lean, dry land, fire, `grab.md`, "A tree in the Hand"). The game also

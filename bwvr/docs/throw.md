@@ -677,6 +677,14 @@ trigger with `controller_swap_buttons=1`. The other control and the pointer
 keep the plain levels. `grip_fast_open=0` in `bwvr.ini` gives the plain levels
 to both.
 
+The fast fall does not act in the first 300 ms of a press while the grip
+machine is in its Pass phase, before the Hand holds the object
+(`grip_press_guard=1`, `GripPressGuarded`). A press that ends in less than
+225 ms is a click for the game and splits a rock, and a dip of the squeeze
+of a hand that jerks away must not end a press that the player still holds.
+In that time only a value below 35 percent opens the grip. A carry has the
+fast fall, so a throw is as fast as before.
+
 The click of the open grip stays: 2 frames from the opening to the release
 action. A release with no click would need the mod to put the interface in
 action 12 by itself, and the game's press does more than that (the throw
@@ -698,6 +706,7 @@ use this time is not traced.
 | --- | --- | --- |
 | `release_at_once` | 1 | 1 runs a game turn on the frame after a release of the Hand and after the opening of the grip in a bulk take. 0 waits for the game's own turn, up to 100 ms |
 | `grip_fast_open` | 1 | 1 also opens a closed grip on a fast fall of its value. 0 opens it only below 35 percent |
+| `grip_press_guard` | 1 | 1 keeps the fast fall from opening the grip in the first 300 ms of a press, before the Hand holds the object. 0 lets it open the grip at any time. The test key Ctrl Shift Home goes between the two (`test_keys=1`) |
 
 The keys are read from `bwvr.ini`. They are not in the launcher.
 

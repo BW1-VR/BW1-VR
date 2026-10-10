@@ -295,6 +295,48 @@ inline void LevelChecks() {
     Check(!GripLevelStep(&a, nan_value, true), "a value that is no number "
           "is an open grip", 0, 0);
   }
+
+  // THE PRESS GUARD: a dip of the squeeze in the first 300 ms of a press does
+  // not open the grip. The values are the dip of a real hand that jerks away.
+  {
+    Check(GripPressGuarded(true, true, kGripPass, 0),
+          "the guard holds at the close", 1, 1);
+    Check(GripPressGuarded(true, true, kGripPass, 299),
+          "and until 300 ms", 1, 1);
+    Check(!GripPressGuarded(true, true, kGripPass, 300),
+          "and not after 300 ms", 0, 0);
+    Check(!GripPressGuarded(true, true, kGripCarry, 50),
+          "a carry has the fast fall for the throw", 0, 0);
+    Check(!GripPressGuarded(true, true, kGripLetGo, 50),
+          "and so has the let go", 0, 0);
+    Check(!GripPressGuarded(true, false, kGripPass, 50),
+          "an open grip has nothing to guard", 0, 0);
+    Check(!GripPressGuarded(false, true, kGripPass, 50),
+          "with grip_press_guard=0 nothing is guarded", 0, 0);
+
+    // The same 1.0, 0.92, 0.59 as in a log of a real hand, 6 frames after the
+    // close. With the fast fall the grip opens. Under the guard it stays
+    // closed, and it opens when the player really opens it (below 0.35).
+    GripLevel plain, guarded;
+    GripLevelReset(&plain);
+    GripLevelReset(&guarded);
+    const float close[6] = {0.30f, 0.70f, 1.0f, 1.0f, 1.0f, 1.0f};
+    for (int i = 0; i < 6; ++i) {
+      GripLevelStep(&plain, close[i], true);
+      GripLevelStep(&guarded, close[i], !GripPressGuarded(true, true,
+                                                          kGripPass, 66));
+    }
+    GripLevelStep(&plain, 0.92f, true);
+    GripLevelStep(&guarded, 0.92f, false);
+    Check(!GripLevelStep(&plain, 0.59f, true),
+          "without the guard the dip 1.00, 0.92, 0.59 opens the grip", 0, 0);
+    Check(GripLevelStep(&guarded, 0.59f, false),
+          "with the guard the same dip keeps it closed", 1, 1);
+    Check(GripLevelStep(&guarded, 0.95f, false),
+          "and the grip is still closed when the squeeze returns", 1, 1);
+    Check(!GripLevelStep(&guarded, 0.30f, false),
+          "a real opening, below 0.35, still opens it under the guard", 0, 0);
+  }
 }
 
 // THE RANGE OF A FAR GRAB: FarFloorMeters and FarInRange.

@@ -522,7 +522,10 @@ leash_at_palm=0 in bwvr.ini to end it at the wrist of the game's
 Hand.
 
 The Hand lets go when you open the grip. The grip opens when your
-hand starts to open fast, or when it is almost open. If the Hand lets
+hand starts to open fast, or when it is almost open. In the first
+moment after you close the grip on an object, only an almost open grip
+lets go (set grip_press_guard=0 in bwvr.ini to turn this off), so a
+fast grab does not break a rock. If the Hand lets
 go when you do not want it to, set grip_fast_open=0 in bwvr.ini. The
 game then drops the object at once, and does not wait for its next
 game turn. Set release_at_once=0 in bwvr.ini to make the game wait

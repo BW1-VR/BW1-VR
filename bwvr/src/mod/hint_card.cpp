@@ -1388,8 +1388,10 @@ static void PollTimingKey() {
 static void PollWordsKey() {
   static bool was = false;
   if (!g_test_keys) return;
+  // Shift must be up: Ctrl, Shift and Home is the key of grip_press_guard.
   const bool down = (GetAsyncKeyState(VK_HOME) & 0x8000) != 0 &&
-                    (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
+                    (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0 &&
+                    (GetAsyncKeyState(VK_SHIFT) & 0x8000) == 0;
   const bool pressed = down && !was;
   was = down;
   if (!pressed) return;

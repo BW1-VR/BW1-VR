@@ -120,6 +120,23 @@ trigger, takes the 80 ms before the release.
 - **A land drag while the grip opens:** the click waits until the trigger is
   up, because both buttons together are the game's camera mode and not a drop.
   A close while it waits carries the object again.
+- **A dip of the squeeze in the first 300 ms** does not open the grip
+  (`grip_press_guard=1`). In the plain game a press of the Action button
+  that ends in less than 225 ms is a click: the game taps the object in the
+  pick record, and a rock splits (`Rock::InterfaceTap` `0x006E7480` calls
+  `Rock::SplitInTwo` `0x006E7560`) [V]. A real hand that jerks away squeezes
+  less for a frame or two, for example 1.00, 0.92, 0.59, and the fast fall of
+  `grip_fast_open` read that as an opening. The press then ended early and
+  the rock broke, with the grip still closed. From the close of the grip, and
+  while the machine is in the Pass phase (the pick up is not over), only a
+  value below 35 percent opens the grip (`GripPressGuarded` in
+  `controller_math.h`). The guard lasts at most 300 ms. A carry has the fast
+  fall again, for the throw. The same guard acts on a tree in the ground, a
+  villager and a pile: they all take their press in the Pass phase. A close
+  and an opening below 35 percent in less than 225 ms is still a click, as
+  with the mouse. `grip_press_guard=0` gives the fast opening at each time. With
+  `test_keys=1`, Ctrl Shift Home turns the guard off and on while the game
+  runs.
 - **The grip opens before the object comes** (during the 10 frames of the pick
   up): the take press ends at once, and the game stops the pick up, as for a
   short mouse click. If the object still comes within 20 frames, the machine

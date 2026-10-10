@@ -138,6 +138,8 @@ bool TeleportAiming();
 // distance"). The pump gives it the grip, and it says when to hold the grip
 // back from the grip machine.
 bool FarGrabPumpGrip(bool grip, bool ok);
+// This file, below: a pulse on the pointing hand.
+void ControllersGesturePulse(float amplitude, float seconds);
 bool FarGrabPressing();
 // tabletop.cpp: the God view, and one zoom step or one ground step of it.
 // See docs/god-view.md.
@@ -224,6 +226,10 @@ enum FakeInput {
   // The Temple: the aim of the right hand turns to the next target of
   // temple_test_targets (temple.cpp).
   kAimTemple,
+  // The grip of the right hand reads 0.59 instead of 1.0 for the frames of the
+  // word, while the grip word holds: a real hand that jerks away loses part of
+  // its squeeze for a frame or two (grip_press_guard).
+  kGripDip,
   kInputCount
 };
 
@@ -236,7 +242,7 @@ const char* const kInputName[kInputCount] = {
     "rot",        "aimfar",     "pull",       "aimcmd",     "aimturn",
     "nofocus",    "deactivate",
     "lstick_left", "lstick_right", "lstick_up", "lstick_down", "ltrigger",
-    "aimtemple"};
+    "aimtemple",  "gripdip"};
 
 // The fake hand positions for the word "point", in cm from the head center.
 const int kMaxPoints = 16;
@@ -598,7 +604,7 @@ void FakeHand(int index, bwvr::HandInput* out) {
 
   if (index == 1) {
     out->trigger = g_held[kTrigger] ? 1.0f : 0.0f;
-    out->squeeze = g_held[kGrip] ? 1.0f : 0.0f;
+    out->squeeze = g_held[kGrip] ? (g_held[kGripDip] ? 0.59f : 1.0f) : 0.0f;
     out->stick[0] = (g_held[kStickRight] ? 1.0f : 0.0f) -
                     (g_held[kStickLeft] ? 1.0f : 0.0f);
     out->stick[1] = (g_held[kStickUp] ? 1.0f : 0.0f) -
@@ -1322,6 +1328,12 @@ bool g_grip_down = false;
 controller_math::GripLevel g_trigger_level = {};
 controller_math::GripLevel g_grip_level = {};
 int g_fast_open = -1;           // grip_fast_open, read at the first pump
+// grip_press_guard, read at the first pump: 1 keeps the fast fall from opening
+// a grip in the first 300 ms of a press (GripPressGuarded). The test key
+// Ctrl Shift Home changes it while the game runs.
+int g_press_guard = -1;
+bool g_press_guard_key_down = false;
+ULONGLONG g_right_close_ms = 0;  // the right control closed at this time
 uint64_t g_fast_opens = 0;      // openings by a fast fall, this window
 uint64_t g_slow_opens = 0;      // openings below kGripOpenBelow
 int g_level_logs = 0;
@@ -2377,6 +2389,28 @@ bool ButtonDown(int button) {
                                   g_grip_down, g_swap_buttons);
 }
 
+// THE TEST KEY OF THE PRESS GUARD: Ctrl, Shift and Home (test_keys=1) turn
+// grip_press_guard off and on while the game runs.
+void PollPressGuardKey() {
+  static int test_keys = -1;
+  if (test_keys < 0) test_keys = IniInt("test_keys", 0) != 0 ? 1 : 0;
+  if (test_keys == 0) return;
+  const bool down = (GetAsyncKeyState(VK_HOME) & 0x8000) != 0 &&
+                    (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0 &&
+                    (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
+  const bool pressed = down && !g_press_guard_key_down;
+  g_press_guard_key_down = down;
+  if (!pressed || !GameInFront()) return;
+  g_press_guard = g_press_guard != 0 ? 0 : 1;
+  ControllersGesturePulse(0.5f, g_press_guard != 0 ? 0.30f : 0.08f);
+  ModLog("grip         : Ctrl, Shift and Home: grip_press_guard is %d now, "
+         "frame %llu. %s", g_press_guard, g_frame,
+         g_press_guard != 0
+             ? "A dip of the squeeze in the first 300 ms of a press does not "
+               "open the grip"
+             : "A fast fall of the squeeze opens the grip at any time");
+}
+
 void PumpButtons(ULONGLONG now) {
   const bwvr::HandInput& hand = g_hands[PointingIndex()];
   // THE GRIP OPENS AT ONCE. The control that is the game's right button with
@@ -2391,13 +2425,33 @@ void PumpButtons(ULONGLONG now) {
                  "also when it falls by 30% in 3 frames to less than 80%"
                : "A closed grip opens only below 35%");
   }
-  const bool fast =
-      g_fast_open != 0 && HandDirectReleaseAtOnce() && DirectHandNow();
+  if (g_press_guard < 0) {
+    g_press_guard = IniInt("grip_press_guard", 1) != 0 ? 1 : 0;
+    ModLog("grip         : grip_press_guard=%d. %s", g_press_guard,
+           g_press_guard != 0
+               ? "In the first 300 ms of a press, before the Hand holds the "
+                 "object, a closed grip opens only below 35%, so a dip of "
+                 "the squeeze does not end the press early"
+               : "A closed grip can open on a fast fall at any time");
+  }
+  PollPressGuardKey();
   const bool trigger_was = g_trigger_down, grip_was = g_grip_down;
+  // The control of the game's right button, as the last pump left it.
+  const bool right_was = g_swap_buttons ? trigger_was : grip_was;
+  const bool guarded = controller_math::GripPressGuarded(
+      g_press_guard != 0, right_was, g_hold.phase,
+      now - g_right_close_ms);
+  const bool fast =
+      g_fast_open != 0 && HandDirectReleaseAtOnce() && DirectHandNow() &&
+      !guarded;
   g_trigger_down = controller_math::GripLevelStep(
       &g_trigger_level, hand.trigger, fast && g_swap_buttons);
   g_grip_down = controller_math::GripLevelStep(&g_grip_level, hand.squeeze,
                                                fast && !g_swap_buttons);
+  if (g_swap_buttons ? (!trigger_was && g_trigger_down)
+                     : (!grip_was && g_grip_down)) {
+    g_right_close_ms = now;
+  }
   {
     // Each opening of the right button's control, with the values of the
     // frames before it, so a log shows how the real hand opened.

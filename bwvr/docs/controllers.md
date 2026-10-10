@@ -636,7 +636,8 @@ MinHook trampoline, with `ecx = 0x00E85204`. The trigger is the left button
 `controller_swap_buttons=1` exchanges the two. The trigger and the grip press
 above 0.55 and release below 0.35. With the direct hand, a closed grip also
 opens when its value falls by 30 percent in 3 frames to less than 80 percent
-(`grip_fast_open=1`, the default).
+(`grip_fast_open=1`, the default). In the first 300 ms of a press, before the
+Hand holds the object, the fast fall does not open it (`grip_press_guard=1`).
 
 **The grip holds** (direct hand only). The game takes an object with one right
 click and lets go with a second one. So with `controller_hand=1` the right
@@ -856,6 +857,7 @@ The words that hold a button (or the stick at full) for `frames` frames:
 | `stick_left`, `stick_right`, `stick_up`, `stick_down` | The stick of the right hand at full |
 | `x`, `y` | X, Y of the left hand (needs `fake_controller=2`). Y sends Esc |
 | `lgrip`, `ltrigger` | Grip, trigger of the left hand |
+| `gripdip` | While the word `grip` holds, the squeeze of the right grip reads 0.59 and not 1.0 for the frames of this word. One frame is a real hand that jerks away |
 | `lstick_left`, `lstick_right`, `lstick_up`, `lstick_down` | The stick of the left hand at full. Two words at the same time give a diagonal |
 | `nofocus` | The headset session has no focus of the runtime. Both fake hands are not active, as `XrScreen` gives them then |
 
@@ -941,6 +943,7 @@ hands change sides. The default mode is the God view (`god-view.md`).
 | `controller_haptics` | 1 | Short pulses on presses and turns |
 | `controller_hand` | 1 | 1 puts the Hand at the controller (the direct hand). 0 keeps the pointer mode of section 3. Not in the launcher, and a save of the launcher removes the key |
 | `grip_fast_open` | 1 | With the direct hand, a closed grip also opens on a fast fall of its value (3.6) |
+| `grip_press_guard` | 1 | In the first 300 ms of a press, before the Hand holds the object, a closed grip opens only below 35 percent (`grab.md`, "The grip holds"). 0 lets the fast fall open it at any time. The test key Ctrl Shift Home goes between the two (`test_keys=1`) |
 | `gesture_button` | 1 | The gesture draw button: 0 off, 1 the second face button of the pointing hand, 2 the stick click |
 | `gesture_size_cm` | 30 | This much hand motion is a third of the view height to the game |
 | `teleport` | 1 | 1: A makes the teleport. 0: A makes a jump |

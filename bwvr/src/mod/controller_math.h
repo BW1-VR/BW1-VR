@@ -802,6 +802,28 @@ inline bool GripLevelStep(GripLevel* s, float value, bool fast_open) {
   return s->down;
 }
 
+// THE PRESS GUARD (docs/grab.md, "The grip holds"). A press of the Action
+// button that ends in less than 225 ms is a click for the game: it taps the
+// object in the pick record, and a rock splits. A hand that jerks away squeezes
+// less for a frame or two, and that can look like a fast fall. The fast fall
+// then opens a grip that the player still holds, and the short press breaks
+// the rock. So from the close of the grip, and while the machine is still in
+// its Pass phase (the pick up is not over), only the plain level (below
+// kGripOpenBelow) opens the grip. kGripGuardMs is longer than the 225 ms of
+// the game. A carry (the object is in the Hand) has the fast fall again, for
+// the throw.
+const uint64_t kGripGuardMs = 300;
+
+// True when the fast fall must not open the grip now. guard_on is the ini key
+// grip_press_guard. closed is the grip as the last step left it. phase is the
+// GripPhase of the last step. since_close_ms is the time since the grip
+// closed.
+inline bool GripPressGuarded(bool guard_on, bool closed, int phase,
+                             uint64_t since_close_ms) {
+  return guard_on && closed && phase == kGripPass &&
+         since_close_ms < kGripGuardMs;
+}
+
 // THE GRAB OF THE WORLD. See docs/god-view.md, "5.1 The grab of the land".
 //
 // A point a in the room is the world point C + L * a, with C the game camera
