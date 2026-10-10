@@ -3396,6 +3396,7 @@ void CreatureChecks() {
 #include "pinch_checks.h"
 #include "temple_checks.h"
 #include "tree_plant_checks.h"
+#include "zoom_checks.h"
 
 int main() {
   const float eye[3] = {120.0f, 45.0f, -300.0f};
@@ -3778,6 +3779,7 @@ int main() {
   pinch_checks::PinchChecks();
   temple_checks::TempleChecks();
   tree_plant_checks::TreePlantChecks();
+  zoom_checks::ZoomChecks();
 
   printf("\n%d checks, %d failed\n", g_checks, g_failures);
   return g_failures == 0 ? 0 : 1;

@@ -128,7 +128,8 @@ hand_pinch=0 in bwvr.ini to hold it in your fist. Set hand_feel=0 for
 fingers that follow the trigger and the grip only.
 
   Stick up, down      Zoom in or out one step. Push again for the
-                      next step.
+                      next step. Set god_zoom_smooth=1 in bwvr.ini to
+                      zoom while you hold the stick.
   Stick left, right   Turn one step. You stay where you are.
   Left grip           Grab the land and pull it to move. Pull up to
                       raise the land. Pull down to lower it. The land

@@ -880,8 +880,9 @@ each world sound near the player. A cue of a kind waits 60 ms for the next one.
 of each frame: a yaw of more than 15 degrees in one frame is a turn step, a
 move of more than 0.5 m of the room in one frame is a teleport, and a change of
 the scale by one zoom step (`god_zoom_step_pct`, within 40%) is a zoom step. A
-real head cannot do these in one frame. Two hands that scale the land change
-the scale a little in each frame, and that has no cue. In the God view a cue
+real head cannot do these in one frame. Two hands that scale the land, and
+the smooth zoom of the stick (`god_zoom_smooth=1`), change the scale a little
+in each frame, and that has no cue. In the God view a cue
 also needs a new version of the view (`TabletopGodGameCamera`), which only a
 move of the player gives. The game can put the view at a new place by itself
 (a new camera mode, the end of a story), and that has no sound.

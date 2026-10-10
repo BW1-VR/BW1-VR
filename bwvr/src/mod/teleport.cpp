@@ -578,8 +578,10 @@ void LogRuleMode(const char* why) {
 void PollRingKey() {
   static bool was = false;
   if (!g_settings.test_keys) return;
+  // Shift must be up: Ctrl, Shift and Insert is the key of god_zoom_smooth.
   const bool down = (GetAsyncKeyState(VK_INSERT) & 0x8000) != 0 &&
-                    (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
+                    (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0 &&
+                    (GetAsyncKeyState(VK_SHIFT) & 0x8000) == 0;
   const bool pressed = down && !was;
   was = down;
   if (!pressed) return;

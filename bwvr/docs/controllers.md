@@ -768,6 +768,8 @@ there the game's own path takes over: `BindableAction::IsMouseBeingPressed` or
 `comfort_camera.cpp` makes the steps (section 5.4). Only the game thread
 writes `0x00E85300`, so there is no race with `UpdateDeltaPos`. In the God
 view the stick does not use the wheel: one push is one zoom step of the view.
+With `god_zoom_smooth=1` the stick zooms the view while it is held past 0.3,
+and the zoom stops when the stick comes back (`god-view.md`, section 2).
 
 **Snap turns.** The stick to the side past 0.7 asks for one turn. The stick
 must come back below 0.3 before the next one. `ComfortCameraRequestTurn(int
@@ -917,7 +919,7 @@ hands change sides. The default mode is the God view (`god-view.md`).
 | A | Hold to aim the teleport arc, let go to go there (`god-view.md`). `teleport=0` gives a jump to the object or the land under the Hand |
 | B (Y on the left hand) | Hold and draw: a gesture (`miracles.md`). A short press with a miracle in the Hand takes the miracle out. B while A is down cancels the teleport |
 | Stick left and right | One snap turn (5.4). In the Temple it turns the player in the room (11.4) |
-| Stick forward and back | In the God view, one zoom step of the view. In other views, a wheel click |
+| Stick forward and back | In the God view, one zoom step of the view, or a zoom while the stick is held (`god_zoom_smooth=1`). In other views, a wheel click |
 | Stick click | The gesture button with `gesture_button=2` |
 | Dialog box up | The hand points a ray. The trigger is the left button and the grip the right button (3.6) |
 | In a room of the Temple | The hand points a ray. The trigger and the grip both click (11.3) |

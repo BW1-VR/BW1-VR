@@ -62,6 +62,7 @@
 #include "radial_menu.h"
 #include "temple.h"
 #include "temple_math.h"
+#include "zoom_math.h"
 
 extern void ModLog(const char* format, ...);
 
@@ -142,9 +143,12 @@ bool FarGrabPumpGrip(bool grip, bool ok);
 void ControllersGesturePulse(float amplitude, float seconds);
 bool FarGrabPressing();
 // tabletop.cpp: the God view, and one zoom step or one ground step of it.
-// See docs/god-view.md.
+// The smooth zoom: whether the stick zooms that way, and its request for the
+// next frame. See docs/god-view.md.
 bool TabletopGodOwnsView();
 bool TabletopGodStep(int zoom, int ground);
+bool TabletopGodZoomSmooth();
+bool TabletopGodZoomHold(float push);
 
 void ControllersPump();
 bool ControllersFarAllowed(const char** why);
@@ -1393,6 +1397,13 @@ bool g_zoom_blocked = false;  // a push refused during a grab, not back yet
 // "5. Moving around: the grab and the mouse").
 bool g_god_zoom_armed = true;
 uint64_t g_god_zooms = 0;
+// The smooth zoom of the God view (god_zoom_smooth=1): the scale changes
+// while the stick is held past kStickBack, at a rate that follows the push
+// and is full from kStickFull. A hold starts with a fresh push only, and it
+// holds only in a pump that asks the God view again.
+const float kStickFull = 0.95f;
+bool g_god_zoom_holding = false;
+uint64_t g_god_holds = 0;
 bool g_other_before[3] = {false};  // B or Y, the menu button, the stick click
 
 // Which owner the test key Ctrl+F12 asks for: automatic, controller only or
@@ -2648,7 +2659,17 @@ void PumpButtons(ULONGLONG now) {
 // step of the view for each push, not a wheel step. The other hand's stick
 // has no job. The turn goes the same way as with the plain stick, and comfort_camera.cpp
 // gives it to the God view.
+//
+// THE SMOOTH ZOOM (god_zoom_smooth=1). The stick forward or back past
+// kStickBack zooms the God view while it is held, and the pump asks the view
+// again on each pass (TabletopGodZoomHold). The larger axis of the stick
+// wins, as for a step and a turn, so one pass never zooms and turns. A hold
+// starts with a fresh push only. A push that the view or a grab refused, and
+// a hold that stopped because the stick went to the side, must come back
+// below kStickBack before the stick zooms again.
 void PumpStick(ULONGLONG now) {
+  const bool was_holding = g_god_zoom_holding;
+  g_god_zoom_holding = false;
   if (!Usable()) {
     g_wheel_tick = 0;
     return;
@@ -2660,9 +2681,13 @@ void PumpStick(ULONGLONG now) {
   if (ax < kStickBack || !live) g_turn_armed = true;
   if (ay < kStickBack || !live) g_god_zoom_armed = true;
   const bool god = TabletopGodOwnsView();
+  const bool smooth = god && TabletopGodZoomSmooth();
   // No snap turn and no zoom step while a grab holds the world. The two hands
-  // turn and zoom then. Each push is refused once and counted.
-  const bool pushed = live && ay > kStickPast && ay > ax;
+  // turn and zoom then. Each push is refused once and counted. A push for a
+  // step is past kStickPast, and a push for the smooth zoom is past
+  // kStickBack.
+  const bool pushed =
+      live && ay > (smooth ? kStickBack : kStickPast) && ay > ax;
   if (!pushed) g_zoom_blocked = false;
   // THE TEMPLE (temple.cpp, temple_turn). The camera of a room is not the
   // camera of the land, so the turn and the zoom of the land do nothing good
@@ -2697,6 +2722,26 @@ void PumpStick(ULONGLONG now) {
     g_turn_armed = false;
     ++g_turns_asked;
     ComfortCameraRequestTurn(hand.stick[0] > 0.0f ? 1 : -1);
+  }
+  if (smooth) {
+    // Forward zooms in, so the world gets larger. The rate follows the push.
+    if (pushed && (was_holding || g_god_zoom_armed)) {
+      g_god_zoom_armed = false;
+      const float share = zoom_math::StickShare(ay, kStickBack, kStickFull);
+      const bool in = hand.stick[1] > 0.0f;
+      g_god_zoom_holding = TabletopGodZoomHold(in ? share : -share);
+      if (g_god_zoom_holding && !was_holding) {
+        ++g_god_holds;
+        Pulse(PointingIndex());
+        if (g_event_logs < kMaxEventLogs) {
+          ++g_event_logs;
+          ModLog("controllers  : the stick starts a smooth zoom %s of the God "
+                 "view, frame %llu", in ? "in" : "out", g_frame);
+        }
+      }
+    }
+    g_wheel_tick = 0;
+    return;
   }
   if (god) {
     // Forward zooms in, so the world gets larger.
@@ -4098,10 +4143,10 @@ void ControllersReport() {
   }
   RadialMenuReport();
   TempleReport();
-  if (g_god_zooms != 0) {
-    ModLog("controllers  : the stick asked the God view for %llu zoom steps",
-           g_god_zooms);
-    g_god_zooms = 0;
+  if (g_god_zooms != 0 || g_god_holds != 0) {
+    ModLog("controllers  : the stick asked the God view for %llu zoom steps "
+           "and %llu smooth zooms", g_god_zooms, g_god_holds);
+    g_god_zooms = g_god_holds = 0;
   }
   if (g_grab_starts != 0 || g_grab_claims != 0 || g_grab_refused != 0 ||
       g_grab_picks != 0 || g_grab_trigger_held != 0 ||

@@ -27,6 +27,12 @@ struct TabletopSettings {
   int god_down_cm = 60;          // god_ground_down_cm: the ground, below you
   int god_units_per_meter = 100; // god_units_per_meter: the scale at start
   int god_zoom_pct = 50;         // god_zoom_step_pct: one zoom step
+  // The zoom of the stick (docs/god-view.md, "The zoom"): 0 is one step for
+  // each push, and 1 is the smooth zoom, which changes the scale while the
+  // stick is held.
+  int god_zoom_smooth = 0;       // god_zoom_smooth: 0 the steps, 1 smooth
+  int god_zoom_smooth_ms = 500;  // god_zoom_smooth_ms: one step, a full push
+  int god_zoom_test_toggle = 0;  // god_zoom_test_toggle: a test, see below
   int god_step_cm = 5;           // god_ground_step_cm: one ground step
   int god_most_units = 4000;     // god_far_units_per_meter: the farthest zoom
   // Where the player goes when the game puts its own camera at a place
@@ -94,6 +100,24 @@ bool TabletopGodOwnsView();
 // once, at the next main camera call. False when the God view does not own
 // the view, and then nothing is kept.
 bool TabletopGodStep(int zoom, int ground);
+
+// THE SMOOTH ZOOM (god_zoom_smooth=1). TabletopGodZoomSmooth is true while
+// the stick zooms that way. TabletopGodZoomHold is the request of the stick
+// for the next frame: push is the share of the top rate, above 0 to zoom in
+// and below 0 to zoom out, at most 1. The next main camera call uses it
+// once, for the time of that frame. The stick asks again before each frame
+// while it is held, and a frame with no request changes nothing. False when
+// the view does not zoom: the God view does not own the view, the steps are
+// chosen, or the game's switch for the zoom is off. The push must then come
+// back before it asks again.
+bool TabletopGodZoomSmooth();
+bool TabletopGodZoomHold(float push);
+
+// The test key of god_zoom_smooth (Ctrl, Shift and Insert, with
+// test_keys=1): the zoom of the stick changes between the steps and the
+// smooth zoom. The test god_zoom_test_toggle=N does the same at frame N of
+// the controllers, with no key press, for a desktop run.
+void TabletopGodZoomSmoothToggle();
 
 // True while the table or the God view is on, also while it stands aside.
 bool TabletopIsOn();

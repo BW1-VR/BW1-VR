@@ -42,7 +42,8 @@ sets the flags of each mode.
 - **The zoom** changes the scale about the land point under the head, so the
   player keeps their place in the world, and the ground under them keeps its
   height. It goes from the life size scale (7.5 units per meter) to 4000, in
-  steps of 1.5 times.
+  steps of 1.5 times. With `god_zoom_smooth=1` the stick zooms while it is
+  held, with no steps.
 - **The ground height** goes up and down with the left grip: the hand pulls
   the land up and down one to one. The mouse player has steps of 5 cm (the
   tilt keys). The view never follows the land up or down by itself.
@@ -141,15 +142,84 @@ is inside the Hand's reach of 5600 (section 8). `god_far_units_per_meter` can
 go up to 8000. A step at a limit does nothing and is logged. From 7.5 to 4000
 is 16 steps.
 
-**The inputs.** The right stick forward zooms in, and back zooms out. One push
-is one step. The stick must come back below 30 percent before the next push
-counts. The mouse wheel also steps the God view, one step a click, at most
-one each 150 ms, and the game hears no wheel.
+**The inputs.** The right stick forward zooms in, and back zooms out. With
+`god_zoom_smooth=0`, the default, one push past 70 percent is one step. The
+stick must come back below 30 percent before the next push counts. The mouse
+wheel also steps the God view, one step a click, at most one each 150 ms, and
+the game hears no wheel. The wheel zooms in steps with each value of
+`god_zoom_smooth`.
 
 A zoom step needs the game's camera switch for the zoom (section 7, "The
 tutorial"). While the switch is off, a push or a click does nothing, the
 controller gives no pulse, and the log says why. A step that the view takes
 sends the game's zoom event, 0x304.
+
+**The smooth zoom.** With `god_zoom_smooth=1` the stick changes the scale
+while it is held, and the zoom stops in the frame in which the stick comes
+back. Nothing glides after that, and a stick at rest moves nothing. The ratio
+of the scale for one frame is
+
+```
+share = (|y| - 0.3) / (0.95 - 0.3), kept between 0 and 1
+ratio = 1.5 ^ (-direction * share * dt / T)
+```
+
+`y` is the stick forward or back, and `direction` is 1 for forward. `dt` is
+the real time of the frame, and at most 50 ms, so a frame that took long makes
+no jump. `T` is `god_zoom_smooth_ms`, 500: a full push changes the scale by
+one zoom step (`god_zoom_step_pct`) in that time, and a small push is slow.
+The change is a ratio, so the zoom feels the same at each scale, and it
+follows the time and not the frame rate. `zoom_math.h` holds these functions.
+
+- **The point** is the point of a zoom step: the land point under the head,
+  with the rule for a hill over the head. `GodZoomPoint` in `tabletop.cpp` is
+  the one place that chooses it, for a step and for the smooth zoom.
+- **The limits** are the limits of a step. At a limit the scale stops, the
+  stick still counts as held, and the other direction zooms at once.
+- **Once a frame.** The pump of the controllers asks the view again before
+  each frame (`TabletopGodZoomHold`), and the main camera call changes the
+  scale one time (`ApplyGodZoomHold`). A frame with no request changes
+  nothing.
+- **Which axis.** The stick zooms while it is past 30 percent forward or back
+  and that axis is larger than the side axis. A snap turn needs the side axis
+  past 70 percent and larger than the other one, as with the steps. So one
+  frame never zooms and turns. A hold starts with a fresh push only: a hold
+  that stopped because the stick went to the side, and a push that the view
+  or a grab refused, must come back below 30 percent first.
+- **The game's switch.** Where a zoom step is refused, the smooth zoom is
+  refused too: a push with the zoom switch off does nothing, gives no pulse,
+  is counted one time and must come back. A switch that goes off during a
+  hold stops the hold. A grab of the world refuses the stick in the same way
+  as for a step.
+- **The zoom event.** Each frame that changes the scale sends 0x304 with the
+  input bit of the wheel. The game does the same: it sends 0x304 on each
+  update in which its own camera zooms (the test at `0x0045C38E`), and
+  `CameraHelpAccumulator::Trigger` `0x00449040` drops a trigger while its
+  flag at `+0x0A` is set. So a tutorial step that waits for a zoom hears the
+  first frame of a hold. A frame at a limit sends no event.
+- **The game camera.** The point of the zoom is the place of the game camera,
+  so a hold does not move that place. The version of the view goes up on the
+  first frame of a hold that changes the scale and one more time at its end,
+  so `GodAfter` writes the game camera at most two times for a hold (section
+  7).
+- **No blink and no cue.** The blink of a step and the sound of a zoom step
+  (`audio.md`) do not come with the smooth zoom. The controller gives one
+  pulse at the start of a hold.
+
+With `test_keys=1`, Ctrl, Shift and Insert change `god_zoom_smooth` between 0
+and 1 while the game runs. The pointing controller gives a long pulse for 1
+and a short pulse for 0. A stick that is pushed at that moment must come back
+before it zooms. The test `god_zoom_test_toggle=N` does the same at frame `N`
+of the controllers, for a desktop run.
+
+The log has one line for the start of a hold, one for its end, and one for a
+check 30 frames later:
+
+```
+god view     : the smooth zoom starts to zoom in at 100.00 units per meter, about the land at 1890 29 2490, 0.60 m below your head. A full push changes the scale 1.50 times in 500 ms.
+god view     : the smooth zoom stopped (the stick asks for no zoom now). It zoomed in from 100.00 to 58.77 units per meter, which is 1.31 zoom steps. The stick was held for 0.655 s, and the scale changed on 45 of 45 frames. The land under your head was at 1890.4 2490.0 and is at 1890.4 2490.0, 0.00 cm of the room apart, and the drawn head moved 0.00 cm of the room.
+god view     : smooth zoom check, 30 frames after the stop the scale is 58.77 units per meter, and it was 58.77 at the stop. The drawn head moved 0.00 cm of the room in those frames.
+```
 
 ## 3. The ground height
 
@@ -509,8 +579,9 @@ write:
 - The camera is 400 units from it, 50 degrees above, along the heading of the
   view.
 
-It moves only when the player moves the view: once for each step, and on each
-frame of a grab. It does not follow the head, because `GCamera::Update` sets
+It moves only when the player moves the view: once for each step, on each
+frame of a grab, and at the start and at the end of a hold of the smooth zoom
+(section 2). It does not follow the head, because `GCamera::Update` sets
 its moving flag for a camera that changes, and the interface then clears the
 gesture trail. It does not undo the game's own moves of its camera either. At
 the build the game camera stays where the game put it, and the view goes to
@@ -548,7 +619,8 @@ double click jump. The game's camera code tests each bit before it acts, for
 example at `0x0045C0E7` for the zoom and at `0x0045D3A6` for the drag. The
 God view keeps to the same bits:
 
-- A zoom step needs bit 4 (`TabletopGodStep`).
+- A zoom step and the smooth zoom need bit 4 (`TabletopGodStep`,
+  `TabletopGodZoomHold`).
 - The mouse pan and the grab need bit 8 (`MousePan`, `TabletopMove`).
 - A two hand grab turns only with bit 2 and zooms only with bit 4
   (`TabletopGrabAllows`, called by `world_grab.cpp`).
@@ -568,7 +640,7 @@ game's own names of the events at `0x009CDD70`. That table has no names for
 | 0x300 | The camera turned | `0x0045C745`, for a turn key | A snap turn, and a turn of a two hand grab |
 | 0x301, 0x302 | Then to the left, or to the right | `0x0045C772`, `0x0045C79F` | The same. A snap turn sends 0x301 for the left and 0x302 for the right, in every play mode |
 | 0x303 | The camera tilted | `0x0045C82B` | Never: the view does not tilt |
-| 0x304 | The camera zoomed | `0x0045C3A8` | A zoom step, and a zoom of a two hand grab |
+| 0x304 | The camera zoomed | `0x0045C3A8`, on each update in which the camera zooms | A zoom step, each frame of the smooth zoom that changes the scale, and a zoom of a two hand grab |
 | 0x305, 0x306 | A double click jump to the land, or to an object | `0x0045DE85`, `0x0045DE1E` | The game's own jump, and each move of the teleport |
 | 0x307 | The zoom to the Temple | `0x00457EDE` | Never |
 | 0x308 | A drag of the land, or a move by the keys | `0x0045D682`, `0x0045C981` | The game's drag code, for the mouse pan, and a pan of the grab |
@@ -576,7 +648,8 @@ game's own names of the events at `0x009CDD70`. That table has no names for
 The third argument names what made the move. The game's names for its bits
 at `0x009CDDF0` are "keyboard" (1), "mouse button" (2), "both mouse
 buttons" (4), "wheel spin" (8) and "wheel down" (0x10, the middle button).
-The God view sends 8 with a zoom step and 2 with a move of the grab.
+The God view sends 8 with a zoom step and with the smooth zoom, and 2 with a
+move of the grab.
 
 A tutorial step that waits for a tilt (0x303) cannot end in the God view,
 because the view does not tilt.
@@ -675,7 +748,7 @@ in the room.
 
 | Input | In the God view |
 | --- | --- |
-| Right stick forward or back | Zoom in or out one step |
+| Right stick forward or back | Zoom in or out one step. With `god_zoom_smooth=1`, zoom while the stick is held |
 | Right stick left or right | Turn one step about the head |
 | Left stick | Opens the ring menu and points at an item (`radial_menu_stick=1`) |
 | Left grip | Grab the land: pull to move it across, and up or down |
@@ -726,6 +799,9 @@ section 5.6.
 | `god_ground_down_cm` | 60 | The ground below the head at the last recenter, 10 to 200 |
 | `god_units_per_meter` | 100 | The scale at the first start |
 | `god_zoom_step_pct` | 50 | One zoom step changes the scale by this percent, 5 to 300 |
+| `god_zoom_smooth` | 0 | The zoom of the stick (section 2). 0: one step for each push. 1: the smooth zoom, which changes the scale while the stick is held. Ctrl, Shift and Insert change it with `test_keys=1` |
+| `god_zoom_smooth_ms` | 500 | The top rate of the smooth zoom: the time in which a full push changes the scale by one zoom step, 100 to 5000 |
+| `god_zoom_test_toggle` | 0 | A test with no key press: at this frame of the controllers the test key of `god_zoom_smooth` acts. 0 is never |
 | `god_ground_step_cm` | 5 | One ground step, 1 to 50 |
 | `god_far_units_per_meter` | 4000 | The farthest zoom, 10 to 8000 |
 | `god_spawn` | 1 | 1: the player goes where the game puts its own camera (section 15). 0: the view is built at the start, a load and the end of a story only, with the focus under the recenter pose |
@@ -766,8 +842,9 @@ The launcher removes these keys from `bwvr.ini` when it saves.
 
 | File | What it holds |
 | --- | --- |
-| `src/mod/table_math.h` | `GodRoom`, `PoseWorld`, `PoseRoom`, `GroundInRoom`, `ScaleAbout`, `GodZoom`, `GodRaise`, `GodTurn`, `GameCameraOver`, `RayLevel`, `RayLand`, `GodSpawn`, `CameraLookPoint` and `HeadYaw`, as pure functions |
-| `src/mod/tabletop.cpp`, `tabletop.h` | The God view in the table state: the place at a game camera (`PlaceGod`, `ApplyGodSpawn`), the steps (`ApplyGodSteps`), the mouse pan (`MousePan`), the camera switches and events, the hook on `GGame::ClearMap`, the values that follow the scale, the Hand's size, the ears and the game camera it wants |
+| `src/mod/table_math.h` | `GodRoom`, `PoseWorld`, `PoseRoom`, `GroundInRoom`, `ScaleAbout`, `GodZoomAbout`, `GodZoom`, `GodRaise`, `GodTurn`, `GameCameraOver`, `RayLevel`, `RayLand`, `GodSpawn`, `CameraLookPoint` and `HeadYaw`, as pure functions |
+| `src/mod/zoom_math.h` | The smooth zoom: the share of the top rate for a push (`StickShare`), the time of a frame (`FrameSeconds`) and the ratio of a frame (`FrameRatio`), as pure functions |
+| `src/mod/tabletop.cpp`, `tabletop.h` | The God view in the table state: the place at a game camera (`PlaceGod`, `ApplyGodSpawn`), the steps (`ApplyGodSteps`), the point of a zoom (`GodZoomPoint`), the smooth zoom (`TabletopGodZoomHold`, `ApplyGodZoomHold`), the mouse pan (`MousePan`), the camera switches and events, the hook on `GGame::ClearMap`, the values that follow the scale, the Hand's size, the ears and the game camera it wants |
 | `src/mod/near_plane.cpp` | The near plane hook, for the God view, the table and the immersive view |
 | `src/mod/teleport.cpp`, `teleport.h`, `aim_smooth.h` | The teleport: the states, the arc and the hit on the CPU, the refusals, the mouse double click, the aim filter, the log (section 14) |
 | `src/mod/comfort_camera.cpp` | The game camera write (`GodAfter`), the watch of the game's own camera moves (`WatchBefore`, `WatchAfterGame`, `WatchEnd`), the turn, the wheel, the tilt keys (`GodTiltKeys`), the game camera after a land drag (`GodDragBefore`, `GodDragAfter`), the write of the grab on the game camera (`ComfortCameraGrabMove`) and the log of the camera events (`h_Help`) |
@@ -791,6 +868,14 @@ checks the pure functions at 7.5, 100 and 2000 units per meter:
 - A zoom step in and out keeps the land under the head at its room point and
   at its height in the room, keeps the heading, and does nothing at a limit.
   A hill over the head comes under it after 14 zoom steps out.
+- The smooth zoom (`zoom_checks.h`): a stick at the dead zone asks for no
+  zoom, a stick at full asks for the top rate, and a larger push never asks
+  for less. A stick at rest and a frame of no time give a ratio of exactly 1.
+  A full push for 0.5 s is one step, at 90 and at 30 frames a second. A frame
+  of 1 s counts as 50 ms. On each frame of a hold the land point under the
+  head keeps its room point, and the heading stays. After the stick is back
+  the view does not change in 30 frames. A hold stops at each limit and never
+  passes it, and a zoom step is the zoom about the land point under the head.
 - A ground step raises every land point 5 cm in the room and not across, and a
   step down puts it back.
 - A snap turn keeps the head's world point, and a turn of 90 degrees right
@@ -846,6 +931,22 @@ render size, because the recipes depend on it.
 - The menu button: the fake Y sends Esc ("the menu button sends Esc"), the box
   opens, and the game places the Hand while it is up. A second Y sends one
   more Esc and the menu stays, as `CanESCOut` says.
+- The smooth zoom: `spawn_run.ps1 -Choice keep` with `god_zoom_smooth=1`,
+  `god_zoom_test_toggle=1720`, a head 30 cm right and 40 cm forward of the
+  recenter place (`fake_head_right_cm`, `fake_head_forward_cm` and the word
+  `lean@780+1100`) and the steps `stick_up@800+45 stick_down@900+90
+  stick_down@1040+10 stick_up@1100+40 stick_right@1110+10 stick_right@1180+10
+  stick_left@1210+10 stick_up@1250+450 stick_down@1750+10 stick_down@1780+10`.
+  Each hold must have its three log lines (section 2): the scale changes on
+  each frame of the word, by 2 zoom steps a second, the land under the head
+  and the drawn head move 0.00 cm, and the scale is the same 30 frames after
+  the stop. The hold with `stick_right` stops when the two words are down
+  together, and does not start again when `stick_right` is up. The two turns
+  act. The long hold stops at 7.50 units per meter ("the zoom is at its
+  limit"). After the test key the last two words are two zoom steps. The same
+  steps with `god_zoom_smooth=0` give one zoom step for each word that
+  starts with the stick at rest. The fake stick has full pushes only, so the
+  rate of a small push has only the math test.
 
 **The mouse pan and the tutorial events** need a run with the test mouse. Use
 `play_mode=0` (it must log the God view), `-NEWGAME` on Land 1,
@@ -887,6 +988,12 @@ and the camera events (0x304 for a wheel click and 0x308 for a land drag).
 - **Not built for the grab:** a vignette while the camera moves, a cut for the
   advisor anchor (`SpiritAnchorCameraCut`) on a fast grab, and a hint text
   "Grab the world" (see `controller-hints.md`).
+- **The smooth zoom** (section 2) is not the default. A headset test must
+  show how it feels: whether a scale that changes in each frame is
+  comfortable with no blink, whether 500 ms for a step is a good top rate,
+  and whether the dead zone of 30 percent fits a real stick. No run has shown
+  a push with the zoom switch off, a small push, or the key Ctrl, Shift and
+  Insert with a real key.
 - **Needs the headset:** the ground height of 60 cm, the zoom step of 1.5
   times, the start scale of 100, the Hand at the life size scale near the
   eyes with the near plane of 5 cm, the look of the land and the clouds at

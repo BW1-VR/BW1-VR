@@ -124,18 +124,21 @@ moves while the Hand takes it.
   the short press and the hold need a rule that keeps both. Find how the
   plain game makes the Creature stop and attend to the Hand, so that the
   mod uses the game's own way.
-- **P4. A choice of control scheme, a smooth zoom, and a two hand grab as
-  in Deisim.**
+- **P4. A choice of control scheme, the default of the zoom, and a two
+  hand grab as in Deisim.**
   - A choice of control scheme: more options, so that each player chooses
     how the controls work. For example: the zoom in steps or smooth, the
     turn in steps or smooth, and the grab of the world with one hand or
     with two. Many of these are ini keys, which a player does not see. Find
     where the player chooses them (the launcher, or a menu in the game),
     and keep the scheme of now as the default.
-  - A smooth zoom: the stick zooms in steps of 1.5 times
-    (`god_zoom_step_pct`). A smooth zoom changes the scale while the stick
-    is held, and stops when the stick is let go. Give it an ini key with
-    the steps as one value, and a test key. This goes with B7.
+  - The default of the zoom: the stick zooms in steps of 1.5 times, and
+    `god_zoom_smooth=1` gives a smooth zoom while the stick is held
+    (`god-view.md`, section 2). Only an ini key chooses it. Compare the two
+    in a headset with the test key (Ctrl, Shift and Insert), set the top
+    rate (`god_zoom_smooth_ms`), and choose the default. Then give the
+    player the choice in the place of the first point. This goes with B7:
+    the point of the zoom is in one function (`GodZoomPoint`).
   - A two hand grab as in Deisim: the player holds both grips, and the
     hands make the world smaller or larger and turn it. The mod has a
     version of this (`god-view.md`): both grips turn the land about up and
@@ -253,10 +256,18 @@ moves while the Hand takes it.
 - **R1. The installer and a person.** No person has run the installer on a
   real game folder and told the result: the install, an update over an
   older build, and the uninstall.
-- **R2. The run scripts of one area** (`hand_run.ps1`, `village_run.ps1`,
-  `temple_run.ps1`, `miracle_run.ps1` in `bwvr/tools/desk/`) have not run
-  from this repo. `-Box` of `hand_run.ps1` is a place of the start dialog
-  at one render size.
+- **R2. The run scripts of one area** (`village_run.ps1`, `temple_run.ps1`,
+  `miracle_run.ps1` in `bwvr/tools/desk/`) have not run from this repo, and
+  `hand_run.ps1` has run only with `-Kind one`. `-Box` of `hand_run.ps1` is
+  a place of the start dialog at one render size.
+- **R3. The real cursor is at a different place after some desktop runs.**
+  `spawn_run.ps1` prints the place of the real cursor before and after a
+  run, and the two must be the same. In some runs they are not: the cursor
+  ends at one fixed place of the screen, and no person used the PC. The mod
+  sets the cursor only while the game window has the real focus
+  (`pointer_map.cpp`). Not known: whether the game window has the focus
+  for a moment at its start, or the game itself sets the cursor. Find which
+  run scripts show it and what sets the cursor, and stop it.
 - **R4. The names of the symbol file.** `bwvr/tools/check_names.py --all`
   lists about 70 decorated names whose parameter classes are not those of
   the Mac symbol, with each class by name (for example an `int` for an

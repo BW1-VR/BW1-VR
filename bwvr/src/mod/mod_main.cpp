@@ -542,6 +542,15 @@ void ReadSettings() {
     t.god_down_cm = number("god_ground_down_cm", 60);
     t.god_units_per_meter = number("god_units_per_meter", 100);
     t.god_zoom_pct = number("god_zoom_step_pct", 50);
+    // The zoom of the stick: 0 is one zoom step for each push. 1 is the
+    // smooth zoom: the scale changes while the stick is held, and a full push
+    // changes it by one zoom step in god_zoom_smooth_ms. With test_keys=1,
+    // Ctrl, Shift and Insert change it, and the test god_zoom_test_toggle
+    // does the same at one frame of the controllers (docs/god-view.md, "The
+    // zoom").
+    t.god_zoom_smooth = number("god_zoom_smooth", 0);
+    t.god_zoom_smooth_ms = number("god_zoom_smooth_ms", 500);
+    t.god_zoom_test_toggle = number("god_zoom_test_toggle", 0);
     t.god_step_cm = number("god_ground_step_cm", 5);
     t.god_most_units = number("god_far_units_per_meter", 4000);
     // Where the player goes when the game puts its own camera at a place:

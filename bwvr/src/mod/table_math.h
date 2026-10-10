@@ -510,6 +510,21 @@ inline void ScaleAbout(const TablePose& pose, const float pivot[3],
   out->scale = pose.scale * ratio;
 }
 
+// A ZOOM about a world point that keeps its place in the room: a zoom step,
+// or one frame of the smooth zoom. The new scale stays between low and high.
+// Returns the ratio that was used, 1 when the scale was already at the limit.
+inline float GodZoomAbout(const TablePose& pose, const float pivot[3],
+                          float ratio, float low, float high,
+                          TablePose* out) {
+  float scale = pose.scale * ratio;
+  if (scale < low) scale = low;
+  if (scale > high) scale = high;
+  const float used = pose.scale > 0.0f ? scale / pose.scale : 1.0f;
+  ScaleAbout(pose, pivot, used, out);
+  out->scale = scale;
+  return used;
+}
+
 // ONE ZOOM STEP about the ground under the head. The land point straight
 // under the head keeps its place in the room, so the player keeps their
 // place in the world, and the ground under them stays at the same height.
@@ -522,13 +537,7 @@ inline float GodZoom(const TablePose& pose, const float table_room[3],
   float head[3];
   PoseWorld(pose, table_room, head_room, head);
   const float pivot[3] = {head[0], ground_y, head[2]};
-  float scale = pose.scale * ratio;
-  if (scale < low) scale = low;
-  if (scale > high) scale = high;
-  const float used = pose.scale > 0.0f ? scale / pose.scale : 1.0f;
-  ScaleAbout(pose, pivot, used, out);
-  out->scale = scale;
-  return used;
+  return GodZoomAbout(pose, pivot, ratio, low, high, out);
 }
 
 // ONE STEP OF THE GROUND: all of the world goes up by rise_m in the room, or

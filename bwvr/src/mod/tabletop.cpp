@@ -52,18 +52,19 @@
 // different room. The table center in the room is right under the recenter
 // pose, god_ground_down_cm below it, so the land under the player is at the
 // waist, and there is no edge: no cut, no disc, no key color. The scale goes
-// from the life size scale to the table scales. The right stick zooms in
-// steps about the ground under the head, the other hand's stick raises and
-// lowers the ground in steps, and a snap turn turns the view about the head.
-// Each step is used once, at the next main camera call (ApplyGodSteps). The
-// Hand is the real hand at the scale. The fog, the detail distances and
-// the far limits follow the scale, and a hook on the near plane keeps the
-// real hand in view at the life size scale. The game's own camera stays over
-// the player's place at a normal play distance, and comfort_camera.cpp
-// writes it (TabletopGodGameCamera). When the game puts its own camera at a
-// new place, the view goes there as one cut: the land point that the camera
-// looks at is in front of the player's head (PlaceGod, docs/god-view.md,
-// "The place at a camera of the game").
+// from the life size scale to the table scales. The right stick zooms about
+// the ground under the head, in steps or while it is held (god_zoom_smooth),
+// the other hand's grip raises and lowers the ground, and a snap turn turns
+// the view about the head. Each step is used once, at the next main camera
+// call (ApplyGodSteps), and the smooth zoom changes the scale once a frame
+// there (ApplyGodZoomHold). The Hand is the real hand at the scale. The fog,
+// the detail distances and the far limits follow the scale, and a hook on
+// the near plane keeps the real hand in view at the life size scale. The
+// game's own camera stays over the player's place at a normal play distance,
+// and comfort_camera.cpp writes it (TabletopGodGameCamera). When the game
+// puts its own camera at a new place, the view goes there as one cut: the
+// land point that the camera looks at is in front of the player's head
+// (PlaceGod, docs/god-view.md, "The place at a camera of the game").
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -76,6 +77,7 @@
 #include "../common/bw_addresses.h"
 #include "table_math.h"
 #include "tabletop.h"
+#include "zoom_math.h"
 
 extern void ModLog(const char* format, ...);
 // head_camera.cpp: build the matrices and the stored camera from the game
@@ -122,6 +124,10 @@ bool ControllersGrabHeld();
 // teleport.cpp: the camera help event of a jump (0x305 to the land, 0x306 to
 // an object under the Hand).
 int TeleportJumpEvent();
+// controllers.cpp: a pulse of the pointing hand for a test key, and the frame
+// number that the scripted controller counts.
+void ControllersGesturePulse(float amplitude, float seconds);
+uint64_t ControllersFrameCount();
 
 namespace {
 
@@ -332,6 +338,45 @@ struct ZoomProbe {
 int g_god_ground = 0;
 int g_god_turn = 0;
 float g_god_turn_degrees = 45.0f;
+// THE SMOOTH ZOOM (ApplyGodZoomHold). push is what the stick asked for since
+// the last main camera call, and fresh says that it asked. The rest is the
+// hold that runs: its direction, the scale and the land point under the head
+// at its start and after its last frame, the render head of the frame before
+// it, the time of its frames, and how many of them changed the scale.
+struct ZoomHold {
+  float push = 0.0f;
+  bool fresh = false;
+  bool active = false;
+  int direction = 0;
+  float start_scale = 0.0f;
+  float scale = 0.0f;
+  float start_under[2] = {0.0f, 0.0f};
+  float under[2] = {0.0f, 0.0f};
+  bool have_eye = false;
+  float start_eye[3] = {0.0f, 0.0f, 0.0f};
+  double seconds = 0.0;
+  uint64_t frames = 0;
+  uint64_t moved = 0;
+} g_hold;
+// A frame of the smooth zoom counts at most this long, so a frame that took
+// long does not make a jump of the scale.
+const float kHoldFrameCap = 0.05f;
+// The check after a hold: this many frames after the stop, the log compares
+// the scale and the render head with the ones at the stop.
+const int kHoldCheckFrames = 30;
+struct HoldCheck {
+  int frames_left = 0;
+  float scale = 0.0f;
+  uint64_t version = 0;
+  bool have_eye = false;
+  float eye[3] = {0.0f, 0.0f, 0.0f};
+} g_hold_check;
+// The time of the last main camera call of the God view, in seconds, and 0
+// before the first one.
+double g_god_clock = 0.0;
+uint64_t g_holds = 0;
+double g_hold_seconds = 0.0;
+void StopZoomHold(const char* cause, bool view_stays);
 float g_god_last_scale = 0.0f;
 // A story holds the camera, and the God view stands aside.
 bool g_god_story = false;
@@ -931,6 +976,7 @@ bool PlaceGod(const char* cause, const float position[3],
   g_scale = to.scale;
   g_heading = to.heading;
   g_god_zoom = g_god_ground = g_god_turn = 0;
+  StopZoomHold("the view went to a camera of the game", false);
   g_tele.pending = false;
   g_pan = {};
   Derive();
@@ -1211,6 +1257,29 @@ void MousePan(bool drag) {
   ++g_pan.moved;
 }
 
+// THE POINT OF A ZOOM, for a zoom step and for the smooth zoom: the land
+// point straight under the head. A zoom keeps this point of the world at its
+// place in the room, so the player keeps their place in the world. The
+// height of the point in the room goes into the range of a step of the
+// ground first, so a hill that stands over the head goes down as the view
+// zooms out. This is the one place that chooses the point. below is how far
+// the point is below the head, in meters of the room.
+void GodZoomPoint(const TablePose& pose, const float room[3],
+                  const float head[3], float pivot[3], float* below) {
+  float at[3];
+  PoseWorld(pose, room, head, at);
+  const float land = GroundAt(at[0], at[2]);
+  float in_room = GroundInRoom(pose, room, land);
+  const float top = head[1] - kGroundNearest;
+  const float bottom = head[1] - kGroundFarthest;
+  if (in_room > top) in_room = top;
+  if (in_room < bottom) in_room = bottom;
+  pivot[0] = at[0];
+  pivot[1] = pose.center[1] + (in_room - room[1]) * pose.scale;
+  pivot[2] = at[2];
+  *below = head[1] - in_room;
+}
+
 // THE STEPS OF THE GOD VIEW, once a frame, at the main camera call: a snap
 // turn, a zoom step and a step of the ground, each at most once. Each one
 // is an instant step, never a glide. A step moves the land under the player
@@ -1245,23 +1314,15 @@ void ApplyGodSteps() {
   }
 
   if (zoom != 0) {
-    // The land under the head keeps its place in the room. Its height goes
-    // into the range of a step of the ground first, so a hill that stands
-    // over the head goes down as the view zooms out.
-    float at[3];
+    // The point of the zoom keeps its place in the room (GodZoomPoint).
+    float at[3], pivot[3], below = 0.0f;
     PoseWorld(pose, room, head, at);
-    const float land = GroundAt(at[0], at[2]);
-    float in_room = GroundInRoom(pose, room, land);
-    const float top = head[1] - kGroundNearest;
-    const float bottom = head[1] - kGroundFarthest;
-    if (in_room > top) in_room = top;
-    if (in_room < bottom) in_room = bottom;
-    const float pivot_y = pose.center[1] + (in_room - room[1]) * pose.scale;
+    GodZoomPoint(pose, room, head, pivot, &below);
     const float step = 1.0f + g_settings.god_zoom_pct * 0.01f;
     const float ratio = zoom > 0 ? 1.0f / step : step;
     const float before = pose.scale;
-    const float used = GodZoom(pose, room, head, pivot_y, ratio, GodLowest(),
-                               GodHighest(), &next);
+    const float used = GodZoomAbout(pose, pivot, ratio, GodLowest(),
+                                    GodHighest(), &next);
     if (used != 1.0f) {
       if (GodLog()) {
         float after[3];
@@ -1288,8 +1349,8 @@ void ApplyGodSteps() {
       if (GodLog()) {
         ModLog("god view     : zoomed %s, %.1f to %.1f units per meter, about "
                "the land at %.0f %.0f %.0f, %.2f m below your head",
-               zoom > 0 ? "in" : "out", before, pose.scale, at[0], pivot_y,
-               at[2], head[1] - in_room);
+               zoom > 0 ? "in" : "out", before, pose.scale, pivot[0],
+               pivot[1], pivot[2], below);
       }
     } else {
       ++g_god_refused;
@@ -1373,6 +1434,190 @@ void ApplyGodSteps() {
            g_heading * 57.29578f, g_god_version);
     Help(TeleportJumpEvent(), kInputButton);
   }
+}
+
+double Seconds() {
+  static LARGE_INTEGER frequency = {};
+  if (frequency.QuadPart == 0) QueryPerformanceFrequency(&frequency);
+  LARGE_INTEGER count;
+  QueryPerformanceCounter(&count);
+  return frequency.QuadPart > 0
+             ? static_cast<double>(count.QuadPart) / frequency.QuadPart
+             : GetTickCount64() / 1000.0;
+}
+
+// THE END OF A HOLD of the smooth zoom: the stick came back, or the view
+// cannot zoom. A request that waits is dropped. One log line gives the scale
+// at the start and at the end, the time of the frames of the hold, and how
+// far the land point under the head and the render head moved across. The
+// numbers are the ones of the last frame of the hold, so the view of now is
+// not read. The check of ApplyGodZoomHold starts.
+//
+// view_stays: the view stays where the hold left it, so its version goes up
+// one more time. The game camera then gets the place of the end of the hold,
+// and the pair of TabletopGodCameraWritten gets the scale of the end. It is
+// false when the view is built again.
+void StopZoomHold(const char* cause, bool view_stays) {
+  g_hold.fresh = false;
+  g_hold.push = 0.0f;
+  if (!g_hold.active) return;
+  g_hold.active = false;
+  ++g_holds;
+  g_hold_seconds += g_hold.seconds;
+  // A hold that changed nothing was at a limit of the scale.
+  if (g_hold.moved == 0) ++g_god_refused;
+  if (g_hold.moved != 0 && view_stays) ++g_god_version;
+  const bool at_limit = g_hold.direction > 0 ? g_hold.scale <= GodLowest()
+                                             : g_hold.scale >= GodHighest();
+  float eye[3] = {0.0f, 0.0f, 0.0f};
+  const bool have_eye = HeadCameraTableEye(eye);
+  g_hold_check.frames_left = kHoldCheckFrames;
+  g_hold_check.scale = g_hold.scale;
+  g_hold_check.version = g_god_version;
+  g_hold_check.have_eye = have_eye;
+  for (int i = 0; i < 3; ++i) g_hold_check.eye[i] = eye[i];
+  if (!GodLog()) return;
+  char drawn[96];
+  if (g_hold.have_eye && have_eye && g_hold.scale > 0.0f) {
+    const float dx = eye[0] - g_hold.start_eye[0];
+    const float dz = eye[2] - g_hold.start_eye[2];
+    sprintf_s(drawn, "the drawn head moved %.2f cm of the room",
+              sqrtf(dx * dx + dz * dz) / g_hold.scale * 100.0f);
+  } else {
+    sprintf_s(drawn, "the drawn head is not known");
+  }
+  const float ux = g_hold.under[0] - g_hold.start_under[0];
+  const float uz = g_hold.under[1] - g_hold.start_under[1];
+  ModLog("god view     : the smooth zoom stopped (%s). It zoomed %s from %.2f "
+         "to %.2f units per meter, which is %.2f zoom steps. The stick was "
+         "held for %.3f s, and the scale changed on %llu of %llu frames%s. "
+         "The land under your head was at %.1f %.1f and is at %.1f %.1f, "
+         "%.2f cm of the room apart, and %s.", cause,
+         g_hold.direction > 0 ? "in" : "out", g_hold.start_scale,
+         g_hold.scale,
+         zoom_math::Steps(g_hold.start_scale, g_hold.scale,
+                          1.0f + g_settings.god_zoom_pct * 0.01f),
+         g_hold.seconds, g_hold.moved, g_hold.frames,
+         at_limit ? ", and the zoom is at its limit" : "",
+         g_hold.start_under[0], g_hold.start_under[1], g_hold.under[0],
+         g_hold.under[1],
+         g_hold.scale > 0.0f
+             ? sqrtf(ux * ux + uz * uz) / g_hold.scale * 100.0f
+             : 0.0f,
+         drawn);
+}
+
+// THE SMOOTH ZOOM (god_zoom_smooth=1, docs/god-view.md, "The zoom"), once a
+// frame, at the main camera call. While the stick holds a zoom, the scale
+// changes by the ratio of the time of this frame (zoom_math.h), about the
+// point of a zoom step (GodZoomPoint), between the limits of the scale. The
+// pump of the controllers asks again before each frame
+// (TabletopGodZoomHold). A frame with no request changes nothing, so the zoom
+// stops in the frame in which the stick comes back, and nothing glides. The
+// scale changes here only, so each reader of a frame gets one scale.
+//
+// A frame that changes the scale sends the game's zoom event, as the game
+// does on each update in which its own camera zooms (0x0045C38E). There is no
+// blink.
+//
+// THE GAME CAMERA. The point of the zoom is the place of the game camera
+// (god_camera_at=1), so a hold does not move that place. The version of the
+// view goes up on the first frame that changes the scale, as for a zoom
+// step, and one more time at the end of the hold (StopZoomHold). So the game
+// camera is written at most two times for a hold, and not on each frame.
+//
+// The log has one line for the start of a hold, one for its end, and one for
+// the check kHoldCheckFrames frames later: the scale and the render head
+// then against the ones at the stop.
+void ApplyGodZoomHold(double frame_seconds) {
+  const float push = g_hold.fresh ? g_hold.push : 0.0f;
+  g_hold.fresh = false;
+  g_hold.push = 0.0f;
+  if (g_hold_check.frames_left > 0 && --g_hold_check.frames_left == 0 &&
+      GodLog()) {
+    float eye[3];
+    if (g_hold_check.version != g_god_version) {
+      ModLog("god view     : smooth zoom check, the view moved again in the "
+             "%d frames after the stop, so there is no check",
+             kHoldCheckFrames);
+    } else if (g_hold_check.have_eye && HeadCameraTableEye(eye) &&
+               g_scale > 0.0f) {
+      const float dx = eye[0] - g_hold_check.eye[0];
+      const float dz = eye[2] - g_hold_check.eye[2];
+      ModLog("god view     : smooth zoom check, %d frames after the stop the "
+             "scale is %.2f units per meter, and it was %.2f at the stop. "
+             "The drawn head moved %.2f cm of the room in those frames.",
+             kHoldCheckFrames, g_scale, g_hold_check.scale,
+             sqrtf(dx * dx + dz * dz) / g_scale * 100.0f);
+    } else {
+      ModLog("god view     : smooth zoom check, %d frames after the stop the "
+             "scale is %.2f units per meter, and it was %.2f at the stop",
+             kHoldCheckFrames, g_scale, g_hold_check.scale);
+    }
+  }
+  if (push == 0.0f) {
+    StopZoomHold("the stick asks for no zoom now", true);
+    return;
+  }
+  if (g_settings.god_zoom_smooth == 0) {
+    StopZoomHold("the steps are chosen", true);
+    return;
+  }
+  if ((CameraFeatures() & kFeatureZoom) == 0) {
+    StopZoomHold("the game turned its zoom switch off", true);
+    return;
+  }
+  const int direction = push > 0.0f ? 1 : -1;
+  if (g_hold.active && direction != g_hold.direction) {
+    StopZoomHold("the stick went the other way", true);
+  }
+  float room[3], head[3], under[3], pivot[3], below = 0.0f;
+  TableRoom(room);
+  HeadRoom(head);
+  const TablePose pose = Pose();
+  PoseWorld(pose, room, head, under);
+  GodZoomPoint(pose, room, head, pivot, &below);
+  const float step = 1.0f + g_settings.god_zoom_pct * 0.01f;
+  if (!g_hold.active) {
+    g_hold.active = true;
+    g_hold.direction = direction;
+    g_hold.start_scale = g_hold.scale = pose.scale;
+    g_hold.start_under[0] = g_hold.under[0] = under[0];
+    g_hold.start_under[1] = g_hold.under[1] = under[2];
+    g_hold.have_eye = HeadCameraTableEye(g_hold.start_eye);
+    g_hold.seconds = 0.0;
+    g_hold.frames = g_hold.moved = 0;
+    g_hold_check.frames_left = 0;
+    if (GodLog()) {
+      ModLog("god view     : the smooth zoom starts to zoom %s at %.2f units "
+             "per meter, about the land at %.0f %.0f %.0f, %.2f m below your "
+             "head. A full push changes the scale %.2f times in %d ms.",
+             direction > 0 ? "in" : "out", pose.scale, pivot[0], pivot[1],
+             pivot[2], below, step, g_settings.god_zoom_smooth_ms);
+    }
+  }
+  const float seconds = zoom_math::FrameSeconds(frame_seconds, kHoldFrameCap);
+  const float ratio = zoom_math::FrameRatio(
+      push, step, g_settings.god_zoom_smooth_ms * 0.001f, seconds);
+  ++g_hold.frames;
+  g_hold.seconds += seconds;
+  TablePose next;
+  const float used = GodZoomAbout(pose, pivot, ratio, GodLowest(),
+                                  GodHighest(), &next);
+  // At a limit of the scale, or in a frame with no time, nothing moves.
+  if (used == 1.0f) return;
+  for (int i = 0; i < 3; i += 2) g_center[i] = ClampMap(next.center[i]);
+  g_center[1] = next.center[1];
+  g_scale = next.scale;
+  Derive();
+  ++g_serial;
+  if (g_hold.moved == 0) ++g_god_version;
+  ++g_hold.moved;
+  g_hold.scale = g_scale;
+  PoseWorld(Pose(), room, head, under);
+  g_hold.under[0] = under[0];
+  g_hold.under[1] = under[2];
+  Help(kHelpZoom, kInputWheel);
 }
 
 // THE TELEPORT ON THE TABLE (play mode 3). The land point goes to the table
@@ -1576,6 +1821,7 @@ void __fastcall h_ClearMap(void* game, void* unused) {
   g_build_cause = "a load or a new game";
   g_pair.have = false;
   g_god_zoom = g_god_ground = g_god_turn = 0;
+  StopZoomHold("a load or a new game", false);
   g_tele.pending = false;
   g_spawn.pending = false;
   g_spawn.again = false;
@@ -1617,6 +1863,11 @@ void TabletopSetOptions(const TabletopSettings& settings) {
   if (g_settings.god_units_per_meter < 1) g_settings.god_units_per_meter = 1;
   if (g_settings.god_zoom_pct < 5) g_settings.god_zoom_pct = 5;
   if (g_settings.god_zoom_pct > 300) g_settings.god_zoom_pct = 300;
+  g_settings.god_zoom_smooth = g_settings.god_zoom_smooth != 0 ? 1 : 0;
+  if (g_settings.god_zoom_smooth_ms < 100) g_settings.god_zoom_smooth_ms = 100;
+  if (g_settings.god_zoom_smooth_ms > 5000) {
+    g_settings.god_zoom_smooth_ms = 5000;
+  }
   if (g_settings.god_step_cm < 1) g_settings.god_step_cm = 1;
   if (g_settings.god_step_cm > 50) g_settings.god_step_cm = 50;
   // At 8000 units per meter an arm of 70 cm is 5600 units, the reach of the
@@ -1685,6 +1936,18 @@ void TabletopInstall() {
              "camera, as before%s",
              g_settings.test_keys ? ". Ctrl and Numpad 0 change it" : "");
     }
+    if (g_settings.god_zoom_smooth != 0) {
+      ModLog("god view     : god_zoom_smooth=1. The stick zooms while it is "
+             "held, and a full push changes the scale %.2f times in %d ms "
+             "(god_zoom_smooth_ms)%s",
+             1.0f + g_settings.god_zoom_pct * 0.01f,
+             g_settings.god_zoom_smooth_ms,
+             g_settings.test_keys ? ". Ctrl, Shift and Insert change it" : "");
+    } else {
+      ModLog("god view     : god_zoom_smooth=0. One push of the stick is one "
+             "zoom step%s",
+             g_settings.test_keys ? ". Ctrl, Shift and Insert change it" : "");
+    }
     return;
   }
   Hook(kBlockCull, reinterpret_cast<void*>(&h_BlockCull),
@@ -1722,6 +1985,7 @@ void TabletopToggle() {
   g_build_cause = "Ctrl F11";
   g_owned = false;
   g_god_zoom = g_god_ground = g_god_turn = 0;
+  StopZoomHold("Ctrl F11", false);
   g_spawn.pending = false;
   g_spawn.again = false;
   g_pan = {};
@@ -1778,6 +2042,7 @@ bool TabletopCamera(const float asked_position[3], const float asked_focus[3],
       g_have_table = false;
       g_build_cause = window ? "the end of a cut scene" : "the end of a story";
       g_god_zoom = g_god_ground = g_god_turn = 0;
+      StopZoomHold("the God view stands aside", false);
       g_tele.pending = false;
       g_spawn.pending = false;
       g_spawn.again = false;
@@ -1789,6 +2054,20 @@ bool TabletopCamera(const float asked_position[3], const float asked_focus[3],
       ModLog("god view     : your camera is back, so the God view is too");
     }
     if (!GodLand()) return false;
+    // The time of this frame, for the smooth zoom.
+    const double clock = Seconds();
+    const double frame_seconds = g_god_clock > 0.0 ? clock - g_god_clock : 0.0;
+    g_god_clock = clock;
+    // The test god_zoom_test_toggle: the test key acts at one frame.
+    if (g_settings.god_zoom_test_toggle > 0 &&
+        ControllersFrameCount() ==
+            static_cast<uint64_t>(g_settings.god_zoom_test_toggle)) {
+      static bool done = false;
+      if (!done) {
+        done = true;
+        TabletopGodZoomSmoothToggle();
+      }
+    }
     if (g_zoom_probe.armed) {
       g_zoom_probe.armed = false;
       float eye[3];
@@ -1810,9 +2089,10 @@ bool TabletopCamera(const float asked_position[3], const float asked_focus[3],
     }
     // A move of the game camera to a new place, once, as one cut.
     ApplyGodSpawn(asked_position, asked_focus);
-    // The steps of the player, once a frame, before anything reads the view
-    // of this frame. Then the pan of the mouse.
+    // The steps of the player and the smooth zoom, once a frame, before
+    // anything reads the view of this frame. Then the pan of the mouse.
     ApplyGodSteps();
+    ApplyGodZoomHold(frame_seconds);
     MousePan(drag);
   } else {
     if (!FitLand()) return false;
@@ -2181,6 +2461,13 @@ void GodReport() {
            "%llu times, and %llu times it was there already (god_spawn=%d)",
            g_spawn_moves, g_spawn_same, g_settings.god_spawn);
   }
+  if (g_holds != 0) {
+    ModLog("god view     : the smooth zoom ran %llu times, for %.2f s in all "
+           "(god_zoom_smooth=%d)", g_holds, g_hold_seconds,
+           g_settings.god_zoom_smooth);
+  }
+  g_holds = 0;
+  g_hold_seconds = 0.0;
   g_spawn_moves = g_spawn_same = 0;
   g_pans = g_pan_moves = g_pan_held = g_switch_refused = 0;
   g_god_steps = g_god_refused = 0;
@@ -2370,6 +2657,58 @@ bool TabletopGodStep(int zoom, int ground) {
   return zoom != 0 || ground != 0;
 }
 
+// THE SMOOTH ZOOM: the request of the stick for the next frame
+// (ApplyGodZoomHold). The last request before a main camera call counts, and
+// that call uses it once.
+//
+// The smooth zoom keeps to the game's switch for the zoom (bit 4), as a zoom
+// step does. A refused request keeps nothing, and the caller gets false. The
+// stick then asks again only after it came back, so each refused push is
+// counted and logged once.
+bool TabletopGodZoomSmooth() {
+  return g_installed && g_settings.god && g_settings.god_zoom_smooth != 0;
+}
+
+bool TabletopGodZoomHold(float push) {
+  if (!TabletopGodZoomSmooth() || !TabletopGodOwnsView()) return false;
+  if (!(push == push) || push == 0.0f) return false;
+  if ((CameraFeatures() & kFeatureZoom) == 0) {
+    ++g_god_refused;
+    ++g_switch_refused;
+    if (GodLog()) {
+      ModLog("god view     : the game does not allow a zoom now (camera "
+             "switch 4 is off), so the view does not zoom");
+    }
+    StopZoomHold("the game turned its zoom switch off", true);
+    return false;
+  }
+  if (push > 1.0f) push = 1.0f;
+  if (push < -1.0f) push = -1.0f;
+  g_hold.push = push;
+  g_hold.fresh = true;
+  return true;
+}
+
+// THE TEST KEY of god_zoom_smooth (Ctrl, Shift and Insert, with
+// test_keys=1). The zoom of the stick changes between the steps and the
+// smooth zoom. The pointing controller gives a long pulse for the smooth zoom
+// and a short pulse for the steps. A hold that runs stops at once, and a
+// stick that is pushed must come back before it zooms.
+void TabletopGodZoomSmoothToggle() {
+  if (!g_installed || !g_settings.god || !g_settings.test_keys) return;
+  g_settings.god_zoom_smooth = g_settings.god_zoom_smooth != 0 ? 0 : 1;
+  if (g_settings.god_zoom_smooth == 0) {
+    StopZoomHold("the test key chose the steps", true);
+  }
+  ControllersGesturePulse(0.5f,
+                          g_settings.god_zoom_smooth != 0 ? 0.30f : 0.08f);
+  ModLog("test key     : god_zoom_smooth=%d. %s", g_settings.god_zoom_smooth,
+         g_settings.god_zoom_smooth != 0
+             ? "The stick zooms while it is held, and the zoom stops when the "
+               "stick comes back"
+             : "One push of the stick is one zoom step");
+}
+
 bool TabletopGodTurn(int direction, float degrees) {
   if (!TabletopGodOwnsView() || direction == 0 || !(degrees > 0.0f)) {
     return false;
@@ -2415,8 +2754,10 @@ bool TabletopGodGameCamera(float position[3], float focus[3],
       place[0] = under[0];
       place[1] = under[2];
     }
+    // The start of a hold of the smooth zoom has its own line, with the
+    // place and the scale.
     static int said = 0;
-    if (said < 40 && g_scale > 0.0f) {
+    if (said < 40 && g_scale > 0.0f && !g_hold.active) {
       ++said;
       ModLog("god view     : the game camera is over the %s at %.1f %.1f, %.1f "
              "units per meter",

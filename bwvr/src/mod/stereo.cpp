@@ -175,6 +175,7 @@ void TabletopApplyFrame();
 void TabletopToggle();
 void TabletopGodSpawnToggle();
 void TabletopGodCameraAtToggle();
+void TabletopGodZoomSmoothToggle();
 void TabletopReport();
 bool TabletopSweeping();
 // world_grab.cpp: moving around by grabbing the world.
@@ -542,6 +543,8 @@ bool GameHasFocus() {
 //   Numpad 1    the depth limit of the cut scene window goes off and on
 //   Ctrl Numpad 0  the God view follows the game camera or not, and goes to
 //               the game camera again (god_spawn, tabletop.cpp)
+//   Ctrl Shift Insert  the stick of the God view zooms in steps, or while it
+//               is held (god_zoom_smooth, tabletop.cpp)
 //
 // With play_mode=3, the tabletop mode, or play_mode=4, the God view, one
 // more for everyone:
@@ -561,10 +564,10 @@ bool GameHasFocus() {
 // values chosen. The ini keys stay, except the ones the launcher rewrites on
 // every save. See launcher.cpp, kRetiredKeys.
 void PollHotkeys() {
-  static bool down[4] = {false, false, false, false};
-  const int keys[4] = {VK_F11, VK_F12, VK_NUMPAD0, VK_NUMPAD1};
-  bool now[4];
-  for (int i = 0; i < 4; ++i) {
+  static bool down[5] = {false, false, false, false, false};
+  const int keys[5] = {VK_F11, VK_F12, VK_NUMPAD0, VK_NUMPAD1, VK_INSERT};
+  bool now[5];
+  for (int i = 0; i < 5; ++i) {
     now[i] = (GetAsyncKeyState(keys[i]) & 0x8000) != 0;
   }
   const bool shift = (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
@@ -609,10 +612,16 @@ void PollHotkeys() {
     }
     // An A/B of its depth limit.
     if (g_test_keys && now[3] && !down[3] && plain) CutsceneWindowDepthToggle();
+    // An A/B of the zoom of the stick in the God view (docs/god-view.md,
+    // "The zoom"). Ctrl and Insert with no Shift is the key of the ring of
+    // the teleport (teleport.cpp).
+    if (g_test_keys && now[4] && !down[4] && ctrl && shift) {
+      TabletopGodZoomSmoothToggle();
+    }
   }
   // Kept up to date without focus too, so a key that is already down when
   // the game comes to the front does not count as a new press.
-  for (int i = 0; i < 4; ++i) down[i] = now[i];
+  for (int i = 0; i < 5; ++i) down[i] = now[i];
 }
 
 // THE HEAD TRACKING SETUP, once. The render has to cover what the headset asks for,
