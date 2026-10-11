@@ -364,6 +364,7 @@ const int kSlotMultiplyTransform = 14;
 const int kSlotSetMaterial = 16;
 const int kSlotSetLight = 18;
 const int kSlotSetRenderState = 20;
+const int kSlotSetTexture = 35;
 const int kSlotApplyStateBlock = 39;
 const int kSlotLightEnable = 44;
 const int kSlotSetClipPlane = 46;
@@ -397,7 +398,7 @@ uint32_t g_break = kBreakOther;
 uint32_t g_run_format = 0;
 uint32_t g_run_vertices = 0;
 
-// One call of the game that sets a state. \`id\` is the place of the state, or
+// One call of the game that sets a state. `id` is the place of the state, or
 // kStates for a state that has no place.
 void CountState(uint32_t id, uintptr_t value, uint32_t cause) {
   FrameProfileCount(kFpcStateCalls, 1);
@@ -479,6 +480,15 @@ HRESULT WINAPI h_SetRenderState(void* self, DWORD state, DWORD value) {
   }
   return reinterpret_cast<HRESULT(WINAPI*)(void*, DWORD, DWORD)>(
       g_original[kSlotSetRenderState])(self, state, value);
+}
+
+HRESULT WINAPI h_SetTexture(void* self, DWORD stage, void* texture) {
+  if (g_states) {
+    CountState(stage < kStages ? kFirstTexture + stage : kStates,
+               reinterpret_cast<uintptr_t>(texture), kBreakTexture);
+  }
+  return reinterpret_cast<HRESULT(WINAPI*)(void*, DWORD, void*)>(
+      g_original[kSlotSetTexture])(self, stage, texture);
 }
 
 // The calls that end a run with no test of a value. Each argument of these
@@ -648,10 +658,14 @@ bool Install() {
   return any;
 }
 
-// The hooks of the state count. SetTexture and SetTextureStageState have the
-// hooks of texture_filter.cpp, and those hooks give their calls to the count.
+// The hooks of the state count. SetTextureStageState has the hook of
+// texture_filter.cpp, and that hook gives its calls to the count. With
+// filter_survey=1 that file has the hook of SetTexture too. The hook of
+// SetTexture here then fails, and the hook of that file gives its calls to
+// the count.
 void InstallStates() {
   HookSlot(kSlotSetRenderState, &h_SetRenderState, "SetRenderState");
+  HookSlot(kSlotSetTexture, &h_SetTexture, "SetTexture");
   HookSlot(kSlotBeginScene, &h_Scene<kSlotBeginScene>, "BeginScene");
   HookSlot(kSlotEndScene, &h_Scene<kSlotEndScene>, "EndScene");
   HookSlot(kSlotClear, &h_Clear, "Clear");
@@ -896,8 +910,8 @@ bool DrawProbeStates(bool on) {
   return true;
 }
 
-// texture_filter.cpp gives each call of the game for a texture and for a
-// stage state to the state count.
+// texture_filter.cpp gives each call of the game for a stage state to the
+// state count, and with filter_survey=1 each call for a texture.
 void DrawProbeTexture(DWORD stage, void* texture) {
   if (!g_states) return;
   CountState(stage < kStages ? kFirstTexture + stage : kStates,
