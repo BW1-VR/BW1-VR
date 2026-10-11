@@ -385,6 +385,21 @@ that moves while the Hand takes it.
     walk. The test projects each vertex again from its `rhw`. The draw probe
     and a picture of each eye then say which batches are wrong (the clip at
     the near plane, the sprites that face the eye, the flat interface).
+  - **Fewer draw calls.** The mod can give a row of draw calls with one state
+    to Direct3D as one draw call. The state count (`profile=3`, `backend.md`,
+    "Draw calls with one state") says that this makes 30 to 39 percent fewer
+    draw calls in scenes 1 to 5, and that it saves 1.3 to 1.9 ms of a frame at
+    the most. Not built. The gain is small: the merge copies each vertex, and
+    it must keep each state call of the game at its place.
+  - **A render thread for the Direct3D calls.** The Direct3D draw calls are
+    3.3 to 4.8 ms of a frame in scenes 1 to 5, and the game makes 3200 to 5400
+    state calls in a frame. A thread that gets a record of these calls and
+    gives them to Direct3D takes that time off the frame thread. With two
+    scene walks this is the largest gain that is left. Not built, and not
+    planned in detail. The hard parts: a texture that the game writes in the
+    middle of a scene walk, a state that the game reads back, the draws of
+    the mod itself, and the order of each call. With the merge of draw calls
+    the thread has less work.
   - **The other render ideas have a small gain.** A projection off the centre
     for each eye: a view of 70 to 98 degrees changes the walk by 4 percent
     (`backend.md`, "A wide view is nearly free"). So a narrower cull saves

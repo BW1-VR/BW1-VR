@@ -1129,6 +1129,38 @@ Scenes 3 to 5 have one write in each scene walk, and its `Lock` takes
 calls of `Lock` then take 0.6 ms together. That is 1.2 to 1.5 ms of a frame.
 The cause is not known (`roadmap.md`, N1).
 
+### Draw calls with one state
+
+The cost of a frame follows the count of the draw calls. The mod can give two
+draw calls that follow each other to Direct3D as one when the device has the
+same state at both. `profile=3` counts such rows of draw calls, the runs
+(`bench_run.ps1 -ProfileLevel 3`). The numbers of the six scenes, for both eye
+passes of a frame:
+
+| Scene | Draw calls | Runs | Fewer draw calls | Runs that start at a change of a texture only | Runs that start at a change of a render state or of a stage state | State calls of the game |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | 1991 | 1224 | 38.5 percent | 220 | 952 | 3247 |
+| 2 | 2485 | 1542 | 37.9 percent | 232 | 1267 | 3991 |
+| 3 | 2868 | 1774 | 38.1 percent | 247 | 1475 | 4843 |
+| 4 | 2916 | 1795 | 38.4 percent | 246 | 1492 | 4905 |
+| 5 | 2789 | 1966 | 29.5 percent | 273 | 1639 | 5351 |
+| 6 | 306 | 272 | 11.2 percent | 92 | 137 | 630 |
+
+- Two runs gave the same counts, within 3 draw calls and 5 state calls.
+- Each draw call is a triangle list, so a merge needs only new index values.
+- Each state call of the game changes a value: the game makes no call that
+  sets a state to the value that it has. So a filter of such calls saves
+  nothing.
+- A draw call takes 1.6 to 1.7 microseconds in Direct3D. If a merged draw
+  call costs as much as one draw call, the merge saves 1.3 to 1.9 ms of a
+  frame in scenes 1 to 5. That is 12 to 16 percent of the two eye passes (9.2
+  to 11.7 ms with this measure at 2880 by 2880), and 30 to 39 percent of the
+  time in the Direct3D draw calls (3.3 to 4.8 ms). The copy of each vertex
+  for the merge comes off that gain. So the merge does not take the place of
+  a render thread.
+- The count does not see a texture that the game writes between two draw
+  calls with the same texture.
+
 ### The slow frames
 
 A session at 90 Hz has frames of 11 ms. A frame of 31 or 52 ms there has a
