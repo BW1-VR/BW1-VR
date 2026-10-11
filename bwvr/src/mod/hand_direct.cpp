@@ -3016,10 +3016,12 @@ bool StepSendsPackets(uint8_t* face) {
 // and a short pulse for off. The key is read only while a window of the game
 // is in front, and the mod does not take it from the game. F11 and F12 have
 // no free combination left (stereo.cpp, PollHotkeys), and Scroll Lock is the
-// A/B key of the throw law.
+// A/B key of the throw law. Ctrl must be up: Ctrl and the star key is the key
+// of the flight of a camera in the Temple (temple.cpp).
 void PollReleaseKey() {
   if (!g_release_key) return;
-  const bool down = (GetAsyncKeyState(VK_MULTIPLY) & 0x8000) != 0;
+  const bool down = (GetAsyncKeyState(VK_MULTIPLY) & 0x8000) != 0 &&
+                    (GetAsyncKeyState(VK_CONTROL) & 0x8000) == 0;
   const bool pressed = down && !g_release_key_down;
   g_release_key_down = down;
   if (!pressed) return;

@@ -356,6 +356,12 @@ steps. The ring of the Temple goes to each room too, and it has the
 way out. Set temple_pointer=0 in bwvr.ini to point with the place of
 your hand in the view.
 
+When you go into the Temple or into a room, you are at your place in
+the room at once. The game makes a flight of its camera to that
+place, and the mod ends the flight in one cut, because the flight
+turns the room about you. Set temple_camera_flight=1 in bwvr.ini for
+the flight of the game.
+
 To save in the Save Game Room, click an empty picture two times and
 then click OK. The save has no message, because the text line needs
 a keyboard. To load, click the picture of the save and then Yes.

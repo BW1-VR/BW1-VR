@@ -18,6 +18,11 @@
 // space turns the camera of the room about the player. With temple_click=1
 // the trigger and the grip are both the Action button.
 //
+// THE CAMERA. The head is on the camera of the room. So the camera must not
+// move by itself: it does not turn to the pointer, a press on empty space
+// does not turn it, and it does not fly to its rest pose when the player
+// comes into a room (temple_math.h, "The flight of the camera of a room").
+//
 // This file reads the game, keeps the depth, writes the log and holds the
 // test keys. controllers.cpp asks it for the mode and the depth.
 
@@ -39,6 +44,12 @@ extern void ModLog(const char* format, ...);
 
 // head_camera.cpp
 bool HeadCameraGameCamera(float position[3], float focus[3]);
+bool HeadCameraOn();
+// comfort_camera.cpp: a moment of black at a cut, when the player asked for
+// one.
+void ComfortCameraBlink();
+// spirit_anchor.cpp: the view jumped, so place the spirits again.
+void SpiritAnchorCameraCut();
 // head_pose.cpp: one turn of the room about the head, and a number that
 // changes each time the origin of the room changes.
 bool HeadPoseTurn(float degrees);
@@ -72,6 +83,7 @@ const int kRoomEntryCount = 0x2C;
 const int kRoomDrag = 0x7C;               // 0 no drag, 1 a control, 2 the camera
 const int kRoomUnder = 0xC8;              // the sub mesh under the pointer
 const int kRoomPicked = 0xCC;             // the same, of the last draw
+const int kRoomCamera = 0xC4;             // the InnerCamera of the room
 // SubOptionEntry: the vtable, and the sub mesh of the control at +4.
 const int kEntrySubMesh = 0x04;
 // The point of the room under the pointer, 3 floats (TempleRoom::Draw).
@@ -87,6 +99,27 @@ const uintptr_t kProcessMouse = 0x007947C0;
 // InnerCamera::Update, thiscall (room, seconds, held, action, pixel, drag),
 // ret 0x18. Each camera of a room calls it.
 const uintptr_t kCameraUpdate = 0x00796B60;
+// InnerCamera. The state is 0 in the flight of the entry, 1 in the room, 3
+// on the way through a door and 4 while the camera looks at a sub mesh.
+const int kCameraState = 0x124;
+const int kCameraFlightClock = 0x3CC;     // seconds of the flight, a float
+const int kCameraBlendClock = 0x3D0;      // seconds since the entry, a float
+const int kCameraPath = 0x43C;            // the path: its length in ms at +4
+const int kCameraSize = 0x440;
+// The 6 Zoomer objects of the camera: the place (x, y, z) and the point that
+// it looks at. A Zoomer has its value at +0 and its target at +4.
+const int kCameraZoomers[6] = {0x04, 0x34, 0x64, 0x94, 0xC4, 0xF4};
+const int kZoomerTarget = 0x04;
+// Zoomer::SetDestinationWithSpeedAndTime, thiscall (value, speed, seconds),
+// ret 0xC. With less than 1 ms the Zoomer takes the value at once.
+const uintptr_t kZoomerSet = 0x00407D60;
+// The second function of the camera: InnerCamera::PreDraw, thiscall with no
+// argument. It gives the camera to the engine (LH3DTech::UpdateCamera).
+const int kCameraPreDraw = 1;
+// The frame time of the game in ms (LH3DTech::g_delta_time).
+const uintptr_t kFrameTime = 0x00C38134;
+// The fade of the Temple: 1 and more is black, 0 is clear.
+const uintptr_t kFade = 0x00C2A150;
 
 const char* const kRoomName[7] = {
     "the hall", "the Creature Room", "the Challenge Room",
@@ -100,6 +133,7 @@ int g_pointer = 1;        // temple_pointer
 int g_click = 1;          // temple_click
 int g_camera_drag = 0;    // temple_camera_drag
 int g_camera_follow = 0;  // temple_camera_follow
+int g_camera_flight = 0;  // temple_camera_flight
 int g_turn = 1;           // temple_turn
 int g_depth_cm = 300;     // temple_pointer_depth_cm
 bool g_test_keys = false;
@@ -114,6 +148,8 @@ int g_taps = 1;              // temple_taps
 int g_test_taps_frame = 0;   // before this frame temple_taps is 0
 bool g_test_door_on = false; // temple_test_door_on: the story flag of the door
 int g_test_enter_frame = 0;  // at this frame the Enter key goes to a dialog box
+int g_camera_trace = 0;      // temple_test_camera_trace
+int g_test_flight_frame = 0; // at this frame the key of the flight acts
 char g_targets[256] = "";    // temple_test_targets
 
 bool IniPath(char path[MAX_PATH]) {
@@ -139,6 +175,7 @@ void Load() {
   g_click = IniInt("temple_click", 1) != 0 ? 1 : 0;
   g_camera_drag = IniInt("temple_camera_drag", 0) != 0 ? 1 : 0;
   g_camera_follow = IniInt("temple_camera_follow", 0) != 0 ? 1 : 0;
+  g_camera_flight = IniInt("temple_camera_flight", 0) != 0 ? 1 : 0;
   g_turn = IniInt("temple_turn", 1) != 0 ? 1 : 0;
   g_depth_cm = IniInt("temple_pointer_depth_cm", 300);
   if (g_depth_cm < 50) g_depth_cm = 50;
@@ -153,6 +190,8 @@ void Load() {
   g_test_taps_frame = IniInt("temple_test_taps_frame", 0);
   g_test_door_on = IniInt("temple_test_door_on", 0) != 0;
   g_test_enter_frame = IniInt("temple_test_enter_frame", 0);
+  g_camera_trace = IniInt("temple_test_camera_trace", 0) != 0 ? 1 : 0;
+  g_test_flight_frame = IniInt("temple_test_flight_frame", 0);
   ModLog("temple       : temple_taps=%d. %s", g_taps,
          g_taps != 0
              ? "On the land the three leash posts at the Temple are "
@@ -198,6 +237,13 @@ void Load() {
              : "The camera of a room does not turn to the place of the "
                "pointer. It gets the pointer only for a press on empty "
                "space, and a door is such a place");
+  ModLog("temple       : temple_camera_flight=%d. %s", g_camera_flight,
+         g_camera_flight != 0
+             ? "When you come into a room, the camera of the room flies to "
+               "its rest pose, as in the plain game"
+             : "When you come into a room, the camera of the room is at its "
+               "rest pose at once: the mod ends the flight of the game in "
+               "one cut");
 }
 
 // --- what the game says on this frame -----------------------------------------
@@ -711,6 +757,246 @@ bool CameraFollows() {
 bool g_press_latched = false;
 int g_press_pixel[2] = {0, 0};
 uint64_t g_neutral_frames = 0;
+// For the trace of the camera: the calls since its last line, the seconds
+// that they gave, and the flags of the last call.
+uint64_t g_camera_updates = 0;
+float g_update_seconds = 0.0f;
+int g_update_held = 0, g_update_drag = 0;
+
+// THE FLIGHT OF THE CAMERA OF A ROOM (temple_math.h). The game starts the
+// flight when the player comes into the Temple (Temple::InitEngine) and
+// after the way through a door (Temple::Update). Temple::GoToRoom, for a
+// room from the ring and for Esc in a room, starts the flight and ends it in
+// the same call. The first update of a camera in its flight is the place of
+// the cut:
+//  1. The mod sets the two clocks of the flight to its end.
+//  2. The update of the game runs. Its own test ends the flight: it asks for
+//     the pose at the end of the path, and the camera takes the state of the
+//     room.
+//  3. The mod updates the camera some more times with 1 s, with no button
+//     and with the pointer at the middle of the view. Temple::GoToRoom does
+//     this two times. In the state of the room a camera goes on to its rest
+//     pose, and these updates bring it there.
+//  4. The mod puts each Zoomer of the camera at its target with the function
+//     of the game, so the camera is at the rest pose and does not go there.
+//  5. The mod calls PreDraw of the camera again. The game calls it at the
+//     start of an update, so the engine has the pose of before. The draw of
+//     this frame comes after the update, and it must have the rest pose.
+// The fade of the Temple is black at each entry, so the player sees the room
+// come out of black at the rest pose.
+typedef void(__fastcall* ZoomerSetFn)(void* self, void* unused, float value,
+                                      float speed, float seconds);
+typedef void(__fastcall* PreDrawFn)(void* self, void* unused);
+
+struct Flight {
+  bool cut;            // this update ends a flight
+  unsigned path_ms;
+  float clock;         // the flight clock before the cut
+  float position[3];   // the camera before the cut
+  float focus[3];
+};
+bool g_camera_cut = false;     // for the watch: a cut is not a move
+uint64_t g_flights_ended = 0;
+int g_flight_logs = 0;
+const int kMaxFlightLogs = 60;
+
+// The room of the Temple that has this camera, 0 to 6, and -1 for none.
+int RoomOfCamera(const uint8_t* camera) {
+  uint8_t* game = Game();
+  if (game == nullptr || IsBadReadPtr(game + kGameTemple, 4)) return -1;
+  uint8_t* temple = *reinterpret_cast<uint8_t* const*>(game + kGameTemple);
+  if (temple == nullptr || IsBadReadPtr(temple, kTempleRoomNow + 4)) return -1;
+  for (int i = 0; i < 7; ++i) {
+    const uint8_t* room = *reinterpret_cast<uint8_t* const*>(temple + 4 * i);
+    if (room == nullptr || IsBadReadPtr(room + kRoomCamera, 4)) continue;
+    if (*reinterpret_cast<uint8_t* const*>(room + kRoomCamera) == camera) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+void CameraPose(const uint8_t* camera, float position[3], float focus[3]) {
+  for (int i = 0; i < 3; ++i) {
+    position[i] = *reinterpret_cast<const float*>(camera + kCameraZoomers[i]);
+    focus[i] =
+        *reinterpret_cast<const float*>(camera + kCameraZoomers[3 + i]);
+  }
+}
+
+// Before the update of the game. The player is in the Temple by the word of
+// the game, and not by the latch of the frame: the first update of a visit
+// comes before the first TempleFrame of the visit.
+void FlightBefore(uint8_t* camera, Flight* flight) {
+  flight->cut = false;
+  uint8_t* game = Game();
+  if (camera == nullptr || game == nullptr || !HeadCameraOn() ||
+      IsBadReadPtr(game + kGameInTemple, 4) ||
+      *reinterpret_cast<const int32_t*>(game + kGameInTemple) != 1 ||
+      IsBadWritePtr(camera, kCameraSize)) {
+    return;
+  }
+  const uint8_t* path = *reinterpret_cast<uint8_t* const*>(camera + kCameraPath);
+  const bool have_path = path != nullptr && !IsBadReadPtr(path, 12);
+  const int state = *reinterpret_cast<const int32_t*>(camera + kCameraState);
+  if (!temple_math::FlightCut(g_camera_flight, state, have_path)) return;
+  flight->cut = true;
+  flight->path_ms = reinterpret_cast<const uint32_t*>(path)[1];
+  float* clock = reinterpret_cast<float*>(camera + kCameraFlightClock);
+  float* blend = reinterpret_cast<float*>(camera + kCameraBlendClock);
+  flight->clock = *clock;
+  CameraPose(camera, flight->position, flight->focus);
+  const temple_math::FlightClocks end =
+      temple_math::FlightClocksAtEnd(flight->path_ms, *blend);
+  *clock = end.flight;
+  *blend = end.blend;
+}
+
+// THE SETTLE. Brings a camera in the state of the room to its rest pose, in
+// this update: the steps 3 to 5 of the cut. room and pixel are the arguments
+// of the update of the game. The pointer of these updates is at the middle
+// of the view, so the camera of the hall does not turn to it.
+void SettleCamera(uint8_t* camera, void* room, const int* pixel) {
+  int middle[2] = {0, 0};
+  const bw::tech::InfoTransform* info =
+      reinterpret_cast<const bw::tech::InfoTransform*>(
+          bw::tech::kInfoTransform);
+  if (!IsBadReadPtr(info, sizeof(*info)) && info->half_res_x > 0.0f &&
+      info->half_res_y > 0.0f) {
+    middle[0] = static_cast<int>(info->half_res_x);
+    middle[1] = static_cast<int>(info->half_res_y);
+    pixel = middle;
+  }
+  for (int i = 0; i < temple_math::kFlightSettleUpdates; ++i) {
+    o_CameraUpdate(camera, nullptr, room, temple_math::kFlightSettleSeconds, 0,
+                   0, pixel, 0);
+  }
+  const ZoomerSetFn set = reinterpret_cast<ZoomerSetFn>(kZoomerSet);
+  for (int i = 0; i < 6; ++i) {
+    uint8_t* zoomer = camera + kCameraZoomers[i];
+    set(zoomer, nullptr,
+        *reinterpret_cast<const float*>(zoomer + kZoomerTarget), 0.0f, 0.0f);
+  }
+  void** table = *reinterpret_cast<void** const*>(camera);
+  if (table != nullptr && !IsBadReadPtr(table, 8)) {
+    reinterpret_cast<PreDrawFn>(table[kCameraPreDraw])(camera, nullptr);
+  }
+  SpiritAnchorCameraCut();
+  g_camera_cut = true;
+}
+
+// After the update of the game. room and pixel are the arguments of that
+// update.
+void FlightAfter(uint8_t* camera, const Flight& flight, void* room,
+                 const int* pixel) {
+  if (!flight.cut) return;
+  int state = *reinterpret_cast<const int32_t*>(camera + kCameraState);
+  if (state == temple_math::kCameraFlight) {
+    // The game did not end the flight. The next update asks again.
+    static bool said = false;
+    if (!said) {
+      said = true;
+      ModLog("temple       : the game did not end the flight of the camera of "
+             "%s with the clock at %.2f s (the path is %.2f s long), frame "
+             "%llu", RoomName(RoomOfCamera(camera)),
+             *reinterpret_cast<const float*>(camera + kCameraFlightClock),
+             flight.path_ms * 0.001f, g_frame);
+    }
+    return;
+  }
+  // The place that the game asked for at the end of the path, for the log.
+  float path_end[3];
+  for (int i = 0; i < 3; ++i) {
+    path_end[i] = *reinterpret_cast<const float*>(
+        camera + kCameraZoomers[i] + kZoomerTarget);
+  }
+  SettleCamera(camera, room, pixel);
+  state = *reinterpret_cast<const int32_t*>(camera + kCameraState);
+  // A click in the flight is the skip of the game: it ends the flight and
+  // makes the Temple black, and the room then comes out of black
+  // (0x007962B6). The mod does the same when the Temple is not black now:
+  // that is the case after the way through a door.
+  float* fade = reinterpret_cast<float*>(kFade);
+  if (!IsBadWritePtr(fade, sizeof(float)) && *fade < 1.0f) *fade = 1.0f;
+  ComfortCameraBlink();
+  ++g_flights_ended;
+  if (g_flight_logs >= kMaxFlightLogs) return;
+  ++g_flight_logs;
+  float position[3], focus[3];
+  CameraPose(camera, position, focus);
+  float heading = 0.0f, pitch = 0.0f, heading_before = 0.0f,
+        pitch_before = 0.0f;
+  temple_math::HeadingPitch(position, focus, &heading, &pitch);
+  temple_math::HeadingPitch(flight.position, flight.focus, &heading_before,
+                            &pitch_before);
+  ModLog("temple       : the camera of %s does not fly to its rest pose "
+         "(temple_camera_flight=0). The mod ends the flight of the game in "
+         "one cut: the clock of the flight was at %.2f s of %.2f s. The "
+         "camera is at %.2f %.2f %.2f with a heading of %.1f degrees and a "
+         "pitch of %.1f degrees, which is %.1f degrees and %.2f units from "
+         "its pose before the cut. The path ends at %.2f %.2f %.2f, and %d "
+         "updates of %.0f s brought the camera %.2f units from there to its "
+         "rest pose. It has the state %d, and the fade of the Temple is "
+         "%.2f, frame %llu", RoomName(RoomOfCamera(camera)), flight.clock,
+         temple_math::FlightEndSeconds(flight.path_ms), position[0],
+         position[1], position[2], heading, pitch,
+         temple_math::SightAngle(heading_before, pitch_before, heading, pitch),
+         temple_math::Distance(position, flight.position), path_end[0],
+         path_end[1], path_end[2], temple_math::kFlightSettleUpdates,
+         temple_math::kFlightSettleSeconds,
+         temple_math::Distance(position, path_end), state,
+         *reinterpret_cast<const float*>(kFade), g_frame);
+}
+
+// AFTER A CHANGE OF THE ROOM BY THE GAME. Temple::GoToRoom (a room from the
+// ring, Esc in a room) ends the flight of the new camera itself: it asks for
+// the state of the room and updates the camera two times with 1 s. In a room
+// with pictures that leaves a part of the way to the rest pose, and the
+// camera then goes on with the time of each frame. So the first update of a
+// camera after a different camera gets the settle too. The Temple is black
+// then (the fade of GoToRoom).
+uint64_t g_room_settles = 0;
+
+void RoomChangeAfter(uint8_t* camera, bool new_camera, const Flight& flight,
+                     void* room, const int* pixel) {
+  uint8_t* game = Game();
+  if (camera == nullptr || game == nullptr || !HeadCameraOn() ||
+      IsBadReadPtr(game + kGameInTemple, 4) ||
+      *reinterpret_cast<const int32_t*>(game + kGameInTemple) != 1 ||
+      IsBadWritePtr(camera, kCameraSize)) {
+    return;
+  }
+  const int state = *reinterpret_cast<const int32_t*>(camera + kCameraState);
+  if (!temple_math::SettleAfterRoomChange(g_camera_flight, new_camera,
+                                          flight.cut, state)) {
+    return;
+  }
+  float before[3], before_focus[3];
+  CameraPose(camera, before, before_focus);
+  SettleCamera(camera, room, pixel);
+  ++g_room_settles;
+  if (g_flight_logs >= kMaxFlightLogs) return;
+  ++g_flight_logs;
+  float position[3], focus[3];
+  CameraPose(camera, position, focus);
+  float heading = 0.0f, pitch = 0.0f, heading_before = 0.0f,
+        pitch_before = 0.0f;
+  temple_math::HeadingPitch(position, focus, &heading, &pitch);
+  temple_math::HeadingPitch(before, before_focus, &heading_before,
+                            &pitch_before);
+  ModLog("temple       : the game changed the room to %s and ended the "
+         "flight of its camera itself. The mod brings the camera to its rest "
+         "pose in the same update (temple_camera_flight=0): %d updates of "
+         "%.0f s moved it %.2f units and %.1f degrees. It is at %.2f %.2f "
+         "%.2f with a heading of %.1f degrees and a pitch of %.1f degrees, "
+         "and the fade of the Temple is %.2f, frame %llu",
+         RoomName(RoomOfCamera(camera)), temple_math::kFlightSettleUpdates,
+         temple_math::kFlightSettleSeconds,
+         temple_math::Distance(position, before),
+         temple_math::SightAngle(heading_before, pitch_before, heading, pitch),
+         position[0], position[1], position[2], heading, pitch,
+         *reinterpret_cast<const float*>(kFade), g_frame);
+}
 
 void __fastcall h_CameraUpdate(void* self, void* unused, void* room,
                                float seconds, int held, int action,
@@ -719,7 +1005,11 @@ void __fastcall h_CameraUpdate(void* self, void* unused, void* room,
   static int said = 0;
   const int drag_now = drag & 0xFF;
   int given[2] = {0, 0};
-  if (g_ray_on && ControllersOwnPointer() && pixel != nullptr) {
+  // While a guide plays the ray is off, and the room gives the camera no
+  // button. The camera of the room can have the state of the room then, so
+  // it gets the middle of the view as it does with the ray on.
+  const bool guide = g_facts.inside && g_facts.guide;
+  if ((g_ray_on || guide) && ControllersOwnPointer() && pixel != nullptr) {
     const bool down =
         (*reinterpret_cast<const uint8_t*>(kMouseHeld) & 3) != 0;
     if (drag_now != 0 && down) {
@@ -758,7 +1048,20 @@ void __fastcall h_CameraUpdate(void* self, void* unused, void* room,
   }
   held_before = held;
   drag_before = drag_now;
+  ++g_camera_updates;
+  if (g_camera_trace != 0) g_update_seconds += seconds;
+  g_update_held = held;
+  g_update_drag = drag_now;
+  // The first update of a camera after a different camera: a new room.
+  static uint8_t* camera_before = nullptr;
+  uint8_t* camera = static_cast<uint8_t*>(self);
+  const bool new_camera = camera != camera_before;
+  camera_before = camera;
+  Flight flight;
+  FlightBefore(camera, &flight);
   o_CameraUpdate(self, unused, room, seconds, held, action, pixel, drag);
+  FlightAfter(camera, flight, room, pixel);
+  RoomChangeAfter(camera, new_camera, flight, room, pixel);
 }
 
 // --- the taps on the land -------------------------------------------------------
@@ -1038,7 +1341,8 @@ void Install() {
           "Temple::ProcessMouse (the log of the Temple)");
   HookOne(kCameraUpdate, &h_CameraUpdate,
           reinterpret_cast<void**>(&o_CameraUpdate),
-          "InnerCamera::Update (the drag of the camera of a room)");
+          "InnerCamera::Update (the drag and the flight of the camera of a "
+          "room)");
   HookOne(kHeartOffers, &h_HeartOffers,
           reinterpret_cast<void**>(&o_HeartOffers),
           "the leash posts of a Temple (the taps on the land)");
@@ -1054,70 +1358,147 @@ float g_camera_position[3], g_camera_yaw = 0.0f, g_camera_pitch = 0.0f;
 bool g_camera_moving = false;
 int g_camera_still = 0;
 uint64_t g_move_start = 0;
-float g_move_position[3], g_move_yaw = 0.0f, g_move_pitch = 0.0f;
+temple_math::CameraMove g_move = {};
 int g_move_held = 0, g_move_drag = 0;
 int g_camera_logs = 0;
 const int kMaxCameraLogs = 60;
 uint64_t g_camera_moves = 0;
 
-float WrapDegrees(float d) {
-  while (d > 180.0f) d -= 360.0f;
-  while (d < -180.0f) d += 360.0f;
-  return d;
+// One line for a move of the camera that is over: the camera was still for
+// 10 frames, or the watch ends (a guide, a different room, a cut, the way
+// out).
+void MoveEnds(int room, uint64_t last_frame) {
+  if (!g_camera_moving) return;
+  g_camera_moving = false;
+  ++g_camera_moves;
+  if (g_camera_logs >= kMaxCameraLogs) return;
+  ++g_camera_logs;
+  float side = 0.0f, up = 0.0f, went = 0.0f;
+  temple_math::MoveNet(g_move, &side, &up, &went);
+  ModLog("temple       : the camera of %s moved from frame %llu to frame "
+         "%llu: it turned %.1f degrees to the side and %.1f degrees up, and "
+         "it went %.2f units. Along its path it turned %.1f degrees in all "
+         "and went %.2f units. At the start the mouse object held %s, and "
+         "the drag of the room was %d", RoomName(room), g_move_start,
+         last_frame, side, up, went, g_move.turned, g_move.path,
+         HeldName(g_move_held), g_move_drag);
 }
 
 void WatchCamera(const Facts& f) {
   float position[3], focus[3];
   // A different room has a different camera: that is a cut, and not a move.
+  // The end of a flight by the mod is a cut too.
   static int room_before = -2;
   const bool new_room = f.room != room_before;
+  const int room_of_move = room_before;
   room_before = f.room;
-  if (!f.inside || f.guide || new_room ||
+  const bool cut = g_camera_cut;
+  g_camera_cut = false;
+  if (!f.inside || f.guide || new_room || cut ||
       !HeadCameraGameCamera(position, focus)) {
+    MoveEnds(room_of_move, g_frame > 0 ? g_frame - 1 : 0);
     g_have_camera = false;
-    g_camera_moving = false;
     return;
   }
-  const float d[3] = {focus[0] - position[0], focus[1] - position[1],
-                      focus[2] - position[2]};
-  const float flat = sqrtf(d[0] * d[0] + d[2] * d[2]);
-  const float yaw = atan2f(d[0], d[2]) * 57.29578f;
-  const float pitch = atan2f(d[1], flat) * 57.29578f;
+  float yaw = 0.0f, pitch = 0.0f;
+  temple_math::HeadingPitch(position, focus, &yaw, &pitch);
   if (g_have_camera) {
     const bool moved =
-        fabsf(WrapDegrees(yaw - g_camera_yaw)) > 0.02f ||
+        fabsf(temple_math::WrapDegrees(yaw - g_camera_yaw)) > 0.02f ||
         fabsf(pitch - g_camera_pitch) > 0.02f ||
         temple_math::Distance(position, g_camera_position) > 0.01f;
     if (moved && !g_camera_moving) {
       g_camera_moving = true;
       g_move_start = g_frame;
-      g_move_yaw = g_camera_yaw;
-      g_move_pitch = g_camera_pitch;
-      for (int i = 0; i < 3; ++i) g_move_position[i] = g_camera_position[i];
+      temple_math::MoveStart(&g_move, g_camera_yaw, g_camera_pitch,
+                             g_camera_position);
       g_move_held = f.held;
       g_move_drag = f.drag;
     }
+    if (g_camera_moving) temple_math::MoveStep(&g_move, yaw, pitch, position);
     if (moved) g_camera_still = 0;
     if (!moved && g_camera_moving && ++g_camera_still >= 10) {
-      g_camera_moving = false;
-      ++g_camera_moves;
-      if (g_camera_logs < kMaxCameraLogs) {
-        ++g_camera_logs;
-        ModLog("temple       : the camera of %s moved from frame %llu to "
-               "frame %llu: it turned %.1f degrees to the side and %.1f "
-               "degrees up, and it went %.2f units. At the start the mouse "
-               "object held %s, and the drag of the room was %d",
-               RoomName(f.room), g_move_start, g_frame - 10,
-               WrapDegrees(yaw - g_move_yaw), pitch - g_move_pitch,
-               temple_math::Distance(position, g_move_position),
-               HeldName(g_move_held), g_move_drag);
-      }
+      MoveEnds(f.room, g_frame - 10);
     }
   }
   g_have_camera = true;
   g_camera_yaw = yaw;
   g_camera_pitch = pitch;
   for (int i = 0; i < 3; ++i) g_camera_position[i] = position[i];
+}
+
+// --- the trace of the camera of the room (a test key) ------------------------------
+//
+// temple_test_camera_trace=1: while the player is in the Temple, one line for
+// each second with the state of the camera of the room and its pose: the
+// state, the clock of the flight and the length of its path, the fade of the
+// Temple, the 6 Zoomers (the place and the point that the camera looks at),
+// the line of sight, and what the pointer of the camera is on (1 the pool, 2
+// the floor, 3 a wall). The hall has the turn and the height of its camera
+// (0x470 and 0x4A0). The last numbers are the updates of the camera since
+// the line before, the seconds that the game gave them, and the frame time
+// of the game as this frame finds it (LH3DTech::g_delta_time).
+//
+// One more line for each change of that frame time, also on the land.
+
+void TraceCamera(const Facts& f) {
+  if (g_camera_trace == 0) return;
+  static ULONGLONG next = 0, entered = 0;
+  static uint32_t frame_ms_before = 0xFFFFFFFFu;
+  static int changes = 0;
+  const uint32_t frame_ms = *reinterpret_cast<const uint32_t*>(kFrameTime);
+  if (frame_ms != frame_ms_before && changes < 40) {
+    ++changes;
+    ModLog("temple trace : the frame time of the game is %u ms at the start "
+           "of the two eye passes (it was %u ms), frame %llu, %s", frame_ms,
+           frame_ms_before == 0xFFFFFFFFu ? 0 : frame_ms_before, g_frame,
+           f.inside ? "in the Temple" : "on the land");
+  }
+  frame_ms_before = frame_ms;
+  if (!f.inside || f.object == nullptr) {
+    next = 0;
+    return;
+  }
+  const ULONGLONG now = GetTickCount64();
+  if (next == 0) entered = now;
+  if (now < next) return;
+  next = now + 1000;
+  const uint8_t* camera =
+      *reinterpret_cast<uint8_t* const*>(f.object + kRoomCamera);
+  if (camera == nullptr || IsBadReadPtr(camera, 0x4E0)) return;
+  const auto F = [camera](int at) {
+    return *reinterpret_cast<const float*>(camera + at);
+  };
+  const auto I = [camera](int at) {
+    return *reinterpret_cast<const int32_t*>(camera + at);
+  };
+  const uint8_t* path = *reinterpret_cast<uint8_t* const*>(camera + kCameraPath);
+  const uint32_t path_ms = path != nullptr && !IsBadReadPtr(path, 12)
+                               ? reinterpret_cast<const uint32_t*>(path)[1]
+                               : 0;
+  float position[3], focus[3];
+  CameraPose(camera, position, focus);
+  float heading = 0.0f, pitch = 0.0f;
+  temple_math::HeadingPitch(position, focus, &heading, &pitch);
+  // Only the camera of the hall has the turn and the height.
+  const bool hall = f.room == 0;
+  ModLog("temple trace : %.1f s in the Temple, frame %llu, %s, guide %d. "
+         "Camera class 0x%08X, state %d (asked %d, step %d), clock %.2f and "
+         "%.2f s, path %u ms, look at sub mesh %d with blend %.2f, fade "
+         "%.2f. Camera at %.2f %.2f %.2f, looks at %.2f %.2f %.2f, heading "
+         "%.1f, pitch %.1f. Pointer on %d at %.2f %.2f. Hall: turn %.3f, "
+         "height %.3f. The camera got %llu updates with %.3f s in all, the "
+         "last with held %d and drag %d. The frame time of the game is %u ms",
+         (now - entered) * 0.001, g_frame, RoomName(f.room), f.guide ? 1 : 0,
+         *reinterpret_cast<const uint32_t*>(camera), I(kCameraState), I(0x438),
+         I(0x128), F(kCameraFlightClock), F(kCameraBlendClock), path_ms,
+         I(0x44C), F(0x450), *reinterpret_cast<const float*>(kFade),
+         position[0], position[1], position[2], focus[0], focus[1], focus[2],
+         heading, pitch, I(0x3F8), F(0x3FC), F(0x400),
+         hall ? F(0x470) : 0.0f, hall ? F(0x4A0) : 0.0f, g_camera_updates,
+         g_update_seconds, g_update_held, g_update_drag, frame_ms);
+  g_camera_updates = 0;
+  g_update_seconds = 0.0f;
 }
 
 // --- the test key -------------------------------------------------------------------
@@ -1153,6 +1534,46 @@ void PollTestKey() {
   ControllersGrabPulse(1, 0.5f, 0.08f + 0.11f * way);
   ModLog("temple       : Ctrl and numpad 6: %s, frame %llu", kWays[way],
          g_frame);
+}
+
+// Ctrl and the star key of the number pad: the flight of the camera of a
+// room goes off and on (temple_camera_flight). A long pulse for no flight
+// and a short pulse for the flight of the plain game. With the flight off, a
+// camera that flies at that moment is at its rest pose at the next update.
+// Shift must be up. The star key alone is the key of the release at once
+// (hand_direct.cpp).
+void FlightToggle(const char* cause) {
+  g_camera_flight = g_camera_flight != 0 ? 0 : 1;
+  ControllersGrabPulse(1, 0.5f, g_camera_flight == 0 ? 0.30f : 0.08f);
+  ModLog("temple       : %s: temple_camera_flight is %d now. %s, frame %llu",
+         cause, g_camera_flight,
+         g_camera_flight != 0
+             ? "The camera of a room flies to its rest pose when you come "
+               "into the room, as in the plain game"
+             : "The camera of a room is at its rest pose at once when you "
+               "come into the room",
+         g_frame);
+}
+
+void PollFlightKey() {
+  // A test with no key press: the key acts at one frame of the game.
+  if (g_test_flight_frame > 0 &&
+      g_frame == static_cast<uint64_t>(g_test_flight_frame)) {
+    FlightToggle("test key temple_test_flight_frame");
+  }
+  if (!g_test_keys) return;
+  static bool before = false;
+  const bool down = (GetAsyncKeyState(VK_MULTIPLY) & 0x8000) != 0 &&
+                    (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0 &&
+                    (GetAsyncKeyState(VK_SHIFT) & 0x8000) == 0;
+  const bool pressed = down && !before;
+  before = down;
+  if (!pressed) return;
+  HWND window = GetForegroundWindow();
+  DWORD process = 0;
+  if (window != nullptr) GetWindowThreadProcessId(window, &process);
+  if (process != GetCurrentProcessId()) return;
+  FlightToggle("Ctrl and the star key of the number pad");
 }
 
 // --- one frame --------------------------------------------------------------------------
@@ -1242,6 +1663,7 @@ void TempleFrame(unsigned long long frame) {
   Install();
   g_frame = frame;
   PollTestKey();
+  PollFlightKey();
   ReadFacts(&g_facts);
   const Facts& f = g_facts;
 
@@ -1372,6 +1794,7 @@ void TempleFrame(unsigned long long frame) {
     }
   }
   WatchCamera(f);
+  TraceCamera(f);
   ScanFrame(f);
   WatchLand();
   WatchSaves(f);
@@ -1438,6 +1861,14 @@ bool TempleRayDistance(const float origin[3], const float direction[3],
 }
 
 void TempleReport() {
+  if (g_flights_ended != 0 || g_room_settles != 0) {
+    ModLog("temple       : the mod ended the flight of the camera of a room "
+           "%llu times this window, and it brought a camera to its rest pose "
+           "after a change of the room by the game %llu times",
+           g_flights_ended, g_room_settles);
+    g_flights_ended = 0;
+    g_room_settles = 0;
+  }
   if (g_ray_frames == 0 && g_messages == 0 && g_camera_moves == 0) {
     g_neutral_frames = 0;
     return;

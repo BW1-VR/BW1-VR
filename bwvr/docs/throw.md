@@ -969,10 +969,11 @@ The keys are read from `bwvr.ini`. They are not in the launcher.
 game turn after a release, and the fast opening of the grip. The pointing
 controller gives a long pulse for on and a short pulse for off, and the log
 has a line for each press. The mod reads the key only while a window of the
-game is in front, and it does not take the key from the game. F11 and F12
-have no free combination left (`PollHotkeys` in `stereo.cpp`), and Scroll
-Lock is the A/B key of the throw law. Whether the game itself uses the star
-key is not known [G].
+game is in front, and it does not take the key from the game. Ctrl must be
+up: Ctrl and the star key is the key of the flight of a camera in the Temple
+(`controllers.md`, 11.6). F11 and F12 have no free combination left
+(`PollHotkeys` in `stereo.cpp`), and Scroll Lock is the A/B key of the throw
+law. Whether the game itself uses the star key is not known [G].
 
 ### The log
 

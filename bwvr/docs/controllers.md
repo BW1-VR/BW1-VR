@@ -983,7 +983,7 @@ hands change sides. The default mode is the God view (`god-view.md`).
 | `aim_preset` | 2 | Section 8 |
 | `aim_pitch_deg`, `aim_yaw_deg` | 0, 0 | Section 8 |
 | `radial_menu` | 1 | Section 10. The other keys of the ring are in 10.5 |
-| `temple_pointer`, `temple_click`, `temple_camera_follow`, `temple_camera_drag`, `temple_pointer_depth_cm`, `temple_turn`, `temple_taps` | see 11.6 | Section 11 |
+| `temple_pointer`, `temple_click`, `temple_camera_follow`, `temple_camera_drag`, `temple_camera_flight`, `temple_pointer_depth_cm`, `temple_turn`, `temple_taps` | see 11.6 | Section 11 |
 | `snap_turn` | 2 | 5.4 |
 | `zoom_step` | 2 | 5.4 |
 
@@ -1735,7 +1735,7 @@ controllers:
 | Step | With the controllers |
 | --- | --- |
 | Go in | The ring item `enter`, or a tap of the grip with the real hand on the door of the Temple on the land (`village.md`) |
-| The view | The game draws a room from a camera of its own, and the God view stands aside. The room fills the view at life size, with the head on the camera of the game. A guide of the game plays in the cut scene window |
+| The view | The game draws a room from a camera of its own, and the God view stands aside. The room fills the view at life size, with the head on the camera of the game. That camera is at the rest pose of the room at once, and it does not move by itself (11.4). A guide of the game plays in the cut scene window |
 | Go to a room | The ring of the Temple, from each room, or the pointing hand on a door in the room and a click |
 | Use a thing of a room | The pointing hand on the thing and a click (11.2 and 11.3) |
 | Come out | The ring item `leave`, one time in a room and one time in the hall. Y sends the same Esc |
@@ -1810,13 +1810,26 @@ action, pixel, drag).
 - It reads the Action button from the mouse object (bit 1 of `0x00E85304`), and
   not from its arguments.
 - **A door** is the work of the camera: `InnerCamera::CalcDoorHit` `0x007969E0`
-  finds the door from the angle on the cylinder (8 places of 45 degrees, each
-  0.35 radians wide, from 7 to 23 units high). The camera of the hall asks for
-  the door at the pixel of each call (`WorldRoomCamera::UpdateMain`,
-  `0x0079FE1E`). A click on a door is a press on empty space: the camera gets
-  the held flag and the drag flag from the room. The Action button opens a
-  door: the camera goes through the door, and the player is in the room 150 to
-  165 frames after the press [R].
+  finds the door from the angle on a cylinder about the middle of the room (45
+  units for the hall). The doors are at 8 places of 45 degrees, from 7 to 23
+  units high. A door is 0.15 radians wide in the hall, and 0.09 radians in a
+  room. The camera of the hall asks for the door at the pixel of each call
+  (`WorldRoomCamera::UpdateMain`, `0x0079FE1E`). The place 0 is along +x, and
+  the next places go to +z. In the hall the places 0, 1, 3, 4, 5 and 7 are the
+  doors of the Creature Room, the Options Room, the room of the multiplayer
+  game, the Library, the Save Game Room and the Challenge Room. From the rest
+  pose of the hall, the door of the Save Game Room is about 33 degrees to the
+  right of the middle of the view, and the door of the Creature Room is about
+  68 degrees to the left [R]. A click on a door is a press on empty space:
+  the camera gets the held flag and the drag flag from the room. The Action
+  button opens a door [R].
+- **The way through a door.** The press gives the camera the state 3. The
+  camera goes to the door, and its clock (`+0x3CC`) counts the seconds.
+  `Temple::Update` opens the door when the clock is at 1.5 s, and it changes
+  the room at 5 s. The camera of the new room then starts its flight at the
+  pose of the camera of before. A press on the way is the skip of the game:
+  the room changes at once, with the fade (`InnerCamera::UpdateMain` and
+  `Temple::Update`, the step at `+0x128`).
 - **A drag of the camera.** The Move button, held on empty space, turns the
   camera about the player [R].
 - **The camera follows the pointer.** The camera of the hall
@@ -1826,6 +1839,60 @@ action, pixel, drag).
   come back when the pointer goes up again.
 - The actions 7 to 10 (Move Left, Right, Forwards, Backwards: the arrow keys)
   move the camera (`InnerCamera::UpdateMain` `0x00795CE0`).
+- **The states.** `InnerCamera + 0x124` is the state of the camera: 0 the
+  flight of the entry, 1 the room, 3 the way through a door, 4 the look at a
+  sub mesh. `+0x438` is the state that the code asks for, and `UpdateState`
+  (`0x007965F0`, and one function for each camera class) makes the change.
+  The place of the camera and the point that it looks at are 6 `Zoomer`
+  objects (`+0x04`, `+0x34`, `+0x64`, `+0x94`, `+0xC4`, `+0xF4`). An update
+  gives each `Zoomer` a target and a time, and the camera goes there.
+- **The flight of the entry.** `TriggerIntro` (`0x007957C0`, and `0x0079FA40`
+  for the hall) gives the camera the state 0 and sets two clocks to 0. In the
+  state 0 the camera goes along a path of the room (`+0x43C`: the length in ms
+  at `+4`, then the poses, read by `fn_0086D4E0`). The first clock (`+0x3CC`)
+  is the time on the path. In the last second of the path the camera goes
+  from the path to the rest pose of the room (`+0x26C`, `+0x260`). When that
+  clock is more than the length of the path and 0.5 s, the camera takes the
+  state 1 (`0x00796290`). The second clock (`+0x3D0`) mixes the pose of the
+  camera of before into the path for 2 s. A press in the flight is the skip of
+  the game: it ends the flight at once and makes the Temple black
+  (`0x007962B6`).
+- The game starts the flight when the player comes into the Temple
+  (`Temple::InitEngine` `0x00793C60`) and after the way through a door
+  (`Temple::Update` `0x00793EE0`). `Temple::GoToRoom` (F4 to F9 in the
+  Temple, and Esc in a room) starts the flight and ends it in the same call:
+  it asks for the state 1 and updates the camera two times with 1 s.
+- **The flight of the hall** [R]. The path of the hall is 5 s long. The
+  camera starts at `-0.44 11.92 74.29`, which is 74 units from the middle of
+  the hall and 56 units from its rest pose. It comes in, goes one time round
+  the hall at about 21 units from the middle, and ends at the rest pose: at
+  `0 9.92 18.32`, with a heading of 180 degrees and a pitch of 5.1 degrees
+  down. The middle of the hall is `0 0 0`, the far wall is 43 units from
+  there, and a room has 7.5 units for each meter.
+- **The fade.** `Temple::Dat_00C2A150` (`0x00C2A150`) is the fade of the
+  Temple: 1 and more is black, and it goes to its target at `0x00E06020` with
+  the time (`Temple::UpdateFade` `0x00794280`). It is 1.2 at each entry of the
+  Temple and at each `GoToRoom`. While it is more than 0.2 the camera takes no
+  press (`InnerCamera::Update`, `0x00796B85`).
+- **The clock of the camera.** `TempleRoom::UpdateMouse` gives each update of
+  the camera the frame time of the game as its seconds
+  (`LH3DTech::g_delta_time` `0x00C38134`, read at `0x0079A509`). The update
+  runs in the mouse path of a frame, before the draw of that frame.
+- **The camera classes.** The hall has a `WorldRoomCamera`, the Creature Room
+  a `CreatureRoomCamera`, and the Save Game Room a `ChallengeRoomCamera` [R].
+  Each class has its own code for the state 1 and uses
+  `InnerCamera::UpdateMain` for the flight and for the way through a door.
+  The path of the Creature Room is 6 s long, and its rest pose is at
+  `172.84 -6.99 0.88` with a heading of 67 degrees and a pitch of 15.8
+  degrees up [R]. The path of the Save Game Room is 5 s long.
+- **The rest pose of a room with pictures.** In the state 1 a
+  `ChallengeRoomCamera` goes on from the end of its path to its rest pose. A
+  number for its distance from the middle of the room (`+0x49C`, the target at
+  `+0x500`) goes to its target by the part `1 - exp(-seconds)` in each update
+  (`ChallengeRoomCamera::UpdateMain` `0x007859D0`, and the pose in
+  `fn_00785580`). In the Save Game Room the path ends at `-96.19 7.40 -87.35`,
+  and the rest pose is at `-95.39 4.80 -87.32` with a heading of 87.8 degrees
+  and a pitch of 32.2 degrees up [R].
 
 **The Hand** [V]. The Hand has the state of the Temple (`HandStateCitadel`,
 state 10, `Update` `0x005B0D00`). It is at the pixel of the pointer, 5 units
@@ -1909,8 +1976,8 @@ the grip the Action button.
 ### 11.4 The camera of a room
 
 In VR the head looks about. A camera that turns the room about the player is a
-motion that the player did not make. The game has two such motions, and the
-mod stops both.
+motion that the player did not make. The game has three such motions, and the
+mod stops each one.
 
 **The camera does not follow the pointer** (`temple_camera_follow=0`). A hook
 on `InnerCamera::Update` gives the camera the middle of the view as the
@@ -1926,6 +1993,49 @@ hook gives it the pixel of the press, and that pixel stays until the button
 goes up. The door acts at the press. The camera sees a pointer that does not
 move, so it does not turn.
 
+**The camera does not fly to its rest pose** (`temple_camera_flight=0`). When
+the player comes into the Temple, the camera of the hall flies along a path:
+in from outside, one time round the hall, and to its rest pose (11.1). The
+camera of a room flies along its own path after the way through a door. The
+head is on that camera, so the flight turns the room about the player. The
+mod ends the flight at the first update of the camera (`FlightBefore` and
+`FlightAfter` in `temple.cpp`):
+
+1. The mod sets the two clocks of the flight to its end (`temple_math.h`,
+   `FlightClocksAtEnd`).
+2. The update of the game runs. Its own test ends the flight: it asks for the
+   pose at the end of the path, and the camera takes the state of the room.
+3. The mod updates the camera 10 more times with 1 s, with no button and with
+   the pointer at the middle of the view. `Temple::GoToRoom` does this two
+   times. In the state of the room a camera goes on to its rest pose (11.1),
+   and these updates bring it there: less than 0.01 percent of the way is
+   left.
+4. The mod puts each `Zoomer` of the camera at its target with the function
+   of the game (`Zoomer::SetDestinationWithSpeedAndTime` `0x00407D60`, with no
+   time). So the camera is at the rest pose, and it does not go there.
+5. The mod calls `PreDraw` of the camera again. The game calls it at the start
+   of an update, so the engine has the pose of before. The draw of the frame
+   comes after the update, and it must have the rest pose.
+
+The Temple is black at each entry (the fade of the game is more than 1), so
+the room comes out of black at the rest pose. After the way through a door
+the Temple is not black, and the mod makes it black as the skip of the game
+does. The blink of `blink` acts too. A guide of a first visit plays in the
+cut scene window with the camera at its rest pose.
+
+A room from the ring, and Esc in a room, go through `Temple::GoToRoom`. The
+game ends the flight itself there, with the Temple black and with two updates
+of 1 s. In a room with pictures those two updates leave a part of the way to
+the rest pose: in the Save Game Room the camera was 2 units above its rest
+pose after them, and it then went down for 35 s [R]. So the first update of a
+camera after a different camera gets the steps 3 to 5 too
+(`RoomChangeAfter`).
+
+This rule acts while the head is on the camera of the game (`HeadCameraOn`).
+It does not need the ray or a controller: a player with the mouse in the
+headset has the same view. `temple_camera_flight=1` gives the flight of the
+plain game, and the game alone then brings a camera to its rest pose.
+
 **A turn with the stick** (`temple_turn=1`). A player who sits cannot turn the
 body to a door behind the chair. On the land the stick of the pointing hand
 turns the view in steps. In the Temple the same push turns the player in the
@@ -1940,11 +2050,11 @@ Temple, nothing goes back.
 With `temple_turn=0` the stick does in the Temple what it does on the land: it
 asks the camera of the land for a turn, and it adds to the wheel.
 
-The value 1 of each of the two camera keys gives the plain game. Both camera
-rules act only while the ray is on and the controller owns the pointer, so a
-mouse on the desktop keeps the camera of the game. One loss: a door does not
-open a little when the pointer is on it, because the camera does not see the
-pointer there.
+The value 1 of `temple_camera_follow` and of `temple_camera_drag` gives the
+plain game. These two rules act only while the controller owns the pointer,
+and while the ray is on or a guide plays. So a mouse on the desktop keeps the
+camera of the game. One loss: a door does not open a little when the pointer
+is on it, because the camera does not see the pointer there.
 
 ### 11.5 The cards
 
@@ -1961,14 +2071,21 @@ button. A dialog box in the Temple keeps the card of a dialog box.
 | `temple_click` | 1 | 1 the trigger and the grip are both the Action button. 0 the plain buttons |
 | `temple_camera_follow` | 0 | 0 the camera of a room does not turn to the pointer. 1 the plain game |
 | `temple_camera_drag` | 0 | 0 a press on empty space does not turn the camera. 1 the plain game |
+| `temple_camera_flight` | 0 | 0 the camera of a room is at its rest pose at once when the player comes into the room. 1 the camera flies there, as in the plain game |
 | `temple_pointer_depth_cm` | 300 | The depth of the ray before the game gives a point, 50 to 2000 |
 | `temple_turn` | 1 | 1 the stick of the pointing hand turns the player in a room by one step. 0 the stick does what it does on the land |
 | `temple_taps` | 1 | On the land: 1 the leash posts at the Temple are targets of the grip (`village.md`) |
 
-**The test key.** With `test_keys=1`, Ctrl and the 6 key of the number pad go
+**The test keys.** With `test_keys=1`, Ctrl and the 6 key of the number pad go
 through: the ray with the two controls as the click, the ray with the plain
 buttons, and the pointer with no ray. The pointing hand gives a longer pulse
 for each next one, and the log names it.
+
+Ctrl and the star key of the number pad turn the flight of the camera off and
+on (`temple_camera_flight`). The pointing hand gives a long pulse for no
+flight and a short pulse for the flight of the plain game. With the flight
+off, a camera that flies at that moment is at its rest pose at the next
+frame. Shift must be up.
 
 Test keys for desktop runs: `temple_test_scan=N` (when the ray comes on in a
 room, the pointer goes through N by N pixels, and the log lists each control
@@ -1976,9 +2093,13 @@ with its place), `temple_test_scan_hall`, `temple_test_scan_frame`,
 `temple_test_targets` (the controls for the fake word `aimtemple`: a letter
 for the kind and a number, for example `c1 s0`. `e0` is a picture of the Save
 Game Room with a slot from 0 to 13 that had no saved game when the test first
-took it), `temple_test_click_frame`, `temple_test_follow_frame` and
-`temple_test_enter_frame`. The fake word `aimturn` takes an aim, and not a
-turn, when the third number of its step is not 0.
+took it), `temple_test_click_frame`, `temple_test_follow_frame`,
+`temple_test_enter_frame`, `temple_test_flight_frame=N` (at frame N of the
+game the key of the flight acts) and `temple_test_camera_trace=1` (one line
+for each second in the Temple with the state, the clock and the pose of the
+camera of the room, and one line for each change of the frame time of the
+game). The fake word `aimturn` takes an aim, and not a turn, when the third
+number of its step is not 0.
 
 ### 11.7 The log
 
@@ -1988,7 +2109,9 @@ temple       : in the Creature Room a guide of the game plays, so the ray is off
 temple       : the pointer is on a check box that is on (sub mesh 2) at the pixel 423 2531, at 9.60 0.00 9.21 in the world, frame 3547
 temple       : the game gets the mouse message 3 at the pixel 503 2520 in the hall, with the pointer on a check box that is on (sub mesh 2). The mouse object holds the Action button. The thing under the pointer is 0.1 cm from the ray, frame 3581
 temple       : the room starts the drag of a control, frame 3582
-temple       : the camera of the hall moved from frame 3836 to frame 3851: it turned 9.8 degrees to the side and 3.0 degrees up, and it went 2.95 units. [...]
+temple       : the camera of the hall moved from frame 1950 to frame 5312: it turned 37.0 degrees to the side and 16.2 degrees up, and it went 17.68 units. Along its path it turned 312.0 degrees in all and went 122.88 units. At the start the mouse object held no button, and the drag of the room was 0
+temple       : the camera of the hall does not fly to its rest pose (temple_camera_flight=0). The mod ends the flight of the game in one cut: the clock of the flight was at 0.00 s of 5.50 s. The camera is at 0.00 9.92 18.32 with a heading of 180.0 degrees and a pitch of -5.1 degrees, which is 5.3 degrees and 56.00 units from its pose before the cut. The path ends at 0.00 9.92 18.32, and 10 updates of 1 s brought the camera 0.00 units from there to its rest pose. It has the state 1, and the fade of the Temple is 1.15, frame 121
+temple       : the game changed the room to the Save Game Room and ended the flight of its camera itself. The mod brings the camera to its rest pose in the same update (temple_camera_flight=0): 10 updates of 1 s moved it 5.66 units and 43.3 degrees. It is at -95.39 4.80 -87.32 with a heading of 87.8 degrees and a pitch of 32.2 degrees, and the fade of the Temple is 1.20, frame 4400
 temple       : the Save Game Room has 5 saved games (the number and the name of each one): [...]
 temple       : the stick turns the player 45 degrees to the right in the hall, 45 degrees to the right in all in this visit, frame 2800
 ```
@@ -1997,7 +2120,13 @@ Each press in a room has a line with the message, the pixel, the control under
 the pointer and the distance from that thing to the ray. So a log from a
 headset session says what a click was on, and how well the ray and the pointer
 agreed at that moment. Each move of the camera of a room that is not a guide
-has a line with the buttons at its start.
+has a line with the buttons at its start. The first three numbers of that
+line compare the end of the move with its start. The last two numbers are
+sums along the path, because a camera that goes round a room ends near its
+start. The line comes when the camera is still for 10 frames, and also when a
+guide, a different room, a cut or the way out ends the watch. A cut of a
+flight is not a move, and it has its own line. The rest pose after a change
+of the room by the game has its own line too.
 
 ### 11.8 Tests
 
@@ -2005,6 +2134,10 @@ The math test (`temple_checks.h`) covers the plane of a hit, the distance from
 a point to a ray, the steps of the depth, a pointer at rest on a wall that
 faces the player, on a wall that is turned 40 degrees and at the edge of a
 near box (the depth comes to rest), the kinds of a control, and the buttons.
+For the flight of a camera it covers the clocks that end a flight (the game
+then asks for the rest pose only), the rule of `temple_camera_flight`, the
+part of the way to the rest pose that the settle leaves, the line of sight of
+a camera, and the sums along the path of a move.
 
 Desktop runs use `temple_run.ps1` (the God view, `fake_controller=2`, the
 game window behind). A run starts in the test save `temple`, or with
@@ -2034,6 +2167,30 @@ ring item `enter` goes into the Temple. Seen in runs [R]:
   back, and the God view has its waist point and heading of before.
 - `leave` in a room goes to the hall. `leave` in the hall leaves the Temple
   and the direct hand is back.
+- The camera of the hall is at its rest pose from its first update of a
+  visit, while the Temple is black (the fade of the game is 1.15). It does not
+  move after that: the trace has the same pose for each second of 239 s,
+  through the guide of the first visit and after it, and the log has no line
+  of a move. A second visit in the same run has the same cut.
+  With `temple_camera_flight=1` the camera flies for 98 s in each visit. After
+  the guide of the first visit it turns 312 degrees and goes 123 units in 56 s,
+  at 8 degrees and 2.8 units for each second at the most. The test key at a
+  frame in that flight puts the camera at its rest pose in the same frame.
+- The trigger on the door of the Save Game Room starts the way of the camera
+  through the door: the camera goes 83 units to the door, and the room
+  changes 5 s of the camera clock after the press. That was 5002 frames in a
+  run in the test save, and 161 frames in a new game (11.9). The camera of the
+  Save Game Room is at its rest pose from its first update, and the trace has
+  the same pose for each second after it. With `temple_camera_flight=1` that
+  camera flies from the door for 5.5 s of its clock: after the guide of the
+  room it turned 144 degrees and went 44 units.
+- The ring item of the Save Game Room gives the camera of that room at its
+  rest pose in the same update, with the Temple black, and the trace has the
+  same pose for each second after it. `leave` from there gives the camera of
+  the hall at its rest pose.
+- After one turn of the player to the left with the stick, the trigger on the
+  door of the Creature Room starts the way through that door. The camera of
+  the Creature Room is at its rest pose from its first update.
 
 `temple_run.ps1 -SaveTest` reads the slots of the profile before the run. It
 starts only when the slots 0 to 13 are all empty, and it removes the empty
@@ -2059,6 +2216,28 @@ always starts in a new game.
   there.
 - **A drag of a scroll** was not seen: the first click on a scroll starts a
   guide.
+- **The clock of a room camera is not the time of a frame.** The camera gets
+  the frame time of the game as its seconds (11.1). After the two eye passes
+  the mod puts that number back to the value from before the passes
+  (`stereo.cpp`, the time of the second pass). In play only
+  `LH3DRender::StartFrame` writes it, inside the passes. So the camera gets
+  one old number in each update, at each frame rate: 1 ms in a run that
+  starts in a test save (the game loads a saved game, as "Continue Game"
+  does), and 31 ms in a new game from the end of its start dialog [R]. With
+  1 ms each move of a room camera that has a time takes 17 times as long at 60
+  frames for each second, and with 31 ms it takes half as long. The way
+  through a door is one such move: the room changes 5 s of the camera clock
+  after the press, which was 5002 frames (83 s) in a run with 1 ms. The look
+  at a picture after a click is one more: the camera was at the picture 1390
+  frames (18 s) after the click, and not 1.3 s. The flight of an entry is cut,
+  so it does not show this. The roadmap has this fault (B14).
+- **A turn of the camera while a dialog box is up.** In the state 1 a
+  `ChallengeRoomCamera` adds 0.25 radians for each second to its heading
+  while a dialog box is up (`ChallengeRoomCamera::UpdateMain` `0x007859D0`,
+  the heading at `+0x4FC`) [V]. No run has shown this turn. The box "Save
+  Game Message" comes after two clicks on a picture, the camera then has the
+  state 4, and in a run it did not turn while the box was up [R]. A box that
+  comes up with the camera in the state 1 is not known.
 
 Needs the headset:
 
@@ -2072,3 +2251,7 @@ Needs the headset:
    ways).
 5. The guide of a first visit in the cut scene window.
 6. The cross at the end of the ray: its size on a far wall.
+7. The entry of the Temple and the end of the way through a door: that the
+   room comes out of black at the rest pose, with no turn and no move after
+   it (Ctrl and the star key of the number pad gives the flight of the plain
+   game).

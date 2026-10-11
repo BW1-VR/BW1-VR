@@ -190,8 +190,8 @@ both click (controllers.md, section 11).
 
 | What the player does | What the game does | With the controllers |
 | --- | --- | --- |
-| A click on a door of the hall | `Temple::GoToRoom` `0x00793D90` | Ray on the door and a click: the player is in that room [R] |
-| F4 to F9 | `fn_00794900`: goes to that room from each room | The ring of the Temple (section 2, section 8) [R] |
+| A click on a door of the hall | The camera of the hall goes to the door, and `Temple::Update` `0x00793EE0` changes the room when the camera is there (controllers.md, 11.1) | Ray on the door and a click: the player is in that room [R] |
+| F4 to F9 | `fn_00794900`: goes to that room from each room (`Temple::GoToRoom` `0x00793D90`) | The ring of the Temple (section 2, section 8) [R] |
 | Esc | In a room: back to the hall. In the hall: `GGame::LeaveInsideCitadel` `0x00553A70`, and the pause goes back to what it was | Y, or the ring item `leave` [R] |
 | A click on a picture, a slider, a check box or a line of a room | The save games, the options, the key map, the challenges, the statistics of the Creature | Ray and a click. Seen: a pad of the pool, a scroll, a picture and the boxes of the Save Game Room. The Challenge Room, the Library and the controls of the Options Room are not proven [?] |
 | The keys A and Z, held | The camera of the room moves forward and back (`InnerCamera::UpdateMain` `0x00795CE0`) | No way. Not needed. The stick of the pointing hand turns the player in the room by one step |

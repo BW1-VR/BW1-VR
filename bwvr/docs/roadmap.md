@@ -199,15 +199,36 @@ is built, and no test has proven it.
   the pace of an object on a steep slope looks right (it moves in the
   game's own time). The test key (Ctrl, Shift and Pause) gives the landing
   with no rule for a comparison.
-- **B13. The camera of the hall moves after the guide of the first visit:
-  check it in a headset.** In a desktop run the guide of the first visit of
-  the hall of the Temple ended at frame 1930. From frame 1931 to frame 5312
-  the camera of the hall turned 36.1 degrees to the side and 16.7 degrees up,
-  and it went 17.5 units, with no button and no drag (`temple_run.ps1`, the
-  log line "the camera of the hall moved"). A camera that moves by itself is
-  a motion that the player did not make (`controllers.md`, 11.4). Not known:
-  whether the game moves the camera back from the place of the guide, how
-  fast the move is at its start, and what the player sees of it.
+- **B13. The camera of a room of the Temple does not fly to its rest pose:
+  check it in a headset.** When the player comes into the Temple, the game
+  flies the camera of the hall along a path of 5 s: in from outside, one time
+  round the hall, and to its rest pose. It does the same in a room after the
+  way through a door. The head is on that camera, so the flight turns the
+  room about the player. The mod ends the flight in one cut at the first
+  update of the camera, under the black fade of the game
+  (`temple_camera_flight=0`, `controllers.md`, 11.4). After a room from the
+  ring, where the game ends the flight itself, the mod brings the camera to
+  its rest pose in the same update. Desktop runs show the cut at the first
+  update of a visit, at a second visit, after a door and after a room from
+  the ring, and no move of the camera after it (`temple_run.ps1` with
+  `temple_test_camera_trace=1`). Check in a headset that the room comes out
+  of black at the rest pose, with no turn and no move after it. The test key
+  (Ctrl and the star key of the number pad) gives the flight of the plain
+  game for a comparison.
+- **B14. The frame time of the game stops outside the two eye passes.**
+  After the two eye passes the mod puts `LH3DTech::g_delta_time` back to the
+  value from before the passes (`stereo.cpp`). In play only
+  `LH3DRender::StartFrame` writes that number, inside the passes. So the code
+  of the game that reads it outside the passes gets one old number: 1 ms for
+  the whole of a run that starts in a test save (the game loads a saved
+  game, as "Continue Game" does), and 31 ms in a new game from the end of
+  its start dialog. The cameras of the rooms of the Temple read it there
+  (`TempleRoom::UpdateMouse`). With 1 ms a move of such a camera takes 17
+  times as long at 60 frames for each second: the flight of the hall took
+  98 s and not 5.5 s (B13 cuts it now), and the way through a door took 83 s
+  and not 5 s (`controllers.md`, 11.9). Not known: what the other readers
+  outside the passes do with it (`GGame::GetCameraTimeInc` for the camera of
+  the land is one). Not built: the real time of the frame after the passes.
 
 B1b, B2, B4 and B11 are one package: a thing that is held, thrown, or that
 moves while the Hand takes it.

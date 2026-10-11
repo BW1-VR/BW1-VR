@@ -229,6 +229,154 @@ inline void TempleChecks() {
         "temple_click=0 with the buttons changed: the trigger is the Action "
         "button",
         1, 1);
+
+  // The flight of the camera of a room. The path of the hall is 5 s long.
+  printf("\nThe flight of the camera of a room of the Temple\n");
+  {
+    const unsigned hall = 5000;
+    Near("the game ends a flight on a path of 5 s after 5.5 s",
+         FlightEndSeconds(hall), 5.5, 1e-6);
+    Check(!FlightIsOver(5.5f, hall) && FlightIsOver(5.51f, hall),
+          "the game ends the flight when the clock is more than that", 1, 1);
+    Near("at the start the camera has all of the pose of the entry",
+         FlightEntryWeight(0.0f), 1.0, 1e-6);
+    Near("after 1 s it has half of it", FlightEntryWeight(1.0f), 0.5, 1e-6);
+    Near("from 2 s it has none of it", FlightEntryWeight(2.0f), 0.0, 1e-6);
+    Near("before the last second of the path the camera has none of the rest "
+         "pose",
+         FlightRestWeight(3.9f, hall), 0.0, 1e-6);
+    Near("in the middle of the last second it has half of it",
+         FlightRestWeight(4.5f, hall), 0.5, 1e-5);
+    Near("at the end of the path it has all of it",
+         FlightRestWeight(5.0f, hall), 1.0, 1e-6);
+
+    // The clocks that the mod sets: the game then ends the flight in the
+    // same update, and it asks for the rest pose only.
+    const float starts[4] = {0.0f, 0.3f, 1.9f, 4.2f};
+    for (int i = 0; i < 4; ++i) {
+      const FlightClocks end = FlightClocksAtEnd(hall, starts[i]);
+      Check(FlightIsOver(end.flight, hall),
+            "with the clocks of the mod the game ends the flight", 1, 1);
+      Near("and the pose that the game asks for is all rest pose",
+           FlightRestWeight(end.flight, hall), 1.0, 1e-6);
+      Near("with none of the pose of the entry", FlightEntryWeight(end.blend),
+           0.0, 1e-6);
+    }
+    Near("a blend clock that is past its end keeps its value",
+         FlightClocksAtEnd(hall, 7.25f).blend, 7.25, 1e-6);
+    const FlightClocks none = FlightClocksAtEnd(0, 0.0f);
+    Check(FlightIsOver(none.flight, 0),
+          "a path with no length ends the same way", 1, 1);
+
+    // The settle to the rest pose.
+    Near("with no update of the settle the whole way to the rest pose is left",
+         FlightSettleLeft(0), 1.0, 1e-6);
+    Near("the two updates of the game leave 13.5 percent of it",
+         FlightSettleLeft(2), 0.1353, 1e-4);
+    Near("6 updates leave 0.25 percent of it", FlightSettleLeft(6), 0.00248,
+         1e-5);
+    Check(FlightSettleLeft(kFlightSettleUpdates) < 0.0001f,
+          "the updates of the mod leave less than 0.01 percent of it", 1, 1);
+    // In a desktop run the camera of the Save Game Room went 5.2 units down
+    // on its way to the rest pose. Less than 0.1 mm of that is left (7.5
+    // units are 1 m).
+    Check(5.2f * FlightSettleLeft(kFlightSettleUpdates) / 7.5f < 0.0001f,
+          "which is less than 0.1 mm of the room in the Save Game Room", 1, 1);
+
+    Check(FlightCut(0, kCameraFlight, true),
+          "temple_camera_flight=0: the mod ends a flight", 1, 1);
+    Check(!FlightCut(1, kCameraFlight, true),
+          "temple_camera_flight=1: the flight of the game stays", 0, 0);
+    Check(!FlightCut(0, kCameraRoom, true),
+          "a camera in the state of the room has no flight to end", 0, 0);
+    Check(!FlightCut(0, 3, true) && !FlightCut(0, 4, true),
+          "the way through a door and the look at a sub mesh are no flight",
+          0, 0);
+    Check(!FlightCut(0, kCameraFlight, false),
+          "a camera with no path is left as it is", 0, 0);
+
+    // After a change of the room by the game.
+    Check(SettleAfterRoomChange(0, true, false, kCameraRoom),
+          "the first update of a new camera in the state of the room gets "
+          "the settle",
+          1, 1);
+    Check(!SettleAfterRoomChange(0, false, false, kCameraRoom),
+          "a later update of the same camera does not", 0, 0);
+    Check(!SettleAfterRoomChange(0, true, true, kCameraRoom),
+          "an update in which the mod ended a flight has its settle", 0, 0);
+    Check(!SettleAfterRoomChange(0, true, false, 3) &&
+              !SettleAfterRoomChange(0, true, false, 4) &&
+              !SettleAfterRoomChange(0, true, false, kCameraFlight),
+          "a camera in a different state is left as it is", 0, 0);
+    Check(!SettleAfterRoomChange(1, true, false, kCameraRoom),
+          "temple_camera_flight=1: the game alone brings the camera to rest",
+          0, 0);
+  }
+
+  // The line of sight of a camera, and its move.
+  {
+    // The rest pose of the hall: at 0 9.92 18.32, it looks at 0 8.4 1.2.
+    const float rest[3] = {0.0f, 9.92f, 18.32f};
+    const float pool[3] = {0.0f, 8.4f, 1.2f};
+    float heading = 0.0f, pitch = 0.0f;
+    HeadingPitch(rest, pool, &heading, &pitch);
+    Near("the camera of the hall at rest has a heading of 180 degrees",
+         fabsf(heading), 180.0, 1e-3);
+    Near("and it looks 5.1 degrees down", pitch, -5.074, 2e-3);
+    const float east[3] = {10.0f, 9.92f, 18.32f};
+    HeadingPitch(rest, east, &heading, &pitch);
+    Near("a camera that looks along +x has a heading of 90 degrees", heading,
+         90.0, 1e-4);
+    HeadingPitch(rest, rest, &heading, &pitch);
+    Check(heading == 0.0f && pitch == 0.0f,
+          "a camera that looks at its own place gives 0 and 0", 1, 1);
+    Near("350 degrees is 10 degrees to the other side", WrapDegrees(350.0f),
+         -10.0, 1e-4);
+    Near("two lines of sight 90 degrees apart in the heading",
+         SightAngle(10.0f, 0.0f, 100.0f, 0.0f), 90.0, 1e-3);
+    Near("at a pitch of 60 degrees the same headings are 41.4 degrees apart",
+         SightAngle(10.0f, 60.0f, 100.0f, 60.0f), 41.41, 0.01);
+    Near("the same line of sight is 0 degrees apart",
+         SightAngle(33.0f, -5.0f, 33.0f, -5.0f), 0.0, 0.03);
+
+    // One time round a room of a radius of 20 units, in 360 steps. The
+    // camera looks at the middle. It ends where it started.
+    CameraMove move;
+    float at[3] = {0.0f, 10.0f, 20.0f};
+    const float middle[3] = {0.0f, 10.0f, 0.0f};
+    HeadingPitch(at, middle, &heading, &pitch);
+    MoveStart(&move, heading, pitch, at);
+    for (int step = 1; step <= 360; ++step) {
+      const float a = step * 0.0174533f;
+      at[0] = 20.0f * sinf(a);
+      at[2] = 20.0f * cosf(a);
+      HeadingPitch(at, middle, &heading, &pitch);
+      MoveStep(&move, heading, pitch, at);
+    }
+    float side = 0.0f, up = 0.0f, went = 0.0f;
+    MoveNet(move, &side, &up, &went);
+    Near("a camera that goes one time round a room ends with no turn", side,
+         0.0, 0.05);
+    Near("and at its place of the start", went, 0.0, 0.01);
+    Near("but along its path it turned 360 degrees", move.turned, 360.0, 0.5);
+    Near("and went the circle of 125.7 units", move.path, 125.66, 0.05);
+
+    // A quarter of the way, with the camera 5 degrees higher at the end.
+    at[0] = 0.0f;
+    at[2] = 20.0f;
+    HeadingPitch(at, middle, &heading, &pitch);
+    MoveStart(&move, heading, pitch, at);
+    at[0] = 20.0f;
+    at[2] = 0.0f;
+    HeadingPitch(at, middle, &heading, &pitch);
+    MoveStep(&move, heading, pitch + 5.0f, at);
+    MoveNet(move, &side, &up, &went);
+    Near("a quarter of the way round is a turn of 90 degrees to the side",
+         fabsf(side), 90.0, 1e-3);
+    Near("the turn up is the pitch of the end less the pitch of the start",
+         up, 5.0, 1e-4);
+    Near("and the distance is the straight line", went, 28.284, 1e-3);
+  }
 }
 
 }  // namespace temple_checks

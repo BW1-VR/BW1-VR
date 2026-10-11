@@ -37,6 +37,15 @@
 #
 #   temple_run.ps1 -Name tpl2 -Dll <dll> -Set "temple_test_scan=16" -Steps `
 #     "lstick_right@3400+60 ltrigger@3430+6 lstick_left@5800+60 ltrigger@5830+6"
+#
+# A click on a door of the hall needs an aim: the door of the Save Game Room
+# is 36 degrees to the right and 7 degrees up from the rest pose of the hall
+# camera. The key temple_test_camera_trace=1 gives one line for each second
+# with the state and the pose of the camera of the room:
+#
+#   temple_run.ps1 -Name tpl4 -Dll <dll> -Seconds 250 `
+#     -Set "temple_test_camera_trace=1;fake_controller_turns=-36,7,1" `
+#     -Steps "aimturn@3600+1 trigger@3660+6"
 param(
     [Parameter(Mandatory = $true)][string]$Name,
     [Parameter(Mandatory = $true)][string]$Dll,
