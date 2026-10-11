@@ -13,10 +13,11 @@
 //                 draws the first eye while the game walks the scene for the
 //                 second eye. Each eye has its own shared texture, so the
 //                 second eye pass does not write the picture of the first.
-//   frame_send=2  As 1, and a second thread does the wait, the two copies
-//                 and xrEndFrame (XrScreen::EndFrameLate). The frame thread
-//                 goes on with the game and calls xrWaitFrame for the next
-//                 frame. Then it waits until the runtime has the frame.
+//   frame_send=2  The default. As 1, and a second thread does the wait, the
+//                 two copies and xrEndFrame (XrScreen::EndFrameLate). The
+//                 frame thread goes on with the game and calls xrWaitFrame
+//                 for the next frame. Then it waits until the runtime has
+//                 the frame.
 //
 // The pixels of a frame are the same with each value. The frame goes to the
 // runtime at the same point of the frame or sooner, so the value adds no
@@ -38,7 +39,8 @@
 // middle length says 1, and a short pulse says 2.
 //
 // Only a session in a headset shows the frame rate of each value. A desktop
-// run sends no frame to a runtime.
+// run sends no frame to a runtime. The numbers of the headset sessions are in
+// docs/backend.md, "One wait a frame, and a second thread".
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -63,7 +65,7 @@ const int kEachEye = 0;
 const int kOneWait = 1;
 const int kSecondThread = 2;
 
-int g_key = kEachEye;
+int g_key = kSecondThread;
 bwvr::XrScreen* g_screen = nullptr;
 // frame_send=2 on a device for one thread gets one line of the log.
 bool g_said_one_thread = false;
@@ -82,7 +84,7 @@ const char* KeyText(int key) {
 }  // namespace
 
 void FrameSendSetOptions(int key) {
-  g_key = key == kOneWait || key == kSecondThread ? key : kEachEye;
+  g_key = key == kEachEye || key == kOneWait ? key : kSecondThread;
   ModLog("frame send   : frame_send=%d, %s", g_key, KeyText(g_key));
 }
 

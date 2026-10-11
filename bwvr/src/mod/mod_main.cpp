@@ -460,7 +460,7 @@ int g_eye_clean = 1;
 int g_eye_clean_test = 0;
 int g_eye_clean_test_frame = 0;
 // The way of the eye pictures to the headset (frame_send.cpp).
-int g_frame_send = 0;
+int g_frame_send = 2;
 // A speech bubble of the game as one card (bubble_card.cpp), and its test
 // keys for desktop runs.
 int g_bubble_card = 1;
@@ -1148,7 +1148,7 @@ void ReadSettings() {
   g_eye_clean_test_frame = static_cast<int>(
       GetPrivateProfileIntA("bwvr", "eye_clean_test_frame", 0, path));
   g_frame_send =
-      static_cast<int>(GetPrivateProfileIntA("bwvr", "frame_send", 0, path));
+      static_cast<int>(GetPrivateProfileIntA("bwvr", "frame_send", 2, path));
   g_bubble_card =
       GetPrivateProfileIntA("bwvr", "bubble_card", 1, path) != 0 ? 1 : 0;
   g_bubble_card_test =
@@ -1737,10 +1737,10 @@ void EarlyHooks() {
     ModLog("gpu bridge   : MinHook would not start, staying on the CPU path");
     return;
   }
-  // With frame_send=2 a second thread makes calls on the device of the
-  // backend. The test key can choose that value in a session.
+  // With frame_send=2, the default, a second thread makes calls on the
+  // device of the backend. The test key can choose that value in a session.
   GpuBridgeWantTwoThreads(
-      GetPrivateProfileIntA("bwvr", "frame_send", 0, path) == 2 ||
+      GetPrivateProfileIntA("bwvr", "frame_send", 2, path) == 2 ||
       GetPrivateProfileIntA("bwvr", "test_keys", 0, path) != 0);
   GpuBridgeSetEnabled(true);
   GpuBridgeInstall();

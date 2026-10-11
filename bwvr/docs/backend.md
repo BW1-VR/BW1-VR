@@ -396,9 +396,9 @@ because it has almost nothing to wait for. Do not compare it to the others.
 
 | Value | The wait | The frame thread |
 | --- | --- | --- |
-| 0, the default | After each eye pass. Then the picture of that eye goes to its swapchain image | Does no work in the two waits |
+| 0 | After each eye pass. Then the picture of that eye goes to its swapchain image | Does no work in the two waits |
 | 1 | One time, after the second eye pass. Then both pictures go to their swapchain images | Walks the scene for the second eye while the GPU draws the first eye |
-| 2 | As 1, on a second thread. That thread also makes the two copies and calls `xrEndFrame` | Goes on with the game. It calls `xrWaitFrame` for the next frame, and then it waits until the runtime has the frame |
+| 2, the default | As 1, on a second thread. That thread also makes the two copies and calls `xrEndFrame` | Goes on with the game. It calls `xrWaitFrame` for the next frame, and then it waits until the runtime has the frame |
 
 One wait is enough because each eye has its own shared texture, and a device
 does its work in the order of its queue. The copy of the interface panel is in
@@ -437,23 +437,44 @@ end of `xrWaitFrame` to the end of `xrEndFrame`. The runtime shows a frame that
 it gets later at a later time. So compare the values by the frame rate and by
 this number.
 
-A session in a headset with the value 2 showed these points:
+Sessions in a headset with the value 2 showed these points:
 
 - The runtime accepts each frame, and it gives `xrWaitFrame` back for each
   display frame while the second thread ends the frame before.
 - The frame thread has 2 to 3 ms less work in a frame.
-- `xrEndFrame` takes 1.9 to 3.7 ms on the second thread. On the frame thread
-  it takes 0.4 to 0.7 ms.
+- The second thread takes 1.0 to 3.3 ms for a frame: 0.4 to 1.3 ms in the wait
+  for the GPU and 0.6 to 1.9 ms in `xrEndFrame`. The frame thread waits 0.3 to
+  0.9 ms for it before the next frame. On the frame thread `xrEndFrame` takes
+  0.4 to 0.7 ms.
+- The age of a frame is 8.9 ms when the two scene walks take less than 5 ms,
+  and 12.6 to 14.4 ms when they take 8 ms or more.
 - The player saw no fault of the picture.
 
-Not shown: a gain of the frame rate. In that session the second thread took 5
-to 7 ms for a frame, and the frame thread waited 0.8 to 3.1 ms for it before
-the next frame. So the frame rate for a given cost of the scene walk was the
-same as with the value 0, or a little higher, and a frame got to the runtime
-later. Not known: why `xrEndFrame` is slow on the second thread. Not run: the
-value 1, and the three values in one scene. A desktop run sends no frame to a
-runtime. With `test_keys=1`, Ctrl, Shift and the slash key of the number pad
-step the value while the game runs.
+The frame rate against a session with the value 0, by the cost of the two
+scene walks (the mean of the windows of 450 frames, at 90 Hz):
+
+| The two scene walks | Value 2 | Value 0 |
+| --- | --- | --- |
+| Less than 5 ms | 89.2 | 89.5 |
+| 5 to 7 ms | 86.1 | 85.4 |
+| 7 to 8 ms | 82.1 | 76.0 |
+| 8 to 9 ms | 77.7 | 66.8 |
+| 9 to 10 ms | 79.0 | 57.4 |
+| 10 ms and more | 69.4 | 50.0 |
+
+The two sessions were not in the same scenes, and a row has 3 to 40 windows.
+So the gain is small: no gain in a light scene, which holds 90 with each
+value, and 6 to 22 frames a second in a scene that does not. When the two
+scene walks take 9 ms or more, the frame thread alone is over the 11.1 ms of
+a frame at 90 Hz.
+
+Not known: why `xrEndFrame` is slower on the second thread, and the age of a
+frame with the values 0 and 1. Not run: the value 1 in a headset (its code
+also runs when the device is for one thread, or when the second thread does
+not start), and the value 2 with a headset or a runtime other than a Quest 3
+through Virtual Desktop. A desktop run sends no frame to a runtime. With
+`test_keys=1`, Ctrl, Shift and the slash key of the number pad step the value
+while the game runs.
 
 ### The self test
 
@@ -2340,7 +2361,7 @@ keys that the launcher sets.
 | --- | --- | --- |
 | `backend` | dxwrapper when installed | See "Settings" |
 | `gpu_bridge` | 1 | The GPU path |
-| `frame_send` | 0 | 0: the mod waits for the GPU after each eye pass. 1: one wait a frame. 2: one wait a frame on a second thread, which also gives the frame to the runtime. See "One wait a frame, and a second thread" |
+| `frame_send` | 2 | 0: the mod waits for the GPU after each eye pass. 1: one wait a frame. 2: one wait a frame on a second thread, which also gives the frame to the runtime. See "One wait a frame, and a second thread" |
 | `depth24` | 1 | A 24 bit Z buffer |
 | `near_plane_cm`, `near_plane_cm_16` | 5, 10 | The near plane in the room. 0 keeps the game's |
 | `vr`, `stereo` | 1, 1 | VR on, two eye passes |
