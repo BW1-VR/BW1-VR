@@ -465,6 +465,11 @@ time, so a throw does not come back at once. Set catch_moving=0 in
 bwvr.ini to turn this off, and catch_cap_cm to change the most. With
 catch_moving=1 an object that moves is taken from 15 cm at most.
 
+A tree that fell becomes a dead tree when it comes to rest. If you take
+the tree at that moment, it stays a tree and comes to your Hand. Set
+catch_rest_guard=0 in bwvr.ini for the game's own rule: the Hand is
+then empty, and the dead tree lies on the land.
+
 When two objects are near the point, the object that the point
 touches wins, and of two such objects the smaller one. A scroll wins
 over a house, a tree or a forest that the point is in. A red halo
@@ -581,7 +586,9 @@ throw_law=0 for a throw that scales your hand speed by a fixed gain.
 After a thrown object touches the land, it slows to the pace of the
 game, bounces low and comes to rest soon. Set throw_land=0 in bwvr.ini
 if you want the landing of the physics of the game at the speed of
-the flight.
+the flight. An object that lies on the land does not turn in place,
+and on a steep slope it goes down to flatter land. Set
+throw_land_rest=0 in bwvr.ini for a comparison.
 
 The mod draws a thrown object between the game turns. While the
 object touches a different object, it moves at the pace of the game,

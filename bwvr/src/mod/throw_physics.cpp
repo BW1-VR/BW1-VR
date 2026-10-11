@@ -58,6 +58,15 @@
 //   contact on its way back, for a low bounce, and it adds a brake against
 //   the velocity while the object touches the land, so the object comes to
 //   rest soon. See throw_math.h, LandRate, ReboundFactor and LandBrake.
+//   A turn in place wears off fast, and the brake is off on land that is
+//   steeper than the brake holds (throw_land_rest).
+//
+//   THE TAKE. The Hand has an object from the press, and the game puts it
+//   in the Hand in a later game turn. An object that comes to rest in the
+//   physics between the two gets the end of its physics, and for a tree that
+//   is a dead tree in its place: the Hand is empty. So while the Hand takes
+//   an object, from the lock of a far grab on, the hook on fn_007FE260 does
+//   not tell the game that the object came to rest (catch_rest_guard).
 //
 //   THE DRAW. The game draws a physics object where the last turn left it,
 //   10 times a second. The mod keeps the object's matrix after each substep
@@ -88,6 +97,7 @@
 
 #include "MinHook.h"
 #include "controller_math.h"
+#include "far_grab.h"
 #include "throw_math.h"
 #include "throw_physics.h"
 
@@ -124,12 +134,17 @@ const int kObPoints = 0x154;     // the count of the points of the object
 const int kObPointList = 0x15C;
 const int kPointSize = 0x50;
 const int kPointDepth = 0x24;
+// The normal of the land at a point in contact [V, the call of
+// LH3DIsland::GetNormal at 0x007FD93F].
+const int kPointNormal = 0x40;
 const int kPointOther = 0x4C;
+const int kObTurn = 0x68;        // the angular momentum, 3 floats
 const int kObHitBy = 0x78;       // the PhysOb that touched this one
 const int kObPosition = 0xA0;    // the center, after the 9 floats of the axes
 const int kObVelocity = 0xDC;
+const int kObSpeed = 0xF4;       // the length of the velocity
 const int kObForce = 0x104;
-const int kObTorque = 0x110;
+const int kObTorque = 0x110;     // the torque of this step, 3 floats
 const int kObMass = 0x134;
 // The constants of the contact, from a row of PhysicsConstants.txt
 // (PhysOb::SetUpConstants 0x007FB810): the spring and the second spring are
@@ -217,6 +232,17 @@ float g_land_rate = 1.0f;
 float g_bounce = 0.5f;
 float g_brake = 0.6f;
 bool g_settle = true;      // throw_tree_settle: a tree that falls settles
+// THE REST AFTER A LANDING (throw_land_rest, throw_math.h, kRestAll): 1 lets
+// a turn in place wear off fast, turns the brake off on steep land, and gives
+// an object that lies still its rest. 2, 3 and 4 are one of the three, and 0
+// is none.
+int g_rest = throw_math::kRestAll;
+// THE TAKE (catch_rest_guard): 1 holds the end of the physics of an object
+// back while the Hand takes it. g_take_test is a test (catch_rest_test): 1
+// makes the step of an object answer "at rest" one time while the Hand takes
+// it, so a desktop run has the case in each run.
+bool g_take_guard = true;
+int g_take_test = 0;
 // THE PICTURE BETWEEN THE STEPS (throw_draw, throw_math.h, PictureSpan): 1
 // gives a substep with a touch of another object 5 ms of the picture, keeps
 // the picture at a guess until the object comes to it, and lets the clock
@@ -324,6 +350,18 @@ struct Flight {
   bool tree;
   bool settle;
   bool settle_logged;
+  // The rest after a landing (throw_land_rest). The flight latches the rule
+  // at the first contact. turn_rate is the turn of the last substep, in
+  // radians a second of the game's time.
+  bool spin;             // a turn in place wears off fast
+  bool steep;            // the brake is off on steep land
+  bool still_rule;       // an object that lies still gets its rest
+  float turn_rate;
+  double still;          // the time that the object lay still, game seconds
+  int spin_substeps;
+  int steep_steps;
+  bool spin_logged;
+  bool steep_logged;
   // A release in the glide of a far fetch: the place of the picture at the
   // release, from the place in the Hand.
   bool has_lead;
@@ -509,6 +547,9 @@ struct HandPlace {
   float p[3];
 };
 HandPlace g_hand_place = {};
+// The newest frame in which the controller placed the Hand, from the draw of
+// the Hand. A game turn runs before the Hand of its frame is placed.
+uint64_t g_placed_frame = 0;
 
 // After CHand::PrepareForDrawing, in each eye pass, before the glide.
 void ThrowCapture(void* hand) {
@@ -517,6 +558,7 @@ void ThrowCapture(void* hand) {
   const uint8_t* h = static_cast<const uint8_t*>(hand);
   void* held = *reinterpret_cast<void* const*>(h + kHandHeld);
   const uint64_t frame = ControllersFrameCount();
+  g_placed_frame = frame;
   // Once a frame: the second eye pass has the same place.
   if (held != nullptr && g_hand_place.object == held &&
       g_hand_place.frame == frame) {
@@ -596,11 +638,13 @@ void LogLanding(Flight* f) {
          "%.2f m of the room across the land, at %.2f m/s at most. It left "
          "the land %d times: the highest hop was %.1f cm, the longest was "
          "%.2f s, and it was in the air for %.0f percent of the time. Its "
-         "height over the land changed direction %d times (%.1f a second, "
+         "center changed its vertical direction %d times (%.1f a second, "
          "%.1f cm as a mean). It turned %.1f times, at %.1f turns a second "
          "at most. The game's step ran %.2f times a substep at the first "
          "contact and %.2f at the end, and the mod cut the force of the "
-         "contact in %d steps. Of %d frames, %d were drawn after "
+         "contact in %d steps. It turned in place in %d substeps, and the "
+         "brake was less on steep land in %d steps. Of %d frames, %d were "
+         "drawn after "
          "the newest step (%.0f ms at most), and the picture turned back %d "
          "times (%.1f cm at most)",
          f->object, span, l.path / f->s, l.top_speed / f->s, l.hops,
@@ -609,7 +653,7 @@ void LogLanding(Flight* f) {
          span > 1e-6 ? l.bobs / span : 0.0,
          l.bobs > 0 ? l.bob_sum / l.bobs * cm : 0.0f, turns,
          l.top_turn / 6.2831853f, f->rate_flight, f->scale, f->cut_steps,
-         f->track.frames,
+         f->spin_substeps, f->steep_steps, f->track.frames,
          f->track.late, f->track.top_late * 1000.0, f->track.back,
          f->track.top_back * cm);
   if (g_flight_logs >= kMaxFlightLogs) return;
@@ -764,11 +808,18 @@ void FirstContact(Flight* f, uint8_t* ob, int step) {
   // The brake of the turn: the game's own factor of each step, made smaller.
   // A tree that settles also changes it in each substep (FlySubstep).
   f->settle = f->tree && g_settle && f->land_mode != 0 && g_contact_hook;
-  if (f->brake > 0.0f || f->settle) {
+  // The rest after a landing: the rule of this flight.
+  const int rest = f->land_mode != 0 && g_contact_hook ? g_rest
+                                                       : throw_math::kRestOff;
+  f->spin = throw_math::RestSpin(rest);
+  f->steep = throw_math::RestSteep(rest);
+  f->still_rule = throw_math::RestStill(rest);
+  f->still = 0.0;
+  if (f->brake > 0.0f || f->settle || f->spin) {
     float* keep = reinterpret_cast<float*>(ob + kObTurnKeep);
     const float land = throw_math::TurnKeepAfterLanding(
         *keep, f->brake > 0.0f, false, false, 0.0f);
-    if (*keep > land || f->settle) {
+    if (*keep > land || f->settle || f->spin) {
       f->turn_keep = *keep;
       f->turn_changed = true;
       *keep = land;
@@ -816,13 +867,22 @@ void FirstContact(Flight* f, uint8_t* ob, int step) {
   ModLog("hand throw   : the landing of %p (throw_land=%d): %s. A bounce "
          "keeps %.0f percent of the speed that the game gives it, and the "
          "land brakes the object with a friction of %.2f (%.0f percent of "
-         "the friction of the object)%s",
+         "the friction of the object)%s. throw_land_rest=%d: %s, %s, and "
+         "%s",
          f->object, f->land_mode, rate, sqrtf(f->keep) * 100.0f, f->brake,
          g_brake * 100.0f,
          f->land_mode != 0 && !g_contact_hook
              ? " (the hook of the contact is not there, so the bounce is the "
                "game's and there is no brake)"
-             : "");
+             : "",
+         rest,
+         f->spin ? "a turn in place wears off fast"
+                 : "a turn in place keeps the turn of the brake",
+         f->steep ? "the brake is off on land that is steeper than the "
+                    "brake holds"
+                  : "the brake acts on each land",
+         f->still_rule ? "an object that lies still for 0.5 s is at rest"
+                       : "only the rest test of the game ends the landing");
 }
 
 // True while a point of the object is in another physics object.
@@ -838,6 +898,29 @@ bool TouchesObject(const uint8_t* ob) {
     }
   }
   return false;
+}
+
+// The up part of the mean normal of the land at the points of the object
+// that are in the land. False with no such point.
+bool LandNormalUp(const uint8_t* ob, float* up) {
+  const int32_t count = *reinterpret_cast<const int32_t*>(ob + kObPoints);
+  const uint8_t* point = *reinterpret_cast<const uint8_t* const*>(
+      ob + kObPointList);
+  if (point == nullptr || count <= 0 || count > 1024) return false;
+  float sum[3] = {0.0f, 0.0f, 0.0f};
+  for (int i = 0; i < count; ++i, point += kPointSize) {
+    if (!(*reinterpret_cast<const float*>(point + kPointDepth) >= 0.0f) ||
+        *reinterpret_cast<void* const*>(point + kPointOther) != nullptr) {
+      continue;
+    }
+    const float* normal = reinterpret_cast<const float*>(point + kPointNormal);
+    for (int k = 0; k < 3; ++k) sum[k] += normal[k];
+  }
+  const float size = controller_math::Length(sum);
+  if (!(size > 1e-6f)) return false;
+  *up = sum[1] / size;
+  if (*up > 1.0f) *up = 1.0f;
+  return true;
 }
 
 // THE LOW BOUNCE AND THE BRAKE. fn_007FDE40 adds the spring force and the
@@ -876,10 +959,31 @@ void __fastcall h_Contact(void* ob, void* unused) {
     }
     ++f->cut_steps;
   }
+  // On land that is steeper than the brake holds, the brake is off
+  // (throw_math::SteepBrakeFactor).
+  float friction = f->brake;
+  float up = 1.0f;
+  if (f->steep && friction > 0.0f && LandNormalUp(o, &up)) {
+    const float part = throw_math::SteepBrakeFactor(up, f->brake);
+    if (part < 1.0f) {
+      friction *= part;
+      ++f->steep_steps;
+      if (!f->steep_logged && g_flight_logs < kMaxFlightLogs) {
+        f->steep_logged = true;
+        ++g_flight_logs;
+        ModLog("hand throw   : the land under %p has a slope of %.0f degrees, "
+               "%.3f s into its flight. The brake of the land (a friction of "
+               "%.2f) holds %.0f degrees, so the brake has %.0f percent of "
+               "its size there (throw_land_rest)", f->object,
+               acosf(up) * 57.29578f, f->time, f->brake,
+               atanf(f->brake) * 57.29578f, part * 100.0f);
+      }
+    }
+  }
   float brake[3];
   throw_math::LandBrake(push, velocity,
                         *reinterpret_cast<const float*>(o + kObMass),
-                        f->brake, brake);
+                        friction, brake);
   for (int i = 0; i < 3; ++i) {
     force[i] += brake[i];
     f->cut[i] -= brake[i];
@@ -907,15 +1011,37 @@ int FlySubstep(Flight* f, uint8_t* ob) {
     f->scale = throw_math::LandRate(f->rate_flight, f->rate_land, f->touch,
                                     throw_math::kLandEase);
   }
-  if (f->settle && f->turn_changed && f->count > 0) {
+  if ((f->settle || f->spin) && f->turn_changed && f->count > 0) {
     const float* velocity = reinterpret_cast<const float*>(ob + kObVelocity);
     const float speed = controller_math::Length(velocity);
     const bool touching = f->samples[f->count - 1].contact;
+    // A turn that is faster than a roll at this speed is a turn in place.
+    const bool in_place =
+        f->spin && touching &&
+        throw_math::TurnsInPlace(
+            f->turn_rate, *reinterpret_cast<const float*>(ob + kObRadius),
+            speed);
     *reinterpret_cast<float*>(ob + kObTurnKeep) =
-        throw_math::TurnKeepAfterLanding(f->turn_keep, f->brake > 0.0f, true,
-                                         touching, speed);
-    if (touching && speed <= throw_math::kSettleSpeed && !f->settle_logged &&
-        g_flight_logs < kMaxFlightLogs) {
+        throw_math::TurnKeepAfterLanding(f->turn_keep, f->brake > 0.0f,
+                                         f->settle, touching, speed,
+                                         in_place);
+    if (in_place) {
+      ++f->spin_substeps;
+      if (!f->spin_logged && g_flight_logs < kMaxFlightLogs) {
+        f->spin_logged = true;
+        ++g_flight_logs;
+        ModLog("hand throw   : %p turns in place %.3f s into its flight: it "
+               "touches the land and turns at %.2f radians a second, and its "
+               "center moves at %.2f units/s (a roll at that speed is %.2f "
+               "radians a second). Its turn keeps %.3f of itself in a second "
+               "while it does that (throw_land_rest)", f->object, f->time,
+               f->turn_rate, speed,
+               speed / *reinterpret_cast<const float*>(ob + kObRadius),
+               throw_math::kSettleTurnKeep);
+      }
+    }
+    if (f->settle && touching && speed <= throw_math::kSettleSpeed &&
+        !f->settle_logged && g_flight_logs < kMaxFlightLogs) {
       f->settle_logged = true;
       ++g_flight_logs;
       ModLog("hand throw   : the tree %p settles %.3f s into its flight: it "
@@ -994,6 +1120,50 @@ int FlySubstep(Flight* f, uint8_t* ob) {
   f->turn_steps += done;
   PushSample(f, ob, shown != span ? throw_math::PictureRate(done, shown)
                                   : f->scale);
+  f->turn_rate =
+      f->count > 1 && done > 0
+          ? throw_math::TurnBetween(f->samples[f->count - 2].matrix,
+                                    f->samples[f->count - 1].matrix) /
+                (done * throw_math::kSubstep)
+          : 0.0f;
+  // AN OBJECT THAT LIES STILL (throw_math::LiesStill). It has a point in
+  // contact, and its speed and its turn are far below the limits of the rest
+  // test of the game. After kStillSeconds of that, the game gets the answer
+  // of an object that came to rest, with the state that fn_007FE260 leaves
+  // then (0x007FE682: no velocity and no turn).
+  if (f->still_rule && f->contact && code == 1) {
+    f->still = throw_math::StillTime(
+        f->still, *reinterpret_cast<const int32_t*>(ob + kObContacts) > 0,
+        *reinterpret_cast<const float*>(ob + kObSpeed), f->turn_rate,
+        done * static_cast<double>(throw_math::kSubstep));
+    if (f->still >= throw_math::kStillSeconds) {
+      const float mass = *reinterpret_cast<const float*>(ob + kObMass);
+      const float radius = *reinterpret_cast<const float*>(ob + kObRadius);
+      const float inertia = mass * radius * radius;
+      if (g_flight_logs < kMaxFlightLogs) {
+        ++g_flight_logs;
+        ModLog("hand throw   : %p lay still for %.2f s, %.3f s into its "
+               "flight: its speed is %.3f units/s and its turn %.3f radians "
+               "a second, and its torque over m r^2 is %.2f (the rest test "
+               "of the game needs less than 1, 0.5 and 1). The mod gives the "
+               "game the answer of an object that came to rest "
+               "(throw_land_rest)", f->object, f->still, f->time,
+               *reinterpret_cast<const float*>(ob + kObSpeed), f->turn_rate,
+               inertia > 1e-9f
+                   ? controller_math::Length(reinterpret_cast<const float*>(
+                         ob + kObTorque)) / inertia
+                   : 0.0f);
+      }
+      for (int i = 0; i < 3; ++i) {
+        reinterpret_cast<float*>(ob + kObVelocity)[i] = 0.0f;
+        reinterpret_cast<float*>(ob + kObTurn)[i] = 0.0f;
+      }
+      *reinterpret_cast<float*>(ob + kObSpeed) = 0.0f;
+      code = 2;
+      f->last_code = code;
+      f->still = 0.0;
+    }
+  }
   if (f->contact && f->samples[f->count - 1].contact) f->touch += span;
   TrackLanding(f, ob);
   LARGE_INTEGER end, frequency;
@@ -1027,10 +1197,152 @@ void __fastcall h_Prepare(void* ob, void* unused) {
   o_Prepare(ob, unused);
 }
 
+// THE TAKE. The object that the Hand takes now, latched once a game turn:
+// the object that the far grab has locked, pulls or fetches, or the object
+// that the Hand of the game holds, while the physics of the game still has
+// it. A bulk source, a scroll and the Creature of a leash click are no take.
+// The game takes the object out of the physics in the game turn that puts it
+// in the Hand (PhysicsObject::RemoveObject 0x00646A00, called by fn_005DC330
+// with no end of the physics). Until then the step of the object does not
+// answer 2: the game would call EndPhysics, and Tree::EndPhysics 0x0074B830
+// makes a dead tree and deletes the tree that the Hand has. The pointers
+// here are compared only. Nothing reads the object.
+struct Take {
+  void* object;        // the object that the Hand takes, or null
+  bool far_grab;       // from the far grab, before the Hand of the game has it
+  int turns;           // the game turns that the Hand took it for
+  int held_back;       // the steps that answered 2 and went to the game as 1
+  bool forced;         // the test made one step answer 2
+  bool told;
+  bool over;           // the limit: the mod does not hold it back more
+};
+Take g_take = {};
+// The Hand does not take an object for longer than this, in game turns. After
+// it the object comes to rest as each other object does.
+const int kTakeTurns = 30;
+int g_take_logs = 0;
+const int kMaxTakeLogs = 60;
+
+void TakeLog(const char* text, void* object, int a, int b) {
+  if (g_take_logs >= kMaxTakeLogs) return;
+  ++g_take_logs;
+  ModLog(text, object, a, b);
+}
+
+// Once a game turn, before PhysicsObject::GameTurnUpdate.
+void TakeTurnBegin() {
+  void* object = nullptr;
+  bool far_grab = false;
+  if ((g_take_guard || g_take_test != 0) && g_installed && !Multiplayer()) {
+    bool active = false;
+    const uint8_t* hand = static_cast<const uint8_t*>(HandDirectHand(&active));
+    // The controller placed the Hand in one of the last 3 frames. The mouse
+    // keeps the game's own take.
+    const bool placed = g_placed_frame != 0 &&
+                        ControllersFrameCount() - g_placed_frame <= 3;
+    void* held = hand != nullptr
+                     ? *reinterpret_cast<void* const*>(hand + kHandHeld)
+                     : nullptr;
+    if (held != nullptr && (placed || held == g_take.object)) {
+      object = held;
+    } else if (held == nullptr) {
+      // The lock, the pull and the fetch of a far grab on an object that
+      // comes to the Hand.
+      FarDraw draw = {};
+      far_grab = FarGrabDrawState(&draw) && draw.locked && !draw.bulk &&
+                 !draw.touch && draw.leash == 0;
+      object = far_grab ? FarGrabTargetObject() : nullptr;
+      if (object == nullptr) far_grab = false;
+    }
+    if (object != nullptr && FindEntry(object) == nullptr) object = nullptr;
+  }
+  if (object == g_take.object) {
+    if (object != nullptr && ++g_take.turns > kTakeTurns && !g_take.over) {
+      g_take.over = true;
+      TakeLog("hand take    : the Hand took %p for %d game turns and the "
+              "physics of the game still has it. The mod holds the end of its "
+              "physics back no more (%d steps were held back)", object,
+              g_take.turns, g_take.held_back);
+    }
+    g_take.far_grab = far_grab;
+    return;
+  }
+  if (g_take.object != nullptr && (g_take.told || g_take.forced)) {
+    bool active = false;
+    const uint8_t* hand = static_cast<const uint8_t*>(HandDirectHand(&active));
+    const bool holds =
+        hand != nullptr &&
+        *reinterpret_cast<void* const*>(hand + kHandHeld) == g_take.object;
+    TakeLog(holds ? "hand take    : the Hand holds %p, and the physics of the "
+                    "game has it no more, %d game turns after the take "
+                    "started. The mod held %d steps back that answered that "
+                    "the object came to rest"
+                  : "hand take    : the Hand does not hold %p, %d game turns "
+                    "after the take started. The mod held %d steps back that "
+                    "answered that the object came to rest",
+            g_take.object, g_take.turns, g_take.held_back);
+  }
+  g_take = Take{};
+  g_take.object = object;
+  g_take.far_grab = far_grab;
+}
+
+// The code of a step of the object, as the game gets it. `ob` is a PhysOb of
+// the game's array.
+int TakeStep(uint8_t* ob, int code) {
+  if (g_take.object == nullptr || (code != 1 && code != 2)) return code;
+  int count = 0;
+  const uint8_t* base = Entries(&count);
+  const uint8_t* entry = ob - kEntryPhysOb;
+  if (base == nullptr || entry < base || entry >= base + count * kEntrySize ||
+      (entry - base) % kEntrySize != 0 ||
+      *reinterpret_cast<void* const*>(entry + kEntryObject) != g_take.object) {
+    return code;
+  }
+  // The test: one step answers that the object came to rest, with the state
+  // that fn_007FE260 leaves then (0x007FE682: no velocity and no turn).
+  if (g_take_test != 0 && !g_take.forced && !g_take.far_grab && code == 1) {
+    g_take.forced = true;
+    for (int i = 0; i < 3; ++i) {
+      reinterpret_cast<float*>(ob + kObVelocity)[i] = 0.0f;
+      reinterpret_cast<float*>(ob + kObTurn)[i] = 0.0f;
+    }
+    *reinterpret_cast<float*>(ob + kObSpeed) = 0.0f;
+    code = 2;
+    TakeLog("hand take    : test key catch_rest_test: the Hand of the game "
+            "has %p, and the step of the object answers that the object came "
+            "to rest, in game turn %d of the take (catch_rest_test=%d)",
+            g_take.object, g_take.turns, g_take_test);
+  }
+  if (code != 2) return code;
+  if (!g_take_guard || g_take.over) {
+    if (!g_take.told && !g_take.over) {
+      g_take.told = true;
+      TakeLog("hand take    : %p came to rest in the physics of the game "
+              "while the Hand takes it, in game turn %d of the take. "
+              "catch_rest_guard is %d, so the game ends its physics now",
+              g_take.object, g_take.turns, g_take_guard ? 1 : 0);
+    }
+    return code;
+  }
+  ++g_take.held_back;
+  if (!g_take.told) {
+    g_take.told = true;
+    TakeLog("hand take    : %p came to rest in the physics of the game while "
+            "the Hand takes it, in game turn %d of the take. The mod holds "
+            "the end of its physics back until the game puts the object in "
+            "the Hand (catch_rest_guard=%d)", g_take.object, g_take.turns, 1);
+  }
+  return 1;
+}
+
 int __fastcall h_Integrate(void* ob, void* unused) {
   Flight* f = FlightOfOb(ob);
-  if (f == nullptr) return o_Integrate(ob, unused);
-  return FlySubstep(f, static_cast<uint8_t*>(ob));
+  int code = f == nullptr ? o_Integrate(ob, unused)
+                          : FlySubstep(f, static_cast<uint8_t*>(ob));
+  const int game = TakeStep(static_cast<uint8_t*>(ob), code);
+  if (game != code && f != nullptr) f->last_code = game;
+  return game;
 }
 
 // The matrix that the object is drawn with on this frame. Once a frame: the
@@ -1243,8 +1555,10 @@ void PollFallKey() {
   const uint64_t frame = ControllersFrameCount();
   if (frame == last_frame) return;
   last_frame = frame;
+  // Ctrl must be up: Ctrl, Shift and Scroll Lock is the key of the take.
   const bool now = (GetAsyncKeyState(VK_SCROLL) & 0x8000) != 0 &&
-                   (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
+                   (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0 &&
+                   (GetAsyncKeyState(VK_CONTROL) & 0x8000) == 0;
   if (now && !down) {
     DWORD process = 0;
     const HWND window = GetForegroundWindow();
@@ -1316,8 +1630,10 @@ void PollSettleKey() {
   const uint64_t frame = ControllersFrameCount();
   if (frame == last_frame) return;
   last_frame = frame;
+  // Ctrl must be up: Ctrl, Shift and Pause is the key of throw_land_rest.
   const bool now = (GetAsyncKeyState(VK_PAUSE) & 0x8000) != 0 &&
-                   (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
+                   (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0 &&
+                   (GetAsyncKeyState(VK_CONTROL) & 0x8000) == 0;
   if (now && !down) {
     DWORD process = 0;
     const HWND window = GetForegroundWindow();
@@ -1331,6 +1647,77 @@ void PollSettleKey() {
                         "land and is slow"
                       : "keeps the game's turn after its landing",
              g_settle ? 1 : 0);
+    }
+  }
+  down = now;
+}
+
+// THE REST AFTER A LANDING IN THE HEADSET. With test_keys=1, Ctrl and Shift
+// with Pause turn throw_land_rest on (1) and off (0). A long pulse means on,
+// a short pulse means off. An object that touched the land before the press
+// keeps its rule. With Ctrl down the Pause key is the Break key of Windows
+// (VK_CANCEL). Read once a frame, and only while a window of the game is in
+// front.
+void PollRestKey() {
+  static uint64_t last_frame = 0;
+  static bool down = false;
+  if (!g_test_keys) return;
+  const uint64_t frame = ControllersFrameCount();
+  if (frame == last_frame) return;
+  last_frame = frame;
+  const bool now = ((GetAsyncKeyState(VK_CANCEL) & 0x8000) != 0 ||
+                    (GetAsyncKeyState(VK_PAUSE) & 0x8000) != 0) &&
+                   (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0 &&
+                   (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
+  if (now && !down) {
+    DWORD process = 0;
+    const HWND window = GetForegroundWindow();
+    if (window != nullptr) GetWindowThreadProcessId(window, &process);
+    if (process == GetCurrentProcessId()) {
+      g_rest = g_rest == throw_math::kRestOff ? throw_math::kRestAll
+                                              : throw_math::kRestOff;
+      ControllersGesturePulse(0.5f, g_rest != 0 ? 0.30f : 0.06f);
+      ModLog("hand throw   : Ctrl, Shift and Pause: throw_land_rest is %d "
+             "now. After its landing a thrown object %s", g_rest,
+             g_rest != 0 ? "loses a turn in place fast, the brake of the "
+                           "land is off on land that is steeper than the "
+                           "brake holds, and an object "
+                           "that lies still for 0.5 s is at rest"
+                         : "keeps the turn of the brake, the brake acts on "
+                           "each land, and only the rest test of the game "
+                           "ends the landing");
+    }
+  }
+  down = now;
+}
+
+// THE TAKE IN THE HEADSET. With test_keys=1, Ctrl and Shift with Scroll Lock
+// turn catch_rest_guard on and off. A long pulse means on, a short pulse
+// means off. Read once a frame, and only while a window of the game is in
+// front.
+void PollTakeKey() {
+  static uint64_t last_frame = 0;
+  static bool down = false;
+  if (!g_test_keys) return;
+  const uint64_t frame = ControllersFrameCount();
+  if (frame == last_frame) return;
+  last_frame = frame;
+  const bool now = (GetAsyncKeyState(VK_SCROLL) & 0x8000) != 0 &&
+                   (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0 &&
+                   (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
+  if (now && !down) {
+    DWORD process = 0;
+    const HWND window = GetForegroundWindow();
+    if (window != nullptr) GetWindowThreadProcessId(window, &process);
+    if (process == GetCurrentProcessId()) {
+      g_take_guard = !g_take_guard;
+      ControllersGesturePulse(0.5f, g_take_guard ? 0.30f : 0.06f);
+      ModLog("hand take    : Ctrl, Shift and Scroll Lock: catch_rest_guard is "
+             "%d now. An object that comes to rest while the Hand takes it %s",
+             g_take_guard ? 1 : 0,
+             g_take_guard ? "stays in the physics of the game until the game "
+                            "puts it in the Hand"
+                          : "gets the end of its physics from the game");
     }
   }
   down = now;
@@ -1394,6 +1781,8 @@ void __cdecl h_DrawAll() {
   PollFallKey();
   PollLandKey();
   PollSettleKey();
+  PollRestKey();
+  PollTakeKey();
   PollSlowKeys();
   DrawFlights();
   o_DrawAll();
@@ -1443,6 +1832,15 @@ void ThrowPhysicsSetSlow(int slow_x10, bool trees) {
 }
 
 void ThrowPhysicsSetSettle(bool settle) { g_settle = settle; }
+
+void ThrowPhysicsSetRest(int rule) {
+  g_rest = rule < 0 || rule > 4 ? throw_math::kRestAll : rule;
+}
+
+void ThrowPhysicsSetTake(bool guard, int test) {
+  g_take_guard = guard;
+  g_take_test = test;
+}
 
 void ThrowPhysicsSetDraw(int rule) {
   g_draw = rule != 0 ? throw_math::kDrawReal : throw_math::kDrawFlight;
@@ -1575,6 +1973,34 @@ void ThrowPhysicsInstall() {
              g_land_rate);
     }
   }
+  if (g_land != 0) {
+    ModLog("hand throw   : throw_land_rest=%d: after its landing %s, %s, "
+           "and %s", g_rest,
+           throw_math::RestSpin(g_rest)
+               ? "a thrown object that turns in place loses that turn fast"
+               : "a turn in place keeps the turn of the brake",
+           throw_math::RestSteep(g_rest)
+               ? "the brake of the land is off on land that is steeper than "
+                 "the brake holds"
+               : "the brake of the land acts on each land",
+           throw_math::RestStill(g_rest)
+               ? "an object that lies still for 0.5 s is at rest"
+               : "only the rest test of the game ends the landing");
+  }
+  ModLog("hand take    : catch_rest_guard=%d: an object that comes to rest "
+         "in the physics of the game while the Hand takes it %s%s",
+         g_take_guard ? 1 : 0,
+         g_take_guard ? "stays in the physics until the game puts it in the "
+                        "Hand"
+                      : "gets the end of its physics from the game, and a "
+                        "tree is then a dead tree and not in the Hand",
+         ok ? "" : ". The hook of the step is not there, so the game ends "
+                   "the physics in each case");
+  if (g_take_test != 0) {
+    ModLog("hand take    : catch_rest_test=%d (a test): while the Hand takes "
+           "an object that the physics of the game has, one step of the "
+           "object answers that the object came to rest", g_take_test);
+  }
   ModLog("hand throw   : throw_draw=%d: %s", g_draw,
          g_draw == throw_math::kDrawReal
              ? "between the steps of the game, a substep with a touch of "
@@ -1588,7 +2014,9 @@ void ThrowPhysicsInstall() {
            "flight and the square root law. Numpad Plus and Numpad Divide "
            "change the time factor by 0.25, and with Ctrl the rate of the "
            "land. Pause goes through the three landings. Ctrl and Scroll "
-           "Lock change throw_draw");
+           "Lock change throw_draw. Ctrl, Shift and Pause change "
+           "throw_land_rest. Ctrl, Shift and Scroll Lock change "
+           "catch_rest_guard");
   }
 }
 
@@ -1783,6 +2211,7 @@ void ThrowPhysicsReleased(void* held) {
 }
 
 void ThrowPhysicsTurnBegin() {
+  TakeTurnBegin();
   if (g_active == 0) return;
   const double now = NowSeconds();
   bool hand_active = false;

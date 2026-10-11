@@ -16,6 +16,9 @@ object is in `grab.md`.
   get it. A time factor k makes the flight slower than real (`throw_slow_x10`).
 - From the first contact the rate of the game's steps goes down to 1 step in
   each substep. A low bounce and a brake make the object come to rest.
+- An object that lies on the land does not turn in place, and it is at rest
+  after 0.5 s with no move. On land that is steeper than the brake holds, the
+  object goes down as in the game (`throw_land_rest`).
 - A tree that falls comes to rest in about 1 s after its first contact
   (`throw_tree_settle`).
 - A still hand near the land sets the object down. A still hand higher up
@@ -288,6 +291,9 @@ gain of `throw_law=0`.
 - Shift with Scroll Lock goes between the height rule of a release
   (`release_fall_cm`) and the set down at each height (see "The height of a
   release"). Scroll Lock alone does not read while Shift or Ctrl is down.
+  With Ctrl and Shift down, Scroll Lock is the key of `catch_rest_guard`
+  ([grab.md](grab.md), "An object that comes to rest while the Hand takes
+  it").
 - Ctrl with Scroll Lock goes between the two rules of `throw_draw`. A long
   pulse of the pointing hand means 1, and a short pulse means 0. A flight
   that is in the air keeps its rule.
@@ -351,10 +357,10 @@ same in each run, and the times and the places change with it.
 | Recipe | The object and the throw | The first contact | The end |
 | --- | --- | --- | --- |
 | `throw_queue.ps1 -Runs landout` | A rock, 2.5 m/s, at 225 units per meter | After 1.09 s, 0.3 cm from the arc | At rest |
-| `throw_queue.ps1 -Runs landin` | A rock, two throws of 3.0 and 3.1 m/s, at 66.7 units per meter | After 0.83 s and 0.82 s, 0.3 cm and 1.2 cm from the arc | At rest |
-| `throw_queue.ps1 -Runs tree` | A tree, 3.0 m/s, at 100 units per meter | After 1.03 s, 2.3 cm from the arc | The tree settles, and the game takes it out of the physics 2.7 s after the release |
+| `throw_queue.ps1 -Runs landin` | Two small objects of the class `MobileObject`, 3.0 and 3.1 m/s, at 66.7 units per meter | After 0.83 s and 0.82 s, 0.3 cm and 1.2 cm from the arc, on the slope at the pen | At rest 5 to 9 s after the first contact, at the foot of the slope in 3 of 4 throws (see "The rest after a landing") |
+| `throw_queue.ps1 -Runs tree` | A tree, 3.0 m/s, at 100 units per meter | After 1.03 s, 2.3 cm from the arc | The tree settles, and the game takes it out of the physics 2.6 s and 4.3 s after the release in two throws |
 | `throw_queue.ps1 -Runs sea` | A rock, 9.5 and 9.7 m/s toward the sea in two runs, at 100 units per meter | After 2.94 s and 3.01 s on the sea, 9.8 m and 10.3 m from the release, 0.5 cm and 0.4 cm from the arc | The flight ends 0.6 s and 0.7 s later, when the object is under the sea |
-| `village_run.ps1 -Kind throw` | A villager, 2.6 m/s, at 44.4 units per meter | After 0.51 to 0.55 s on an object, 1.5 to 3.1 cm from the arc | At rest 3.1 to 4.5 s after the release, 0.76 m from it. 32 to 42 substeps have a touch of the object |
+| `village_run.ps1 -Kind throw` | A villager, 2.6 to 2.9 m/s, at 44.4 units per meter | After 0.59 to 0.60 s on the land in three runs. In the runs with the first contact on an object: after 0.51 to 0.55 s, 1.5 to 3.1 cm from the arc | At rest 2.1 to 2.5 s after the release, 0.81 to 0.87 m from it, in the three runs on the land. In the runs with a touch, 32 to 42 substeps have a touch of the object |
 
 The same throw of the villager shows the picture between the steps. With
 `throw_draw=1` the log counts 1 of 197 frames after the newest step, no turn
@@ -422,8 +428,15 @@ All of this is from the disassembly of `runblack.exe`.
 - **The depth.** `fn_007FD4D0` takes the altitude of the land minus the height
   of the point (`+0x24`). At 0 or more the point is in contact: the count at
   `+0x158` goes up, the byte at `+0x176` is set, and `+0x40` gets the normal
-  of the land (`LH3DIsland::GetNormal`). `+0x4C` is null for the land and the
-  other PhysOb for a contact of two objects (`fn_007FDA60`).
+  of the land (`LH3DIsland::GetNormal` `0x00803630`, the call at
+  `0x007FD93F`). `+0x4C` is null for the land and the other PhysOb for a
+  contact of two objects (`fn_007FDA60`).
+- **The land has stairs.** `LH3DIsland::GetAltitude` `0x00803090` takes the
+  place in a map cell of 10 units with 8 bits for each axis (`0x008032F9`,
+  `0x00803318`). So the land of the physics is flat in squares of 0.039
+  units, and a slope is a stair: on a slope of 62 degrees each stair is 0.07
+  units high. The height of a point over the land has a step at the edge of
+  each square.
 - **The force.** `fn_007FDE40` gives each point in contact a force along the
   normal. On the first step it is `spring x depth`, and the point keeps that
   first depth (`+0x00`). On each later step it is
@@ -449,11 +462,18 @@ All of this is from the disassembly of `runblack.exe`.
   0.709 (the log line "the contact of").
 - **The turn.** `fn_007FE260` adds the torque to the angular momentum
   (`+0x68`) and multiplies it by `+0x148`. It cuts the angular speed to 3 pi
-  radians a second (`0x009A2BB0`), which is 1.5 turns a second.
+  radians a second (`0x009A2BB0`), which is 1.5 turns a second. The cut is on
+  the speed of that step only (`0x007FE3BF` to `0x007FE413`): the momentum
+  keeps its size.
 - **The rest.** The same function gives 2 when a point is in contact, the
   speed is below T, the angular speed is below T / 2, and the torque over
-  `m r^2` is below T. T is 1. After 15 s of life (`+0x170`, 5 ms a step) T is
-  the life in seconds over 15.
+  `m r^2` is below T. The angular speed of this test is the one before the
+  cut (`0x007FE3BB`, `0x007FE5C5`). T is 1. After 15 s of life (`+0x170`, 5
+  ms a step) T is the life in seconds over 15. Before it gives 2, the
+  function sets the velocity and the momentum to 0 (`0x007FE682`).
+  `PhysicsObject::GameTurnUpdate` then calls `EndPhysics` of the object
+  (table slot `+0x790`) with the flag 1, keeps the object that the call gives
+  in the entry, and sets the rest byte (`PhysOb+0x174`).
 
 ### What the mod does
 
@@ -494,6 +514,9 @@ not change: the code of the landing reads `Flight::contact` first.
 6. **The water.** An object that floats counts as in contact, so its rate
    goes to the rate of the land too. The float has no spring, so the hook
    changes no force there.
+7. **The rest.** A turn in place wears off fast, the brake is off on steep
+   land, and an object that lies still for 0.5 s is at rest
+   (`throw_land_rest`). See "The rest after a landing".
 
 `throw_land=2` keeps the rate of the flight and has the low bounce and the
 brake. `throw_land=0` gives the game's landing, with no change.
@@ -505,11 +528,115 @@ angle, which is 38 degrees at 0.79. With the full friction of 1.31 an object
 would stay on a slope of 52 degrees. On a steeper slope, such as the slope of
 the pen, the rock slides until the land is flat.
 
+### The rest after a landing
+
+Three things keep a thrown object from its rest after its center is slow.
+`throw_land_rest=1` corrects each of them. The flight latches the key at the
+first contact, and the rule acts with `throw_land` 1 or 2.
+
+**A turn in place.** The contact gives an object more turn than a roll at
+its speed has. The game cuts the angular speed to 1.5 turns a second, but
+the momentum keeps its size, and the rest test reads the turn before the cut
+(see "The contact of the game"). So an object lies with its center still
+and turns over its points: at 1.5 turns a second at first, and for 2 to 5 s
+in all, until the turn factor has worn the momentum down to 0.5 radians a
+second. This is the turn of a tree that falls ("The landing of a tree"), and
+each object has it. The larger the world is in the room, the plainer the
+turn is to see: at 7.5 units per meter a tortoise is 13 cm across.
+
+The mod reads the turn of the object in each substep: the angle between its
+axes before and after the substep (`TurnBetween`), over the time of the
+steps. An object turns in place when it touches the land and the turn times
+its radius is more than 2 times the speed of its center (`TurnsInPlace`,
+`kSpinOverRoll`): a roll has the two equal. Such an object keeps only 0.001
+of its turn in each second (`kSettleTurnKeep`), as a tree that settles does.
+A roll keeps the turn of the brake, and so does an object in the air.
+
+**Steep land.** The brake holds an object on a slope up to its friction
+angle: 30.5 degrees for a brake with a friction of 0.59, and 38 degrees for
+0.79 ("Why the brake is 60 percent"). On steeper land the object must go
+down until the land is flat. But there the brake still acts against the
+motion, on top of the friction of the game, and the turn keeps only a part
+of itself. So the object goes down in small moves. On the slope at the pen
+(42 to 75 degrees) a small object moves 0.6 to 1.3 units a second, with
+stops, for 10 to 30 s, and the game calls it at rest only because its limit
+T grows after 15 s. With the game's landing the same object is at the foot
+of that slope after 10 s of the game's time.
+
+So the brake is off on land that it can not hold the object on
+(`SteepBrakeFactor`). The hook reads the normal of the land at the points in
+contact (the mean of `+0x40` of each point). Up to the friction angle of the
+brake, the brake has its full size. Above it the brake goes to 0, and it is
+0 where the tangent of the slope is 1.15 times the friction of the brake
+(`kSteepFade`): 34 degrees for a friction of 0.59. On such land the object
+goes down with the friction of the game, as in the plain game, and the brake
+stops it on the land below. Land below the friction angle of the brake is
+not changed.
+
+**An object that lies still.** The rest test of the game has three limits:
+the speed, the turn, and the torque over `m r^2`. A small object has a small
+`r^2`, so the springs of its points keep the torque over the limit while the
+object lies still. In a desktop run an object with a radius of 0.5 units did
+not move for 5 s and was not at rest, and then it moved again. The game makes
+its limits wider only after 15 s of life.
+
+The mod counts the time in which a point of the object is in contact, its
+speed is below 0.1 units a second and its turn is below 0.5 radians a second
+(`LiesStill`, `kStillSpeed`, `kStillTurn`). A substep with more speed or more
+turn starts the count again. After 0.5 s (`kStillSeconds`) the hook on
+`fn_007FE260` sets the velocity and the momentum to 0 and gives the game 2,
+as the function does for its own rest. The game then ends the physics of the
+object in its own way. The log has the torque of that moment: 1.0 to 6.0
+over `m r^2` in four landings of the desktop runs, with the speed and the
+turn far below their limits. An object that floats has no point in contact,
+so it does not come to rest, as in the game.
+
+`throw_land_rest=2` has the turn in place only, 3 has the steep land only, 4
+has the object that lies still only, and 0 has none of the three.
+
+**Desktop runs.** `throw_queue.ps1` in `bwvr/tools/desk` has a recipe for each
+scale: two throws of about 3 m/s from about 50 cm over the land (2 m/s at 225
+units per meter). The word `aimfar` takes a different object at each scale,
+and the throw lands on different land, so compare the two values of the key
+at one scale. A time is from the first contact to the rest of the game. The
+number after it is the count of the changes of the vertical direction of the
+center for each second (a move of 0.5 mm of the room or more counts).
+
+| Units per meter | The recipe, and what the hand throws | `throw_land_rest=1` | `throw_land_rest=0` |
+| --- | --- | --- | --- |
+| 7.5 | `landlife`: a tortoise, two times | 1.4 s and 1.3 s (1.4 and 1.5) | 5.6 s and 5.2 s (0.7 and 1.5) |
+| 29.6 | `landin3`: a tree, then a tortoise | 1.5 s and 1.5 s (0.7 and 0) | 3.0 s and 5.9 s (0.7 and 0.3) |
+| 44.4 | `landin2`: two small objects of the class `MobileObject`, onto the slope at the pen | 5.6 s and 4.8 s (0 and 0.2) | 5.2 s and 12.4 s (0 and 0) |
+| 66.7 | `landin`: the same two objects, onto the same slope | 8.6 s and 7.9 s, and 5.1 s and 9.4 s in a second run (0 to 0.3) | 5.5 s and 11.7 s (0 and 0) |
+| 100 | `land`: a rock, then a small object | 2.8 s and 3.4 s (0 and 0) | 4.0 s and 5.8 s (0 and 0) |
+| 225 | `landout`: two rocks | 1.2 s and 1.2 s (3.4 and 1.7) | 6.3 s and 2.7 s (0.3 and 1.5) |
+
+With the value 1 an object comes to rest 1.2 to 3.4 s after its first
+contact on land that the brake holds. On the slope at the pen it goes down
+to the foot of the slope first, 41 units lower, at 3 to 9 units a second,
+and it is at rest after 5 to 9 s. With the value 0 the tortoise lies with
+its center still and turns in place for 4 s, and a landing on the slope at
+the pen took 15 s and 30 s in two more runs.
+
+On land that the brake holds, the place of rest is the same with each value,
+within the difference between two throws. On the slope at the pen the place
+is different. With the value 1 the object came to rest at the foot of the
+slope in 3 of 4 throws at 66.7 units per meter (36 to 38 units from the
+release, as with the game's landing), and one time on the slope (47 units).
+With the value 0 it came to rest on the slope (46 to 50 units).
+
+The object does not tremble with either value. The changes of direction are
+the bounce of the landing and the hops: 0 to 4 in a landing with the value
+1, and 0 to 8 with the value 0. A thrown tree and a thrown villager come to
+rest with the value 1 too (`throw_queue.ps1 -Runs tree`, `village_run.ps1
+-Kind throw`): see "Desktop runs" in "The throw physics".
+
 ### Keys
 
 | Key | Default | What it does |
 | --- | --- | --- |
 | `throw_land` | 1 | 1 is the rate of the land with the low bounce and the brake. 2 is the low bounce and the brake at the rate of the flight. 0 is the game's landing |
+| `throw_land_rest` | 1 | How a thrown object comes to rest after its landing (see "The rest after a landing"). 1: a turn in place wears off fast, the brake is off on land that is steeper than the brake holds, and an object that lies still for 0.5 s is at rest. 2: the turn in place only. 3: the steep land only. 4: the object that lies still only. 0: the turn of the brake, the brake on each land, and only the rest test of the game. It acts with `throw_land` 1 or 2 |
 | `throw_land_rate_x10` | 10 | The rate of the land times 10, from 10 to 100. 10 is the game's own time. A rate above the rate of the flight changes nothing |
 | `throw_bounce_pct` | 50 | The share of its speed that a bounce keeps, of the speed that the game gives it. 100 is the game's bounce |
 | `throw_land_brake_pct` | 60 | The friction of the brake, in percent of the friction that the game has for the object. 0 is no brake |
@@ -520,11 +647,15 @@ The keys are read from `bwvr.ini`. They are not in the launcher.
 **The test keys** (`test_keys=1`): the Pause key goes through the three
 landings: 1 (a long pulse of the pointing hand), then 2 (a pulse of middle
 length), then 0 (a short pulse), and 1 again. Shift with Pause turns the
-settle of a tree on and off (see "The landing of a tree"). Ctrl with Numpad Plus makes the
+settle of a tree on and off (see "The landing of a tree"). Ctrl and Shift
+with Pause go between `throw_land_rest` 1 (a long pulse) and 0 (a short
+pulse). With Ctrl down the Pause key is the Break key of Windows
+(`VK_CANCEL`), and Ctrl with Pause and no Shift is a key of the audio
+(`audio.md`). Ctrl with Numpad Plus makes the
 rate of the land lower by 0.25 (slower), and Ctrl with Numpad Divide makes it
 higher, from 1.0 to 10.0. Each press gives a log line. An object that touched
-the land before a press keeps its landing. The mod uses the Pause key for
-nothing else. Whether the game uses it is not known [G].
+the land before a press keeps its landing. Whether the game uses the Pause
+key is not known [G].
 
 **The fallback.** When the hook on `fn_007FDE40` fails, a thrown object has
 the game's bounce and no brake, and the log says so at the start and at each
@@ -535,12 +666,20 @@ release in the glide starts at the point of the glide, and the log says so.
 
 Tag `hand throw`. "The contact of": the points and the constants of the
 object. "The landing of": the landing that the flight latched, the two rates,
-the bounce and the friction of the brake. "After the first contact": the time
+the bounce, the friction of the brake and the rule of `throw_land_rest`.
+"The land under ... has a slope of": the first step in which steep land
+makes the brake less. "Turns in place": the first substep in which the turn
+of the object is no roll. "Lay still for": the rest that the mod gives, with
+the speed, the turn and the torque over `m r^2` of that moment. "After the
+first contact": the time
 and the way to the rest, the top speed, the hops (count, the highest, the
 longest, the part of the time in the air), the changes of the vertical
-direction of the center (a move of 0.5 mm of the room or more counts), the
+direction of the center (a move of 0.5 mm of the room or more counts. The
+height is that of the center in the world, and not its height over the land,
+because the land of the physics has stairs), the
 turns, the rate at the first contact and at the end, the steps with a cut
-force, the frames that the mod drew after the newest step, and the times that
+force, the substeps with a turn in place, the steps with less brake on steep
+land, the frames that the mod drew after the newest step, and the times that
 the picture turned back. "The picture of": the rule of `throw_draw`, the
 turns back in the frame after a frame that the mod drew after the newest
 step (those are from a guess, and each other one is a bounce), the times that
@@ -560,16 +699,31 @@ one time constant, the end, no step larger than 5 percent of the change in a
 substep), the factor of the low bounce, a ball on the contact of the game with
 and without the low bounce (it comes to rest and does not lie deeper), the
 brake (its size, the stop in one step, a slide that stops, a slope of 30
-degrees that holds the block and one of 45 degrees that does not), the turn
-between two matrices with three scales, the numbers of the log line, and the
+degrees that holds the block and one of 45 degrees that does not), the rest
+after a landing (the values of the key, an object that lies still and the
+count of its time, a roll and a turn in place, the turn
+factor of each, the time of a turn at the cap, the part of the brake on
+slopes of 0 to 62 degrees and at a wall for a brake friction of 0.59 and of
+0.79, no step in that part, and a block
+on a slope of 62 degrees with the brake on each land and with the brake off
+on steep land), the turn
+between two matrices with three scales, the numbers of the log line (the
+stairs of the land under an object that goes down a slope are no change of
+its vertical direction), and the
 catch up of the picture (`kCatchUp`).
 
 ### Open
 
 - Not tested: a throw into a pile of objects. A desktop run shows the landing
-  of a villager, of a rock in the sea and of a rock at 66.7 and at 225 units
-  per meter ("Desktop runs" in "The throw physics"). The log does not say
-  whether a thrown villager lives.
+  of a villager, of a rock in the sea and of a rock at 7.5 to 225 units per
+  meter ("Desktop runs" in "The throw physics", and "The rest after a
+  landing"). The log does not say whether a thrown villager lives.
+- The rest after a landing: only a headset shows whether a rock that stops
+  its turn this fast looks right, and whether a rock on a steep slope goes
+  down at a pace that looks right. On such a slope the object moves in the
+  game's own time until the land is flatter (8 s on the slope at the pen,
+  which is 41 units high).
+  Ctrl and Shift with Pause give the landing with no rule for a comparison.
 - Only a headset shows: whether the landing looks natural at the rate of the
   land, or too slow (on the slope of the pen the rock moves slowly for about
   2.5 s before it stops: try `throw_land=2` with the Pause key, or a higher
@@ -601,8 +755,8 @@ and it gives the game's value back at the end of the flight. The speed test
 leaves the first bounce and a real roll alone. The mod writes nothing else into
 the physics object. In the desktop run the mesh point then moves 0.2 units or
 less from 0.9 s into the flight (0.3 s after the first contact), and the tree
-leaves the physics 1.7 s after the release, in place of 5.1 s. The log has a
-line when the settle starts.
+leaves the physics 1.2 to 1.7 s after the release, in place of 5.1 s. The log
+has a line when the settle starts.
 
 The settle acts on a flight of the mod. A tree with `throw_trees=0` or
 `throw_law` other than 2 keeps the game's physics, and `throw_land=0` keeps the

@@ -59,10 +59,11 @@ is built, and no test has proven it.
     (`throw_tree_settle`, `throw.md`, "The landing of a tree"). Not shown:
     a far target that hides and shows by itself (not seen in a desktop
     run), a tree thrown fast across the land, and the look in a headset.
-    In one desktop run a tree thrown at 3 m/s did not move from 4.1 s after
-    the release, and the game kept it in its physics until 18.7 s
-    (`throw_queue.ps1 -Runs tree`). In the other throws of that recipe the
-    tree left the physics after 3.0 to 3.9 s.
+    A tree that does not move for 0.5 s is at rest, also while its torque
+    is over the limit of the rest test of the game (`throw_land_rest`,
+    `throw.md`, "The rest after a landing"). A tree thrown at 3 m/s left
+    the physics 2.6 and 4.3 s after the release (`throw_queue.ps1 -Runs
+    tree`).
 - **B4. The card does not know a body in the way of a planted tree.** The
   card says "plant" by the tests of the game that it can read (the height,
   the lean, dry land, fire, `grab.md`, "A tree in the Hand"). The game also
@@ -166,30 +167,38 @@ is built, and no test has proven it.
   the rule 0 for a comparison. Not run: a picture that stays at the place of
   a guess (the math checks cover it). A run shows the clock that falls back
   after a wait.
-- **B11. A tree that fell can leave the Hand at once.** A tree that falls
-  comes to rest about 0.9 s after its first contact, and the game then takes
-  it out of its physics. In one of three desktop runs the grab from a
-  distance took the tree at that moment. The Hand held the tree for 2 frames
-  (Hand state 4). Then the game ended the physics of the tree, and the Hand
-  was empty with the grip closed. After that the physics of the game has no
-  entry for the tree, and the draw of the next 3 frames does not offer it to
-  the pick. In the two
-  other runs the pick up was over 14 frames after the Hand took the tree, and
-  the tree stayed in the Hand until the grip opened (`throw_queue.ps1 -Runs
-  treedroproll` in `bwvr/tools/desk`, one of those two runs with
-  `throw_tree_settle=0`). A near grip on a tree in its fall keeps the tree
-  (`-Runs treedrop`). Not known: where the tree is after the Hand loses it,
-  and whether a tree that lies after a throw does the same.
-- **B12. A thrown rock trembles after its landing at 66.7 units for each
-  meter: check it in a headset.** One zoom step in, a rock thrown at 3 m/s
-  moved for 5 to 42 s after its first contact, in four throws of two desktop
-  runs (`throw_queue.ps1 -Runs landin`). In that time its height over the
-  land changed direction 18 to 52 times a second, by 0.1 cm of the room as a
-  mean. At 100 units for each meter the same throw moves for 3 to 7 s with 3
-  to 6 changes a second, and at 225 units with less than 1 change a second.
-  With `test_keys=1` the Pause key gives the landing of the game
-  (`throw_land=0`) for a comparison. Not run: which part of the landing of
-  the mod is the cause, and a scale below 66.7 units for each meter.
+- **B11. A tree that comes to rest while the Hand takes it: check it in a
+  headset.** The game makes a dead tree of a tree that fell when the tree
+  comes to rest, and it deletes the tree. The Hand has an object from the
+  press, and the game puts it in the Hand 2 or 3 game turns later. With the
+  rule of the game, a tree that comes to rest in those turns leaves the Hand
+  at once, and the Hand is empty with the grip closed. With
+  `catch_rest_guard=1` the tree does not come to rest in those turns: it
+  stays a tree, and it is in the Hand until the grip opens (`grab.md`, "An
+  object that comes to rest while the Hand takes it"). The take starts at
+  the lock of a far grab. Desktop runs show both ends: with the rest of the
+  game itself in a turn of the take (one run with each value), and with a
+  test key that makes the rest in the first turn in which the Hand has the
+  tree (`throw_queue.ps1 -Runs treedropend` in `bwvr/tools/desk`, and the
+  same with `-More 'catch_rest_guard=0'`). Check in a headset that a tree
+  which fell comes to the hand each time. The test key (Ctrl, Shift and
+  Scroll Lock) gives the rule of the game for a comparison.
+- **B12. The rest of a thrown object after its landing: check it in a
+  headset.** After its landing a thrown object loses a turn in place fast,
+  and it is at rest after 0.5 s with no move. On land that is steeper than
+  the brake holds, the object goes down as in the game
+  (`throw_land_rest=1`, `throw.md`, "The rest after a landing"). Desktop
+  runs at 7.5 to 225 units for each meter show the time from the first
+  contact to the rest: 1.2 to 3.4 s on land that the brake holds, and 5 to
+  9 s on the slope at the pen, where the object goes down 41 units to the
+  foot of the slope. With `throw_land_rest=0` the same throws need 2.7 to
+  12.4 s, and a landing on that slope took 15 s and 30 s in two more runs.
+  The object does not tremble with either value: its center changes its
+  vertical direction 0 to 8 times in a landing. Only a headset shows
+  whether an object that stops its turn this fast looks right, and whether
+  the pace of an object on a steep slope looks right (it moves in the
+  game's own time). The test key (Ctrl, Shift and Pause) gives the landing
+  with no rule for a comparison.
 - **B13. The camera of the hall moves after the guide of the first visit:
   check it in a headset.** In a desktop run the guide of the first visit of
   the hall of the Temple ended at frame 1930. From frame 1931 to frame 5312

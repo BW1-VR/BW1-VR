@@ -676,6 +676,163 @@ inline void ThrowChecks() {
           steps * kSubstep, 10.0);
   }
 
+  // THE REST AFTER A LANDING (throw_land_rest).
+  {
+    Check(RestSpin(kRestAll) && RestSteep(kRestAll) && RestStill(kRestAll),
+          "the rule 1 has the turn in place, the steep land and the object "
+          "that lies still", RestSpin(kRestAll), 1);
+    Check(RestSpin(kRestSpin) && !RestSteep(kRestSpin) &&
+          !RestStill(kRestSpin), "the rule 2 has the turn in place only",
+          RestSteep(kRestSpin), 0);
+    Check(!RestSpin(kRestSteep) && RestSteep(kRestSteep) &&
+          !RestStill(kRestSteep), "the rule 3 has the steep land only",
+          RestSpin(kRestSteep), 0);
+    Check(!RestSpin(kRestStill) && !RestSteep(kRestStill) &&
+          RestStill(kRestStill), "the rule 4 has the object that lies still "
+          "only", RestSpin(kRestStill), 0);
+    Check(!RestSpin(kRestOff) && !RestSteep(kRestOff) && !RestStill(kRestOff),
+          "the rule 0 has none of the three", RestSpin(kRestOff), 0);
+    // An object that lies still: a point in contact, a speed below 0.1 units
+    // a second and a turn below 0.5 radians a second.
+    Check(LiesStill(true, 0.02f, 0.11f), "a rock that does not move lies "
+          "still", LiesStill(true, 0.02f, 0.11f), 1);
+    Check(!LiesStill(false, 0.02f, 0.11f), "an object with no point in "
+          "contact does not lie still", LiesStill(false, 0.02f, 0.11f), 0);
+    Check(!LiesStill(true, 0.6f, 0.11f), "an object that goes down a slope "
+          "at 0.6 units a second does not lie still",
+          LiesStill(true, 0.6f, 0.11f), 0);
+    Check(!LiesStill(true, 0.02f, 0.6f), "an object that turns at 0.6 "
+          "radians a second does not lie still",
+          LiesStill(true, 0.02f, 0.6f), 0);
+    // 0.5 s with no break gives the rest. A move in that time starts the
+    // time again.
+    double lay = 0.0;
+    int at = -1;
+    for (int k = 0; k < 400 && at < 0; ++k) {
+      const float speed = k == 60 ? 0.5f : 0.02f;
+      lay = StillTime(lay, true, speed, 0.1f, kSubstep);
+      if (lay >= kStillSeconds) at = k;
+    }
+    Check(at >= 159 && at <= 162, "an object that moved in substep 60 is at "
+          "rest 100 substeps later", at, 160);
+    // A rock with a radius of 0.5 units. A roll at 2 units a second is 4
+    // radians a second.
+    Check(!TurnsInPlace(4.0f, 0.5f, 2.0f), "a roll is no turn in place",
+          TurnsInPlace(4.0f, 0.5f, 2.0f), 0);
+    Check(!TurnsInPlace(7.9f, 0.5f, 2.0f), "a turn below 2 times the roll is "
+          "no turn in place", TurnsInPlace(7.9f, 0.5f, 2.0f), 0);
+    Check(TurnsInPlace(8.1f, 0.5f, 2.0f), "a turn above 2 times the roll is a "
+          "turn in place", TurnsInPlace(8.1f, 0.5f, 2.0f), 1);
+    Check(TurnsInPlace(9.42f, 0.5f, 0.05f), "a rock that turns at the cap "
+          "with its center still turns in place",
+          TurnsInPlace(9.42f, 0.5f, 0.05f), 1);
+    Check(!TurnsInPlace(0.0f, 0.5f, 0.0f), "an object with no turn does not "
+          "turn in place", TurnsInPlace(0.0f, 0.5f, 0.0f), 0);
+    Check(!TurnsInPlace(9.42f, 0.0f, 0.0f), "an object with no radius does "
+          "not turn in place", TurnsInPlace(9.42f, 0.0f, 0.0f), 0);
+    const float game = powf(0.391f, kSubstep);
+    const float land = powf(kLandTurnKeep, kSubstep);
+    const float settle = powf(kSettleTurnKeep, kSubstep);
+    Near("a turn in place on the land gets the settle factor",
+         TurnKeepAfterLanding(game, true, false, true, 20.0f, true), settle,
+         1e-7);
+    Near("a turn in place in the air keeps the land factor",
+         TurnKeepAfterLanding(game, true, false, false, 0.0f, true), land,
+         1e-7);
+    Near("a roll keeps the land factor",
+         TurnKeepAfterLanding(game, true, false, true, 2.0f, false), land,
+         1e-7);
+    // The turn of a rock at the cap of 3 pi radians a second comes below 0.5
+    // radians a second in less than 0.5 s. The factor of the brake needs
+    // more than 2 s.
+    double turn = 3.0 * 3.14159265;
+    int steps = 0;
+    while (turn > 0.5 && steps < 100000) {
+      turn *= settle;
+      ++steps;
+    }
+    Check(steps * kSubstep < 0.5, "a turn in place at the cap is over in less "
+          "than 0.5 s", steps * kSubstep, 0.5);
+    turn = 3.0 * 3.14159265;
+    steps = 0;
+    while (turn > 0.5 && steps < 100000) {
+      turn *= land;
+      ++steps;
+    }
+    Check(steps * kSubstep > 2.0, "and the factor of the brake needs more "
+          "than 2 s", steps * kSubstep, 2.0);
+    // Steep land. A brake with a friction of 0.59 holds 30.5 degrees.
+    // normal_up is the cosine of the slope.
+    const float mu = 0.59f;
+    const double degree = 3.14159265 / 180.0;
+    Near("on flat land the brake has its full size",
+         SteepBrakeFactor(1.0f, mu), 1.0, 1e-6);
+    Near("on a slope of 20 degrees too",
+         SteepBrakeFactor(static_cast<float>(cos(20.0 * degree)), mu), 1.0,
+         1e-6);
+    Near("and on a slope of 30 degrees",
+         SteepBrakeFactor(static_cast<float>(cos(30.0 * degree)), mu), 1.0,
+         1e-6);
+    const float part =
+        SteepBrakeFactor(static_cast<float>(cos(32.5 * degree)), mu);
+    Check(part > 0.2f && part < 0.8f, "at 32.5 degrees the brake has a part "
+          "of its size", part, 0.5);
+    Near("at 36 degrees the brake is off",
+         SteepBrakeFactor(static_cast<float>(cos(36.0 * degree)), mu), 0.0,
+         1e-6);
+    Near("at 42 and at 62 degrees too",
+         SteepBrakeFactor(static_cast<float>(cos(42.0 * degree)), mu) +
+             SteepBrakeFactor(static_cast<float>(cos(62.0 * degree)), mu),
+         0.0, 1e-6);
+    Near("a wall gives no brake", SteepBrakeFactor(0.0f, mu), 0.0, 1e-6);
+    Near("a brake with no friction keeps the factor 1",
+         SteepBrakeFactor(0.5f, 0.0f), 1.0, 1e-6);
+    Near("a brake of a rock with a friction of 0.79 has its full size at 38 "
+         "degrees",
+         SteepBrakeFactor(static_cast<float>(cos(38.0 * degree)), 0.79f), 1.0,
+         1e-6);
+    // The factor has no step: 0.1 degrees change it by less than 0.05.
+    float worst = 0.0f;
+    for (double a = 25.0; a < 45.0; a += 0.1) {
+      const float one = SteepBrakeFactor(static_cast<float>(cos(a * degree)),
+                                         mu);
+      const float two = SteepBrakeFactor(
+          static_cast<float>(cos((a + 0.1) * degree)), mu);
+      if (fabsf(one - two) > worst) worst = fabsf(one - two);
+    }
+    Check(worst < 0.05f, "the brake goes to 0 with no step", worst, 0.05);
+    // A block that slides on a slope of 62 degrees with the friction of the
+    // game (0.984) and the brake (0.59 of the force of the contact, which is
+    // the normal force and the friction together). With the brake on each
+    // land the block gains less than 1 unit a second in 1 s. With the brake
+    // off on steep land it gains more than 3.
+    for (int rule = 0; rule < 2; ++rule) {
+      const double a = 62.0 * degree;
+      const float mass = 3.76f;
+      const float slide = 0.984f;
+      const float normal = static_cast<float>(mass * 9.81 * cos(a));
+      const float push[3] = {-slide * normal, normal, 0.0f};
+      const float factor =
+          rule == 1 ? SteepBrakeFactor(static_cast<float>(cos(a)), mu) : 1.0f;
+      double v = 0.5;
+      for (int k = 0; k < 200; ++k) {
+        const float v3[3] = {static_cast<float>(v), 0.0f, 0.0f};
+        float out[3];
+        LandBrake(push, v3, mass, mu * factor, out);
+        v += (9.81 * sin(a) - slide * 9.81 * cos(a) + out[0] / mass) *
+             kSubstep;
+        if (v < 0.0) v = 0.0;
+      }
+      if (rule == 0) {
+        Check(v < 1.5, "with the brake on each land a block on a slope of 62 "
+              "degrees gains less than 1 unit a second in 1 s", v, 1.5);
+      } else {
+        Check(v > 3.5, "with the brake off on steep land it gains more than "
+              "3 units a second", v, 3.5);
+      }
+    }
+  }
+
   // THE BRAKE OF THE LAND. A block of the mass 2000 on the land, with the
   // game's gravity.
   {
@@ -779,6 +936,23 @@ inline void ThrowChecks() {
           "vertical direction, and the shake 20", l.bobs, 22);
     Near("the turn is the sum of the turns", l.turned, 0.01 * (n - 1), 1e-3);
     Near("the top turn rate is 2 radians a second", l.top_turn, 2.0, 1e-2);
+    // An object that goes down a slope of 62 degrees at 1 unit a second
+    // across the land. The land of the game is flat in squares of 10 / 256
+    // units, so the height over the land has a step at each square. The
+    // center goes down all the time: that is no change of its direction.
+    Landing slope = {};
+    for (int k = 0; k <= 400; ++k) {
+      const double t = 0.005 * k;
+      const double x = 1.0 * t;
+      const double land_y = -1.88 * floor(x * 25.6) / 25.6;
+      const float center[3] = {static_cast<float>(x),
+                               static_cast<float>(0.5 - 1.88 * x), 0.0f};
+      LandingAdd(&slope, t, center, center[1] - static_cast<float>(land_y),
+                 true, 0.0f, 0.03f);
+    }
+    Check(slope.bobs == 0, "the steps of the land under an object that goes "
+          "down a slope are no change of its vertical direction", slope.bobs,
+          0);
     // The picture: 10 frames forward, one frame back by 0.4, 10 forward.
     DrawTrack d = {};
     float p[3] = {0.0f, 0.0f, 0.0f};

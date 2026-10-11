@@ -419,6 +419,13 @@ inline float TurnBetween(const float a[12], const float b[12]) {
 // object left the land. A bob is a change of the vertical direction of the
 // center after a move of `dead_band` or more: each hop gives two, and an
 // object that shakes on the land gives many small ones.
+//
+// A bob is from the height of the center in the world, and not from its
+// height over the land. LH3DIsland::GetAltitude 0x00803090 takes only the
+// top 8 bits of the place in a map cell (0x008032F9, 0x00803318), so the
+// land of the game is flat in squares of 10 / 256 units. On a slope the
+// height over the land of an object that moves has a step at the edge of
+// each square, and each step would count as a bob.
 const double kHopLeast = 0.030;
 
 struct Landing {
@@ -438,7 +445,7 @@ struct Landing {
   float top_hop;       // the highest hop
   double long_hop;     // the longest hop
   double air_time;     // the sum of the hops
-  // The bobs of the height over the land.
+  // The bobs of the height of the center.
   int dir;             // 1 up, -1 down, 0 not known yet
   float extreme;       // the top or the bottom that the height goes to now
   float turn_at;       // the top or the bottom of the bob before
@@ -461,14 +468,15 @@ inline void LandingEndHop(Landing* l, double time) {
   if (rise > l->top_hop) l->top_hop = rise;
 }
 
-// `over` is the height of the center over the land, `touch` is true while a
-// point of the object is in contact, and `turn` is the turn since the sample
-// before, in radians.
+// `center` is the center in the world, `over` is its height over the land,
+// `touch` is true while a point of the object is in contact, and `turn` is
+// the turn since the sample before, in radians.
 inline void LandingAdd(Landing* l, double time, const float center[3],
                        float over, bool touch, float turn, float dead_band) {
+  const float height = center[1];
   if (l->samples == 0) {
     l->first = time;
-    l->extreme = over;
+    l->extreme = height;
   } else {
     const double dt = time - l->last;
     const float dx = center[0] - l->at[0];
@@ -502,19 +510,20 @@ inline void LandingAdd(Landing* l, double time, const float center[3],
   // The bobs. `extreme` follows the height while it goes on in the
   // direction `dir`. A move of dead_band against it makes a bob.
   if (l->dir == 0) {
-    if (fabsf(over - l->extreme) >= dead_band) {
-      l->dir = over > l->extreme ? 1 : -1;
+    if (fabsf(height - l->extreme) >= dead_band) {
+      l->dir = height > l->extreme ? 1 : -1;
       l->turn_at = l->extreme;
-      l->extreme = over;
+      l->extreme = height;
     }
-  } else if ((over - l->extreme) * static_cast<float>(l->dir) > 0.0f) {
-    l->extreme = over;
-  } else if ((l->extreme - over) * static_cast<float>(l->dir) >= dead_band) {
+  } else if ((height - l->extreme) * static_cast<float>(l->dir) > 0.0f) {
+    l->extreme = height;
+  } else if ((l->extreme - height) * static_cast<float>(l->dir) >=
+             dead_band) {
     ++l->bobs;
     l->bob_sum += fabsf(l->extreme - l->turn_at);
     l->turn_at = l->extreme;
     l->dir = -l->dir;
-    l->extreme = over;
+    l->extreme = height;
   }
 }
 
@@ -671,18 +680,104 @@ const float kLandTurnKeep = 0.25f;
 const float kSettleSpeed = 6.0f;
 const float kSettleTurnKeep = 0.001f;
 
+// THE REST AFTER A LANDING (throw_land_rest). Three things keep a thrown
+// object from its rest after its center is slow.
+//
+// A TURN IN PLACE. An object that rolls turns at its speed over its radius.
+// The contact of the game gives an object more turn than that, as it gives a
+// tree: the object lies with its center still and turns over its points, at
+// the cap of 1.5 turns a second at first, for 2 to 5 s. The rest test of the
+// game needs a turn below 0.5 radians a second. So an object that touches
+// the land and turns more than kSpinOverRoll times as fast as a roll at its
+// speed keeps only kSettleTurnKeep of its turn in each second (TurnsInPlace).
+// A roll keeps the turn of the brake. turn_rate is in radians a second,
+// radius in world units, and speed in units a second, all in the game's time.
+//
+// STEEP LAND. The brake holds an object on a slope up to its friction angle
+// (the tangent of the slope is the friction of the brake). On steeper land
+// the object must go down until the land is flat. But there the brake still
+// acts against the motion, on top of the friction of the game, and the turn
+// of the object keeps only a part of itself. The object then goes down in
+// small moves: 0.6 to 1.3 units a second, with stops, for 10 to 30 s on a
+// slope of 42 to 75 degrees. So the brake is off on land that it can not
+// hold the object on (SteepBrakeFactor): it has its full size up to its
+// friction angle, and it goes to 0 where the tangent of the slope is
+// kSteepFade times its friction. There the object goes down with the
+// friction of the game, as in the plain game. normal_up is the up part of the
+// unit normal of the land, and friction is the friction of the brake.
+//
+// AN OBJECT THAT LIES STILL. The rest test of the game (fn_007FE260) has
+// three limits: the speed below 1 unit a second, the turn below 0.5 radians a
+// second, and the torque over m r^2 below 1. A small object has a small
+// r^2, so the springs of its points keep its torque over the limit while it
+// lies still: an object with a radius of 0.5 units did not move for 5 s and
+// was not at rest.
+// The game makes its limits wider only after 15 s of life. So an object
+// lies still when a point is in contact, its speed is below kStillSpeed and
+// its turn is below kStillTurn (LiesStill). After kStillSeconds of that with
+// no break, the mod gives the game the answer of an object that came to rest
+// (StillTime gives the time so far).
+const int kRestOff = 0;    // the turn of the brake, and the brake on each land
+const int kRestAll = 1;
+const int kRestSpin = 2;   // the turn in place only
+const int kRestSteep = 3;  // steep land only
+const int kRestStill = 4;  // an object that lies still only
+const float kSpinOverRoll = 2.0f;
+const float kSteepFade = 1.15f;
+const float kStillSpeed = 0.1f;   // units a second of the game's time
+const float kStillTurn = 0.5f;    // radians a second, the limit of the game
+const double kStillSeconds = 0.5;
+
+inline bool RestSpin(int rule) {
+  return rule == kRestAll || rule == kRestSpin;
+}
+inline bool RestSteep(int rule) {
+  return rule == kRestAll || rule == kRestSteep;
+}
+inline bool RestStill(int rule) {
+  return rule == kRestAll || rule == kRestStill;
+}
+
+inline bool LiesStill(bool touching, float speed, float turn_rate) {
+  return touching && speed < kStillSpeed && turn_rate < kStillTurn;
+}
+
+// The time that the object lay still, after a substep of `span` seconds of
+// the game's time. `still` is the time before the substep.
+inline double StillTime(double still, bool touching, float speed,
+                        float turn_rate, double span) {
+  return LiesStill(touching, speed, turn_rate) ? still + span : 0.0;
+}
+
+inline bool TurnsInPlace(float turn_rate, float radius, float speed) {
+  if (!(turn_rate > 0.0f) || !(radius > 0.0f)) return false;
+  return turn_rate * radius > kSpinOverRoll * speed;
+}
+
+inline float SteepBrakeFactor(float normal_up, float friction) {
+  if (!(friction > 0.0f) || !(normal_up < 1.0f)) return 1.0f;
+  if (!(normal_up > 1e-4f)) return 0.0f;
+  const float tangent = sqrtf(1.0f - normal_up * normal_up) / normal_up;
+  const float steep = tangent / friction;
+  if (!(steep > 1.0f)) return 1.0f;
+  if (!(steep < kSteepFade)) return 0.0f;
+  return (kSteepFade - steep) / (kSteepFade - 1.0f);
+}
+
 // The turn factor of one step for an object after its first contact.
 // `game_keep` is the game's factor of the object. `brake_on` gives the land
 // keep, and `settle` the keep of the settle while the object touches and is
-// slow. The answer is never more than `game_keep`.
+// slow. `in_place` gives the same keep while the object touches and turns in
+// place. The answer is never more than `game_keep`.
 inline float TurnKeepAfterLanding(float game_keep, bool brake_on, bool settle,
-                                  bool touching, float speed) {
+                                  bool touching, float speed,
+                                  bool in_place = false) {
   float keep = game_keep;
   if (brake_on) {
     const float most = powf(kLandTurnKeep, kSubstep);
     if (keep > most) keep = most;
   }
-  if (settle && touching && speed <= kSettleSpeed) {
+  if (touching && ((settle && speed <= kSettleSpeed) || in_place)) {
     const float least = powf(kSettleTurnKeep, kSubstep);
     if (keep > least) keep = least;
   }

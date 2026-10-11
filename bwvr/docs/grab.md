@@ -486,6 +486,7 @@ put the leash on from a new game.
 | `catch_lag_ms` | 100 | The time that the speed of the object counts for, in ms. 0 to 500 |
 | `catch_cap_cm` | 8 | The most extra reach, in cm of the room. 0 to 20 |
 | `catch_grace_ms` | 600 | The object that the Hand threw has no extra reach for this time, in ms. 0 to 3000 |
+| `catch_rest_guard` | 1 | 1 holds the end of the physics of an object back while the Hand takes it, so a tree that comes to rest in that time stays a tree and goes into the Hand (see "An object that comes to rest while the Hand takes it"). 0 lets the game end the physics: the tree is then a dead tree on the land, and the Hand is empty. The test key Ctrl Shift Scroll Lock turns it off and on (`test_keys=1`) |
 | `far_grab_near_cm` | 10 | The far grab goes off when an object that a press acts on is this near the Hand's point |
 | `far_grab_near_out_cm` | 15 | The far grab comes back past this distance |
 | `palm_search` | 0 | 1 leaves the game's search at the palm on |
@@ -1019,10 +1020,16 @@ physics and falls.
 - The tree is not on fire (`Tree+0x44`).
 
 A tree that falls has no flag 8, because only the release sets it. When it
-comes to rest, `EndPhysics` makes a `DeadTree` (`fn_00510B70`) in its place
-[I]. A desktop run showed the two ends: a tree set down at 2.4 cm of the room
+comes to rest, `Tree::EndPhysics` makes a `DeadTree` (`fn_00510B70`) at its
+place and deletes the tree (table slot `+0xC`) [V]. The dead tree is a
+different object, and the entry of the physics keeps it as an object at rest.
+A desktop run showed the two ends: a tree set down at 2.4 cm of the room
 was a `Tree` in a forest 25 frames later, and a tree let go at 45 cm never
 left the physics as a `Tree` (the dead tree path does not clear its flag).
+The dead tree of a tree that fell was a far target in a later frame of a run
+(the log line of the target names the class `DeadTree`). A tree that the Hand
+takes while it comes to rest is in "An object that comes to rest while the
+Hand takes it".
 
 **The card.** The text "Plant" of the game is the same for each tree in the
 Hand. With `tree_plant_hint=1` the card tests the same things in each frame
@@ -1189,6 +1196,94 @@ target, and the fetch puts it in the Hand while it moves.
   deleted object fails the test. [I: an object that the game makes at the same
   address with the same class passes. The fetch then takes that object, which is
   a live object.]
+
+### An object that comes to rest while the Hand takes it
+
+**What the game does [V].** A press on an object that the physics of the game
+has puts the object in the Hand of the picture at once: `fn_0046DC30` writes
+`CHand+0x4904`, and the Hand goes to the Holding state with no Tug. The game
+puts the object in the Hand in a later game turn.
+`GInterface::PlaceObjectInMagicHand` `0x005DA6F0` calls `fn_005DC330`, and
+that function takes the object out of the physics with
+`PhysicsObject::RemoveObject` `0x00646A00` (`0x005DC346`). Its two flags are
+0, so the call makes no end of the physics, and the object stays what it is.
+In the desktop runs the physics ran 2 or 3 game turns between the press and
+that turn.
+
+In each of those turns the object can come to rest. Then the step of the
+object (`fn_007FE260`) gives 2, and `PhysicsObject::GameTurnUpdate` calls
+`EndPhysics` of the object (table slot `+0x790`) with the flag 1. For a tree
+with no flag 8 that is the dead tree of "A tree in the Hand": the game
+deletes the tree that the Hand has. The Hand is then empty with the grip
+closed, and a dead tree lies on the land. A thrown tree comes to rest by the
+same call, so a tree that lies after a throw is a dead tree too. The mouse
+has the same race.
+
+**What the mod does.** With `catch_rest_guard=1` an object does not come to
+rest while the Hand takes it. Once a game turn, before the physics, the mod
+latches the object of the take (`TakeTurnBegin` in `throw_physics.cpp`): the
+object that the far grab has locked, pulls or fetches, or the object that the
+Hand of the game holds, while the physics still has it. A bulk source, a
+scroll and the Creature of a leash click are no take. When the step of that
+object gives 2, the hook on `fn_007FE260` gives the game 1, the answer of a
+step that moved (`TakeStep`). The step has set the velocity and the turn of
+the object to 0, so the object lies still. The game then takes the object
+out of the physics in its own turn, as it takes each object that moves. A
+tree stays a tree, and it is in the Hand until the grip opens.
+
+The limits:
+
+- The guard of one take ends after 30 game turns (`kTakeTurns`), which is 3
+  s. Then the object comes to rest as each other object does, and the log
+  says so. So a lock that the player holds for longer on a tree that lies
+  still ends: the tree is a dead tree then, and the dead tree is a far
+  target of its own.
+- The guard acts only when the controller placed the Hand in one of the last
+  3 frames. The mouse keeps the take of the game.
+- A multiplayer game keeps the physics of the game: all players must run the
+  same physics.
+- The guard uses the hook of the real flight, so it needs `throw_law=2` at
+  the start of the game.
+- For an object whose center is lower than half of its radius,
+  `GameTurnUpdate` can make the 2 by itself (the table slot `+0x7B8` of the
+  object decides). The hook does not see that answer [I: which objects say
+  yes there].
+
+`catch_rest_guard=0` in `bwvr.ini` gives the game's own end of the physics.
+With `test_keys=1`, Ctrl and Shift with Scroll Lock turn the guard off and
+on. The pointing controller gives a long pulse for on and a short pulse for
+off, and the log has a line.
+
+**The log.** Tag `hand take`: the setting at the start, "came to rest in the
+physics of the game while the Hand takes it" with the game turn of the take
+and what the mod does, and the end of the take: "the Hand holds" or "the Hand
+does not hold" the object, with the count of the game turns and of the steps
+that the mod held back.
+
+**Desktop runs.** `throw_queue.ps1 -Runs treedropend` in `bwvr/tools/desk`
+lets a tree fall from the Hand and locks it from a distance 1.3 s later. The
+pull comes 10 frames after the lock, and the press 2 frames after the pull.
+A tree that falls comes to rest by itself 1.2 to more than 2.3 s after the
+release, so the rest of the game itself comes in the take in some runs only.
+For the other runs the recipe has the test key `catch_rest_test=1`: it makes
+one step of the object give 2 in the first game turn in which the Hand of
+the game has the object, with the state that the step of the game leaves
+then (no velocity and no turn).
+
+| `catch_rest_guard` | What the runs show |
+| --- | --- |
+| 1 | In 3 of 4 runs the mod holds the rest back (1, 11 and 30 steps), the pick up is over 15 frames after the Hand took the tree, and the tree leaves the Hand when the grip opens, 46 frames after the Hand took it. In one of the three the rest of the game itself came in the lock, before the pull. In the fourth run the tree came to rest before the aim, so there was no take |
+| 0 | In 3 of 3 runs the game ends the physics of the tree in a turn of the take: by the test key in 2 runs, and by itself in 1 run. The Hand holds nothing 1 or 2 frames after it took the tree, and the grip stays closed on an empty Hand for 44 frames more |
+
+With `catch_rest_guard=1` the two recipes with no test key keep their
+results. In `throw_queue.ps1 -Runs treedrop` a near grip on a tree in its
+fall keeps the tree until the grip opens. In `-Runs treerest` the aim is on
+a tree that falls with no lock, the tree comes to rest 1.5 to 1.6 s after the
+release, and the target is then the dead tree.
+
+**Open.** Not run: a villager or a rock that comes to rest in a take, and
+the mouse. Only a headset shows whether a tree that the player takes at the
+moment of its rest comes to the hand each time.
 
 ### Show
 

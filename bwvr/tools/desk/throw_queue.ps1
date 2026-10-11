@@ -75,6 +75,13 @@ $defs = @{
     treedrop = @{ Set = 'throw_land=1;release_fall_cm=15;far_test_thrown=1;far_test_no_trees=0;far_test_tree=1'; Steps = $dropFar; Seconds = 80; Points = $stillPoints }
     treedroproll = @{ Set = 'throw_land=1;release_fall_cm=15;far_test_thrown=1;far_test_no_trees=0;far_test_tree=1'; Steps = $dropFarRoll; Seconds = 80; Points = $stillPoints }
     treerest = @{ Set = 'throw_land=1;release_fall_cm=15;far_test_thrown=1;far_test_no_trees=0;far_test_tree=1'; Steps = "$dropBase aimfar@3290+1 shot@3600+1 shot@5000+1"; Seconds = 80; Points = $stillPoints }
+    # A tree that comes to rest while the Hand takes it. The test key
+    # catch_rest_test=1 makes one step of the tree answer "at rest" in the
+    # first game turn in which the Hand has the tree. With catch_rest_guard=1
+    # the tree stays in the Hand. With -More 'catch_rest_guard=0' the game
+    # makes a dead tree, and the Hand is empty (docs/grab.md, "An object that
+    # comes to rest while the Hand takes it").
+    treedropend = @{ Set = 'throw_land=1;release_fall_cm=15;far_test_thrown=1;far_test_no_trees=0;far_test_tree=1;catch_rest_test=1'; Steps = $dropFarRoll; Seconds = 80; Points = $stillPoints }
     treenear = @{ Set = 'throw_land=1;release_fall_cm=15;seek_thrown=1;far_test_no_trees=0;far_test_tree=1'; Steps = $dropRoll; Seconds = 100; Points = $stillPoints }
     dropnear = @{ Set = 'throw_land=1;release_fall_cm=15;seek_thrown=1'; Steps = $dropNear; Seconds = 80; Points = $stillPoints }
     droproll = @{ Set = 'throw_land=1;release_fall_cm=15;seek_thrown=1'; Steps = $dropRoll; Seconds = 80; Points = $stillPoints }
@@ -108,6 +115,11 @@ $defs = @{
     # zoom steps keep the land under the head in its place (god_zoom_about=0).
     landout = @{ Set = 'throw_land=1;god_zoom_about=0'; Steps = "stick_down@2800+10 stick_down@2830+10 $two"; Seconds = 112 }
     landin = @{ Set = 'throw_land=1;god_zoom_about=0'; Steps = "stick_up@2800+10 $two"; Seconds = 112 }
+    # The same with two, three and seven zoom steps in: 44.4, 29.6 and 7.5
+    # units for each meter (the seventh step stops at the life size scale).
+    landin2 = @{ Set = 'throw_land=1;god_zoom_about=0'; Steps = "stick_up@2800+10 stick_up@2830+10 $two"; Seconds = 112 }
+    landin3 = @{ Set = 'throw_land=1;god_zoom_about=0'; Steps = "stick_up@2800+10 stick_up@2830+10 stick_up@2860+10 $two"; Seconds = 112 }
+    landlife = @{ Set = 'throw_land=1;god_zoom_about=0'; Steps = "stick_up@2800+10 stick_up@2830+10 stick_up@2860+10 stick_up@2890+10 stick_up@2920+10 stick_up@2950+10 stick_up@2980+10 $two"; Seconds = 112 }
     # A throw of about 9.5 m/s toward the sea, with no fetch after it. The
     # rock comes down on the sea about 10 m of the room from the release.
     sea = @{ Set = 'throw_land=1'; Steps = 'point@2990+1 aimfar@3000+1 grip@3060+141 pull@3100+3 pull@3150+3 point@3200+1 shot@3260+1 shot@3500+1'; Seconds = 100; Points = '0,0,100 0,0,100 -10,-10,60 -25,8,70' }

@@ -391,7 +391,11 @@ int g_throw_land_rate_x10 = 10;
 int g_throw_bounce_pct = 50;
 int g_throw_land_brake_pct = 60;
 int g_throw_tree_settle = 1;
+int g_throw_land_rest = 1;
 int g_throw_draw = 1;
+// The take of an object that comes to rest (throw_physics.cpp).
+int g_catch_rest_guard = 1;
+int g_catch_rest_test = 0;
 GrabSettings g_grab;
 GestureSettings g_gesture;
 int g_fake_lean_cm[3] = {0, 0, 0};
@@ -1007,6 +1011,18 @@ void ReadSettings() {
     // throw_tree_settle: 1 lets a tree that falls turn down fast while it
     // touches the land and is slow. 0 keeps the game's turn.
     g_throw_tree_settle = number("throw_tree_settle", 1);
+    // throw_land_rest: 1 lets a turn in place of a thrown object wear off
+    // fast after its landing, turns the brake of the land off on land that
+    // is steeper than the brake holds, and gives an object that lies still
+    // for 0.5 s its rest. 2, 3 and 4 are one of the three, and 0 is none.
+    g_throw_land_rest = number("throw_land_rest", 1);
+    // catch_rest_guard: 1 holds the end of the physics of an object back
+    // while the Hand takes it. 0 lets the game end the physics, and a tree
+    // that comes to rest in that time is then a dead tree and not in the
+    // Hand. catch_rest_test is a test: 1 makes one step of the object answer
+    // "at rest" while the Hand has it.
+    g_catch_rest_guard = number("catch_rest_guard", 1);
+    g_catch_rest_test = number("catch_rest_test", 0);
     // throw_draw: 1 gives a substep with a touch of another object 5 ms of
     // the picture of a thrown object, and the picture does not go back to a
     // place behind a guess. 0 gives each substep its time of the flight.
@@ -1233,6 +1249,8 @@ void StartVrOnce() {
         ThrowPhysicsSetLanding(g_throw_land, g_throw_land_rate_x10,
                                g_throw_bounce_pct, g_throw_land_brake_pct);
         ThrowPhysicsSetSettle(g_throw_tree_settle != 0);
+        ThrowPhysicsSetRest(g_throw_land_rest);
+        ThrowPhysicsSetTake(g_catch_rest_guard != 0, g_catch_rest_test);
         ThrowPhysicsSetDraw(g_throw_draw);
         ThrowPhysicsInstallEarly();
         FarGrabInstall();

@@ -35,6 +35,21 @@ void ThrowPhysicsSetLanding(int land, int rate_x10, int bounce_pct,
 // the land and is slow (docs/throw.md, "The landing of a tree"). 0 keeps the
 // game's turn.
 void ThrowPhysicsSetSettle(bool settle);
+// throw_land_rest: how a thrown object comes to rest after its landing
+// (docs/throw.md, "The rest after a landing"). 1: a turn in place wears off
+// fast, the brake of the land is off on land that is steeper than the brake
+// holds, and an object that lies still for 0.5 s is at rest. 2, 3 and 4 are
+// the first, the second and the third of these only, and 0 is none. With
+// test_keys=1, Ctrl and Shift with Pause go between 1 and 0.
+void ThrowPhysicsSetRest(int rule);
+// catch_rest_guard: 1 holds the end of the physics of an object back while
+// the Hand takes it, so a tree that comes to rest in that time stays a tree
+// and goes into the Hand (docs/grab.md, "An object that comes to rest while
+// the Hand takes it"). 0 lets the game end the physics. `test` is the test
+// key catch_rest_test: 1 makes one step of the object answer "at rest" while
+// the Hand has it. With test_keys=1, Ctrl and Shift with Scroll Lock turn
+// the guard off and on.
+void ThrowPhysicsSetTake(bool guard, int test);
 // throw_draw: where the mod draws a thrown object between the steps of the
 // game (docs/throw.md, "The picture between the steps"). 1: a substep in
 // which another object touches the thrown object is 5 ms of the picture, the
