@@ -37,21 +37,20 @@ is built, and no test has proven it.
 
 ### Faults in play
 
-- **B2. A moving object is hard to take: check it in a headset.** The pick
-  reaches farther for an object that moves. The extra reach is on the reach
-  that the object has at rest, so a rock that falls is the target up to 23 cm
-  from the Hand's point (`catch_moving=2`, `grab.md`, "A target that moves,
-  floats or dies"). A desktop run shows the near grip on a rock in its fall,
-  15.7 cm of the room from the Hand's point, and the miss with
-  `catch_moving=1` (`throw_queue.ps1 -Runs dropnear` in `bwvr/tools/desk`).
-  The grab from a distance locks and fetches a rock that flies in a desktop
-  run (`-Runs flyfar`). In the run with the aim at a rock that falls
-  (`-Runs dropfar`) the rock is 14 to 15 cm from the Hand's point at the
-  press, so the near grip takes it, with each rule. Still open:
-  - Check in a headset: the defaults (100 ms, 8 cm), and that an object that
-    fell from a still hand does not come back to the hand when the player
-    does not want it. Such an object has no guard of `catch_grace_ms`. The
-    test key (Ctrl and Page Up) gives the rules 1 and 0 for a comparison.
+- **B2. The grip does not take an object in the air or an object that is
+  not at rest.** In a headset the grip did not take a rock or a different
+  object in the air, and it did not take an object on the land before the
+  object was at rest. A grip on a rock in the air broke the rock in two: the
+  game splits a rock when the Action button goes up less than 225 ms after
+  it went down (`Rock::InterfaceTap` `0x006E7480`). In desktop runs the near
+  grip takes a rock in its fall, up to 23 cm from the Hand's point
+  (`catch_moving=2`, `grab.md`, "A target that moves, floats or dies"), and
+  the grab from a distance fetches a rock that flies. So the runs do not
+  show what a real hand does. Find first what differs: the press of a real
+  grip and what the game gets of it (its length, `grip_press_guard`), the
+  speed of a real hand and of the object against the frames of the pick,
+  and why a press on a rock in the air is a short click for the game. Still
+  open from the runs:
   - Not shown: the grip on an object that rolls. The recipes `rollnear`,
     `rollfar`, `droproll` and `treenear` do not reach that state on the
     desktop (`bwvr/tools/desk/README.md`, "Known limits of the recipes").
@@ -94,66 +93,20 @@ is built, and no test has proven it.
   run: a tree that comes from a distance and is then planted again. A
   tree that is thrown, or that falls from more than `release_fall_cm`,
   is not planted by the game: it takes the path of a dead tree.
-- **B6. A text that waits for a click: check the prompt in a headset.**
-  Some lines of the game stay until a click of the left button, and the
-  script that said the line waits for it. An example is "A tree is no
-  good" in the quest of the sailors: until the click the boat takes no
-  wood, and a new quest stops with the camera of its script and no cinema
-  bars (`controller-hints.md`, section 10). The card of the pointing hand
-  shows the prompt "Trigger Continue" in each view, and the trigger is that
-  click (`text_click`).
-  A desktop run shows the prompt on the card, the click with the leash on
-  and the click with the Hand off the view (`creature_recipe.ps1 -Kind
-  click`, section 10.4). Not run: the quest of the sailors itself, with a
-  tree at the boat. A desktop run does not reach that quest.
-  Only a headset shows whether the player sees the prompt at the wrist
-  while the text stays on the subtitle card. If the player does not see
-  it, the next step is the prompt on the subtitle card. Also open: a
-  script that has the camera and waits for the dialogue shows the camera
-  of the game with a held shot, and not the God view (`cutscene-window.md`,
-  section 2).
-- **B7. The zoom seems to move the view forward and back.** A zoom keeps
-  the land point that the player looks at in its place, so only the size of
-  that land changes (`god_zoom_about=1`, `god-view.md`, section 2). Desktop
-  runs show it. Check in a headset whether a change of the zoom still looks
-  like a move forward or back. The test key (Ctrl, Shift and Delete) gives
-  the zoom about the land under the head (0) and about the Hand (2) for a
-  comparison. Then choose the default and the limit of the look
-  (`god_zoom_about_far_cm`). The line of the look is the forward direction
-  of the head, and the eyes can look lower than that.
-- **B8. The size of an advisor at a place of the world: check it in the
-  headset.** A script can send an advisor to a place of the world, for
-  example to the scroll of a Creature lesson. The game makes him 4 times as
-  large there, which is 73 cm in the room. With `spirit_world_size=1` he has
-  the angle of size of his usual place (`tabletop.md`, "A spirit at a place
-  of the world"). A desktop run shows the two sizes with a test that sends
-  the advisor to the place. Not run: a script that sends him there by itself,
-  and the table. Check in a headset at a scroll of a Creature lesson: the
-  size, and where the advisor stands at the scroll (the distance to the side
-  stays in units of the world). The test key (Shift and Home) gives the size
-  of the game for a comparison.
-- **B9. The end of the game with a headset: check it after a session.** The
-  mod shuts down on the exit path of the game, before the game destroys its
-  Direct3D device (`exit_shutdown=1`, `backend.md`, "The end of the mod"). A
-  desktop run with the shared textures of the bridge shows a clean end, and
-  the access violation with `exit_shutdown=0`. No run had an OpenXR session.
-  So the end of the session (`xrRequestExitSession`, `xrEndSession`, the
-  destroy calls) is not run. Only a headset session can show that Windows
-  records no fault of `VirtualDesktop.LibOVRRT32_1.dll` (`0xc0000409`).
-  After a session in the headset that ended with the Quit of the game or
-  with Alt F4, check two things:
-  - `bwvr.log` in the game folder ends with the line `the mod is shut down`.
-    Its lines `openxr: the end of the session` and `shutdown` give the
-    result and the time of each part.
-  - This command of PowerShell shows the faults of the game that Windows
-    recorded in the last day. It must show no line with the time of the end
-    of the session:
-    `Get-WinEvent -FilterHashtable @{ LogName='Application'; ProviderName='Application Error'; StartTime=(Get-Date).AddDays(-1) } -ErrorAction SilentlyContinue | Where-Object Message -match 'runblack' | ForEach-Object { "$($_.TimeCreated) $(($_.Message -split "\n")[1]) $(($_.Message -split "\n")[2])" }`
-
-  If a fault is there, `exit_shutdown=0` in `bwvr.ini` gives the shutdown in
-  `DllMain` for a comparison. A desktop run with `exit_run.ps1 -Old` records
-  faults of `runblack.exe` too, at the time of the run (the modules
-  `unknown`, `nvd3dum.dll_unloaded` and `d3d9.dll`): those are from the test.
+- **B6. A script that waits for the dialogue has the camera of the game.**
+  A script that has the camera and waits for the dialogue shows the camera
+  of the game with a held shot and no cinema bars, and not the God view
+  (`cutscene-window.md`, section 2). It can show when a quest starts while a
+  text of a different script waits for a click (`text_click`,
+  `controller-hints.md`, section 10). No run and no headset session has
+  shown it.
+- **B7. The center of the zoom: choose the default.** The stick zooms about
+  the land that the player looks at (`god_zoom_about=1`, the default), about
+  the land under the head (0), or about the Hand's point (2) (`god-view.md`,
+  section 2). A headset session with `god_zoom_about=0` showed no fault of
+  the zoom. No headset session has compared the three. The line of the look
+  is the forward direction of the head, and the eyes can look lower than
+  that.
 
 - **B10. A thrown object that touches another object: check the picture in
   a headset.** In a substep where another object touches the thrown object,
@@ -183,54 +136,29 @@ is built, and no test has proven it.
   same with `-More 'catch_rest_guard=0'`). Check in a headset that a tree
   which fell comes to the hand each time. The test key (Ctrl, Shift and
   Scroll Lock) gives the rule of the game for a comparison.
-- **B12. The rest of a thrown object after its landing: check it in a
-  headset.** After its landing a thrown object loses a turn in place fast,
-  and it is at rest after 0.5 s with no move. On land that is steeper than
-  the brake holds, the object goes down as in the game
-  (`throw_land_rest=1`, `throw.md`, "The rest after a landing"). Desktop
-  runs at 7.5 to 225 units for each meter show the time from the first
-  contact to the rest: 1.1 to 3.4 s on land that the brake holds, and 5 to
-  11 s on the slope at the pen, where the object goes down 41 units to the
-  foot of the slope. With `throw_land_rest=0` the same throws need 2.7 to
-  14.4 s, and a landing on that slope took 15 s and 30 s in two more runs.
-  A thrown villager and a scaffold that falls are at rest 1.1 and 1.2 s
-  after the first contact, and 3.6 and 4.2 s after it with
-  `throw_land_rest=0` (`village_run.ps1 -Kind throw` and `-Kind scaffold`).
-  The object does not tremble with either value: its center changes its
-  vertical direction 0 to 8 times in a landing. Only a headset shows
-  whether an object that stops its turn this fast looks right, and whether
-  the pace of an object on a steep slope looks right (it moves in the
-  game's own time). The test key (Ctrl, Shift and Pause) gives the landing
-  with no rule for a comparison.
-- **B13. The camera of a room of the Temple does not fly to its rest pose:
-  check it in a headset.** When the player comes into the Temple, the game
-  flies the camera of the hall along a path of 5 s: in from outside, one time
-  round the hall, and to its rest pose. It does the same in a room after the
-  way through a door. The head is on that camera, so the flight turns the
-  room about the player. The mod ends the flight in one cut at the first
-  update of the camera, under the black fade of the game
-  (`temple_camera_flight=0`, `controllers.md`, 11.4). After a room from the
-  ring, where the game ends the flight itself, the mod brings the camera to
-  its rest pose in the same update. Desktop runs show the cut at the first
-  update of a visit, at a second visit, after a door and after a room from
-  the ring, and no move of the camera after it (`temple_run.ps1` with
-  `temple_test_camera_trace=1`). Check in a headset that the room comes out
-  of black at the rest pose, with no turn and no move after it. The test key
-  (Ctrl and the star key of the number pad) gives the flight of the plain
-  game for a comparison.
-- **B14. The frame time of the game after the two eye passes: check it in
-  a headset. In a pass the second eye does not have zero.** After the two
-  eye passes the game has the real time of the frame as its frame time
-  (`frame_time_real=1`, `backend.md`, "Time, bars and the second eye pass").
-  So the cameras of the game move at the speed of the game, also in a game
-  from a saved game. Desktop runs show the way through a door of the Temple
-  in 5.0 s and the look at a picture in 1.4 s, in a test save and in a new
-  game, and a flight of the game camera on the land in 2.3 s in a test save.
-  With the number from before the passes, the same moves took 85.9 s, 17.2 s
-  and 22.4 s in the test save. Check in a headset, in a game from a saved
-  game: the way through a door and the look at a picture in the Temple. The
-  test key (Ctrl, Shift and the star key of the number pad) gives the number
-  from before the passes for a comparison. Not run: a story camera with no
+- **B13. The Temple in a headset: dark frames, and a view that lags.** A
+  headset session showed three faults in the Temple:
+  - At the start of the guide of a room, and at a change of the room, the
+    left eye is dark for a moment.
+  - In the guide of the first visit, single black frames show at random
+    times.
+  - When the player can look around in a room, the view does not follow a
+    roll of the head, and it moves in steps: it lags and stutters.
+
+  The head is on the camera of the room: its heading and its place, not its
+  pitch (`controllers.md`, 11.4). The camera of a room does not fly to its
+  rest pose: the mod ends the flight in one cut under the black fade of the
+  game, and it settles the camera in the same update
+  (`temple_camera_flight=0`). Not known: whether the cut, the settle or the
+  fade make the dark frames (the test key Ctrl and the star key of the
+  number pad gives the flight of the game), and what makes the steps of the
+  view.
+- **B14. In a pass the second eye does not have zero as its frame time.**
+  After the two eye passes the game has the real time of the frame as its
+  frame time (`frame_time_real=1`, `backend.md`, "Time, bars and the second
+  eye pass"). So the cameras of the game move at the speed of the game, also
+  in a game from a saved game.
+  Not run: a story camera with no
   cinema bars, the camera of a Creature fight, the pull back past 3500 units
   and the moves of the game camera by the keys. They read the same number.
   Not known: why the Creature is one step further in its plan 1 s after the
@@ -266,6 +194,21 @@ is built, and no test has proven it.
   (`grab.md`, "An object that comes to rest while the Hand takes it"). A
   correction to test: the grip code lets the button go only when the pick is
   open.
+- **B16. The left eye shows pictures of frames before.** In a headset
+  session the left eye started to show faint pictures that came late, and
+  the right eye did not. A guess: in some effects the game draws a frame
+  over the frame before (`LH3DRender::g_mode_cleaning` at 2, as the
+  Lionhead logo does), and the two eye passes share one render target, so
+  an eye pass draws over the picture of the other eye. For the logo each
+  eye keeps its own picture (`intro_eye_trails`, `intro.md`). Not known:
+  which effect of the game it was, when it starts, and when it ends.
+- **B17. A signpost is hard to read from near.** The text of a wooden
+  signpost and the blue speech bubble behind it are at different places for
+  the two eyes when the player is near, so the eyes cannot bring the text
+  together. The bubble can also point a different way in each eye. From far
+  the sign reads well. Find how the game draws the text and the bubble (a
+  flat draw at a pixel does not have the depth of the sign), and give both
+  the depth of the sign (`ui-layer.md`, `stereo-artifacts.md`).
 
 B1b, B2, B4, B11 and B15 are one package: a thing that is held, thrown, or
 that moves while the Hand takes it.
@@ -292,7 +235,9 @@ that moves while the Hand takes it.
   - the hold time of 350 ms with a real grip (`creature_hold_stay_ms`),
   - where the Creature turns to, and how its head follows the real hand
     (`creature_stay_look`),
-  - whether the halo, the pulse and the card show well that the stay is on.
+  - whether the halo, the pulse and the card show well that the stay is on,
+  - that the stay acts on the Creature of the player only, and not on the
+    Creature of a different god.
 
   The test key (Shift and End) gives the leash click at the close of the
   grip for a comparison. Not run: a start that the game refuses, and a grip
@@ -369,12 +314,12 @@ that moves while the Hand takes it.
     compositor and no encoder. The lines `frame cost   : window` of the log
     say what these cost. They also say what a slow frame is made of when it
     is not a game turn. Set the key after the last save of the launcher.
-  - **The wait at the stop of a sound, by ear.** The mod skips the 20 ms that
+  - **The wait at the stop of a sound.** The mod skips the 20 ms that
     the audio DLL waits on the frame thread at the stop of a sound
     (`audio_stop_wait=0`, `audio.md`, 7.6). In a desktop run the worst frame
     at the village, less the copy to the monitor, is 10 to 12 ms with the key
-    at 0, and 32 to 72 ms with the key at 1. Not checked by ear: that a sound
-    that stops sounds the same. With `test_keys=1`, Ctrl and Pause change the
+    at 0, and 32 to 72 ms with the key at 1. A headset session showed no fault of
+    the sounds. With `test_keys=1`, Ctrl and Pause change the
     key while the game runs. A sound that QMixer plays (an advisor, the
     speech of a story) keeps the wait.
   - **Slow frames that stay.** The Creature reads an animation from the disk

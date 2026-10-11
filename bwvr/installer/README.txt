@@ -807,16 +807,19 @@ KNOWN ISSUES
 This is an alpha build for testers. Expect faults. Save the game
 before you start a quest. These faults are known:
 
-  - In the quest of the sailors, a whole tree at the boat gives a
-    line that waits for a click. Press the trigger when the card
-    says "Trigger Continue". If the quest does not go on then, tell
-    us: no headset session has tested this.
-  - A change of the zoom moves you forward or back a little.
+  - In the Temple the picture of one eye can go dark for a moment,
+    black frames can show in the guide of a room, and the view
+    does not follow each move of your head.
+  - The grip does not take an object in the air, or an object on
+    the land that still moves. A grip on a rock in the air can
+    break the rock in two.
+  - A signpost is hard to read from near: its text is at a
+    different place for each eye.
+  - One eye can show faint pictures of the frames before.
   - The aim at a distance can select a tree when you want a
     villager or a different object near it.
   - With the leash on, a held trigger near trees can select a
     tree when you want the Creature to walk to the land.
-  - An advisor can be very large for a short time.
   - With a tree in your Hand, the card can say "Grip Plant" when a
     rock or a different object is at that place. The tree then
     falls and is not planted.
