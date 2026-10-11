@@ -79,6 +79,7 @@
 #include "controller_math.h"
 #include "creature_stay.h"
 #include "creature_stay_math.h"
+#include "far_choice_math.h"
 #include "far_grab.h"
 #include "haptics.h"
 #include "near_math.h"
@@ -363,7 +364,16 @@ void FarGrabSetOptions(const FarGrabSettings& settings) {
   if (!(g_set.max_m > 0.0f)) g_set.max_m = 0.0f;
   if (g_set.max_m > 0.0f && g_set.max_m < 0.5f) g_set.max_m = 0.5f;
   if (g_set.max_m > 100.0f) g_set.max_m = 100.0f;
-  g_set.choice = g_set.choice != 0 ? 1 : 0;
+  g_set.choice = far_choice_math::ClampChoice(g_set.choice);
+  if (!(g_set.living_deg >= 0.5f)) g_set.living_deg = 0.5f;
+  if (g_set.living_deg > 20.0f) g_set.living_deg = 20.0f;
+  if (!(g_set.ball_living_deg >= 0.0f)) g_set.ball_living_deg = 0.0f;
+  if (g_set.ball_living_deg > 20.0f) g_set.ball_living_deg = 20.0f;
+  if (!(g_set.ball_other_deg >= 0.0f)) g_set.ball_other_deg = 0.0f;
+  if (g_set.ball_other_deg > 20.0f) g_set.ball_other_deg = 20.0f;
+  g_set.stay = g_set.stay != 0 ? 1 : 0;
+  if (!(g_set.stay_deg >= 0.0f)) g_set.stay_deg = 0.0f;
+  if (g_set.stay_deg > 20.0f) g_set.stay_deg = 20.0f;
   if (!g_set.on) {
     ModLog("far grab    : far_grab=0, the Hand takes only what it touches");
   } else {
@@ -373,16 +383,15 @@ void FarGrabSetOptions(const FarGrabSettings& settings) {
            g_set.cone_deg, g_set.cone_deg + 6, g_set.pull_cmps,
            g_set.throw_law ? 1 : 0);
     ModLog("far grab    : far_grab_choice=%d. %s", g_set.choice,
-           g_set.choice != 0
-               ? "The angle is measured to the body of the object (its base, "
-                 "its height and its radius, and at least 2 degrees wide). A "
-                 "villager, an animal and your Creature score 3 degrees "
-                 "better than a tree or a rock, and a small body scores "
-                 "better than a large one. The Creature command reaches "
-                 "10 m of the room"
-               : "The angle is measured to one point of the object, its base, "
-                 "less the angle of its radius. The Creature command reaches "
-                 "4 m of the room");
+           FarGrabChoiceWords(g_set.choice));
+    ModLog("far grab    : the cone of a living thing is %.1f degrees "
+           "(far_grab_living_deg). The ball of a living thing is %.1f degrees "
+           "and the ball of each other thing %.1f (far_grab_ball_living_deg, "
+           "far_grab_ball_other_deg, for far_grab_choice 3 and 4)",
+           g_set.living_deg, g_set.ball_living_deg, g_set.ball_other_deg);
+    ModLog("far grab    : far_grab_stay=%d. %s. The margin is %.1f degrees "
+           "(far_grab_stay_deg)", g_set.stay, FarGrabStayWords(g_set.stay),
+           g_set.stay_deg);
     if (g_set.max_m > 0.0f) {
       ModLog("far grab    : a target is at most %.2f m of the room from the "
              "head, along the floor (far_grab_max_m). A pile of a store, a "
@@ -402,7 +411,57 @@ float FarGrabSelectDeg() { return static_cast<float>(g_set.cone_deg); }
 float FarGrabKeepDeg() { return static_cast<float>(g_set.cone_deg + 6); }
 float FarGrabMaxMeters() { return g_set.max_m; }
 int FarGrabChoice() { return g_set.choice; }
-void FarGrabSetChoice(int choice) { g_set.choice = choice != 0 ? 1 : 0; }
+void FarGrabSetChoice(int choice) {
+  g_set.choice = far_choice_math::ClampChoice(choice);
+}
+float FarGrabLivingDeg() { return g_set.living_deg; }
+float FarGrabBallLivingDeg() { return g_set.ball_living_deg; }
+float FarGrabBallOtherDeg() { return g_set.ball_other_deg; }
+int FarGrabStay() { return g_set.stay; }
+void FarGrabSetStay(int stay) { g_set.stay = stay != 0 ? 1 : 0; }
+float FarGrabStayDeg() { return g_set.stay_deg; }
+
+const char* FarGrabChoiceWords(int choice) {
+  switch (choice) {
+    case far_choice_math::kChoicePoint:
+      return "The angle is measured to one point of the object, its base, "
+             "less the angle of its radius. No class counts. The Creature "
+             "command reaches 4 m of the room";
+    case far_choice_math::kChoiceBias:
+      return "The angle is measured to the body of the object (its base, its "
+             "height and its radius, and at least 2 degrees wide). A "
+             "villager, an animal and your Creature score 3 degrees better "
+             "than a tree or a rock, and a small body scores better than a "
+             "large one. The Creature command reaches 10 m of the room";
+    case far_choice_math::kChoiceRanks:
+      return "The angle is measured to the body of the object. A living "
+             "thing in its cone comes before each thing that is not living, "
+             "and of two living things the nearest to the ray wins. A "
+             "villager of each kind, an animal and a Creature are living "
+             "things. The Creature command reaches 10 m of the room";
+    case far_choice_math::kChoiceBalls:
+      return "Each object is a ball at its origin, and a living thing a "
+             "ball at the middle of its body. The size of the ball comes "
+             "from the class. No class comes first. The Creature command "
+             "reaches 10 m of the room";
+    default:
+      return "Each object is a ball at its origin, and a living thing a "
+             "ball at the middle of its body. A living thing in its cone "
+             "comes before each thing that is not living. The Creature "
+             "command reaches 10 m of the room";
+  }
+}
+
+const char* FarGrabStayWords(int stay) {
+  return stay != 0
+             ? "A living thing that has the halo keeps it against each thing "
+               "that is not living while the aim is within its cone and the "
+               "margin. With ranks, a different living thing takes it when it "
+               "is 1 degree nearer to the ray"
+             : "The halo goes to a different thing when its score is 2 "
+               "degrees lower, and a living thing has its rank only in its "
+               "cone";
+}
 
 void FarGrabInstall() {
   if (g_hooked) return;

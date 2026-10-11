@@ -233,28 +233,34 @@ that moves while the Hand takes it.
 
 ### Changes to the controls
 
-- **P1. The choice of a far target takes a tree where the player means a
-  character.** In a headset, in the quest in which a man leads the children
-  away, the halo went to the trees around the man and not to the man, again
-  and again. The choice is by the body, with a size term and a bias for
-  living things (`far_grab_choice=1`, `grab.md`): the angle from the ray to
-  the nearest point of the upright body, a body that covers 2 degrees or
-  more, and 3 degrees better for a villager, an animal and the player's
-  Creature. A new target needs 8 degrees, and the target of now stays up to
-  14 degrees. Two rules to decide by the facts of that session and of a run:
-  - A list of ranks: a living thing in its cone comes before a tree, a rock
-    and a building, also when the ray crosses the body of the tree. Find
-    first which class the man of that quest has, and whether the bias counts
-    him as a living thing.
-  - A target that stays: when the halo is on a thing, a different thing takes
-    it only when the aim leaves the first one by a clear margin, so a tree
-    behind or beside a character does not take the halo back.
+- **P1. The choice of a far target, and the walk mode of a command: test
+  them in the headset.** A living thing in its cone comes before each thing
+  that is not living, and a living thing that has the halo keeps it past its
+  cone (`far_grab_choice=2`, `far_grab_stay=1`, `grab.md`, "The cone and the
+  choice"). A quest character is a living thing for this choice. A press of
+  the trigger on an object becomes a walk when the aim leaves the object
+  (`creature_command_rule=4`, `creature.md`, section 4.1). The math checks
+  and desktop runs show the rules, with a villager beside a tree and a rock.
+  No run had a quest character beside a tree. Check in a headset:
+  - the quest in which a man leads the children away: the halo goes to the
+    man with trees around him, and it stays on him while the hand shakes,
+  - the children behind the man: the aim on one of them takes the halo from
+    the next one when it is 1 degree nearer to the ray,
+  - the cone of a living thing of 4 degrees (`far_grab_living_deg`) and the
+    stay margin of 3 degrees (`far_grab_stay_deg`): a tree, a rock and a pile
+    of a store beside a villager must still be easy to take,
+  - the other values, by Ctrl and Delete (4 balls with ranks, 3 balls, 1 the
+    bias, 0 one point) and by Ctrl and Backspace (`far_grab_stay`),
+  - the walk mode with a real trigger: the 100 ms before a press on an object
+    becomes a walk, the tick at that time, and rule 3 by Ctrl and Numpad 5.
 
-  No run had a villager beside a tree. Open numbers: the
-  bias of 3 degrees, the least size of 2 degrees, and the range of 10 m for a
+  Open numbers: the least size of 2 degrees, and the range of 10 m for a
   Creature command. The screen test offers an object to the pick by its base
   point (12 degrees), so a tall tree that the ray crosses only at its crown,
   far from its base, is a candidate only when the draw offers it by the pixel.
+  The log of the grab from a distance has room for 200 lines in a session
+  (`kMaxLogs` in `far_grab.cpp`), so a long headset session has no line of a
+  new target after that.
 - **P2. The stay of the Creature: test it in the headset.** A grip from a
   distance that stays closed on the Creature makes it stop and stay until
   the grip opens. A short grip changes the leash when it opens

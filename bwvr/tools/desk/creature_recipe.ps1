@@ -9,6 +9,8 @@
 #   creature_recipe.ps1 -Name x6 -Dll <dll> -Kind tie
 #   creature_recipe.ps1 -Name x7 -Dll <dll> -Kind click
 #   creature_recipe.ps1 -Name x8 -Dll <dll> -Kind click -Set "text_click=0"
+#   creature_recipe.ps1 -Name x10 -Dll <dll> -Kind walk
+#   creature_recipe.ps1 -Name x11 -Dll <dll> -Kind walk -Set "creature_command_rule=3"
 #
 #   creature_recipe.ps1 -Name x9 -Dll <dll> -Kind leash -NewGame
 #
@@ -49,6 +51,19 @@
 #   leash is tied to it. Then six times the word "seek", 300 frames apart:
 #   each one gives a log line with the place of the Creature, so the log
 #   shows its walk to the object.
+# -Kind walk:
+#   The walk mode of a command (creature_command_rule, bwvr/docs/creature.md,
+#   section 4.1). At 100 units a meter: the grip from a distance puts the
+#   leash on. The aim goes on an object (the word "aimcmd") and the trigger
+#   closes for 220 frames. 40 frames later the aim turns 25 degrees to the
+#   left, to the land (the word "aimturn"), and 80 frames after that it comes
+#   back to the object. Then a tap on the object, and a press of 60 frames
+#   with the aim on the object. With rule 4 the first press becomes a walk
+#   when the aim leaves the object, the object does not come back, and the
+#   release sends the Creature to the land. With -Set "creature_command_rule=3"
+#   the object shows again 100 ms after the aim is on it, and the release
+#   sends the Creature to the object. The tap and the last press send the
+#   Creature to the object with each rule.
 # -Kind stay:
 #   At 100 units a meter: the hand aims at the Creature from a distance and
 #   holds the grip for 300 frames (the Creature stays at the door). A second
@@ -149,6 +164,14 @@ if ($Kind -eq 'stay') {
     $points = '0,-30,60 0,-40,-40'
     $steps = 'look@800+1300 point@860+1 aimfar@890+1 grip@910+6 shot@1040+1 trigger@1100+6 ' +
              'aimfar@1250+1 trigger@1300+6 point@1560+1 shot@1600+1 trigger@1700+6 shot@1800+1'
+} elseif ($Kind -eq 'walk') {
+    # The aim turns 25 degrees to the left at the word "aimturn".
+    $watch = 0
+    $keys = "$keys;fake_controller_turns=25,0,0"
+    $steps = 'look@800+1600 point@860+1 aimfar@890+1 grip@910+6 ' +
+             'aimcmd@1000+1 shot@1010+1 trigger@1020+220 aimturn@1060+1 shot@1100+1 ' +
+             'aimcmd@1140+1 shot@1200+1 ' +
+             'aimcmd@1300+1 trigger@1320+6 aimcmd@1400+1 trigger@1420+60 shot@1500+1'
 } elseif ($Kind -eq 'tie') {
     # The second press of the trigger comes 17 frames after the first one: a
     # double press. The walk takes about 1500 frames, so a new game runs
@@ -189,6 +212,11 @@ $pattern = '^hand creature: (the body of|a press|the Creature state|the hand of|
            '^controllers  : the left button press started off view|' +
            '^hand pick    : seek plan: the Creature|' +
            '^haptics      : (\d+ pulses|leash|slap|touch|activate)'
+if ($Kind -eq 'walk') {
+    $pattern = '^creature cmd : (creature_command_rule|the leash|the aim is on|the trigger|a double press|test: aimcmd)|' +
+               '^far grab    : (the grip closed|the grip opened)|' +
+               '^hint card    : frame \d+, the pointing card now says'
+}
 Get-Content $log | Where-Object { $_ -match $pattern } | ForEach-Object {
     $_.Substring(0, [Math]::Min(300, $_.Length))
 } | Select-Object -First 80

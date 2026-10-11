@@ -37,7 +37,7 @@
 #                shake. -Icon gives the seed type of a different icon (3 is
 #                Food, which pours as Water does).
 # The other kinds (charge, store, job, tree, throw, probe, workshop, site,
-# build, scaffold) have a comment at their steps below.
+# build, scaffold, choice) have a comment at their steps below.
 param(
     [Parameter(Mandatory = $true)][string]$Name,
     [Parameter(Mandatory = $true)][string]$Dll,
@@ -182,6 +182,38 @@ if ($Kind -eq 'totem') {
                  'seek@1500+1 grip@1540+200 point@1620+1 shot@1850+1'
     }
     $keys = "$keys;village_test_scaffolds=2@930"
+} elseif ($Kind -eq 'choice') {
+    # The choice of a far target (bwvr/docs/grab.md, "The cone and the
+    # choice"). The God view goes to the Village Store. The word "aimfar"
+    # takes the villager that has a tree nearest to him (far_test_aim_pair),
+    # and each later word turns the aim one step along the line from his body
+    # to the base of that tree, past the tree, and back
+    # (far_test_aim_blends, in percent of the way). The log has each new
+    # target with its reason, and the line of a target that keeps the halo.
+    # Compare runs with -Set "far_grab_choice=1;far_grab_stay=0" (the bias),
+    # with -Set "far_grab_stay=0" and with no -Set (the default). Add
+    # far_test_quest=1 to the first one: the bias then does not know the
+    # class of a villager, as it does not know a quest character. Add
+    # far_touch=0 to each -Set: the village has scrolls near that line, and a
+    # scroll is then no far target. far_test_aim_class=7 takes a quest
+    # character in the place of a villager. In the test save "temple" no
+    # quest character stands 20 units or less from a tree.
+    #
+    # The second point of the hand is at the height of the head. The Hand's
+    # point on the Village Store turns the far grab off (near objects win).
+    if ($Plan -eq '') { $Plan = 'gostore' }
+    if ($Census -eq '') { $Census = '890' }
+    if ($Seconds -eq 0) { $Seconds = 70 }
+    $points = '0,-30,60 0,0,45'
+    # A villager walks, so a step of the aim is 20 frames long.
+    $blends = '0,30,60,90,120,160,200,240,200,160,120,90,60,30,0'
+    if ($Steps -eq '') {
+        $Steps = $pre + 'seek@920+1 point@1000+1 '
+        $at = 1040
+        foreach ($b in $blends.Split(',')) { $Steps += "aimfar@$at+1 "; $at += 20 }
+        $Steps += "shot@$at+1"
+    }
+    $keys = "$keys;far_test_aim_class=1;far_test_aim_toward=1;far_test_aim_pair=1;far_test_aim_blends=$blends"
 } else {
     if ($Plan -eq '') { $Plan = 'gosite,icon' }
     if ($Census -eq '') { $Census = '890,1010,1500,1600,1700,2460,2600' }
@@ -215,6 +247,9 @@ if (-not (Test-Path $log)) { "no log at $log"; exit 1 }
 $pattern = '^village      :|^miracle      : (?!miracle_)|^hand pick    : seek plan|^hand bulk    :|^hand press   : the grip pressed|' +
            '^haptics      : (effect (3|14|15|18|19|20|21|23|24|25|26|27|28)|cast|refused)|' +
            '^hand         : state|^gesture      : (the draw|the game)|^controllers  : the right button press started off|^grip         :|^hand (throw|drop|hold|take) *:'
+if ($Kind -eq 'choice') {
+    $pattern = '^far grab    : (far_grab_choice|far_grab_stay|the cone of a living|target|no target|the target \S+ \(\w+\) keeps|test: (aimfar|the tree))|^hand pick    : seek plan'
+}
 $cards = @{}
 Get-Content $log | Where-Object { $_ -match $pattern -or $_ -match '^hint card    : frame \d+, the card of the right hand: (.*?)\. \d' } | ForEach-Object {
     if ($_ -match '^hint card    : frame (\d+), the card of the right hand: (.*?)\. \d') {

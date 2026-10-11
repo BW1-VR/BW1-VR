@@ -536,6 +536,122 @@ inline void LiveChecks() {
           1);
   }
 
+  // THE WALK MODE (creature_command_rule=4). A press on an object becomes a
+  // walk when the aim leaves the object, and it stays a walk.
+  {
+    int tree = 0, house = 0, creature = 0;
+    const Shown none = {kShownNone, nullptr};
+    const Shown on_tree = {kShownObject, &tree};
+    const Shown on_house = {kShownObject, &house};
+    const Shown on_creature = {kShownCreature, &creature};
+    HeldState s;
+    // The aim stays on the object: the object shows for the whole press.
+    HeldStart(&s, on_tree, true, true);
+    int other = 0;
+    double t = 0.0;
+    for (int i = 0; i < 300; ++i, t += 0.011) {
+      const Shown shown = HeldStep(&s, on_tree, t);
+      if (shown.kind != kShownObject || shown.object != &tree) ++other;
+    }
+    Check(other == 0 && !s.land_stays,
+          "rule 4: a press on a tree with the aim on it shows the tree for "
+          "300 frames", other, 0);
+    // The aim drops off the object for 55 ms and comes back: no walk.
+    for (int i = 0; i < 5; ++i, t += 0.011) {
+      if (HeldStep(&s, none, t).kind != kShownObject) ++other;
+    }
+    Shown shown = HeldStep(&s, on_tree, t);
+    Check(other == 0 && shown.kind == kShownObject && !s.land_stays,
+          "an aim that is off the tree for 55 ms does not start the walk",
+          other, 0);
+    // The aim leaves the object: the land shows after 100 ms.
+    t += 0.011;
+    const double left = t;
+    shown = HeldStep(&s, none, t);
+    Check(shown.kind == kShownObject, "the aim leaves the tree: not yet",
+          shown.kind, kShownObject);
+    shown = HeldStep(&s, none, left + 0.09);
+    Check(shown.kind == kShownObject, "after 90 ms: not yet", shown.kind,
+          kShownObject);
+    shown = HeldStep(&s, none, left + 0.101);
+    Check(shown.kind == kShownLand && s.land_stays && s.walk_from_object,
+          "after 101 ms the press is a walk, and the land shows", shown.kind,
+          kShownLand);
+    // The aim comes back to the first object, and then goes over a second
+    // object and the Creature: the land stays.
+    int halos = 0;
+    t = left + 0.2;
+    for (int i = 0; i < 300; ++i, t += 0.011) {
+      const Shown candidate = i < 100   ? on_tree
+                              : i < 200 ? on_house
+                              : i < 250 ? on_creature
+                                        : none;
+      if (HeldStep(&s, candidate, t).kind != kShownLand) ++halos;
+    }
+    Check(halos == 0,
+          "the walk mode: 300 frames on the first tree, on a house and on "
+          "the Creature show no object", halos, 0);
+    // The aim goes from the object to a second object with no land between
+    // them: the second object never shows.
+    HeldStart(&s, on_tree, true, true);
+    HeldStep(&s, on_tree, 10.0);
+    int houses = 0, trees = 0;
+    for (int i = 0; i < 9; ++i) {
+      shown = HeldStep(&s, on_house, 10.011 + 0.011 * i);
+      if (shown.object == &house) ++houses;
+      if (shown.object == &tree) ++trees;
+    }
+    Check(houses == 0 && trees == 9,
+          "the aim goes from the tree to a house: the tree shows for the "
+          "first 99 ms, and the house does not", houses, 0);
+    shown = HeldStep(&s, on_house, 10.13);
+    Check(shown.kind == kShownLand && s.land_stays,
+          "and then the land shows, with the aim on the house", shown.kind,
+          kShownLand);
+    // A press on the Creature has the same rule.
+    HeldStart(&s, on_creature, true, true);
+    HeldStep(&s, on_creature, 20.0);
+    HeldStep(&s, none, 20.011);
+    shown = HeldStep(&s, none, 20.12);
+    Check(shown.kind == kShownLand && s.land_stays,
+          "a press on the Creature becomes a walk when the aim leaves it",
+          shown.kind, kShownLand);
+    // A press on the land is a walk from its start, as with rule 3.
+    HeldStart(&s, Shown{kShownLand, nullptr}, true, true);
+    Check(s.land_stays && !s.leave_walks && !s.walk_from_object,
+          "rule 4: a press on the land is a walk from its start", 1, 1);
+    Check(HeldStep(&s, on_tree, 30.0).kind == kShownLand &&
+              HeldStep(&s, on_tree, 30.5).kind == kShownLand,
+          "and no object takes it", 1, 1);
+    // Rule 3 has no walk mode: the object comes back.
+    HeldStart(&s, on_tree, true, false);
+    HeldStep(&s, on_tree, 40.0);
+    HeldStep(&s, none, 40.2);
+    HeldStep(&s, on_tree, 40.3);
+    Check(HeldStep(&s, on_tree, 40.45).kind == kShownObject && !s.land_stays,
+          "rule 3: the object comes back after the aim left it", 1, 1);
+    // The release. A tap acts on the object of the press, also when the walk
+    // has started. A hold acts on what shows.
+    const double hold = 0.25;
+    LiveRelease r =
+        ReleaseLive(0.20, hold, kShownObject, kShownLand, false, true);
+    Check(r.command == kCommandObject && r.from_press,
+          "a tap of 200 ms acts on the object of the press, also in the walk "
+          "mode", r.command, kCommandObject);
+    r = ReleaseLive(0.80, hold, kShownObject, kShownObject, false, true);
+    Check(r.command == kCommandObject && !r.from_press,
+          "a hold that ends with the aim on the object acts on the object",
+          r.command, kCommandObject);
+    r = ReleaseLive(0.80, hold, kShownObject, kShownLand, false, true);
+    Check(r.command == kCommandLand && !r.from_press,
+          "a hold in the walk mode sends the Creature to the land of the "
+          "release", r.command, kCommandLand);
+    r = ReleaseLive(0.80, hold, kShownObject, kShownLand, false, false);
+    Check(r.command == kCommandNone,
+          "a hold in the walk mode that ends on the sea sends nothing",
+          r.command, kCommandNone);
+  }
+
   // WHAT THE RELEASE DOES WITH THE LIVE TARGET.
   {
     const double hold = 0.25;

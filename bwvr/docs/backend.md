@@ -2381,7 +2381,8 @@ in front. The mod reads the keys and never takes them from the game.
 | Numpad 1 | `test_keys=1` | The depth limit of the cut scene window goes off and on |
 | Ctrl Numpad 1 | `test_keys=1` | The game camera stands over the land under the head or over the recenter place (`god-view.md`, section 7) |
 | Ctrl Numpad 0 | `test_keys=1` | The God view follows the game camera or not (`god-view.md`) |
-| Ctrl Delete | `test_keys=1` | The choice of a far target: by the body of the object, or by one point (`far_grab_choice`, `grab.md`) |
+| Ctrl Delete | `test_keys=1` | The choice of a far target steps from 2 to 3 to 4 to 0 to 1 and back: the body with ranks, balls, balls with ranks, one point, the body with a bias. One short pulse for each unit of the value and one long pulse for 0 (`far_grab_choice`, `grab.md`, "The cone and the choice"). Shift must be up |
+| Ctrl Backspace | `test_keys=1` | A living thing that has the halo of a far target keeps it against a tree or a rock while the aim is near it, or the margin between two scores is the only rule. A long pulse and a short pulse (`far_grab_stay`, `grab.md`, "The cone and the choice"). Shift must be up |
 | Ctrl Page Up | `test_keys=1` | The reach of the pick for an object that moves: the reach at rest and the extra reach, with a guard of a throw that ends when the grip is fully open (3), the same with a guard for the whole grace time (2), the extra reach on `hand_pick_cm` only (1), or the same reach as a still object (0). A pulse that is shorter for each lower value (`catch_moving`, `grab.md`) |
 | Ctrl Shift Page Up | `test_keys=1` | A holdable object up to 15 cm from the Hand's point is the target when nothing is nearer, or the pick reaches only `hand_pick_cm` (`hand_wide_pick_cm`, `grab.md`) |
 | Ctrl Insert | `test_keys=1` | The ring of the teleport: one size in the world, or one size in the room (`teleport_ring_mode`, `god-view.md`) |
@@ -2394,7 +2395,7 @@ in front. The mod reads the keys and never takes them from the game.
 | Ctrl Shift Pause | `test_keys=1` | After its landing a thrown object loses a turn in place fast, the brake of the land is off on steep land and an object that lies still for 0.5 s is at rest, or the object keeps the turn of the brake, the brake acts on each land and only the rest test of the game ends the landing (`throw_land_rest`, `throw.md`, "The rest after a landing"). A long pulse and a short pulse |
 | Ctrl End | `test_keys=1` | The prompt of a target shows at once, or after its dwell (`prompt_timing`, `controller-hints.md`) |
 | Ctrl Home | `test_keys=1` | The words of a target on the hint card: 3, 2, 1 or 0, with one short pulse for each unit of the value and one long pulse for 0. With 3 the prompt "Pull to fetch" stays from the end of the far target until the Hand holds the object, and a hint of the game that a prompt owned does not show for 0.25 s after the prompt went. With 2 only the prompt "Take" stays, from the close of the grip until the Hand holds the object. With 1 the hint of the game shows in those frames. With 0 the hint of the game takes the place of each prompt (`hint_words`, `controller-hints.md`) |
-| Ctrl Numpad 5 | `test_keys=1` | The rule of a Creature command: 3, 2 or 1 (`creature_command_rule`, `creature.md`) |
+| Ctrl Numpad 5 | `test_keys=1` | The rule of a Creature command steps from 4 to 3 to 2 to 1 and back. One short pulse for each unit of the value (`creature_command_rule`, `creature.md`, section 4) |
 | Ctrl Numpad Star | `test_keys=1` | In the Temple: the camera of a room is at its rest pose at once when the player comes into the room, or it flies there as in the plain game. A long pulse and a short pulse (`temple_camera_flight`, `controllers.md`, 11.4). Shift must be up. The star key alone is the key of the release at once (`throw.md`) |
 | Shift Numpad Slash | `test_keys=1` | In the Temple: three ways of the view of a room. Each eye pass draws from the head pose of the frame with its roll and its eye, and the head does not turn the camera of the room. Or the same view, and the head turns the camera of the hall when it looks at the pool. Or each eye pass draws from the camera that the game builds in the pass, with no roll and no depth. A long pulse, a pulse of middle length and a short pulse (`temple_view`, `temple_camera_screen`, `controllers.md`, 11.4). Ctrl must be up |
 | Ctrl Shift Numpad Plus | `test_keys=1` | The fade of the Temple shows in both eyes, or in the left eye only. A long pulse and a short pulse (`temple_fade_eyes`, `controllers.md`, 11.4). Ctrl must be up. The plus key and the slash key with no Shift are keys of the throw (`throw.md`) |
@@ -2419,7 +2420,8 @@ by default.
 Why these keys. The game binds F1 to F9: F6 to F9 go to the Challenge Room, the Save
 Game Room, the Options Room and the Library (`ControlMap::LoadDefaults`,
 `0x0046F890`). F10 reaches Windows as a system key and can open the window menu. F11
-and F12 have no game action. The game also reads a held Ctrl as its zoom and a held
+and F12 have no game action. The default control map has no entry with the code
+of Backspace (`0x0E`) either. The game also reads a held Ctrl as its zoom and a held
 Shift as its tilt, and both together start its zoom to the Hand. Each of those acts
 on a mouse move, so the recenter key holds none of them. A test key that holds Shift
 or Ctrl is pressed with the mouse at rest.

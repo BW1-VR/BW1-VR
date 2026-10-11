@@ -35,8 +35,9 @@ bool CreatureCommandHalo(FarDraw* out, bool* far_target);
 // overlay.cpp: the arc and the ring of the land aim. False for none.
 bool CreatureCommandDrawState(TeleportDraw* out);
 
-// hand_glow.cpp: the trigger holds a walk that began on the land, and that
-// stays a walk (creature_command_rule=3). No object has a halo then.
+// hand_glow.cpp: the trigger holds a walk that stays a walk: a press that
+// began on the land (creature_command_rule=3 and 4), or a press on an object
+// that became a walk (rule 4). No object has a halo then.
 bool CreatureCommandWalkHeld();
 
 // hint_card.cpp: what the trigger does now.

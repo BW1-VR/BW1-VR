@@ -543,10 +543,20 @@ far_grab=0 in bwvr.ini to turn it off.
 
 When two objects are near the line of your hand, the choice follows
 the body of each object and not one point of it. You can point at the
-crown of a tree. A villager, an animal and your Creature come before a
-tree or a rock that is near the same line, and a small object comes
-before a large one that stands behind it. Set far_grab_choice=0 in
-bwvr.ini to choose by one point of the object.
+crown of a tree. A living thing comes first: a villager, a character
+of a quest, an animal or your Creature takes the halo when you point
+within about 6 degrees of it, also when a tree or a rock is on the
+same line. Of two living things, the one nearest to the line of your
+hand wins. A living thing that has the halo keeps it until you point
+about 9 degrees away from it. So a tree beside it does not take the
+halo back when your hand shakes. With no living thing near the line,
+a small object comes before a large one that stands behind it.
+
+Set far_grab_stay=0 in bwvr.ini if a living thing must not keep the
+halo past its own 6 degrees. Set far_grab_choice=1 for a choice with
+no ranks, in which a villager only scores better than a tree. Set
+far_grab_choice=0 to choose by one point of the object. The values 3
+and 4 give each object a ball of one size for its class.
 
 A far object must be near you: at most 2 m of your room from your
 head, along the floor. Set far_grab_max_m in bwvr.ini to change this
@@ -713,25 +723,32 @@ there. The grip does not send the Creature. To stroke or slap, put your
 hand on the Creature. Set creature_command=0 to turn the commands of
 the trigger off. The grip on the land then sends the Creature.
 
-To aim with care, hold the trigger. The target follows your hand while
-you hold it. When you point at an object, its halo shows. When you
-point at no object, an arc and a green ring show a point on the land.
-Let go, and your Creature goes to what shows then.
+A press of the trigger is one of two things. A quick press on an
+object with a halo makes your Creature act on that object. So does a
+longer press, if you still point at that object when you let go. If
+you hold the trigger and move your hand away from the object, the
+press becomes a walk: the halo goes, an arc and a green ring show a
+point on the land, and the controller gives a tick. The press then
+stays a walk until you let go. No object takes the halo, also not the
+first object when you point at it again. Let go, and your Creature
+goes to the ring.
 
-A press that starts on the land stays a walk for as long as you hold the
-trigger. You move the ring over the land, and no tree, rock or villager
-takes the halo, also when you point at one. To send your Creature to an
-object, point at the object first and then press the trigger. A press
-that starts on an object keeps the object only while you point at it.
-Set creature_command_rule=2 if a held press on the land must change to
-an object that you point at.
+A press that starts on the land is a walk from its start. You move the
+ring over the land, and no tree, rock or villager takes the halo, also
+when you point at one. To send your Creature to an object, point at
+the object first and then press the trigger. Set
+creature_command_rule=3 if a held press on an object must go to each
+object that you point at. Set creature_command_rule=2 if a held press
+on the land must also change to an object that you point at.
 
 An object takes the aim of the trigger only when you point at it:
 within 3 degrees, at most 10 m from your head, and not when you point at
-the land in front of it. If objects take the aim too often or not often
-enough, set creature_command_cone_deg and creature_command_max_m in
-bwvr.ini. Set creature_command_rule=1 if the press must choose its
-target, and an object can take the aim from far away.
+the land in front of it. A villager, a character of a quest or an
+animal in that aim comes before a tree or a building. If objects take
+the aim too often or not often enough, set creature_command_cone_deg
+and creature_command_max_m in bwvr.ini. Set creature_command_rule=1 if
+the press must choose its target, and an object can take the aim from
+far away.
 
 To tie the leash to an object, point at the object and press the
 trigger two times, one soon after the other. The first press sends your
@@ -787,8 +804,9 @@ short pulse for the other way. These keys are for testers. A player
 does not need them.
 
   Ctrl 1    The two ways of the ring (X, the stick, or both).
-  Ctrl 5    The three rules of the aim of the trigger
-            (creature_command_rule).
+  Ctrl 5    The four rules of the aim of the trigger
+            (creature_command_rule). One short pulse for each
+            unit of the value.
   Ctrl 7    The two rules for what a quest sees
             (script_distance and script_view).
   Ctrl 8    The two ways to cast a miracle (miracle_hand).
@@ -838,10 +856,14 @@ before you start a quest. These faults are known:
     In the hall the frame rate is low while the pool is in your
     view.
   - One eye can show faint pictures of the frames before.
-  - The aim at a distance can select a tree when you want a
-    villager or a different object near it.
-  - With the leash on, a held trigger near trees can select a
-    tree when you want the Creature to walk to the land.
+  - The aim at a distance puts a villager, a character of a quest
+    and an animal before a tree or a rock. This rule is not tested
+    in a headset. Of a rock and a tree near the same line, the aim
+    can still select the tree.
+  - With the leash on, a press of the trigger with the halo on a
+    tree sends your Creature to the tree. Hold the trigger and
+    move your hand off the tree, and the press becomes a walk to
+    the land. This is not tested in a headset.
   - With a tree in your Hand, the card can say "Grip Plant" when a
     rock or a different object is at that place. The tree then
     falls and is not planted.

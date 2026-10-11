@@ -1028,7 +1028,7 @@ void ReadSettings() {
     g_far_grab.on = number("far_grab", 1) != 0;
     g_far_grab.cone_deg = number("far_grab_cone_deg", 8);
     g_far_grab.pull_cmps = number("far_grab_pull", 80);
-    g_far_grab.choice = number("far_grab_choice", 1);
+    g_far_grab.choice = number("far_grab_choice", 2);
     // throw_law: 2 is the real flight of a thrown object (the default), 1
     // is the square root law, and 0 is the plain gain. See docs/throw.md, "The
     // throw physics". throw_log=1 logs each flight in full, and 2 also logs
@@ -1085,6 +1085,30 @@ void ReadSettings() {
                                sizeof(text), path);
       const double meters = atof(text);
       g_far_grab.max_m = meters > 0.0 ? static_cast<float>(meters) : 0.0f;
+    }
+    // The choice of a far target (docs/grab.md, "The cone and the choice").
+    // far_grab_living_deg: the cone of a living thing, for the ranks of
+    // far_grab_choice 2 and 4. far_grab_ball_living_deg and
+    // far_grab_ball_other_deg: the balls of far_grab_choice 3 and 4.
+    // far_grab_stay: 1 lets a living target keep the halo past its cone, by
+    // far_grab_stay_deg. FarGrabSetOptions has the limits.
+    {
+      const auto degrees = [&](const char* key, float fallback) {
+        char text[32] = "";
+        GetPrivateProfileStringA("bwvr", key, "", text, sizeof(text), path);
+        if (text[0] == 0) return fallback;
+        char* end = nullptr;
+        const double value = strtod(text, &end);
+        return end != text ? static_cast<float>(value) : fallback;
+      };
+      g_far_grab.living_deg =
+          degrees("far_grab_living_deg", g_far_grab.living_deg);
+      g_far_grab.ball_living_deg =
+          degrees("far_grab_ball_living_deg", g_far_grab.ball_living_deg);
+      g_far_grab.ball_other_deg =
+          degrees("far_grab_ball_other_deg", g_far_grab.ball_other_deg);
+      g_far_grab.stay = number("far_grab_stay", 1);
+      g_far_grab.stay_deg = degrees("far_grab_stay_deg", g_far_grab.stay_deg);
     }
 
     // Moving around by grabbing the world. See docs/god-view.md, "Moving

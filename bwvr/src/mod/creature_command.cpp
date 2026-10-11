@@ -54,13 +54,25 @@
 //   showed at the press. An object takes the aim only in a tight cone, near
 //   the player, and not when the land in front of it has the aim
 //   (creature_command_math.h, AimRule).
-// - THE WALK STAYS A WALK (creature_command_rule=3, the default). A press that
+// - THE WALK STAYS A WALK (creature_command_rule=3 and 4). A press that
 //   began on the land (no object in the cone of the press) is a walk command
 //   for as long as the trigger is held. The aim moves the land point, and no
 //   object takes the halo or the command, also when the aim passes over a tree,
 //   a rock or a villager. The player aims at the object first and then
 //   presses to command the Creature to it. Rule 2 lets a held walk change to
 //   an object that stays in the aim for 100 ms.
+// - THE WALK MODE (creature_command_rule=4, the default). A press that began
+//   on an object is the command on that object while the aim stays on it, and
+//   a tap is that command too. When the trigger stays down and the aim is
+//   off the object for 100 ms, the press becomes a walk for the rest of it:
+//   the halo goes, the arc and the ring show the land, and no object takes
+//   the target, also not the first object when the aim comes back to it.
+//   While such a press is held, only its own object is a target. With rule 3
+//   the target of a press on an object is what the hand points at, object
+//   after object.
+// - THE CHOICE OF THE OBJECT is the choice of the grab from a distance
+//   (far_grab_choice, far_grab_stay, far_choice_math.h): with ranks, a living
+//   thing in the cone of the command comes before a tree or a building.
 // - THE DOUBLE PRESS ties the leash to an object, as the game's double click
 //   does: the first tap sends the Creature to the object (packet 0x5D), and
 //   a second press on the same object sends packet 0x5C. While the leash is
@@ -128,6 +140,7 @@ bool HandDirectSeen(const float at[3], float radius);
 bool HandDirectNearObject(void** object, float position[3]);
 bool HandDirectObjectLives(void* object, void* table);
 const char* HandDirectClass(void* object);
+bool HandDirectLiving(void* object);
 bool HandDirectCreatureBody(void* creature, float out[3]);
 // overlay.cpp: the drawn hand (0 the left hand, 1 the right hand) takes the
 // point pose for this frame.
@@ -267,11 +280,13 @@ struct Settings {
   // off.
   int test_from = 0;
   bool test = false;
-  // creature_command_rule: 3 is the live target, and a press that began on
-  // the land stays a walk. 2 is the live target: a held walk can change to an
-  // object. 1: the press fixes its kind, and an object takes the aim in the
-  // cone of the grab from a distance.
-  int rule = 3;
+  // creature_command_rule: 4 is the walk mode: a press on the land stays a
+  // walk, and a press on an object becomes a walk when the aim leaves the
+  // object. 3 is the live target, and a press that began on the land stays a
+  // walk. 2 is the live target: a held walk can change to an object. 1: the
+  // press fixes its kind, and an object takes the aim in the cone of the grab
+  // from a distance.
+  int rule = 4;
   // The aim of rule 2 (creature_command_math.h, AimRule).
   float cone_deg = 3.0f;   // creature_command_cone_deg: a new target
   float keep_deg = 5.0f;   // creature_command_keep_deg: the target stays
@@ -438,6 +453,7 @@ uint64_t g_grip_land = 0;
 uint64_t g_targets = 0;
 uint64_t g_aim_frames = 0;
 uint64_t g_shown_changes = 0;  // changes of what shows while the trigger is held
+uint64_t g_walk_modes = 0;     // of them: a press on an object became a walk
 uint64_t g_out_range = 0;      // objects in the cone that the range left out
 uint64_t g_out_land = 0;       // and that the land in front left out
 uint64_t g_ties = 0;
@@ -545,6 +561,9 @@ bool Tied(const Facts& f) {
 bool LiveRule() { return g_settings.rule >= 2; }
 // The rule where a press that began on the land stays a walk.
 bool LandStays() { return g_settings.rule >= 3; }
+// The rule where a press that began on an object becomes a walk when the aim
+// leaves the object.
+bool WalkMode() { return g_settings.rule >= 4; }
 
 command_math::AimRule AimRuleNow() {
   command_math::AimRule rule;
@@ -704,18 +723,26 @@ int __fastcall h_LandPress(void* self, void* unused, const MapCoords* at) {
 // The line of the rule in use, at the start and at each press of the key.
 void LogRule(const char* from) {
   if (LiveRule()) {
-    ModLog("creature cmd : %s: creature_command_rule=%d. While the trigger is "
-           "held, the target is what the hand points at: an object, or the "
-           "land. %s A new object needs the aim within %.1f degrees of its body "
+    ModLog("creature cmd : %s: creature_command_rule=%d. %s A new object "
+           "needs the aim within %.1f degrees of its body "
            "and stays to %.1f (creature_command_cone_deg, _keep_deg). It is "
            "at most %.1f m of the room from the head (creature_command_max_m, "
            "0 is no limit). The land wins when the ray meets it more than %d "
            "cm, and 20 percent of the way to it, in front of the object "
            "(creature_command_behind_cm, -1 is off), frame %llu", from,
            g_settings.rule,
-           LandStays() ? "A press that began on the land stays a walk: no "
-                         "object takes it."
-                       : "A press on the land can change to an object.",
+           WalkMode()    ? "A press that began on an object shows that object "
+                           "while the aim is on it. It becomes a walk when the "
+                           "aim is off the object for 100 ms, and it stays a "
+                           "walk. A press that began on the land stays a walk: "
+                           "no object takes it."
+           : LandStays() ? "While the trigger is held, the target is what the "
+                           "hand points at: an object, or the land. A press "
+                           "that began on the land stays a walk: no object "
+                           "takes it."
+                         : "While the trigger is held, the target is what the "
+                           "hand points at: an object, or the land. A press on "
+                           "the land can change to an object.",
            g_settings.cone_deg, g_settings.keep_deg,
            far_choice_math::CommandRangeM(FarGrabChoice(), g_settings.max_m),
            g_settings.behind_cm, g_frame);
@@ -747,8 +774,9 @@ void Init() {
   if (g_settings.ring_cm > 100) g_settings.ring_cm = 100;
   g_settings.test_from = IniInt("creature_command_test", 0);
   g_settings.test = g_settings.test_from > 0;
-  g_settings.rule = IniInt("creature_command_rule", 3);
-  g_settings.rule = g_settings.rule >= 3 ? 3 : (g_settings.rule == 2 ? 2 : 1);
+  g_settings.rule = IniInt("creature_command_rule", 4);
+  if (g_settings.rule < 1) g_settings.rule = 1;
+  if (g_settings.rule > 4) g_settings.rule = 4;
   g_settings.cone_deg = IniFloat("creature_command_cone_deg", 3.0f);
   if (!(g_settings.cone_deg >= 0.5f)) g_settings.cone_deg = 0.5f;
   if (g_settings.cone_deg > 20.0f) g_settings.cone_deg = 20.0f;
@@ -807,31 +835,42 @@ void Init() {
   }
   if (g_settings.test_keys) {
     ModLog("keys         : Ctrl with numpad 5 changes creature_command_rule "
-           "from 3 to 2 to 1 and back (test_keys=1)");
+           "from 4 to 3 to 2 to 1 and back (test_keys=1)");
   }
 }
 
 // THE A/B KEY (test_keys=1): Ctrl with the 5 key of the number pad changes
-// the rule from 3 to 2 to 1 and back. The pointing controller gives a long
-// pulse for 3, a medium pulse for 2 and a short pulse for 1. The key is read once a frame, and only while a
-// window of the game is in front.
+// the rule from 4 to 3 to 2 to 1 and back. The pointing controller gives one
+// short pulse for each unit of the value: a hand can count pulses, and it
+// cannot tell four lengths apart. The key is read once a frame, and only
+// while a window of the game is in front.
+const float kRulePulseSeconds = 0.08f;
+const double kRulePulseStep = 0.25;  // from the start of a pulse to the next
 void PollRuleKey() {
   static bool was = false;
+  static int pulses = 0;
+  static double pulse_at = 0.0;
   if (!g_settings.test_keys) return;
   const bool down = (GetAsyncKeyState(VK_NUMPAD5) & 0x8000) != 0 &&
                     (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
   const bool pressed = down && !was;
   was = down;
-  if (!pressed) return;
-  DWORD process = 0;
-  const HWND window = GetForegroundWindow();
-  if (window != nullptr) GetWindowThreadProcessId(window, &process);
-  if (process != GetCurrentProcessId()) return;
-  g_settings.rule = g_settings.rule <= 1 ? 3 : g_settings.rule - 1;
-  ControllersGesturePulse(0.5f, g_settings.rule >= 3   ? 0.40f
-                                : g_settings.rule == 2 ? 0.24f
-                                                       : 0.08f);
-  LogRule("Ctrl and numpad 5");
+  const double now = NowSeconds();
+  if (pressed) {
+    DWORD process = 0;
+    const HWND window = GetForegroundWindow();
+    if (window != nullptr) GetWindowThreadProcessId(window, &process);
+    if (process != GetCurrentProcessId()) return;
+    g_settings.rule = g_settings.rule <= 1 ? 4 : g_settings.rule - 1;
+    pulses = g_settings.rule;
+    pulse_at = now;
+    LogRule("Ctrl and numpad 5");
+  }
+  if (pulses > 0 && now >= pulse_at) {
+    --pulses;
+    pulse_at = now + kRulePulseStep;
+    ControllersGesturePulse(0.5f, kRulePulseSeconds);
+  }
 }
 
 // Why a press is not a command, or null. Silent reasons give "". While the
@@ -1003,7 +1042,9 @@ void Release() {
         ModLog("creature cmd : the trigger opens after %.0f ms, %s. %s %.1f "
                "%.1f %.1f, frame %llu", held * 1000.0,
                from_press ? "a tap, so the aim of the press counts"
-                          : "so the aim of the release counts",
+               : LiveRule() && g_held.walk_from_object
+                   ? "in the walk mode, so the aim of the release counts"
+                   : "so the aim of the release counts",
                sent ? "Packet 0x5E: the Creature goes to"
                     : "No packet (the action of the Creature is 0x5D) for",
                aim.target[0], aim.target[1], aim.target[2], g_frame);
@@ -1469,7 +1510,28 @@ void CreatureCommandSelect() {
   const int kMost = 128;
   static controller_math::FarScore scores[kMost];
   static Target found[kMost];
+  // For the choice (far_choice_math.h): the class of each candidate, and its
+  // angle for the order in the first rank.
+  static bool firsts[kMost];
+  static float nears[kMost];
   int count = 0, current = -1;
+  // THE CHOICE OF THE GRAB FROM A DISTANCE serves the command too. The cone
+  // of a living thing is the cone of the command, and a living target keeps
+  // its rank to the cone that keeps a target. Rule 1 has the cones of the
+  // grab from a distance.
+  const int choice = FarGrabChoice();
+  const bool balls = live && far_choice_math::ChoiceBalls(choice);
+  const far_choice_math::StayRule stay_rule = far_choice_math::MakeStayRule(
+      choice, live ? select : FarGrabLivingDeg(), FarGrabStay(),
+      live ? keep - select : FarGrabStayDeg(), select, keep,
+      live ? command_math::kAimSwitchDeg : controller_math::kFarSwitchDeg);
+  // THE WALK MODE (rule 4). While a press that began on an object is held,
+  // only that object is a target: the press shows it, or it becomes a walk.
+  void* only = WalkMode() && g_claim &&
+                       (g_press == command_math::kPressObject ||
+                        g_press == command_math::kPressCreature)
+                   ? g_press_object
+                   : nullptr;
   // THE LAND POINT OF THE AIM RAY, found when the first object needs it: how
   // far along the ray the land is. The sea counts as land at 0.
   bool land_known = false;
@@ -1490,8 +1552,12 @@ void CreatureCommandSelect() {
     // WHILE THE LEASH IS TIED, only the object that holds it and the
     // Creature are targets: a press on them takes the leash back.
     if (tied && kind == kTargetObject && object != f.leash_object) return;
+    if (only != nullptr && object != only) return;
+    // The object of a held press of the walk mode has the cone that keeps a
+    // target, also after one frame in which it was no target.
     const bool is_current =
-        last.kind == kind && last.object == object && !last.at_hand;
+        (last.kind == kind && last.object == object && !last.at_hand) ||
+        object == only;
     // THE RANGE, before each other test, because on the table the draw
     // offers the whole island.
     if (!command_math::AimInRange(
@@ -1523,8 +1589,33 @@ void CreatureCommandSelect() {
     const float height = !live                     ? 0.0f
                          : kind == kTargetCreature ? 2.0f * radius
                                                    : HeightOf(object, radius);
-    const command_math::BodyAim aim =
-        command_math::AimAtBody(origin, direction, at, height, radius);
+    // THE BALL (far_grab_choice 3 and 4): the angle to the middle of the
+    // ball, less its size. The ball needs the class before the measure. The
+    // Creature keeps its own ball around its body bone.
+    const bool ball = balls && kind != kTargetCreature;
+    bool living = ball && HandDirectLiving(object);
+    command_math::BodyAim aim;
+    float near_deg = 0.0f;
+    if (ball) {
+      float middle[3];
+      far_choice_math::BallMiddle(at, height, living, middle);
+      aim = command_math::AimAtBody(origin, direction, middle, 0.0f, 0.0f);
+      near_deg = aim.te;
+      const float size =
+          living ? FarGrabBallLivingDeg() : FarGrabBallOtherDeg();
+      aim.te = aim.te > size ? aim.te - size : 0.0f;
+    } else {
+      // With radius 0, te is the angle to the nearest point of the line of
+      // the body, which is the order in the first rank. The radius then
+      // covers its angle at that point, as AimAtBody has it.
+      aim = command_math::AimAtBody(origin, direction, at, height, 0.0f);
+      near_deg = aim.te;
+      if (aim.valid) {
+        const float covered =
+            atanf((radius > 0.0f ? radius : 0.0f) / aim.distance) * 57.29578f;
+        aim.te = aim.te > covered ? aim.te - covered : 0.0f;
+      }
+    }
     if (!aim.valid || aim.te > keep) return;
     // THE LAND IN FRONT WINS.
     if (command_math::AimLandWins(rule, aim.along - radius, land_distance(),
@@ -1532,6 +1623,8 @@ void CreatureCommandSelect() {
       ++g_out_land;
       return;
     }
+    // The class, for a candidate in the cone.
+    if (!ball) living = HandDirectLiving(object);
     controller_math::FarScore s;
     s.valid = true;
     s.te = aim.te;
@@ -1543,7 +1636,20 @@ void CreatureCommandSelect() {
       for (int i = 1; i < kMost; ++i) {
         if (scores[i].score > scores[slot].score) slot = i;
       }
-      if (!(s.score < scores[slot].score) || slot == current) return;
+      // With ranks, a living thing in its cone takes the place of the worst
+      // thing that is not living, also when its plain score is not lower.
+      int other = -1;
+      if (stay_rule.ranks && living && s.te <= stay_rule.first_deg) {
+        for (int i = 0; i < kMost; ++i) {
+          if (firsts[i] || i == current) continue;
+          if (other < 0 || scores[i].score > scores[other].score) other = i;
+        }
+      }
+      if (other >= 0) {
+        slot = other;
+      } else if (!(s.score < scores[slot].score) || slot == current) {
+        return;
+      }
     } else {
       ++count;
     }
@@ -1560,6 +1666,8 @@ void CreatureCommandSelect() {
     t.table = *static_cast<void* const*>(object);
     t.name[0] = 0;
     scores[slot] = s;
+    firsts[slot] = living;
+    nears[slot] = near_deg;
     if (is_current) current = slot;
   };
   // AN OBJECT AT THE HAND. The object that a press of the grip acts on is
@@ -1572,7 +1680,8 @@ void CreatureCommandSelect() {
     void* object = nullptr;
     float at[3];
     if (HandDirectNearObject(&object, at) && object != f.creature &&
-        ValidTarget(object) && (!tied || object == f.leash_object)) {
+        ValidTarget(object) && (!tied || object == f.leash_object) &&
+        (only == nullptr || object == only)) {
       at_hand = count;
       Target& t = found[count];
       t.kind = kTargetObject;
@@ -1589,6 +1698,8 @@ void CreatureCommandSelect() {
       scores[count].valid = true;
       scores[count].te = 0.0f;
       scores[count].score = -1000.0f;
+      firsts[count] = false;
+      nears[count] = 0.0f;
       if (last.kind == kTargetObject && last.object == object) current = count;
       ++count;
     }
@@ -1631,20 +1742,31 @@ void CreatureCommandSelect() {
     // too, when it is in the cone of the command. Then the player sees one
     // halo.
     void* far_target = FarGrabTargetObject();
+    int shared = -1;
     for (int i = 0; far_target != nullptr && i < count; ++i) {
       if (found[i].object == far_target &&
           (scores[i].te <= select || i == current)) {
-        pick = i;
+        shared = i;
       }
     }
-    for (int tries = 0; pick < 0 && tries < 8; ++tries) {
-      pick = controller_math::FarPickTarget(
-          scores, count, current, select, keep,
-          live ? command_math::kAimSwitchDeg : controller_math::kFarSwitchDeg);
+    // The choice of the command itself: the ranks and the target that stays
+    // (far_choice_math.h, PickRanked), and the winner must be in view.
+    int why = far_choice_math::kWhyPlain;
+    for (int tries = 0; tries < 8; ++tries) {
+      pick = far_choice_math::PickRanked(scores, nears, firsts, count, current,
+                                         stay_rule, &why);
       if (pick < 0) break;
       if (HandDirectSeen(found[pick].position, found[pick].radius)) break;
       scores[pick].valid = false;
       pick = -1;
+    }
+    // The shared target wins over the plain order of the scores. It does not
+    // win over a living thing that has the target by its rank or by the stay
+    // rule, unless it is a living thing too. So a tree that the grip can
+    // fetch does not take the command from a villager.
+    if (shared >= 0 &&
+        (pick < 0 || why == far_choice_math::kWhyPlain || firsts[shared])) {
+      pick = shared;
     }
   }
   if (pick < 0) return;
@@ -1731,8 +1853,9 @@ bool CreatureCommandPumpTrigger(bool trigger, bool ok) {
                            : command_math::kPressLand);
       {
         command_math::Shown shown = {ShownOfPress(g_press), g_target.object};
-        command_math::HeldStart(&g_held, shown,
-                                LandStays() && g_press == command_math::kPressLand);
+        command_math::HeldStart(
+            &g_held, shown,
+            LandStays() && g_press == command_math::kPressLand, WalkMode());
       }
       g_aim.have = false;
       g_aim.valid = false;
@@ -1910,19 +2033,40 @@ void CreatureCommandFrame() {
     const command_math::Shown before = g_held.shown;
     const command_math::Shown shown =
         command_math::HeldStep(&g_held, candidate, NowSeconds());
-    // An object shows only while it is the object in the aim, so the target
-    // of this frame is its target.
-    if (shown.kind != command_math::kShownLand) g_shown_target = g_target;
+    // The object that shows is the object in the aim, so the target of this
+    // frame is its target. With the walk mode the object of the press shows
+    // for 100 ms after the aim left it, and then it keeps its last target.
+    if (shown.kind != command_math::kShownLand &&
+        g_target.kind != kTargetNone && g_target.object == shown.object) {
+      g_shown_target = g_target;
+    }
     if (shown.kind != before.kind || shown.object != before.object) {
       ++g_shown_changes;
+      const bool walk = shown.kind == command_math::kShownLand &&
+                        g_held.walk_from_object;
       if (shown.kind == command_math::kShownLand) {
         // The arc starts from the aim of now, with no smoothing from before.
         g_aim_reset = true;
+        // THE WALK MODE starts: one tick, as a step of a control.
+        if (walk) {
+          ++g_walk_modes;
+          HapticsPulse(haptics_math::kTick);
+        }
       } else {
         HapticsPulse(haptics_math::kTarget);
       }
       if (Log()) {
-        if (shown.kind == command_math::kShownLand) {
+        if (walk) {
+          ModLog("creature cmd : the trigger is held, and the aim was off "
+                 "the %s %p for %.0f ms. The press is a walk now "
+                 "(creature_command_rule=4): %s, and no object takes the "
+                 "target until the trigger opens, %.0f ms after the press, "
+                 "frame %llu", g_shown_target.name, before.object,
+                 command_math::kWalkLeaveS * 1000.0,
+                 tied ? "the leash is tied, so no arc shows"
+                      : "the arc and the ring show the land",
+                 (NowSeconds() - g_press_time) * 1000.0, g_frame);
+        } else if (shown.kind == command_math::kShownLand) {
           ModLog("creature cmd : the trigger is held, and the aim is on no "
                  "object now (it was on %p). %s, %.0f ms after the press, "
                  "frame %llu", before.object,
@@ -2049,13 +2193,15 @@ void CreatureCommandReport() {
          g_shakes_idle,
          g_grip_land, g_live ? "on" : "off: ", g_live ? "" : g_live_why);
   ModLog("creature cmd : creature_command_rule=%d. While the trigger was "
-         "held, what shows changed %llu times. The range left out %llu "
+         "held, what shows changed %llu times, and %llu presses on an object "
+         "became a walk. The range left out %llu "
          "objects, and the land in front left out %llu objects of the cone. "
          "%llu double presses tied the leash, and %llu took it back",
-         g_settings.rule, g_shown_changes, g_out_range, g_out_land, g_ties,
-         g_takes_back);
+         g_settings.rule, g_shown_changes, g_walk_modes, g_out_range,
+         g_out_land, g_ties, g_takes_back);
   g_presses = g_passed = g_sent_object = g_sent_land = g_sent_leash = 0;
   g_nothing = g_targets = g_aim_frames = g_shakes = g_shakes_idle = 0;
   g_grip_land = g_sent_taps = 0;
   g_shown_changes = g_out_range = g_out_land = g_ties = g_takes_back = 0;
+  g_walk_modes = 0;
 }

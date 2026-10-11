@@ -408,6 +408,14 @@ inline bool AimInRange(const AimRule& rule, float floor_m, bool current) {
 //   - A press that began on the land can keep the land (land_stays): then no
 //     object shows for as long as the trigger is held, and the aim only moves
 //     the land point.
+//   - THE WALK MODE (leave_walks, creature_command_rule=4). A press that
+//     began on an object, or on the Creature, shows that object while the aim
+//     is on it. When the aim is off that object for kWalkLeaveS, the press
+//     becomes a walk: the land shows, and land_stays is true for the rest of
+//     the press. No object shows after that, also not the first object when
+//     the aim comes back to it. The time is there because the change does not
+//     go back: an aim that drops off the object for one frame must not make a
+//     walk. In that time the object still shows.
 enum ShownKind { kShownNone, kShownLand, kShownObject, kShownCreature };
 
 struct Shown {
@@ -416,17 +424,30 @@ struct Shown {
 };
 
 const double kHeldCatchS = 0.10;
+const double kWalkLeaveS = 0.10;
 
 struct HeldState {
   Shown shown;
   const void* waiting;    // an object that is in the aim, and does not show yet
   double waiting_since;
-  bool land_stays;        // the press began on the land, and it stays a walk
+  bool land_stays;        // the press is a walk for the rest of it
+  bool leave_walks;       // rule 4: the press becomes a walk when the aim
+                          // leaves its object
+  bool leaving;           // the aim is off the object of the press now
+  double leaving_since;
+  bool walk_from_object;  // the walk began on an object (the walk mode)
 };
 
-// land_stays is wanted only for a press that began on the land.
-inline void HeldStart(HeldState* s, Shown shown, bool land_stays = false) {
+// land_stays is wanted only for a press that began on the land. leave_walks
+// is wanted only for a press that began on an object or on the Creature.
+inline void HeldStart(HeldState* s, Shown shown, bool land_stays = false,
+                      bool leave_walks = false) {
   s->land_stays = land_stays && shown.kind == kShownLand;
+  s->leave_walks = leave_walks && (shown.kind == kShownObject ||
+                                   shown.kind == kShownCreature);
+  s->leaving = false;
+  s->leaving_since = 0.0;
+  s->walk_from_object = false;
   s->shown = shown;
   s->waiting = nullptr;
   s->waiting_since = 0.0;
@@ -435,6 +456,26 @@ inline void HeldStart(HeldState* s, Shown shown, bool land_stays = false) {
 // One frame. The answer is what shows now.
 inline Shown HeldStep(HeldState* s, Shown candidate, double now) {
   if (s->land_stays) {
+    s->waiting = nullptr;
+    s->shown.kind = kShownLand;
+    s->shown.object = nullptr;
+    return s->shown;
+  }
+  if (s->leave_walks) {
+    // The press shows its object until the aim has left it for kWalkLeaveS.
+    if (candidate.kind == s->shown.kind &&
+        candidate.object == s->shown.object && candidate.object != nullptr) {
+      s->leaving = false;
+      return s->shown;
+    }
+    if (!s->leaving) {
+      s->leaving = true;
+      s->leaving_since = now;
+    }
+    if (now - s->leaving_since < kWalkLeaveS) return s->shown;
+    s->leaving = false;
+    s->land_stays = true;
+    s->walk_from_object = true;
     s->waiting = nullptr;
     s->shown.kind = kShownLand;
     s->shown.object = nullptr;

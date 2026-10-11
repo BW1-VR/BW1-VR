@@ -13,9 +13,20 @@ struct FarGrabSettings {
   float max_m = 2.0f;      // far_grab_max_m: a target is at most this far from
                            // the head, in meters of the room along the floor.
                            // 0 gives no limit
-  int choice = 1;          // far_grab_choice: 1 is the choice by the body of
-                           // the object, with living things first. 0 is the
-                           // choice by one point of the object
+  int choice = 2;          // far_grab_choice: 0 one point of the object, 1 its
+                           // body with a bias for a living thing, 2 its body
+                           // with ranks, 3 balls, 4 balls with ranks
+                           // (far_choice_math.h)
+  float living_deg = 4.0f;       // far_grab_living_deg: the cone of a living
+                                 // thing, for the ranks
+  float ball_living_deg = 3.0f;  // far_grab_ball_living_deg: the ball of a
+                                 // living thing, in degrees
+  float ball_other_deg = 1.5f;   // far_grab_ball_other_deg: the ball of each
+                                 // other thing
+  int stay = 1;            // far_grab_stay: 1 lets a living target keep the
+                           // halo past its cone. 0 has the margin of the
+                           // scores only
+  float stay_deg = 3.0f;   // far_grab_stay_deg: how far past its cone
 };
 
 void FarGrabSetOptions(const FarGrabSettings& settings);
@@ -30,9 +41,21 @@ float FarGrabKeepDeg();
 // far_grab_max_m: the range from the head, in meters of the room. 0 for no
 // limit.
 float FarGrabMaxMeters();
-// far_grab_choice: 1 or 0. The test key changes it while the game runs.
+// far_grab_choice: 0 to 4. The test key changes it while the game runs.
 int FarGrabChoice();
 void FarGrabSetChoice(int choice);
+// What a value of far_grab_choice does, for the log.
+const char* FarGrabChoiceWords(int choice);
+// far_grab_living_deg, far_grab_ball_living_deg and far_grab_ball_other_deg.
+float FarGrabLivingDeg();
+float FarGrabBallLivingDeg();
+float FarGrabBallOtherDeg();
+// far_grab_stay: 1 or 0, and far_grab_stay_deg. The test key changes the
+// first one while the game runs.
+int FarGrabStay();
+void FarGrabSetStay(int stay);
+float FarGrabStayDeg();
+const char* FarGrabStayWords(int stay);
 
 // What hand_direct.cpp gives once a frame, after the history of the hand.
 struct FarFrame {
