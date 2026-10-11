@@ -60,6 +60,7 @@
 #include <string.h>
 #include <math.h>
 
+#include "one_walk.h"
 #include "MinHook.h"
 #include "../common/bw_addresses.h"
 #include "../vr/xr_screen.h"
@@ -79,6 +80,10 @@ bool GpuBridgeReady();
 bool GpuBridgeHasDevice();
 void PresentWatchReport(uint64_t frames);
 void* GpuBridgeCaptureEye(int eye);
+void* GpuBridgeCaptureEyeFrom(int eye, void* source, const long rect[4],
+                              bool flush);
+const void* GpuBridgeSelfTestReadFrom(int eye, void* source,
+                                      const long rect[4], int* pitch);
 void GpuBridgeReport(uint64_t frames);
 bool GpuBridgeSelfTestStart(uint32_t width, uint32_t height);
 const void* GpuBridgeSelfTestRead(int eye, int* pitch);
@@ -207,6 +212,8 @@ void FrameTimeReport();
 void EyeCleanBeginPair();
 void EyeCleanBeforePass(int eye);
 void EyeCleanAfterPass(int eye);
+void EyeCleanOneWalkBefore();
+void EyeCleanOneWalkAfter();
 void EyeCleanEndPair();
 void EyeCleanToggle(const char* cause);
 void EyeCleanReport();
@@ -220,6 +227,7 @@ void DrawMergePass(bool inside);
 void DrawMergeReport();
 // gpu_bridge.cpp: the copy of an eye picture with no wait for the GPU.
 void* GpuBridgeCopyEye(int eye);
+void* GpuBridgeCopyEyeFrom(int eye, void* source, const long rect[4]);
 void InputWatchAskPointer(int count);
 void InputWatchFrame();
 void FovSetScale(float scale);
@@ -746,6 +754,14 @@ void PollHotkeys() {
   // Kept up to date without focus too, so a key that is already down when
   // the game comes to the front does not count as a new press.
   for (int i = 0; i < kKeys; ++i) down[i] = now[i];
+  // An A/B of one walk (docs/backend.md, "One walk for both eyes"). The
+  // menu key (VK_APPS) has no action in the game and no other test key.
+  static bool menu_down = false;
+  const bool menu_now = (GetAsyncKeyState(VK_APPS) & 0x8000) != 0;
+  if (g_test_keys && menu_now && !menu_down && plain && GameHasFocus()) {
+    OneWalkToggle();
+  }
+  menu_down = menu_now;
 }
 
 // THE HEAD TRACKING SETUP, once. The render has to cover what the headset asks for,
@@ -1142,6 +1158,24 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
   // frame, and reading it once here keeps it so.
   const float frame_roll = HeadCameraRoll();
 
+  // ONE WALK (one_walk.cpp). The left eye walks the scene, and the right eye
+  // is drawn from its batches. It needs the two eyes to differ in the
+  // sideways offset alone, so not with a pose for each eye. A flat frame of
+  // the cut scene window has two eye cameras side by side, which is that
+  // case. With a headset it needs the GPU path, because the backend's own
+  // target does not hold the eyes.
+  const bool pose_per_eye = g_head_tracking && !flat && !HeadCameraEnabled() &&
+                            (to_headset || HeadPoseFakeOn());
+  const bool one_walk = OneWalkWanted() && !pose_per_eye &&
+                        !g_headless_grab &&
+                        (!to_headset || GpuBridgeReady());
+  bool one_walk_done = false;
+  // one_walk_check=1: on a frame that saves pictures, the right eye also gets
+  // its own walk, as without one walk, and its picture is saved as "walk2"
+  // beside the right eye of one walk. The two pictures are of one moment.
+  const bool one_walk_check = one_walk && OneWalkCheck() &&
+                              EyeCaptureWanted(g_frames + 1);
+
   uint64_t scene = 0, grab = 0;
   uint64_t eye_scene[2] = {0, 0};
   // The way of the eye pictures to the headset, the same for both eye passes
@@ -1151,6 +1185,8 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
   bwvr::LateFrame late = {};
   const bool profile = FrameProfileOn();
   for (int eye = 0; eye < 2; ++eye) {
+    // In one walk the right eye was drawn in the pass of the left eye.
+    if (eye == 1 && one_walk_done && !one_walk_check) break;
     // Left eye is negative, right eye is positive, both about the camera the
     // game chose, so the mono view stays the average of the two.
     // With the head on the camera, the runtime's own per eye pose carries
@@ -1233,13 +1269,27 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
     OverlayPassEye(eye);
     const uint64_t walk_start = profile ? FrameProfileTicks() : 0;
     FrameTimePass(eye);
+    if (one_walk && eye == 0) {
+      one_walk_done = OneWalkBeginPass(g_frame_separation);
+    }
+    const bool walk_wide = one_walk_done && eye == 0;
     // The render target of this eye pass: its clean, or the keep of the eye.
-    EyeCleanBeforePass(eye);
+    // The wide target of one walk keeps the picture of each eye itself.
+    if (walk_wide) {
+      EyeCleanOneWalkBefore();
+    } else {
+      EyeCleanBeforePass(eye);
+    }
     // The merge of draw calls takes the draw calls of the scene walk only.
     DrawMergePass(true);
     o_Process3dEngine(self, unused);
     DrawMergePass(false);
-    EyeCleanAfterPass(eye);
+    if (walk_wide) {
+      EyeCleanOneWalkAfter();
+      OneWalkEndPass();
+    } else {
+      EyeCleanAfterPass(eye);
+    }
     FrameTimePassDone(eye);
     const uint64_t walk_end = profile ? FrameProfileTicks() : 0;
     OverlayPassEye(-1);
@@ -1272,7 +1322,34 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
       ui_texture = GpuBridgeCaptureUi();
     }
     bool sent = false;
-    if (to_headset && GpuBridgeReady()) {
+    long eye_rect[2][4];
+    const bool walked_once = one_walk_done && eye == 0;
+    const bool wide = walked_once && OneWalkEyeRect(0, eye_rect[0]) &&
+                      OneWalkEyeRect(1, eye_rect[1]);
+    if (to_headset && GpuBridgeReady() && wide) {
+      // Both eyes from the halves of the wide target, in this pass.
+      if (send_mode == 0) {
+        // The first copy goes with no wait and the second with the wait, so
+        // the two cost one wait for the GPU.
+        void* left_texture =
+            GpuBridgeCaptureEyeFrom(0, OneWalkTarget(), eye_rect[0], false);
+        void* right_texture =
+            GpuBridgeCaptureEyeFrom(1, OneWalkTarget(), eye_rect[1], true);
+        if (left_texture != nullptr && right_texture != nullptr) {
+          g_screen->SetEyeTexture(0, left_texture);
+          g_screen->SetEyeTexture(1, right_texture);
+          sent = true;
+        }
+      } else {
+        // The copies alone. The wait for the GPU and the copy to the headset
+        // come one time, after the pass (frame_send.cpp).
+        for (int e = 0; e < 2; ++e) {
+          late.eye_texture[e] =
+              GpuBridgeCopyEyeFrom(e, OneWalkTarget(), eye_rect[e]);
+        }
+        sent = late.eye_texture[0] != nullptr && late.eye_texture[1] != nullptr;
+      }
+    } else if (to_headset && GpuBridgeReady()) {
       if (send_mode == 0) {
         void* texture = GpuBridgeCaptureEye(eye);
         if (texture != nullptr) {
@@ -1309,7 +1386,35 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
     // With no headset the shared path has no Direct3D 11 device to copy into,
     // so on a capture frame the self test makes one and saves what comes
     // back. Comparing that file with the readback file proves the path.
-    if (want_capture && !sent && GpuBridgeHasDevice()) {
+    if (want_capture && !sent && GpuBridgeHasDevice() && wide) {
+      uint32_t shared_w = 0, shared_h = 0;
+      if (FrameSourceSize(&shared_w, &shared_h) &&
+          GpuBridgeSelfTestStart(shared_w, shared_h)) {
+        for (int e = 0; e < 2; ++e) {
+          int shared_pitch = 0;
+          const void* shared = GpuBridgeSelfTestReadFrom(
+              e, OneWalkTarget(), eye_rect[e], &shared_pitch);
+          if (shared != nullptr) {
+            EyeCaptureSaveAs("shared", g_frames + 1, e, shared, shared_pitch,
+                             shared_w, shared_h);
+          }
+          GpuBridgeSelfTestDone();
+        }
+      }
+    } else if (want_capture && !sent && GpuBridgeHasDevice() && one_walk_done) {
+      // The check walk of the right eye, from the backend's own target.
+      uint32_t shared_w = 0, shared_h = 0;
+      if (FrameSourceSize(&shared_w, &shared_h) &&
+          GpuBridgeSelfTestStart(shared_w, shared_h)) {
+        int shared_pitch = 0;
+        const void* shared = GpuBridgeSelfTestRead(eye, &shared_pitch);
+        if (shared != nullptr) {
+          EyeCaptureSaveAs("walk2", g_frames + 1, eye, shared, shared_pitch,
+                           shared_w, shared_h);
+        }
+        GpuBridgeSelfTestDone();
+      }
+    } else if (want_capture && !sent && GpuBridgeHasDevice()) {
       uint32_t shared_w = 0, shared_h = 0;
       if (FrameSourceSize(&shared_w, &shared_h) &&
           GpuBridgeSelfTestStart(shared_w, shared_h)) {
@@ -1322,8 +1427,23 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
         GpuBridgeSelfTestDone();
       }
     }
+    // In one walk with a headset, a frame that saves pictures reads both eyes
+    // from the halves of the wide target.
+    if (wide && sent && want_capture) {
+      for (int e = 0; e < 2; ++e) {
+        int read_pitch = 0;
+        uint32_t read_w = 0, read_h = 0;
+        const void* read = OneWalkReadEye(e, &read_pitch, &read_w, &read_h);
+        if (read != nullptr) {
+          EyeCaptureSave(g_frames + 1, e, read, read_pitch, read_w, read_h);
+        }
+        OneWalkReadDone();
+      }
+    }
+    // In one walk the backend's own target holds neither eye.
     const bool luma = EyeLumaOn();
-    if ((to_headset && !sent) || g_headless_grab || want_capture || luma) {
+    if (!one_walk_done &&
+        ((to_headset && !sent) || g_headless_grab || want_capture || luma)) {
       // The surface stays locked while the VR layer reads it, so the frame is
       // copied once instead of twice.
       int pitch = 0;
@@ -1476,6 +1596,7 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
     }
     FrameSourceReport();
     GpuBridgeReport(g_timed_now);
+    OneWalkReport(g_timed_now);
     PassGuardReport();
     FrameTimersReport(g_frames);
     FrameTimeReport();

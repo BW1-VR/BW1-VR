@@ -80,6 +80,7 @@
 #include <string.h>
 #include <math.h>
 
+#include "one_walk.h"
 #include "../common/bw_addresses.h"
 #include "controller_math.h"
 #include "creature_command.h"
@@ -738,6 +739,23 @@ void HandGlowDraw() {
     p.x = at.x;
     p.y = at.y;
     p.meters = p.valid ? at.depth / units_per_meter : 0.0f;
+    // ONE WALK (one_walk.cpp). The right eye has no pass of its own. Its
+    // point and its camera are those of the left eye, moved by the disparity
+    // of the depth (one_walk_math.h): x moves by per_rhw * near / depth, and
+    // m[9] by per_rhw * near / half_res_x.
+    if (eye == 0 && OneWalkActive()) {
+      const float per_rhw = OneWalkShiftPerRhw();
+      EyePoint& right = g_eye_point[1];
+      right = p;
+      if (right.valid && at.depth > 0.0f) {
+        right.x += per_rhw * near_plane / at.depth;
+      }
+      for (int i = 0; i < 12; ++i) g_eye_matrix[1][i] = m[i];
+      if (info->half_res_x > 0.0f) {
+        g_eye_matrix[1][9] += per_rhw * near_plane / info->half_res_x;
+      }
+      g_eye_matrix_frame[1] = frame;
+    }
   }
   DrawNearHalo(device, eye, frame, m, info->half_res_x, info->half_res_y,
                near_plane, units_per_meter);

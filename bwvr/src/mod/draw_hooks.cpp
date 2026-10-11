@@ -88,6 +88,7 @@
 #include <math.h>
 #include <stdio.h>
 
+#include "one_walk.h"
 #include "MinHook.h"
 #include "../common/bw_addresses.h"
 #include "bubble_card.h"
@@ -716,8 +717,24 @@ void EndWidgetPass() {
   g_help_quad_count = 0;
 }
 
+// ONE WALK (one_walk.cpp). The right eye of a batch of the interface is the
+// chain below run again with the right eye, for the same batch, just after the
+// left eye. The decision about a copy of a hint is made one time, by the left
+// eye, and the right eye takes it. A second decision would find the left copy
+// of the same batch in the list of the pass and pair the batch with itself.
+bool g_replay_right = false;
+bool g_left_dropped = false;
+
+bool IsDuplicateWidgetDecide(void* verts, uint32_t fvf, uint32_t count);
+
 // True when this batch is the copy of the hint that moves with the eye.
 bool IsDuplicateWidget(void* verts, uint32_t fvf, uint32_t count) {
+  if (g_replay_right) return g_left_dropped;
+  g_left_dropped = IsDuplicateWidgetDecide(verts, fvf, count);
+  return g_left_dropped;
+}
+
+bool IsDuplicateWidgetDecide(void* verts, uint32_t fvf, uint32_t count) {
   g_in_widget_band = false;
   g_widget_scale = false;
   g_widget_flat = false;
@@ -1359,6 +1376,45 @@ bool g_tooltip_anchored = false;
 float g_tooltip_ax = 0.0f;
 float g_tooltip_ay = 0.0f;
 float g_tooltip_dx = 0.0f;
+
+// ONE WALK. The batches of one tooltip come in the pass of the left eye, and
+// each goes to the right eye just after (DrawInterface). The right eye anchors
+// the tooltip from its own Hand's point, as its own pass did. So each eye has
+// its own copy of the anchor, and the copy of the eye that draws is loaded.
+struct TooltipState {
+  bool anchored, at_hand;
+  float ax, ay, dx, scale;
+  float hand_xy[2], first[2], offset[2];
+};
+TooltipState g_tooltip_right = {};
+
+void SaveTooltip(TooltipState* s) {
+  s->anchored = g_tooltip_anchored;
+  s->at_hand = g_tooltip_at_hand;
+  s->ax = g_tooltip_ax;
+  s->ay = g_tooltip_ay;
+  s->dx = g_tooltip_dx;
+  s->scale = g_tooltip_hand_scale;
+  for (int i = 0; i < 2; ++i) {
+    s->hand_xy[i] = g_tooltip_hand_xy[i];
+    s->first[i] = g_tooltip_first[i];
+    s->offset[i] = g_tooltip_offset[i];
+  }
+}
+
+void LoadTooltip(const TooltipState& s) {
+  g_tooltip_anchored = s.anchored;
+  g_tooltip_at_hand = s.at_hand;
+  g_tooltip_ax = s.ax;
+  g_tooltip_ay = s.ay;
+  g_tooltip_dx = s.dx;
+  g_tooltip_hand_scale = s.scale;
+  for (int i = 0; i < 2; ++i) {
+    g_tooltip_hand_xy[i] = s.hand_xy[i];
+    g_tooltip_first[i] = s.first[i];
+    g_tooltip_offset[i] = s.offset[i];
+  }
+}
 uint64_t g_tooltips_kept = 0;
 uint64_t g_tooltips_dropped = 0;
 float g_saved_tip_x[kMaxShiftVertices];
@@ -1654,6 +1710,7 @@ void __cdecl h_DrawKeyOrMouse(uint32_t blink, uint32_t button,
   g_in_tooltip = true;
   g_tooltip_key = key;
   g_tooltip_anchored = false;
+  g_tooltip_right.anchored = false;
   g_tooltip_text = text;
   g_tooltip_call_x = x;
   g_tooltip_call_y = y;
@@ -2065,9 +2122,9 @@ float g_saved_intro_y[kMaxShiftVertices];
 // Both clip hooks run the same chain. Each step saves what it changes and is
 // undone in reverse order after the draw, because the engine may use the
 // vertices again.
-void DrawInterface(DrawAndClipFn original, D3DPRIMITIVETYPE type,
-                   uint32_t fvf, void* verts, uint32_t count, uint16_t* idx,
-                   uint32_t n) {
+void DrawInterfaceEye(DrawAndClipFn original, D3DPRIMITIVETYPE type,
+                      uint32_t fvf, void* verts, uint32_t count, uint16_t* idx,
+                      uint32_t n) {
   DumpBatch(verts, fvf, count);
   // THE LIONHEAD LOGO IN STEREO (intro_vr.cpp, docs/intro.md). The effect
   // draws a text and boxes flat, after its orbs. Each corner gets the pixel
@@ -2162,6 +2219,40 @@ void DrawInterface(DrawAndClipFn original, D3DPRIMITIVETYPE type,
   if (placed) SubtitlePlaceOut(verts, count);
   if (sized) UiScaleOut(verts, count);
   if (lifted) SubtitleLiftOut(verts, count);
+}
+
+// In one walk a batch of the interface goes to the left half with the chain
+// of the left eye, and then to the right half with the chain of the right eye.
+// A batch of another caller is world geometry that the engine clipped.
+// one_walk.cpp gives it to the right eye with the disparity of its rhw.
+void DrawInterface(DrawAndClipFn original, D3DPRIMITIVETYPE type,
+                   uint32_t fvf, void* verts, uint32_t count, uint16_t* idx,
+                   uint32_t n) {
+  if (!OneWalkActive() || g_eye != 0 || !IsUiCaller(g_caller)) {
+    DrawInterfaceEye(original, type, fvf, verts, count, idx, n);
+    return;
+  }
+  OneWalkSetMode(kOneWalkLeftOnly);
+  DrawInterfaceEye(original, type, fvf, verts, count, idx, n);
+  const float shift = g_shift;
+  TooltipState left_tooltip;
+  if (g_in_tooltip) {
+    SaveTooltip(&left_tooltip);
+    LoadTooltip(g_tooltip_right);
+  }
+  g_eye = 1;
+  g_shift = -shift;
+  g_replay_right = true;
+  OneWalkSetMode(kOneWalkRightOnly);
+  DrawInterfaceEye(original, type, fvf, verts, count, idx, n);
+  OneWalkSetMode(kOneWalkBoth);
+  g_replay_right = false;
+  g_shift = shift;
+  g_eye = 0;
+  if (g_in_tooltip) {
+    SaveTooltip(&g_tooltip_right);
+    LoadTooltip(left_tooltip);
+  }
 }
 
 void __cdecl h_DrawAndClip(D3DPRIMITIVETYPE type, uint32_t fvf, void* verts,

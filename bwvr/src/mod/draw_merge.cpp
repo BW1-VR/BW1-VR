@@ -21,6 +21,9 @@
 //     these hooks),
 //   - a call of the mod on the Direct3D 9 device of the backend
 //     (gpu_bridge.cpp),
+//   - a new move of the right eye in one walk (one_walk.cpp): a room of the
+//     Temple builds its camera again in the pass, and one walk draws the
+//     batch again for the right eye with the move of its draw calls,
 //   - the end of the eye pass.
 //
 // So the device has the same state for each triangle as with no merge, the
@@ -61,6 +64,10 @@ int DrawProbeMergeHooks();
 HRESULT DrawProbeSendMerged(void* self, DWORD fvf, void* vertices,
                             DWORD vertex_count, WORD* indices,
                             DWORD index_count, DWORD flags);
+// one_walk.cpp: the move per rhw of the right eye now, and the hold of the move
+// of a batch while it goes out.
+float OneWalkShiftPerRhw();
+void OneWalkHoldShift(bool hold, float shift);
 
 namespace {
 
@@ -86,6 +93,8 @@ Batch g_batch = {};
 void* g_self = nullptr;
 DWORD g_fvf = 0;
 DWORD g_flags = 0;
+// The move per rhw of the right eye in one walk at the draw calls in the batch.
+float g_shift = 0.0f;
 
 // For the report.
 uint64_t g_passes = 0;
@@ -357,8 +366,10 @@ bool DrawMergeTake(void* self, D3DPRIMITIVETYPE type, DWORD fvf,
     ++g_passed;
     return false;
   }
+  const float shift = OneWalkShiftPerRhw();
   if (g_batch.draws > 0 &&
       (self != g_self || fvf != g_fvf || flags != g_flags ||
+       shift != g_shift ||
        !draw_merge::Fits(g_batch, stride, vertex_count, corners))) {
     DrawMergeFlush();
   }
@@ -375,6 +386,7 @@ bool DrawMergeTake(void* self, D3DPRIMITIVETYPE type, DWORD fvf,
   g_self = self;
   g_fvf = fvf;
   g_flags = flags;
+  g_shift = shift;
   ++g_taken;
   if (g_test != 0) {
     g_hash_in = draw_merge::HashTriangles(g_hash_in, vertices, stride, indices,
@@ -394,8 +406,10 @@ void DrawMergeFlush() {
                                            g_batch.index_count);
     g_triangles_out += g_batch.index_count / 3;
   }
+  OneWalkHoldShift(true, g_shift);
   DrawProbeSendMerged(g_self, g_fvf, g_batch.vertices, g_batch.vertex_count,
                       g_batch.indices, g_batch.index_count, g_flags);
+  OneWalkHoldShift(false, 0.0f);
   ++g_sent;
   draw_merge::Clear(&g_batch);
 }

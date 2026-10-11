@@ -72,6 +72,10 @@ void FrameSendJoin();
 // file on the Direct3D 9 device do not go through the hooks of the merge, so
 // the batch goes to Direct3D before each of them.
 void DrawMergeFlush();
+// one_walk.cpp: the game's own target in place of the wide target of one walk,
+// and the end of the wide target when the device is gone.
+void* OneWalkGameSurface(void* surface);
+void OneWalkForgetDevice();
 
 namespace {
 
@@ -335,6 +339,7 @@ void ForgetPanel() {
 // belong to the headset's device and are still safe to release.
 void ForgetDevice() {
   ForgetPanel();
+  OneWalkForgetDevice();
   if (g_ready) g_resume_wanted = true;
   g_ready = false;
   g_flush_query = nullptr;
@@ -909,7 +914,12 @@ namespace {
 // GPU: from the render target to the shared texture of one eye. It does not
 // wait for the GPU. Returns the Direct3D 11 texture of the eye, or null when
 // the caller must use the CPU path in this frame.
-void* CopyEye(int eye) {
+//
+// source is the surface to copy, or null for the render target that is bound.
+// rect is the part of it to copy (left, top, right, bottom), or null for all
+// of it: one walk copies each eye from its half of the wide target.
+void* CopyEye(int eye, void* source_surface = nullptr,
+              const long rect[4] = nullptr) {
   DrawMergeFlush();
   if (!g_ready || eye < 0 || eye >= kEyes) return nullptr;
 
@@ -925,15 +935,26 @@ void* CopyEye(int eye) {
   LARGE_INTEGER t0, t1;
   QueryPerformanceCounter(&t0);
 
-  IDirect3DSurface9* source = nullptr;
-  if (FAILED(g_device->GetRenderTarget(0, &source)) || source == nullptr) {
+  IDirect3DSurface9* source = static_cast<IDirect3DSurface9*>(source_surface);
+  if (source != nullptr) {
+    source->AddRef();
+  } else if (FAILED(g_device->GetRenderTarget(0, &source)) ||
+             source == nullptr) {
     ++g_failures;
     if (++g_consecutive_failures >= kFailuresBeforeGivingUp) {
       GiveUpOnSharing("the backend stopped handing over a render target");
     }
     return nullptr;
   }
-  const HRESULT hr = g_device->StretchRect(source, nullptr,
+  RECT part;
+  if (rect != nullptr) {
+    part.left = rect[0];
+    part.top = rect[1];
+    part.right = rect[2];
+    part.bottom = rect[3];
+  }
+  const HRESULT hr = g_device->StretchRect(source,
+                                           rect != nullptr ? &part : nullptr,
                                            g_shared_surface[eye], nullptr,
                                            D3DTEXF_NONE);
   source->Release();
@@ -1022,6 +1043,24 @@ void* GpuBridgeCaptureEye(int eye) {
 void* GpuBridgeCopyEye(int eye) {
   TakeThreadWait();
   return CopyEye(eye);
+}
+
+// ONE WALK (one_walk.cpp). The two copies of a frame of one walk, from the
+// halves of the wide target. GpuBridgeCopyEyeFrom is the copy alone, as
+// GpuBridgeCopyEye. GpuBridgeCaptureEyeFrom is the copy and, with flush, the
+// wait for the GPU, as GpuBridgeCaptureEye: the first copy of a frame goes
+// with no wait, the second with the wait, so the two copies cost one wait.
+void* GpuBridgeCopyEyeFrom(int eye, void* source, const long rect[4]) {
+  TakeThreadWait();
+  return CopyEye(eye, source, rect);
+}
+
+void* GpuBridgeCaptureEyeFrom(int eye, void* source, const long rect[4],
+                              bool flush) {
+  FrameSendJoin();
+  void* texture = CopyEye(eye, source, rect);
+  if (texture != nullptr && flush) WaitForGpu();
+  return texture;
 }
 
 // The one wait, on the frame thread.
@@ -1187,6 +1226,13 @@ bool GpuBridgeKeepHas(int eye) {
          g_keep_filled[eye] && g_keep_target != nullptr;
 }
 
+// The Direct3D 9 device of the backend, for one_walk.cpp.
+void* GpuBridgeDeviceObject() { return g_device; }
+
+// A depth surface that the mod makes for itself is not the game's Z buffer.
+// While this is on, the depth24 rule and its count do not touch a create.
+void GpuBridgeOwnDepth(bool on) { g_making_own_depth = on; }
+
 void GpuBridgeReport(uint64_t frames) {
   if (!g_ready || g_captures == 0 || frames == 0 ||
       g_frequency.QuadPart == 0) {
@@ -1261,7 +1307,12 @@ void ReleasePanelTargets() {
 // again when the render target changes size.
 bool EnsurePanel(IDirect3DSurface9* game_target) {
   D3DSURFACE_DESC desc;
-  if (FAILED(game_target->GetDesc(&desc))) return false;
+  // In one walk the bound target is two eyes wide. The panel has the size of
+  // one eye, which is the size of the game's own target.
+  game_target = static_cast<IDirect3DSurface9*>(OneWalkGameSurface(game_target));
+  if (game_target == nullptr || FAILED(game_target->GetDesc(&desc))) {
+    return false;
+  }
   if (!g_panel_logged_target) {
     g_panel_logged_target = true;
     ModLog("ui panel     : the game's render target is %ux%u, format %d, "
@@ -1731,10 +1782,11 @@ bool GpuBridgeSelfTestStart(uint32_t width, uint32_t height) {
 
 // Captures one eye through the shared texture and brings it back so it can be
 // written to a file. Returns null if any step failed.
-const void* GpuBridgeSelfTestRead(int eye, int* pitch) {
+const void* GpuBridgeSelfTestReadFrom(int eye, void* source,
+                                      const long rect[4], int* pitch) {
   DrawMergeFlush();
   if (g_test_staging == nullptr) return nullptr;
-  void* texture = GpuBridgeCaptureEye(eye);
+  void* texture = GpuBridgeCaptureEyeFrom(eye, source, rect, true);
   if (texture == nullptr) return nullptr;
 
   g_test_context->CopyResource(g_test_staging,
@@ -1746,6 +1798,10 @@ const void* GpuBridgeSelfTestRead(int eye, int* pitch) {
   }
   *pitch = static_cast<int>(mapped.RowPitch);
   return mapped.pData;
+}
+
+const void* GpuBridgeSelfTestRead(int eye, int* pitch) {
+  return GpuBridgeSelfTestReadFrom(eye, nullptr, nullptr, pitch);
 }
 
 void GpuBridgeSelfTestDone() {

@@ -382,17 +382,12 @@ that moves while the Hand takes it.
     `Lock` of dxwrapper does for a surface that a copy used in the same
     frame. Then name the thing that the second write is for (the list at
     `0x00FAA7E0` of `LH3DIsland::Draw`).
-  - **One walk of the scene for both eyes.** This is the render idea with the
-    largest gain. The two eye passes are 92 to 98 percent of a frame. The
-    Direct3D draw calls are 39 to 52 percent of the eye passes, and each eye
-    needs its own. The rest is the walk and the transform of the game: 2.3
-    to 2.9 ms for each eye pass. So one walk can save 2.3 to 2.9 ms of a
-    frame of 8.7 to 10 ms at the most. The time to project each vertex for
-    the second eye comes off that gain. First step: a test key that records
-    the batches of eye pass 0 and draws them for eye pass 1 with no second
-    walk. The test projects each vertex again from its `rhw`. The draw probe
-    and a picture of each eye then say which batches are wrong (the clip at
-    the near plane, the sprites that face the eye, the flat interface).
+  - **One walk of the scene for both eyes.** Built as a prototype, off by
+    default (`one_walk`, `backend.md`, "One walk for both eyes"). The batches
+    of eye pass 0 go to a wide target, and a hook draws each one again for
+    the right eye, moved by the disparity of its `rhw`. On the desktop the
+    scene time of `verify_build.ps1` went down by 35 to 40 percent. Not shown:
+    a session in a headset with a person in it, and its feel.
   - **The merge of draw calls in a headset.** The mod gives a row of draw
     calls with one state to Direct3D as one draw call (`draw_merge=1`,
     `backend.md`, "One draw call for a row of draw calls"). Desktop runs of

@@ -1257,6 +1257,100 @@ Only a headset session can show what the wait, the copy to the bridge and the
 frame to the runtime cost in a slow frame. Only a person can say if a sound
 that stops sounds the same with `audio_stop_wait` 0 and 1.
 
+## One walk for both eyes
+
+`one_walk=1` walks the scene one time a frame, for the left eye, and makes
+the right eye from the same batches (`one_walk.cpp`). The key is 0 by
+default. The launcher shows it as "One scene walk for both eyes (prototype)".
+With `test_keys=1`, the menu key turns it on and off in play.
+
+### Why it is exact
+
+The two eyes differ in the camera space x translation alone (see
+`stereo-artifacts.md`, "How the mod makes the two eyes"). With head roll the
+offset is on the rolled right axis, so this stays true. The engine writes
+`rhw = near / cz`, so for each vertex:
+
+    x(right) = x(left) - scale * separation * half_res_x * rhw / near
+
+y, z, rhw, the colors and the texture coordinates are the same in both eyes.
+`one_walk_math.h` has the rule, and `bwvr/test/controller_math/` checks it
+against a true right eye camera at three rolls.
+
+### How it draws
+
+| Step | What |
+| --- | --- |
+| The pass starts | The render target is a target of the mod that is two eyes wide, with its own depth, in the format and the multisampling of the game's. It keeps the picture of each eye in its half from one frame to the next, as the keeps of `eye_clean` do. The clean of the game after the last present acted on the game's own target, so `eye_clean.cpp` makes it again on the wide target (`EyeCleanOneWalkBefore`) |
+| A draw | dxwrapper gives each batch to `DrawIndexedPrimitiveUP` or `DrawPrimitiveUP`. A hook draws it into the left half, then a copy into the right half: the viewport moves by one eye width, and each x moves by the eye width and by its disparity. The disparity per rhw comes at each draw from the field of view, the size and the near plane that the engine has then, because a room of the Temple builds its camera again inside the pass. With `draw_merge=1` a batch of the merge goes out later than the draw calls of the game in it, so the merge keeps the disparity per rhw of its draw calls, sends the batch when that number changes, and one walk uses the kept number while the batch goes out |
+| A clear | The same clear in the right half |
+| A batch with no depth | Every rhw exactly 1 (screen space) or every z 1 (the sky): the copy moves by the eye width only |
+| The interface | `draw_hooks.cpp` runs its chain a second time with the right eye, and the batch goes to the right half only. A tooltip at the Hand has an anchor for each eye. `hand_glow.cpp` gives the right eye its Hand's point by the same rule |
+| The pass ends | The game's target is bound again. The two halves go to the shared textures: with `frame_send=0` the first copy has no wait and the second has the wait for the GPU, and with `frame_send` 1 and 2 both are copies alone, and `frame_send.cpp` waits one time as for two eye passes |
+
+Direct3D 9 takes XYZRHW vertices as pixels of the whole target and clips them
+to the viewport, so a triangle at the edge of one eye does not reach the
+other. A change of the viewport costs much less than a change of the render
+target. dxwrapper binds the game's target again when its own record changes,
+and the interface panel puts back the target it found. The hook on
+`SetRenderTarget` turns the game's target into the wide one in the pass.
+
+### The edge of the right eye
+
+The left eye has nothing past its own right edge. The engine clamps each
+projected x into 0 to `g_MaxScreen.x` (`0x00C2AB00`). In the pass the clamp
+limit is half an eye width further. Other paths cull at the edge of the left
+eye too. So the launcher makes the render a quarter wider when one walk is on
+(`one_walk_guard_pct`, 25). `PrepareHeadView` then gives a wider horizontal
+angle at the same pixels per degree. Measured on the desktop at 110 degrees:
+the band with no picture was at most 160 px, a tangent of 0.21. With a
+render of 1.25 to 1 it starts at 57.6 degrees, outside the 54 degrees of the
+right eye of a Quest 3. A thing nearer than about 15 cm of the room at the
+outer edge of the right eye can still show the band.
+
+### What it saves
+
+One desktop run at 2208 by 2208, a new game to the island, a story and the
+Temple, against the same run with two walks:
+
+| Part of the run | Scene, two walks | Scene, one walk |
+| --- | --- | --- |
+| The island at the start | 9.73 ms | 7.24 ms |
+| The story | 4.79 to 8.78 ms | 3.26 to 5.93 ms |
+| After the story | 5.75 to 5.89 ms | 3.15 to 3.20 ms |
+
+The three runs of `verify_build.ps1` (median scene time):
+
+| Run | Two walks | One walk |
+| --- | --- | --- |
+| aim2 (far fetch, teleport) | 5.84 ms | 3.68 ms |
+| tland (a throw that lands) | 5.72 ms | 3.42 ms |
+| vc (the Creature at the Temple) | 12.69 ms | 8.19 ms |
+
+In a headset (Quest 3, VDXR, the start dialog over the island, the headset
+on a desk), both hold 90 Hz: the scene goes from 8.50 to 6.18 ms and the wait
+for the headset from 1.72 to 4.17 ms.
+
+The scene time of one walk holds the copies for the right eye, 0.29 to
+0.97 ms on the desktop and about 1.4 ms in the headset run. The right eye of one walk matched the right eye of its own walk
+(`one_walk_check=1`) except for the band at the edge.
+
+### Known limits
+
+- The right eye uses the culling of the left eye. A thing that only the right
+  eye sees, at its outer edge, is missing. See "The edge of the right eye".
+- Lighting that follows the camera (specular) and the particle jitter are
+  those of the left eye in both eyes.
+- A draw from a vertex buffer gets no right eye. The report counts them. None
+  was seen.
+- Not with a pose for each eye (`head_camera=0` with head tracking). Then the
+  frame has two walks.
+- Only a headset can show the feel of it.
+
+`one_walk_check=1`: on a frame that saves pictures, the right eye also gets
+its own walk, and its picture is saved as `walk2` beside the right eye of one
+walk.
+
 ## The world around you
 
 The mod submits the world as an `XrCompositionLayerProjection`. It is a promise:
@@ -2414,6 +2508,7 @@ in front. The mod reads the keys and never takes them from the game.
 | Shift Delete | `test_keys=1` | While the Lionhead logo plays in stereo: the mark beside the logo has the depth of the logo, or the same pixel in each eye (`intro_text_place`, `intro.md`). In play: a speech bubble of the game (a signpost, a villager that speaks, the Creature) is one flat card at the depth of its sign, or it is drawn as the game and the interface depth make it in each eye pass (`bubble_card`, `ui-layer.md`, section 18). A long pulse and a short pulse. Ctrl must be up |
 | Ctrl Pause | `test_keys=1` | The mod skips the wait of 20 ms of the audio DLL at the stop of a sound that the mixer of the mod plays, or each stop has the wait. A long pulse and a short pulse (`audio_stop_wait`, `audio.md`, 7.6). Shift must be up |
 | Ctrl Shift Numpad Slash | `test_keys=1` | The mod waits for the GPU after each eye pass, one time a frame, or one time a frame on a second thread that also gives the frame to the runtime. A long pulse, a pulse of middle length and a short pulse (`frame_send`, "One wait a frame, and a second thread"). The slash key with Shift and no Ctrl is a key of the Temple, and with no Shift it is a key of the throw |
+| Menu key | `test_keys=1` | One walk for both eyes on and off (see "One walk for both eyes"). The key beside the right Ctrl key that opens a context menu |
 
 The launcher shows `test_keys` as "Test keys", in a group named "Testing". It is off
 by default.
@@ -2504,6 +2599,7 @@ keys that the launcher sets.
 | `eye_clean_test`, `eye_clean_test_frame` | 0, 0 | Test keys of the desktop runs. See the same section |
 | `bubble_card` | 1 | 1: a speech bubble of the game is one flat card at the depth of its sign. 0: it is drawn as the game and the interface depth make it in each eye pass. See `ui-layer.md`, section 18 |
 | `bubble_card_test`, `bubble_card_test_frame` | 0, 0 | Test keys of the desktop runs. See the same section |
+| `one_walk`, `one_walk_check` | 0, 0 | See "One walk for both eyes" |
 | `skip_desktop_present` | 1 | See "The copy to the monitor" |
 | `test_frame_rate` | 0 | A test key of the desktop runs: the frame rate of a run with no copy to the monitor. See "The copy to the monitor" |
 | `anisotropy`, `force_mips` | 16, 1 | Texture filter. `force_mips` forces the mip filter |
