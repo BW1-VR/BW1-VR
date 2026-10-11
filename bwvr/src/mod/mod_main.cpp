@@ -67,6 +67,12 @@ void IntroSetTests(int motion_seconds, int push_pixels);
 void IntroSetScreen(bwvr::XrScreen* screen);
 void IntroInstall();
 bool IntroFinishFrame();
+// eye_clean.cpp: the frame before of each eye.
+void EyeCleanSetOptions(int key, int test, int test_frame);
+void EyeCleanInstall();
+// bubble_card.cpp: a speech bubble of the game as one card.
+void BubbleCardSetOptions(int on, int test, int test_frame);
+void BubbleCardInstall();
 // intro_skip.cpp: a press of a controller button skips the logos at the
 // start of the game. `caller` is the address that called FinishFrame.
 void IntroSkipFrame(uintptr_t caller, bwvr::XrScreen* screen);
@@ -442,6 +448,16 @@ int g_intro_speed_pct = 100;
 int g_intro_distance_cm = 300;
 int g_intro_model_distance_cm = 200;
 bool g_intro_eye_trails = true;
+// The frame before of each eye in the scene (eye_clean.cpp), and its test
+// keys for desktop runs.
+int g_eye_clean = 1;
+int g_eye_clean_test = 0;
+int g_eye_clean_test_frame = 0;
+// A speech bubble of the game as one card (bubble_card.cpp), and its test
+// keys for desktop runs.
+int g_bubble_card = 1;
+int g_bubble_card_test = 0;
+int g_bubble_card_test_frame = 0;
 bool g_intro_text_place = true;
 bool g_intro_push_once = true;
 bool g_intro_controller = true;
@@ -1118,6 +1134,17 @@ void ReadSettings() {
       GetPrivateProfileIntA("bwvr", "intro_model_distance_cm", 200, path);
   g_intro_eye_trails =
       GetPrivateProfileIntA("bwvr", "intro_eye_trails", 1, path) != 0;
+  g_eye_clean = GetPrivateProfileIntA("bwvr", "eye_clean", 1, path) != 0 ? 1 : 0;
+  g_eye_clean_test =
+      static_cast<int>(GetPrivateProfileIntA("bwvr", "eye_clean_test", 0, path));
+  g_eye_clean_test_frame = static_cast<int>(
+      GetPrivateProfileIntA("bwvr", "eye_clean_test_frame", 0, path));
+  g_bubble_card =
+      GetPrivateProfileIntA("bwvr", "bubble_card", 0, path) != 0 ? 1 : 0;
+  g_bubble_card_test =
+      GetPrivateProfileIntA("bwvr", "bubble_card_test", 0, path) != 0 ? 1 : 0;
+  g_bubble_card_test_frame = static_cast<int>(
+      GetPrivateProfileIntA("bwvr", "bubble_card_test_frame", 0, path));
   g_intro_text_place =
       GetPrivateProfileIntA("bwvr", "intro_text_place", 1, path) != 0;
   g_intro_push_once =
@@ -1346,6 +1373,11 @@ void StartVrOnce() {
                     g_intro_controller, g_intro_probe, g_test_keys);
     IntroSetTests(g_intro_motion_test_seconds, g_intro_push_test_px);
     IntroInstall();
+    EyeCleanSetOptions(g_eye_clean, g_eye_clean_test, g_eye_clean_test_frame);
+    EyeCleanInstall();
+    BubbleCardSetOptions(g_bubble_card, g_bubble_card_test,
+                         g_bubble_card_test_frame);
+    BubbleCardInstall();
   }
 
   // Headless measuring runs the two passes and throws the pictures away, so

@@ -37,8 +37,8 @@ is built, and no test has proven it.
 
 ### Faults in play
 
-- **B2. The grip on an object that moves: not run, and not shown in a
-  headset.** The game takes an object that its physics has (it falls, flies
+- **B2. The grip on an object that moves: check it in a headset.** The
+  game takes an object that its physics has (it falls, flies
   or rolls) only when the Action button stays down for 225 ms. A shorter
   press is a click: the Hand lets the object go, and a rock splits. So the
   button of the game stays down until the game has the object in its Hand,
@@ -46,17 +46,14 @@ is built, and no test has proven it.
   (`grip_press_hold=1`, `grab.md`, "The press of the game"). Each time of
   the grip is real time, and not a count of frames. The math checks run the
   rule of the game with the grip machine at 60, 72, 90 and 120 frames a
-  second. Not run:
-  - `verify_build.ps1` with this change.
-  - The desktop recipes of the change: a grip on a rock in its fall, on a
-    rock that the hand threw up, on a rock on the land 0.15 s after its
-    first contact, and a grip of 50 ms on a rock in its fall
-    (`throw_queue.ps1 -Runs dropnear,tossup,landgrip,dropshort` in
-    `bwvr/tools/desk`). Each one must end with the rock in the Hand and no
-    line `rock split`, and with `-More 'grip_press_hold=0'` the game must
-    take the press as a click. The same with `-Fps 90` gives 90 frames a
-    second. The recipes `tossup`, `landgrip` and `dropshort`, and the test
-    key `test_frame_rate`, have no run.
+  second. Desktop runs show it, at the frame rate of the rig and at 90
+  frames a second (`throw_queue.ps1 -Runs dropnear,tossup,landgrip` in
+  `bwvr/tools/desk`, and the same with `-Fps 90`): the grip takes a rock in
+  its fall, a rock that the hand threw up, and a rock on the land 0.15 s
+  after its first contact, and no rock splits. With `-More
+  'grip_press_hold=0'` the press on the rock in its fall and on the rock
+  thrown up is a click, the object leaves the Hand, and a rock splits. Not
+  read: the run of a grip of 50 ms (`-Runs dropshort`).
 
   Check in a headset, with a real hand:
   - a catch of a rock in its fall, and of a rock that you threw up,
@@ -201,21 +198,40 @@ is built, and no test has proven it.
   built: a hook on `StartFrame` for the scene walk, as the intro has for its
   call (`intro.md`). First find each reader that divides by the number: the
   game never has less than 1 there.
-- **B16. The left eye shows pictures of frames before.** In a headset
-  session the left eye started to show faint pictures that came late, and
-  the right eye did not. A guess: in some effects the game draws a frame
-  over the frame before (`LH3DRender::g_mode_cleaning` at 2, as the
-  Lionhead logo does), and the two eye passes share one render target, so
-  an eye pass draws over the picture of the other eye. For the logo each
-  eye keeps its own picture (`intro_eye_trails`, `intro.md`). Not known:
-  which effect of the game it was, when it starts, and when it ends.
-- **B17. A signpost is hard to read from near.** The text of a wooden
-  signpost and the blue speech bubble behind it are at different places for
-  the two eyes when the player is near, so the eyes cannot bring the text
-  together. The bubble can also point a different way in each eye. From far
-  the sign reads well. Find how the game draws the text and the bubble (a
-  flat draw at a pixel does not have the depth of the sign), and give both
-  the depth of the sign (`ui-layer.md`, `stereo-artifacts.md`).
+- **B16. The left eye showed pictures of frames before: check it in a
+  headset.** In a headset session the left eye started to show faint
+  pictures that came late, and the right eye did not. In play the game
+  does not clean its render target: the sky dome is the clean of a frame
+  (`LH3DRender::g_mode_cleaning` is 0). The two eye passes share that
+  target. So a pixel that an eye pass does not cover keeps the picture of
+  the other eye: one frame old for the left eye, and of the same moment for
+  the right eye. Each eye pass now starts from its own frame before
+  (`eye_clean=1`, `stereo-artifacts.md`, "The frame before of each eye").
+  No desktop run has shown it: that section has the two runs that are made
+  for it. Still open:
+  - Not known: which thing of the game left such pixels in that session.
+    The log of the session cannot place it.
+  - Check in a headset that no eye shows an old picture. Shift and Page
+    Down (`test_keys=1`) give the shared render target for a comparison.
+    If the fault shows again, the log line `eye clean : an eye pass drew no
+    sky` names the scene of that frame.
+  - Not run: the video of a falling spell, the one scene of play that draws
+    no sky. The first frame of such a scene is drawn as before.
+- **B17. A signpost from near: check it in a headset.** With
+  `bubble_card=1` the speech bubble of a signpost is one flat card at the
+  depth of the sign: one layout for both eyes, the box at its pixels, and
+  the text with no interface depth (`ui-layer.md`, section 18). The key is 0
+  by default, because no desktop run has shown the card: a run with a tap on
+  the silver scroll at the Temple made no bubble (section 18.5 has the
+  recipe). Still open:
+  - Check in a headset, with `bubble_card=1` in `bwvr.ini` or with Shift and
+    Delete (`test_keys=1`, a long pulse is the card): that the text reads
+    from near and from far, and that the tail keeps its side while the head
+    is still. Then make 1 the default.
+  - The name of a villager draws its own box, and the mod does not change
+    it (`ui-layer.md`, 18.6).
+  - The size of a bubble comes from the depth of the sign in units, with no
+    change for the scale of the God view.
 
 B1b, B2, B4 and B11 are one package: a thing that is held, thrown, or
 that moves while the Hand takes it.

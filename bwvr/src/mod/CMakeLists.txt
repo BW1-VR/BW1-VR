@@ -6,6 +6,8 @@ add_library(bwvr_mod SHARED
     stereo.cpp
     intro_vr.cpp
     intro_skip.cpp
+    eye_clean.cpp
+    bubble_card.cpp
     draw_hooks.cpp
     ui_panel.cpp
     eye_camera.cpp

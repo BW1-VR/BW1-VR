@@ -265,12 +265,14 @@ uint64_t g_panel_bind_failures = 0;
 bool g_panel_logged_target = false;
 
 // THE PICTURE OF EACH EYE, KEPT FOR ITS NEXT FRAME (intro_vr.cpp, docs/
-// intro.md "The trails"). The Lionhead logo does not clear its picture: it
-// draws each frame over the frame before, so each thing has a trail. The two
-// eye passes share one render target, so an eye pass would draw over the
-// picture of the other eye. A keep holds the last picture of one eye, with
-// the size, the format and the multisampling of the game's render target, so
-// a copy changes no sample.
+// intro.md "The trails", and eye_clean.cpp, docs/stereo-artifacts.md "The
+// frame before of each eye"). The Lionhead logo does not clear its picture:
+// it draws each frame over the frame before, so each thing has a trail. A
+// frame of the scene that draws no sky does the same. The two eye passes
+// share one render target, so an eye pass would draw over the picture of the
+// other eye. A keep holds the last picture of one eye, with the size, the
+// format and the multisampling of the game's render target, so a copy
+// changes no sample.
 IDirect3DSurface9* g_keep[kEyes] = {nullptr, nullptr};
 bool g_keep_filled[kEyes] = {false, false};
 // The render target that the keeps came from. The mod holds a reference.
@@ -959,8 +961,8 @@ bool GpuBridgeKeepTake(int eye) {
           g_keep[e] == nullptr) {
         ModLog("gpu bridge   : a keep for the picture of an eye could not be "
                "made (%ux%u, format %d, multisample type %d). Each eye pass "
-               "of the intro draws over the last picture in the render "
-               "target", desc.Width, desc.Height,
+               "draws over the last picture in the render target",
+               desc.Width, desc.Height,
                static_cast<int>(desc.Format),
                static_cast<int>(desc.MultiSampleType));
         GpuBridgeKeepFree();
@@ -979,8 +981,8 @@ bool GpuBridgeKeepTake(int eye) {
       g_device->StretchRect(target, nullptr, g_keep[eye], nullptr, D3DTEXF_NONE);
   if (FAILED(hr)) {
     ModLog("gpu bridge   : the copy of the picture of an eye to its keep "
-           "failed (0x%08lX). Each eye pass of the intro draws over the last "
-           "picture in the render target", hr);
+           "failed (0x%08lX). Each eye pass draws over the last picture in "
+           "the render target", hr);
     GpuBridgeKeepFree();
     g_keep_failed = true;
     target->Release();
@@ -1009,8 +1011,8 @@ bool GpuBridgeKeepGive(int eye) {
                                            nullptr, D3DTEXF_NONE);
   if (FAILED(hr)) {
     ModLog("gpu bridge   : the copy of the keep of an eye to the render "
-           "target failed (0x%08lX). Each eye pass of the intro draws over "
-           "the last picture in the render target", hr);
+           "target failed (0x%08lX). Each eye pass draws over the last "
+           "picture in the render target", hr);
     GpuBridgeKeepFree();
     g_keep_failed = true;
     return false;
@@ -1021,6 +1023,12 @@ bool GpuBridgeKeepGive(int eye) {
 
 // How many copies the keeps made, for the log.
 uint64_t GpuBridgeKeepCopies() { return g_keep_copies; }
+
+// True when the keep of one eye holds a picture.
+bool GpuBridgeKeepHas(int eye) {
+  return eye >= 0 && eye < kEyes && g_keep[eye] != nullptr &&
+         g_keep_filled[eye] && g_keep_target != nullptr;
+}
 
 void GpuBridgeReport(uint64_t frames) {
   if (!g_ready || g_captures == 0 || frames == 0 ||

@@ -42,6 +42,8 @@ Other docs: `software-tnl.md` (the CPU transform and the camera matrix),
 | `src/mod/comfort_camera.cpp` | Snap turns, jumps, zoom steps |
 | `src/mod/script_camera.cpp` | The camera of the story |
 | `src/mod/draw_hooks.cpp` | Hints, tooltips, subtitles, interface depth and size |
+| `src/mod/eye_clean.cpp` | The frame before of each eye: the clean of each eye pass, and the keeps of the eye pictures |
+| `src/mod/bubble_card.cpp` | A speech bubble of the game as one card at the depth of its sign |
 | `src/mod/sky_detail.cpp`, `water_mode.cpp` | Clouds, sun glare, detail distance, the sea |
 | `src/mod/spirit_anchor.cpp` | The advisors |
 | `src/mod/near_plane.cpp` | The near plane |
@@ -2217,8 +2219,8 @@ in front. The mod reads the keys and never takes them from the game.
 | Shift End | `test_keys=1` | A grip that stays closed on the far Creature makes it stay and a short grip changes the leash when it opens, or each grip changes the leash when it closes (`creature_hold_stay`, `creature.md`, section 5.3). Ctrl must be up |
 | Shift Insert | `test_keys=1` | The prompt of a text that waits for a click shows in each view and the trigger is that click, or the prompt has the rule of each other hint of the left button (`text_click`, `controller-hints.md`, section 10). Ctrl must be up |
 | Shift Page Up | `test_keys=1` | While the Lionhead logo plays in stereo: the motion of the view steps through 1, 2, 3 and 0. With 1 the camera goes along the path of the game and does not turn, with 2 the orbs are a model in a room that stays still, with 3 the camera of the game turns the view, with 0 the camera is still. One short pulse for each unit of the value and one long pulse for 0 (`intro_motion`, `intro.md`). Ctrl must be up |
-| Shift Page Down | `test_keys=1` | While the Lionhead logo plays in stereo: each eye has its own trails, or each eye pass draws over the picture of the other eye and each orb shows two times (`intro_eye_trails`, `intro.md`). Ctrl must be up |
-| Shift Delete | `test_keys=1` | While the Lionhead logo plays in stereo: the mark beside the logo has the depth of the logo, or the same pixel in each eye (`intro_text_place`, `intro.md`). Ctrl must be up |
+| Shift Page Down | `test_keys=1` | While the Lionhead logo plays in stereo: each eye has its own trails, or each eye pass draws over the picture of the other eye and each orb shows two times (`intro_eye_trails`, `intro.md`). In play: each eye pass of the scene starts from its own frame before, or the two eye passes share the render target (`eye_clean`, `stereo-artifacts.md`, "The frame before of each eye"). A long pulse and a short pulse. Ctrl must be up |
+| Shift Delete | `test_keys=1` | While the Lionhead logo plays in stereo: the mark beside the logo has the depth of the logo, or the same pixel in each eye (`intro_text_place`, `intro.md`). In play: a speech bubble of the game (a signpost, a villager that speaks, the Creature) is one flat card at the depth of its sign, or it is drawn as the game and the interface depth make it in each eye pass (`bubble_card`, `ui-layer.md`, section 18). A long pulse and a short pulse. Ctrl must be up |
 | Ctrl Pause | `test_keys=1` | The mod skips the wait of 20 ms of the audio DLL at the stop of a sound that the mixer of the mod plays, or each stop has the wait. A long pulse and a short pulse (`audio_stop_wait`, `audio.md`, 7.6). Shift must be up |
 
 The launcher shows `test_keys` as "Test keys", in a group named "Testing". It is off
@@ -2302,6 +2304,10 @@ keys that the launcher sets.
 | `freeze_time` | 1 | See "Time, bars and the second eye pass" |
 | `frame_time_real` | 1 | 1: after the two eye passes the game has the real time of the frame as its frame time. 0: it has the number from before the passes. See "The delta time after the passes" |
 | `frame_time_test_frame`, `frame_time_test_readers`, `frame_time_test_readers_frames` | 0, 0, 600 | Test keys of the desktop runs. See "The delta time after the passes" |
+| `eye_clean` | 1 | 1: each eye pass of the scene starts from its own frame before. 0: the two eye passes share the render target. See `stereo-artifacts.md`, "The frame before of each eye" |
+| `eye_clean_test`, `eye_clean_test_frame` | 0, 0 | Test keys of the desktop runs. See the same section |
+| `bubble_card` | 0 | 1: a speech bubble of the game is one flat card at the depth of its sign. 0: it is drawn as the game and the interface depth make it in each eye pass. See `ui-layer.md`, section 18 |
+| `bubble_card_test`, `bubble_card_test_frame` | 0, 0 | Test keys of the desktop runs. See the same section |
 | `skip_desktop_present` | 1 | See "The copy to the monitor" |
 | `test_frame_rate` | 0 | A test key of the desktop runs: the frame rate of a run with no copy to the monitor. See "The copy to the monitor" |
 | `anisotropy`, `force_mips` | 16, 1 | Texture filter. `force_mips` forces the mip filter |

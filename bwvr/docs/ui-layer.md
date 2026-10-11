@@ -98,6 +98,7 @@ box drawn in a pass is the one that HelpText queued in the pass before [I].
 | Tooltips | `HelpSystem::Draw3D` `0x005C59A0` (called only from `Process3dEngine` at `0x0054E2ED` [V]) and again from HelpText | in the walk, and late | the hint card, or the Hand with `hint_card=0` (section 15) |
 | Screen quad, cinema bars | FinishFrame | before the late callbacks | the eyes. The bars are hidden. |
 | Advisors | `HelpDude` code | in the walk and callbacks | the eyes (room camera, `spirit_anchor.cpp`) |
+| Speech bubbles (a signpost, a villager that speaks, the Creature) | the bubble draw `0x005767D0`, an object of the Z sort | in the walk | the eyes, as one card at the depth of the sign (section 18) |
 | Video in play | `LHVideoPlayer::thedraw`, also from `FallingSpell::Draw` | late callbacks | the eyes. Not classified yet. |
 
 The size, the placement and the shift of the interface in the eye pictures are
@@ -662,6 +663,7 @@ recenter, and whether Virtual Desktop composes quad layers before the encode.
 | `ui_scale_pct`, `hint_scale_pct`, `hint_flat`, `ui_shift_max_px`, `subtitle_lift_pct`, `subtitle_deg` | 25, 20, 1, 24, 0, 35 | the interface in the eye pictures (`backend.md`) |
 | `subtitle_*` | section 17.5 | the subtitle card |
 | `hint_card`, `prompts`, `hint_card_size_pct` | `controller-hints.md` | the hint cards |
+| `bubble_card` | section 18.4 | a speech bubble of the game |
 
 The test key: Ctrl Shift F11 with `test_keys=1` switches `ui_panel` between
 its ini value and 0, at the next frame (`UiPanelToggle`, `PollHotkeys` in
@@ -1222,3 +1224,154 @@ the pose and the size each time the card comes into the view.
 
 The math test has checks for the place (`window_checks.h`, "THE SUBTITLES OF
 THE WINDOW").
+
+## 18. A speech bubble as one card
+
+### 18.1 How the game draws a bubble [V]
+
+A bubble is a blue box with a tail and a text in it. Three things of the
+game have one:
+
+- A wooden signpost. It is a `ScriptHighlight` of the kind "did you know"
+  (`ScriptHighlight::IsDidYouKnow` `0x0070AC20`: kind 1 of the table at
+  `0x00D96390`). A tap on it (`ScriptHighlight::InterfaceTap` `0x0070AC70`)
+  calls `HelpSystem::SetBubbleProperties` `0x005C8330`, which makes the
+  signpost the object of the bubble of the help system (`HelpSystem + 0x20`).
+  A tap on the same signpost takes the bubble away.
+- A villager that speaks (`SpecialVillager::Draw`, call at `0x0071F439`).
+- The Creature (`Creature::Draw`, call at `0x00517E78`).
+
+One class draws all three, in three steps:
+
+| Step | Function | What it does |
+| --- | --- | --- |
+| The layout | `fn_00576F20`. For a signpost `HelpSystem::Draw3D` calls it through `fn_005C83D0` (`0x005C8478`), in the scene walk | It gets the pixel of the sign. `across` is that pixel across the picture, from -1 at the left edge to 1 at the right edge. A sign in the right half gets the offset -10 pixels, and a sign in the left half +10. The anchor is `0.2 + 0.6 * abs(across)`: the part of the width of the box that is left of the sign |
+| The place | `fn_00575EA0` (`__thiscall`: the point of the sign, the offset, the anchor, `ret 0xC`) | It takes the depth of the sign from the matrix with no field of view in it (`0x00EA1D28`). The size of the box goes from its full size at 3 units to one fourteenth at 450 units. The bubble fades in from 3 to 8 units and fades out from 300 to 450 units. The left edge of the box is the pixel of the sign, plus the offset, less the anchor times the width. The offset also gives the side of the tail |
+| The draw | `0x005767D0` (the bubble in `ecx`), later in the frame: `fn_00576E90` gives the Z sort an object for it (`LH3DZSorter::NewZObject`) | `fn_005766E0` gives the depth of the bubble: the depth of the sign less 5 units, and less again while the camera looks down (times `1 - (2 * pitch / pi)^2`), and two times the near plane at the least. `GatheringText::DrawBubble` `0x008334C0` draws the box and the tail. `GatheringText::DrawText` draws the text through `LH3DTech::Draw3DScreenTriangle`. `SetupThing::DrawBox` draws two arrows when the text is longer than the box, and `fn_005760C0` draws an icon of the text |
+
+`DrawBubble` does not draw the box at its pixels. The box has 16 corners
+and the tail has 4. For each corner `DrawBubble` asks
+`LH3DTech::Get3DPointFromScreen` `0x0081B370` for a point of the world: the
+point at that pixel, at the depth of the bubble. Then it draws those points
+through `LH3DTech::Draw3DWorldTriangle` `0x0081C090`, which ends in
+`LH3DRender::DrawTriangle`. `Get3DPointFromScreen` makes the point from the
+camera point of the game (`0x00EA1DB8`).
+
+### 18.2 What two eye passes do to it
+
+Each step runs in each eye pass, with the camera of the eye. Three things
+then put the parts of the bubble at three depths:
+
+1. **The layout.** The pixel of the sign differs between the eyes by the eye
+   difference of the sign. So `across` differs, and the two passes can get a
+   different offset, a different side of the tail and a different anchor. A
+   sign that the player reads is in the middle of the view, which is where
+   the offset changes its sign.
+2. **The box.** The camera point of the game does not move with the eye
+   (`stereo-artifacts.md`, "Moving the camera point with the eye"). So a
+   corner that `Get3DPointFromScreen` made comes back at a different pixel
+   when the camera of the eye draws it. The box gets the eye difference of
+   the depth of the bubble, on top of the eye difference of its pixels. At
+   100 units for each meter, a bubble 34 units deep moves 98 pixels in each
+   eye picture of 2880 pixels.
+3. **The text.** The text code draws the text at its pixels. `draw_hooks.cpp`
+   gives each flat batch of that code the interface depth: 8 to 24 pixels
+   in each eye.
+
+From far each of the three is small. From near the box is in front of the
+text, and both are in front of the sign.
+
+### 18.3 What the mod does (`bubble_card=1`)
+
+The bubble is one flat card at the depth of the sign (`bubble_card.cpp`,
+`bubble_card_math.h`):
+
+- **One layout for a frame.** A hook on the place function keeps the layout
+  that the game asks for in the first eye pass of a frame. Each later ask of
+  that frame gets the same one (`Choose`). The box of the right eye is then
+  the box of the left eye, moved by the eye difference of the sign.
+- **The side near the middle.** The middle band is 6 percent of the half
+  width of the picture, to each side. While the sign is in that band, the
+  offset of the frame before stays. So a small turn of the head does not
+  change the side of the tail.
+- **The box at its pixels.** A hook on the draw of the bubble marks its
+  batches. In `h_DrawTriangle` each corner of the box goes back to the pixel
+  that the game made it from (`CornerToItsPixel`). The mod has the camera
+  point of the game in the camera space of the eye pass. It takes that
+  point away from the corner and projects the corner again. The Z value of
+  the corner stays, so the land near the sign does not cut the card, as in
+  the plain game.
+- **The text at its pixels.** `DrawInterface` draws each flat batch of a
+  bubble as the game made it: the text, the arrows and the icon. Such a
+  batch gets no interface depth and no interface size.
+
+With `bubble_card=0` the mod changes nothing of the bubble.
+
+### 18.4 Keys, the test key and the log
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `bubble_card` | 0 | 1: a speech bubble of the game is one flat card at the depth of its sign. 0: the bubble is drawn as the game and the interface depth make it in each eye pass |
+| `bubble_card_test` | 0 | A test key of the desktop runs. 1: one line of the log each 30 frames while a bubble is in view |
+| `bubble_card_test_frame` | 0 | A test key of the desktop runs: the frame at which `bubble_card` changes, as the test key does |
+
+With `test_keys=1`, Shift and Delete change `bubble_card` in play. The
+pointing hand gets a long pulse for 1 and a short pulse for 0.
+
+The log has the tag `bubble card`. One line comes when a bubble comes into
+view. It has these numbers:
+
+- the depth of the sign, and the pixel of the sign in each eye picture
+- the layout that the game asks for in each pass, and the layout that each
+  pass gets
+- the box of the game, the box as drawn and the flat parts as drawn, each
+  with how far apart the two eyes have it
+
+Each report has the counts.
+
+### 18.5 Tests
+
+The math test (`bubble_card_checks.h`) has the rule of the game for the
+layout, and it shows that a near sign in the middle of the view gets a
+different side in each eye pass. It checks `Choose`: the first frame, the
+side near the middle, and the side far from the middle. For the box it has
+`Get3DPointFromScreen` as its listing has it. With eyes 6.6 units apart and
+a bubble 34 units deep, the game draws the box 97.9 pixels to the side in
+each eye picture. `CornerToItsPixel` puts each corner back within 0.01
+pixels, also for a camera of an eye with its own turn and a roll.
+
+No desktop run has shown the change in the game. A run needs a tap on a
+signpost. `bwvr/tools/desk/hand_run.ps1 -Kind fixed -Save temple` can make
+one, with these test keys in `-Set`:
+
+- `seek_plan=go,scrolls` and `seek_go=<x>,<z>`. The first word `seek` of
+  `-Steps` puts the head over that place of the land. The second one writes
+  each scroll in view to the log and puts the Hand's point on the nearest
+  one. The log names a signpost a silver scroll. A `grip` after that taps
+  it.
+- `fake_head_pitch=-50`, so the land near the head is in the pictures.
+- `bubble_card_test=1`, and `bubble_card_test_frame=<frame>` for the old
+  value in the same run. Each line `bubble card` of the log then has the
+  pixel of the sign in each eye, and how far apart the two eyes have the
+  box and the text. With 1 the three numbers must be the same. A word
+  `shot` after each line saves the two eye pictures.
+
+No run has made this recipe yet: the place of a signpost in the test save
+is not known.
+
+### 18.6 Limits
+
+- The name of a villager (`VillagerName::Draw` `0x00762DC0`) draws its own
+  box through `DrawBubble`, with no bubble object. The mod does not change
+  it. Its box has the eye difference of its depth on top of the eye
+  difference of its pixels, and its text has the interface depth.
+- The size of a bubble comes from the depth of the sign in units (full size
+  at 3 units, gone at 450 units). The mod does not change that for the scale
+  of the God view.
+- `fn_00576F20` tests the pointer against the box in each eye pass
+  (`0x005772AE` to `0x005773A0`). The pointer in the box keeps the bubble in
+  view, and a drag moves a long text. No run has tested that with the box of
+  two eye passes.
+- `Draw3DWorldTriangle` clips the box at the edge of the picture before the
+  corners go to their pixels. So a box at the edge of an eye picture can
+  lose a strip, as wide as the move of its corners.

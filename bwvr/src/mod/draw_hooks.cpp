@@ -90,6 +90,7 @@
 
 #include "MinHook.h"
 #include "../common/bw_addresses.h"
+#include "bubble_card.h"
 #include "controller_hints.h"
 #include "controller_math.h"
 #include "hint_card.h"
@@ -2094,6 +2095,16 @@ void DrawInterface(DrawAndClipFn original, D3DPRIMITIVETYPE type,
     IntroFlatDone(in_front);
     return;
   }
+  // A SPEECH BUBBLE AS ONE CARD (bubble_card.cpp, docs/ui-layer.md, "A
+  // speech bubble as one card"). The flat batches of a bubble (its text, its
+  // arrows, its icon) have the pixels of its box. The box has the depth of
+  // its sign, so they get none of the steps below and stay on it.
+  if (BubbleCardInBubble() && BubbleCardOn()) {
+    PanelRelease();
+    BubbleCardFlat(verts, fvf, count);
+    original(type, fvf, verts, count, idx, n);
+    return;
+  }
   // A menu gets only the interface depth. See h_SetupFinish. The flags are
   // cleared here because IsDuplicateWidget does not run, and the last batch
   // may have set them.
@@ -2141,6 +2152,9 @@ void DrawInterface(DrawAndClipFn original, D3DPRIMITIVETYPE type,
   const bool scaled = ScaleIn(verts, fvf, count);
   const bool shifted = ShiftIn(verts, fvf, count, HelpShift(scope));
   const bool flattened = FlattenIn(verts, fvf, count);
+  // With bubble_card=0 a flat batch of a bubble comes here. Its pixels go to
+  // the log of the bubble.
+  if (BubbleCardInBubble()) BubbleCardFlat(verts, fvf, count);
   original(type, fvf, verts, count, idx, n);
   if (flattened) FlattenOut(verts, count);
   if (shifted) ShiftOut(verts, count);
@@ -2195,6 +2209,11 @@ void __fastcall h_DrawTriangle(void* verts, uint32_t count, uint16_t* idx,
   }
   const uint32_t outer = g_caller;
   g_caller = reinterpret_cast<uint32_t>(_ReturnAddress());
+  // The box of a speech bubble is the one batch of the interface that comes
+  // this way: its corners are points of the world. Each corner goes to its
+  // pixel (bubble_card.cpp).
+  const bool box = BubbleCardInBubble() &&
+                   BubbleCardBoxIn(verts, count, g_caller);
   if (g_time_submit) {
     LARGE_INTEGER a, b;
     QueryPerformanceCounter(&a);
@@ -2205,6 +2224,7 @@ void __fastcall h_DrawTriangle(void* verts, uint32_t count, uint16_t* idx,
   } else {
     o_DrawTriangle(verts, count, idx, n);
   }
+  if (box) BubbleCardBoxOut(verts, count);
   g_caller = outer;
 }
 

@@ -376,6 +376,10 @@ and a trail has the eye difference of the thing that made it.
 keeps need the Direct3D 9 device of the backend (`gpu_bridge=1`, the default).
 With no keep the log has one line that says so.
 
+The scene has the same rule for each frame of play that keeps the picture of
+the frame before (`eye_clean`, `stereo-artifacts.md`, "The frame before of
+each eye"). It uses the same keeps. The logo frees them when it ends.
+
 ### The flat text and the boxes in stereo
 
 The effect draws its text and its boxes at a pixel, with no place in the scene
@@ -457,6 +461,9 @@ With `test_keys=1` these keys act while the logo plays in stereo (`backend.md`,
 `DoLogo` ends the logo on each key that goes down. While Shift, Page Up, Page
 Down or Delete is down, the mod clears the last key of the game after each
 frame (`0x00E85474`), so a press of a test key does not end the logo.
+
+In play, Shift and Page Down change `eye_clean`, and Shift and Delete change
+`bubble_card` (`backend.md`, "Keys for v1.0").
 
 ### The controller in the stereo intro
 

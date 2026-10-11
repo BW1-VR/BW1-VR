@@ -66,6 +66,7 @@ draw_probe_frames=150
 | `draw_probe_delay` | 0 | Milliseconds to wait before the probe starts. The mod loads before the island does, so set a delay of about 8000 or the probe measures the loading screen |
 | `draw_probe_frames` | 120 | How many frames the probe measures |
 | `ui_accounting` | 0 | Log every function that submits a screen space batch, and whether the mod moved it. A new interface path shows as a line in the log |
+| `eye_clean` | 1 | Each eye pass starts from its own frame before. See "The frame before of each eye" |
 
 ## Where every triangle goes
 
@@ -202,6 +203,126 @@ In the God view the land and the hands are nearer than the clamp allows, so
 flat help text would be behind the things that it covers. The subtitles and
 the help text of the headset do not draw in the eye pictures. They show on a
 card in the room: see `ui-layer.md`, section 17.
+
+### The frame before of each eye
+
+The game draws each frame over the frame before. Its render target keeps
+its picture from one frame to the next. After each present the game calls
+one clean function, `fn_0082EE70`. `LHScreen::Clear` `0x007DE200` calls it,
+from `LHScreen::LHFlip` (`0x007DE61E`) and from `LHScreen::BlitToMSWindow`
+(`0x007DE6AD`). The cleaning mode `LH3DRender::g_mode_cleaning`
+(`0x00C3871C`) says what that clean does. The clean function is the only
+code that reads the mode.
+
+| Mode | The clean after a present | Who writes the mode |
+| --- | --- | --- |
+| 1 | The picture and the Z buffer (`Clear` with the flags 3, the color at `0x00EC7F08`, Z 1.0) | `LH3DRender::OpenD3D` `0x0082CDD0`, the front end (`0x0053CC4C`, `0x0053CCE5`), `FrontEnd::JustDoABox` (`0x0054502A`, `0x005450E7`), `DrawLoading` `0x005F3F26`, `PlayLogoScreens` `0x00642AD4`, and `RunAlexFX` when it builds the logo (`0x005F8FA1`). `GLandscape::Draw` writes it when the wireframe flag `0x00ECA670` is set (`0x005E489C`) |
+| 2 | The Z buffer only (the flags 2). The picture of the frame before stays | `RunAlexFX` in each frame of the Lionhead logo (`0x005F8FF1`), and no other code |
+| 0 | Nothing | `GLandscape::Draw` in each frame of the land (`0x005E48A4`). The scene walk for the Temple (`0x0054DE1F`) and for the video of a falling spell (`0x0054DDB5`). `DoCitadelDraw` `0x0055542A`, `StartTipOfTheDayText` `0x005F4E23` and `RenderLoadingFrame` `0x005F516C` |
+
+So all of play has mode 0, and no effect of play has mode 2: no miracle,
+no storm, no fade and no room of the Temple. In mode 0 the sky dome is the
+clean of a frame. `GLandAlignement::DrawSky` `0x005E2160` draws it first
+(from `GLandscape::Draw` at `0x005E48AE`, and from the scene walk for the
+Temple at `0x0054DE34`). `LH3DSky::Draw` `0x0086B010` sets `ZFUNC` to
+`ALWAYS` and draws the first layer of the dome with an alpha of 255 and no
+blend (`fn_0086B6B0`).
+
+Mode 0 has one clean of its own. While the callbacks of the frame end are
+on, a timer in the clean function makes the clean of mode 1 for two frames
+in each 2000 ms. The function keeps a stamp of the time at `0x00ECA67C` and
+a flag for the second frame at `0x00ECA680`.
+
+One scene of play draws no sky. `PSysGlobal::StartAVISequence` starts the
+video of a falling spell (`GGame::KickOffFallingSpellVideo` `0x005539A0`,
+the scene kind 2 at `GGame + 0x205A28`). The scene walk then draws the video
+with an alpha of 80 of 255 (`0x0054DC11` to `0x0054DC6D`) and no sky, in
+mode 0. So the frame before stays in view.
+
+**In two eye passes.** The two eye passes share that render target, and the
+game cleans it one time for a frame. Eye pass 0 then draws over the picture
+of eye pass 1 of the frame before. Eye
+pass 1 draws over the picture of eye pass 0 of the same frame. A pixel that
+a pass does not cover with a draw of no blend keeps the picture of the
+other eye. For the left eye that picture is one frame old. For the right
+eye it is of the same moment.
+
+**What the mod does (`eye_clean=1`, `eye_clean.cpp`).** Each eye pass of the
+scene starts from its own frame before. `eye_clean_math.h` has the plan of a
+pass (`Plan`), and the math test checks it with one pixel through some
+frames.
+
+- A hook on the clean function records what each call did. Eye pass 1 gets
+  that same clean from the mod, with the clean call and the color of the
+  game.
+- In mode 0 the mod cleans the picture and the Z buffer of each eye pass
+  just before its sky. A pixel that the scene does not cover then has the
+  color of the clean in each eye. The two timed frames of the game show
+  the same color there.
+- When the frame before stays in view, each eye has a keep of its picture:
+  the surfaces that the Lionhead logo uses (`gpu_bridge.cpp`, `intro.md`,
+  "The trails"). The keep of an eye goes into the render target before its
+  pass, and the picture goes into the keep after it. This is the rule for
+  mode 2, and for mode 0 in a frame that draws no sky.
+- The mod knows that a frame draws no sky from the frame before it. So the
+  first frame of such an effect is drawn as with `eye_clean=0`. Before the
+  second frame the keep of eye 1 takes the picture that is in the render
+  target, so both eyes start from the same picture.
+- The keeps are free again when the passes draw the sky. They are also
+  free when the game draws a frame outside the eye passes: a menu, a load,
+  or a frame that the headset did not ask for.
+
+The Lionhead logo draws its own pair of frames, each with its own present.
+Its keeps are in `intro_vr.cpp` (`intro_eye_trails`).
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `eye_clean` | 1 | 1: each eye pass of the scene starts from its own frame before. 0: the two eye passes share the render target, and the game cleans it one time for a frame |
+| `eye_clean_test` | 0 | A test key of the desktop runs. 1: the way of the Lionhead logo in play. After each frame of the scene the game cleans only the Z buffer (mode 2), and the first layer of the sky dome has an alpha of 160 of 255 (the byte at `0x0086B5BB`). 2: the clean before the sky has the color FF00FF, so a picture of an eye shows each pixel that the scene does not cover |
+| `eye_clean_test_frame` | 0 | A test key of the desktop runs: the frame at which `eye_clean` changes, as the test key does |
+
+With `test_keys=1`, Shift and Page Down change `eye_clean` in play. The
+pointing hand gets a long pulse for 1 and a short pulse for 0.
+
+The log has the tag `eye clean`. It has one line for each change of the
+cleaning mode. It has one line when an eye pass draws no sky. That line
+names the scene kind of the walk, and it says if a video plays. Each report
+has the counts of the cleans of the game, of the cleans of the mod and of
+the copies of the keeps.
+
+**Tests.** The math test (`eye_clean_checks.h`) has the clean function of
+the game as its listing has it. It compares 10 s of mode 0 with the answer
+of the mod for each frame. It also follows one pixel through some frames,
+with each value of `eye_clean`:
+
+- A pixel that a thing covers for the left eye only, in the way of the
+  logo (mode 2, an alpha of 160). With `eye_clean=0` the right eye sees 27
+  percent of that thing. With 1 it sees nothing of it.
+- A pixel that no pass draws, in play. With 0 it keeps the old picture.
+  With 1 it has the color of the clean in each eye.
+- A scene with no sky (an alpha of 80). From its second frame each eye has
+  only its own picture, and no keep stays when the sky comes back.
+
+No desktop run has shown the change in the game. Two runs of
+`bwvr/tools/desk/hand_run.ps1` are made for it, with `-Kind fixed -Save
+temple` and the build in `-Dll`:
+
+- **The way of the logo in play.** `-Points "12,28,45"`, `-Set
+  "eye_clean_test=1;eye_clean=1;eye_clean_test_frame=5020"`, and `-Steps
+  "point@4610+1 shot@4700+1 stick_right@4720+8 stick_right@4750+8
+  shot@4850+1 stick_right@4870+8 stick_right@4900+8 shot@5000+1 shot@5120+1
+  stick_left@5140+8 stick_left@5170+8 shot@5270+1 stick_left@5290+8
+  stick_left@5320+8 shot@5420+1"`. The hand is 45 cm from the head, before
+  the sky, with a still head at three headings. The first three pairs of
+  pictures have `eye_clean=1`, and the last three have 0. The measure is
+  the strength of a second picture of the hand in the left picture, at the
+  place that the hand has in the right picture (about 148 pixels to the
+  left at a render of 2880 pixels). It must be 0 with 1, and about 37
+  percent with 0.
+- **The pixels that the scene does not cover.** `-Set "eye_clean_test=2"`,
+  with `fake_head_pitch` at 0, -70 and 60, and with `fake_head_roll=30`.
+  The count of the pixels of the color FF00FF in each eye picture is the
+  count of the pixels that kept an old picture before.
 
 ### The frame budget and the readback
 

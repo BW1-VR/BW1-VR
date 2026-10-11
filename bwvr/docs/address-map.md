@@ -59,6 +59,8 @@ changes nothing on screen.
 | `0x00ECA638` | `Direct3DDevice7` (`IDirect3DDevice7*`) | **Global device pointer.** No need to hook `DirectDrawCreate` to reach the device |
 | `0x00ECA644` | `g_started_frame` (int) | Frame state flag |
 | `0x00ECA648` | `g_zsorter` (`LH3DZSorter*`) | Z sorting |
+| `0x00C3871C` | `g_mode_cleaning` (int) | What the clean after a present does: 1 the picture and the Z buffer, 2 the Z buffer only, 0 nothing. All of play has 0, and the sky dome is the clean of a frame. See [stereo-artifacts.md](stereo-artifacts.md), "The frame before of each eye" |
+| `0x0082EE70` | the clean function (no symbol) | `__cdecl`, no argument. The only reader of `g_mode_cleaning`. `LHScreen::Clear` `0x007DE200` calls it after each present. In mode 0 its timer makes the clean of mode 1 for two frames in each 2000 ms |
 | `0x00ECA1F0` | `g_render_states` | Cached render state array |
 | `0x00EC81F0` | `g_texture_stage_state` | Cached texture stage state array |
 | `0x00412940` | `SetRenderState(D3DRENDERSTATETYPE, uint)` | Static |

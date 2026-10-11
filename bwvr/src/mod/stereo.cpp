@@ -63,6 +63,7 @@
 #include "MinHook.h"
 #include "../common/bw_addresses.h"
 #include "../vr/xr_screen.h"
+#include "bubble_card.h"
 #include "cutscene_window.h"
 #include "frame_profile.h"
 #include "ui_panel.h"
@@ -202,6 +203,13 @@ void FrameTimePassDone(int eye);
 uint32_t FrameTimeAfterPasses(uint32_t before_passes);
 void FrameTimeToggle(const char* cause);
 void FrameTimeReport();
+// eye_clean.cpp: the frame before of each eye.
+void EyeCleanBeginPair();
+void EyeCleanBeforePass(int eye);
+void EyeCleanAfterPass(int eye);
+void EyeCleanEndPair();
+void EyeCleanToggle(const char* cause);
+void EyeCleanReport();
 void InputWatchAskPointer(int count);
 void InputWatchFrame();
 void FovSetScale(float scale);
@@ -590,6 +598,11 @@ bool GameHasFocus() {
 //   Ctrl Shift Numpad Star  after the two eye passes the game has the real
 //               time of the frame, or the number from before the passes
 //               (frame_time_real, frame_time.cpp)
+//   Shift Page Down  each eye pass of the scene starts from its own frame
+//               before, or the two passes share the render target
+//               (eye_clean, eye_clean.cpp)
+//   Shift Delete  a speech bubble of the game is one card at the depth of its
+//               sign, or it is drawn as before (bubble_card, bubble_card.cpp)
 //
 // With play_mode=3, the tabletop mode, or play_mode=4, the God view, one
 // more for everyone:
@@ -609,12 +622,12 @@ bool GameHasFocus() {
 // values chosen. The ini keys stay, except the ones the launcher rewrites on
 // every save. See launcher.cpp, kRetiredKeys.
 void PollHotkeys() {
-  const int kKeys = 9;
+  const int kKeys = 10;
   static bool down[kKeys] = {false, false, false, false, false,
-                             false, false, false, false};
+                             false, false, false, false, false};
   const int keys[kKeys] = {VK_F11,    VK_F12,    VK_NUMPAD0, VK_NUMPAD1,
                            VK_INSERT, VK_DELETE, VK_HOME,    VK_CANCEL,
-                           VK_MULTIPLY};
+                           VK_MULTIPLY, VK_NEXT};
   bool now[kKeys];
   for (int i = 0; i < kKeys; ++i) {
     now[i] = (GetAsyncKeyState(keys[i]) & 0x8000) != 0;
@@ -690,6 +703,20 @@ void PollHotkeys() {
     // (hand_direct.cpp).
     if (g_test_keys && now[8] && !down[8] && ctrl && shift) {
       FrameTimeToggle("Ctrl, Shift and the star key of the number pad");
+    }
+    // An A/B of the frame before of each eye (docs/stereo-artifacts.md, "The
+    // frame before of each eye"). While the Lionhead logo plays, the same
+    // key changes the trails of the logo (intro_vr.cpp). Page Down with Ctrl
+    // is a key of the hint card (hint_card.cpp).
+    if (g_test_keys && now[9] && !down[9] && shift && !ctrl) {
+      EyeCleanToggle("Shift and Page Down");
+    }
+    // An A/B of the speech bubble as one card (docs/ui-layer.md, "A speech
+    // bubble as one card"). While the Lionhead logo plays, the same key
+    // changes the place of its flat text (intro_vr.cpp). Delete with Ctrl
+    // is the key of the choice of a far target (hand_direct.cpp).
+    if (g_test_keys && now[5] && !down[5] && shift && !ctrl) {
+      BubbleCardToggle("Shift and Delete");
     }
   }
   // Kept up to date without focus too, so a key that is already down when
@@ -1077,6 +1104,7 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
   FrameFunction(kFpFnWater, WaterModeApply);
   FrameFunction(kFpFnTable, TabletopApplyFrame);
   FrameTimeBeforePasses();
+  EyeCleanBeginPair();
   g_in_pass = true;
   // ONE ROLL FOR BOTH EYES.
   //
@@ -1144,6 +1172,7 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
       }
     }
     UiDepthSetEye(eye, g_ui_shift_used);
+    BubbleCardPass(eye);
     PassGuardSetEye(eye);
     DrawProbeBeginPass(eye);
 
@@ -1171,7 +1200,10 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
     OverlayPassEye(eye);
     const uint64_t walk_start = profile ? FrameProfileTicks() : 0;
     FrameTimePass(eye);
+    // The render target of this eye pass: its clean, or the keep of the eye.
+    EyeCleanBeforePass(eye);
     o_Process3dEngine(self, unused);
+    EyeCleanAfterPass(eye);
     FrameTimePassDone(eye);
     const uint64_t walk_end = profile ? FrameProfileTicks() : 0;
     OverlayPassEye(-1);
@@ -1265,8 +1297,10 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
     grab += t2.QuadPart - t3.QuadPart;
   }
   UiDepthSetEye(-1, 0.0f);
+  BubbleCardPass(-1);
   PassGuardSetEye(-1);
   DrawProbeBeginPass(-1);
+  EyeCleanEndPair();
   g_in_pass = false;
   if (EyeLumaOn()) EyeLumaFrame(ControllersFrameCount());
 
@@ -1387,6 +1421,8 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
     FrameTimersReport(g_frames);
     FrameTimeReport();
     EyeLumaReport();
+    EyeCleanReport();
+    BubbleCardReport();
     FovReport();
     // Step the invented head, and photograph the result straight away. A
     // capture on a timer lands on whatever phase the timer happens to hit:
