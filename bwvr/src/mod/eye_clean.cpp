@@ -420,6 +420,35 @@ void EyeCleanAfterPass(int eye) {
   g_eye = -1;
 }
 
+// ONE WALK (one_walk.cpp, docs/backend.md, "One walk for both eyes"). One
+// pass draws both eyes into a wide target of the mod. That target keeps the
+// picture of each eye from one frame to the next, as a keep does, so the pass
+// gives no keep and takes none. The clean of the game after the last present
+// acted on the game's own target, not on the wide one, so the mod makes the
+// same clean when the pass starts. Call it with the wide target bound: the
+// clean then reaches both halves.
+void EyeCleanOneWalkBefore() {
+  if (!g_installed) return;
+  g_eye = 0;
+  g_sky_in_pass = false;
+  g_plan = Plan(g_key, g_mode, g_pair_cleaned, g_covered, 0);
+  g_plan.give = false;
+  g_plan.take = false;
+  if (g_pair_cleaned != kCleanedNothing &&
+      CleanNow(g_pair_cleaned, GameColor())) {
+    ++g_own_cleans[g_pair_cleaned];
+  }
+}
+
+// After the pass of one walk. It drew both eyes, so both have its sky.
+void EyeCleanOneWalkAfter() {
+  if (!g_installed || g_eye < 0) return;
+  g_sky[0] = g_sky[1] = g_sky_in_pass;
+  if (!g_sky_in_pass) ++g_no_sky_passes;
+  g_plan = PassPlan();
+  g_eye = -1;
+}
+
 // After eye pass 1 of a frame.
 void EyeCleanEndPair() {
   if (!g_installed) return;

@@ -4,6 +4,7 @@ add_library(bwvr_mod SHARED
     mod_main.cpp
     frame_source.cpp
     stereo.cpp
+    one_walk.cpp
     intro_vr.cpp
     intro_skip.cpp
     eye_clean.cpp

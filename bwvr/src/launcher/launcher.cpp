@@ -68,6 +68,15 @@ struct Setting {
 // there.
 const Setting kSettings[] = {
     {kGroup, nullptr, "Picture", nullptr, 0, nullptr},
+    // Before the resolution: a save writes the rows in order, and the size of
+    // the render reads this key.
+    {kBool, "one_walk", "One scene walk for both eyes (prototype)", nullptr,
+     0,
+     "The game draws the scene one time, for the left eye, and the mod makes "
+     "the right eye from the same drawing. This takes about 40 percent off "
+     "the time of the scene. The render is a quarter wider, so that the "
+     "right eye has a picture at its outer edge. A test build: report what "
+     "looks wrong."},
     {kScale, "resolution_pct", "Resolution scale", "50|200|5", 100,
      "How big a picture the game draws for each eye, as a percentage of what "
      "your headset asks for. The headset's own figure is read when the game "
@@ -383,6 +392,20 @@ void ScaleToPixels(int percent, int* width, int* height) {
   if (pixels > 4096) pixels = 4096;
   *width = pixels;
   *height = pixels;
+  // ONE WALK (docs/backend.md, "One walk for both eyes"). The right eye comes
+  // from the drawing of the left eye, and the left eye has nothing past its
+  // own right edge. A wider render gives the game a wider horizontal angle at
+  // the same pixels per degree (stereo.cpp, PrepareHeadView), so that edge is
+  // outside what the right eye shows.
+  if (ReadIni("one_walk", 0) != 0) {
+    int guard = ReadIni("one_walk_guard_pct", 25);
+    if (guard < 0) guard = 0;
+    if (guard > 60) guard = 60;
+    int wide = MulDiv(pixels, 100 + guard, 100);
+    wide = (wide / 2) * 2;
+    if (wide > 4096) wide = 4096;
+    *width = wide;
+  }
 }
 
 void SayScale(int index, int percent) {

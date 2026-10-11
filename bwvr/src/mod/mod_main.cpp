@@ -17,6 +17,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "one_walk.h"
 #include "MinHook.h"
 #include "../common/bw_addresses.h"
 #include "../common/exe_check.h"
@@ -260,6 +261,10 @@ float g_separation = 0.0f;
 // refuses anything that is not flat.
 float g_ui_shift = 8.0f;
 bool g_freeze_time = true;
+// One walk of the scene for both eyes (one_walk.cpp). 0 walks the scene one
+// time for each eye.
+bool g_one_walk = false;
+bool g_one_walk_check = false;
 bool g_move_camera_point = false;
 // After the two eye passes the game has the real time of the frame as its
 // frame time. 0 gives the number from before the passes. The three test keys
@@ -548,6 +553,9 @@ void ReadSettings() {
       GetPrivateProfileIntA("bwvr", "frame_time_test_readers", 0, path));
   g_frame_time_test_readers_frames = static_cast<int>(GetPrivateProfileIntA(
       "bwvr", "frame_time_test_readers_frames", 600, path));
+  g_one_walk = GetPrivateProfileIntA("bwvr", "one_walk", 0, path) != 0;
+  g_one_walk_check =
+      GetPrivateProfileIntA("bwvr", "one_walk_check", 0, path) != 0;
   g_draw_probe = GetPrivateProfileIntA("bwvr", "draw_probe", 0, path) != 0;
   g_ui_accounting =
       GetPrivateProfileIntA("bwvr", "ui_accounting", 0, path) != 0;
@@ -1409,6 +1417,8 @@ void StartVrOnce() {
     FrameTimeSetOptions(g_frame_time_real, g_frame_time_test_frame,
                         g_frame_time_test_readers,
                         g_frame_time_test_readers_frames);
+    OneWalkSetCheck(g_one_walk_check);
+    if (g_one_walk) OneWalkSetWanted(true);
     StereoSetHeadless(g_stereo_headless);
     StereoSetProfile(g_profile);
     StereoSetTestKeys(g_test_keys);

@@ -1,0 +1,764 @@
+// One walk of the scene for both eyes (docs/backend.md, "One walk for both
+// eyes").
+//
+// WHAT IT REPLACES
+//
+// Stereo runs GGame::Process3dEngine two times a frame, one time for each
+// eye. The engine transforms, lights, clips and sorts on the CPU, so the
+// second walk costs as much game code as the first. The two walks give the
+// same batches in the same order. Only the screen x of a vertex changes, by
+// an amount that its own rhw gives (one_walk_math.h).
+//
+// HOW
+//
+// The game walks the scene one time, for the left eye. For that walk the
+// render target is a target of the mod that is two eyes wide. The left half is
+// the left eye. Each draw of the walk reaches Direct3D 9 as
+// DrawIndexedPrimitiveUP or DrawPrimitiveUP from dxwrapper, with the game's
+// own vertices. A hook here draws the batch as the game asked, into the left
+// half, and then a copy of it into the right half, with the viewport moved to
+// the right half and each x moved by the half and by the disparity of its
+// rhw. Direct3D 9 takes XYZRHW vertices as pixels of the whole target and
+// clips them to the viewport, so a triangle at the edge of one eye stays out
+// of the other eye. A change of the viewport costs much less than a change of
+// the render target, and nothing else changes between the two draws.
+//
+// THE INTERFACE
+//
+// The interface has no depth in the batch. Its depth comes from the chain of
+// draw_hooks.cpp, which moves each batch for the eye of the pass. In one walk
+// draw_hooks.cpp runs its chain a second time for the right eye and draws
+// that batch into the right half only (kOneWalkRightOnly). The rule here
+// moves no batch that has an rhw of exactly 1 in each vertex, or a z of 1 in
+// each vertex (the sky), so a flat batch that no chain moves stays flat.
+//
+// FAIL SAFE
+//
+// The stereo loop asks for one walk frame by frame. If the target cannot be
+// made, the hooks cannot go in, or the device is gone, the loop draws the two
+// walks as before.
+
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#include <d3d9.h>
+#include <stdint.h>
+
+#include "../common/bw_addresses.h"
+#include "MinHook.h"
+#include "one_walk.h"
+#include "one_walk_math.h"
+
+extern void ModLog(const char* format, ...);
+// draw_merge.cpp: the batch of the merge goes to Direct3D now.
+void DrawMergeFlush();
+// gpu_bridge.cpp
+void* GpuBridgeDeviceObject();
+void GpuBridgeOwnDepth(bool on);
+
+namespace {
+
+// Slots of IDirect3DDevice9. The order is fixed by the interface.
+const int kSlotSetRenderTarget = 37;
+const int kSlotSetDepthStencil = 39;
+const int kSlotClear = 43;
+const int kSlotDrawPrimitive = 81;
+const int kSlotDrawIndexedPrimitive = 82;
+const int kSlotDrawPrimitiveUP = 83;
+const int kSlotDrawIndexedPrimitiveUP = 84;
+
+typedef HRESULT(STDMETHODCALLTYPE* SetRenderTargetFn)(IDirect3DDevice9*, DWORD,
+                                                      IDirect3DSurface9*);
+typedef HRESULT(STDMETHODCALLTYPE* SetDepthStencilFn)(IDirect3DDevice9*,
+                                                      IDirect3DSurface9*);
+typedef HRESULT(STDMETHODCALLTYPE* ClearFn)(IDirect3DDevice9*, DWORD,
+                                            const D3DRECT*, DWORD, D3DCOLOR,
+                                            float, DWORD);
+typedef HRESULT(STDMETHODCALLTYPE* DrawPrimitiveFn)(IDirect3DDevice9*,
+                                                    D3DPRIMITIVETYPE, UINT,
+                                                    UINT);
+typedef HRESULT(STDMETHODCALLTYPE* DrawIndexedPrimitiveFn)(
+    IDirect3DDevice9*, D3DPRIMITIVETYPE, INT, UINT, UINT, UINT, UINT);
+typedef HRESULT(STDMETHODCALLTYPE* DrawPrimitiveUPFn)(IDirect3DDevice9*,
+                                                      D3DPRIMITIVETYPE, UINT,
+                                                      const void*, UINT);
+typedef HRESULT(STDMETHODCALLTYPE* DrawIndexedPrimitiveUPFn)(
+    IDirect3DDevice9*, D3DPRIMITIVETYPE, UINT, UINT, UINT, const void*,
+    D3DFORMAT, const void*, UINT);
+
+SetRenderTargetFn o_SetRenderTarget = nullptr;
+SetDepthStencilFn o_SetDepthStencil = nullptr;
+ClearFn o_Clear = nullptr;
+DrawPrimitiveFn o_DrawPrimitive = nullptr;
+DrawIndexedPrimitiveFn o_DrawIndexedPrimitive = nullptr;
+DrawPrimitiveUPFn o_DrawPrimitiveUP = nullptr;
+DrawIndexedPrimitiveUPFn o_DrawIndexedPrimitiveUP = nullptr;
+
+bool g_wanted = false;     // one_walk in bwvr.ini, or the test key
+bool g_check = false;      // one_walk_check in bwvr.ini
+bool g_hooked = false;
+bool g_hook_failed = false;
+bool g_make_failed = false;
+
+IDirect3DDevice9* g_device = nullptr;  // the device the wide target is on
+IDirect3DSurface9* g_wide = nullptr;
+IDirect3DSurface9* g_wide_depth = nullptr;
+uint32_t g_eye_width = 0;
+uint32_t g_eye_height = 0;
+bool g_fresh = false;  // the wide target was just made and holds no picture
+D3DFORMAT g_format = D3DFMT_UNKNOWN;
+D3DFORMAT g_depth_format = D3DFMT_UNKNOWN;
+D3DMULTISAMPLE_TYPE g_samples = D3DMULTISAMPLE_NONE;
+DWORD g_quality = 0;
+
+// The game's target and depth of the pass. A reference is held only while the
+// pass runs. The raw pointers stay after it, so that a late restore of the
+// wide target can be turned back to the game's target.
+IDirect3DSurface9* g_game_target = nullptr;
+IDirect3DSurface9* g_game_depth = nullptr;
+IDirect3DSurface9* g_last_game_target = nullptr;
+IDirect3DSurface9* g_last_game_depth = nullptr;
+
+bool g_active = false;
+int g_mode = kOneWalkBoth;
+IDirect3DSurface9* g_bound = nullptr;  // render target 0 now, in the pass
+// The eye separation of the frame in world units. The move per rhw comes from
+// it at each draw, with the field of view, the size and the near plane that
+// the engine has at that draw: a room of the Temple builds its camera again
+// inside the pass.
+float g_separation = 0.0f;
+float g_per_rhw = 0.0f;  // the move per rhw of the last draw
+// A batch of draw_merge goes to Direct3D after the draw calls of the game that
+// it holds, so the engine can have a new camera then. draw_merge keeps the
+// move per rhw of its batch and holds it while the batch goes out.
+bool g_shift_held = false;
+float g_held_shift = 0.0f;
+
+float PerRhwNow() {
+  if (g_shift_held) {
+    g_per_rhw = g_held_shift;
+    return g_per_rhw;
+  }
+  const bw::tech::InfoTransform* info =
+      reinterpret_cast<const bw::tech::InfoTransform*>(bw::tech::kInfoTransform);
+  const float near_plane = *reinterpret_cast<const float*>(bw::tech::kNearPlane);
+  g_per_rhw = one_walk_math::ShiftPerRhw(info->inv_half_tan_fov_x, g_separation,
+                                         info->half_res_x, near_plane);
+  return g_per_rhw;
+}
+
+// THE EDGE OF THE SCREEN. The engine clamps each projected x into
+// 0..g_MaxScreen.x (bw_addresses.h, kMaxScreen). A vertex past the right edge
+// of the left eye lands on that edge, and the right eye moves it left by its
+// disparity, so a strip at the right edge of the right eye had no geometry.
+// In the pass the right limit is a guard band past the edge. The viewport
+// still ends the left eye at its edge. The disparity is
+// scale * separation * half_res_x / camera_z, which is about 390 px at one
+// world unit from the eye for a render of 2208, so the guard is half a render.
+float g_saved_max_x = 0.0f;
+bool g_max_moved = false;
+
+// The picture of one eye for a file (OneWalkReadEye): the half of the wide
+// target resolved to a plain target, then copied to system memory.
+IDirect3DSurface9* g_read_target = nullptr;
+IDirect3DSurface9* g_read_memory = nullptr;
+bool g_read_locked = false;
+
+// The copy of a batch for the right eye.
+uint8_t* g_scratch = nullptr;
+size_t g_scratch_size = 0;
+
+// The report, per window.
+LARGE_INTEGER g_frequency = {0};
+uint64_t g_passes = 0;
+uint64_t g_world_batches = 0;
+uint64_t g_flat_batches = 0;
+uint64_t g_sky_batches = 0;
+uint64_t g_right_only = 0;
+uint64_t g_left_only = 0;
+uint64_t g_not_screen_space = 0;
+uint64_t g_buffer_draws = 0;  // draws from a vertex buffer: no right eye
+uint64_t g_clears = 0;
+uint64_t g_vertices = 0;
+uint64_t g_right_ticks = 0;
+uint64_t g_target_swaps = 0;
+uint64_t g_late_swaps = 0;
+
+bool EnsureScratch(size_t bytes) {
+  if (bytes <= g_scratch_size) return true;
+  size_t size = g_scratch_size == 0 ? 65536 : g_scratch_size;
+  while (size < bytes) size *= 2;
+  uint8_t* fresh = static_cast<uint8_t*>(
+      VirtualAlloc(nullptr, size, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE));
+  if (fresh == nullptr) return false;
+  if (g_scratch != nullptr) VirtualFree(g_scratch, 0, MEM_RELEASE);
+  g_scratch = fresh;
+  g_scratch_size = size;
+  return true;
+}
+
+// True when the draw goes to the wide target in a pass.
+bool InWide(IDirect3DDevice9* self) {
+  return g_active && self == g_device && g_bound == g_wide;
+}
+
+bool ScreenSpace(IDirect3DDevice9* self, UINT stride) {
+  DWORD fvf = 0;
+  if (stride < 16 || FAILED(self->GetFVF(&fvf))) return false;
+  return (fvf & D3DFVF_POSITION_MASK) == D3DFVF_XYZRHW;
+}
+
+// The viewport and the scissor rect of the right half, set. The caller puts
+// the saved ones back with PutBack.
+struct Saved {
+  D3DVIEWPORT9 viewport;
+  RECT scissor;
+  bool scissor_on;
+};
+
+void MoveRight(IDirect3DDevice9* self, Saved* saved) {
+  self->GetViewport(&saved->viewport);
+  D3DVIEWPORT9 right = saved->viewport;
+  right.X += g_eye_width;
+  self->SetViewport(&right);
+  DWORD on = FALSE;
+  self->GetRenderState(D3DRS_SCISSORTESTENABLE, &on);
+  saved->scissor_on = on != FALSE;
+  if (saved->scissor_on) {
+    self->GetScissorRect(&saved->scissor);
+    RECT moved = saved->scissor;
+    moved.left += static_cast<LONG>(g_eye_width);
+    moved.right += static_cast<LONG>(g_eye_width);
+    self->SetScissorRect(&moved);
+  }
+}
+
+void PutBack(IDirect3DDevice9* self, const Saved& saved) {
+  self->SetViewport(&saved.viewport);
+  if (saved.scissor_on) self->SetScissorRect(&saved.scissor);
+}
+
+// Makes the copy of count vertices for the right eye in g_scratch. Returns
+// false when there is no room.
+bool CopyRight(const void* vertices, uint32_t count, UINT stride,
+               bool as_world) {
+  const size_t bytes = static_cast<size_t>(count) * stride;
+  if (!EnsureScratch(bytes)) return false;
+  const uint8_t* src = static_cast<const uint8_t*>(vertices);
+  const float offset = static_cast<float>(g_eye_width);
+  if (!as_world) {
+    one_walk_math::CopyMoved(src, g_scratch, count, stride, offset);
+    return true;
+  }
+  const one_walk_math::BatchKind kind = one_walk_math::CopyForRightEye(
+      src, g_scratch, count, stride, offset, PerRhwNow());
+  if (kind == one_walk_math::kWorld) {
+    ++g_world_batches;
+  } else if (kind == one_walk_math::kFlat) {
+    ++g_flat_batches;
+  } else {
+    ++g_sky_batches;
+  }
+  g_vertices += count;
+  return true;
+}
+
+HRESULT STDMETHODCALLTYPE h_DrawIndexedPrimitiveUP(
+    IDirect3DDevice9* self, D3DPRIMITIVETYPE type, UINT min_index,
+    UINT vertex_count, UINT primitive_count, const void* indices,
+    D3DFORMAT index_format, const void* vertices, UINT stride) {
+  if (!InWide(self)) {
+    return o_DrawIndexedPrimitiveUP(self, type, min_index, vertex_count,
+                                    primitive_count, indices, index_format,
+                                    vertices, stride);
+  }
+  const int mode = g_mode;
+  HRESULT hr = S_OK;
+  if (mode != kOneWalkRightOnly) {
+    hr = o_DrawIndexedPrimitiveUP(self, type, min_index, vertex_count,
+                                  primitive_count, indices, index_format,
+                                  vertices, stride);
+  }
+  if (mode == kOneWalkLeftOnly) {
+    ++g_left_only;
+    return hr;
+  }
+  if (FAILED(hr) || vertices == nullptr || !ScreenSpace(self, stride)) {
+    ++g_not_screen_space;
+    return hr;
+  }
+  LARGE_INTEGER a, b;
+  QueryPerformanceCounter(&a);
+  // The indices count from the start of the array, so the copy starts there.
+  const uint32_t count = min_index + vertex_count;
+  if (CopyRight(vertices, count, stride, mode == kOneWalkBoth)) {
+    if (mode == kOneWalkRightOnly) ++g_right_only;
+    Saved saved;
+    MoveRight(self, &saved);
+    const HRESULT right = o_DrawIndexedPrimitiveUP(
+        self, type, min_index, vertex_count, primitive_count, indices,
+        index_format, g_scratch, stride);
+    PutBack(self, saved);
+    if (mode == kOneWalkRightOnly) hr = right;
+  }
+  QueryPerformanceCounter(&b);
+  g_right_ticks += b.QuadPart - a.QuadPart;
+  return hr;
+}
+
+HRESULT STDMETHODCALLTYPE h_DrawPrimitiveUP(IDirect3DDevice9* self,
+                                            D3DPRIMITIVETYPE type,
+                                            UINT primitive_count,
+                                            const void* vertices, UINT stride) {
+  if (!InWide(self)) {
+    return o_DrawPrimitiveUP(self, type, primitive_count, vertices, stride);
+  }
+  const int mode = g_mode;
+  HRESULT hr = S_OK;
+  if (mode != kOneWalkRightOnly) {
+    hr = o_DrawPrimitiveUP(self, type, primitive_count, vertices, stride);
+  }
+  if (mode == kOneWalkLeftOnly) {
+    ++g_left_only;
+    return hr;
+  }
+  if (FAILED(hr) || vertices == nullptr || !ScreenSpace(self, stride)) {
+    ++g_not_screen_space;
+    return hr;
+  }
+  const uint32_t count =
+      one_walk_math::VertexCount(static_cast<int>(type), primitive_count);
+  if (count == 0) return hr;
+  LARGE_INTEGER a, b;
+  QueryPerformanceCounter(&a);
+  if (CopyRight(vertices, count, stride, mode == kOneWalkBoth)) {
+    if (mode == kOneWalkRightOnly) ++g_right_only;
+    Saved saved;
+    MoveRight(self, &saved);
+    const HRESULT right =
+        o_DrawPrimitiveUP(self, type, primitive_count, g_scratch, stride);
+    PutBack(self, saved);
+    if (mode == kOneWalkRightOnly) hr = right;
+  }
+  QueryPerformanceCounter(&b);
+  g_right_ticks += b.QuadPart - a.QuadPart;
+  return hr;
+}
+
+// A draw from a vertex buffer cannot be copied without a read of the buffer.
+// The game and dxwrapper do not use one in the scene walk. It is counted, so
+// the report says if that changes.
+HRESULT STDMETHODCALLTYPE h_DrawPrimitive(IDirect3DDevice9* self,
+                                          D3DPRIMITIVETYPE type, UINT start,
+                                          UINT count) {
+  if (InWide(self)) ++g_buffer_draws;
+  return o_DrawPrimitive(self, type, start, count);
+}
+
+HRESULT STDMETHODCALLTYPE h_DrawIndexedPrimitive(IDirect3DDevice9* self,
+                                                 D3DPRIMITIVETYPE type,
+                                                 INT base, UINT min_index,
+                                                 UINT vertices, UINT start,
+                                                 UINT count) {
+  if (InWide(self)) ++g_buffer_draws;
+  return o_DrawIndexedPrimitive(self, type, base, min_index, vertices, start,
+                                count);
+}
+
+// A clear respects the viewport, which is the left half. The right half gets
+// the same clear.
+HRESULT STDMETHODCALLTYPE h_Clear(IDirect3DDevice9* self, DWORD count,
+                                  const D3DRECT* rects, DWORD flags,
+                                  D3DCOLOR color, float z, DWORD stencil) {
+  if (!InWide(self)) return o_Clear(self, count, rects, flags, color, z, stencil);
+  HRESULT hr = S_OK;
+  if (g_mode != kOneWalkRightOnly) {
+    hr = o_Clear(self, count, rects, flags, color, z, stencil);
+  }
+  if (g_mode == kOneWalkLeftOnly) return hr;
+  ++g_clears;
+  D3DRECT moved[16];
+  const D3DRECT* use = nullptr;
+  DWORD use_count = 0;
+  if (count > 0 && rects != nullptr) {
+    use_count = count < 16 ? count : 16;
+    for (DWORD i = 0; i < use_count; ++i) {
+      moved[i] = rects[i];
+      moved[i].x1 += static_cast<LONG>(g_eye_width);
+      moved[i].x2 += static_cast<LONG>(g_eye_width);
+    }
+    use = moved;
+  }
+  Saved saved;
+  MoveRight(self, &saved);
+  const HRESULT right = o_Clear(self, use_count, use, flags, color, z, stencil);
+  PutBack(self, saved);
+  return g_mode == kOneWalkRightOnly ? right : hr;
+}
+
+// THE TARGET STAYS WIDE FOR THE WHOLE PASS. dxwrapper binds the game's target
+// again when its own record of the target changes, and the interface panel
+// (gpu_bridge.cpp) binds its target and then puts back the one it found. Both
+// go through here. In a pass the game's target becomes the wide one. After
+// the pass a late put back of the wide target becomes the game's target.
+HRESULT STDMETHODCALLTYPE h_SetRenderTarget(IDirect3DDevice9* self,
+                                            DWORD index,
+                                            IDirect3DSurface9* surface) {
+  if (index == 0 && self == g_device && surface != nullptr) {
+    if (g_active && surface == g_game_target) {
+      surface = g_wide;
+      ++g_target_swaps;
+    } else if (!g_active && surface == g_wide && g_last_game_target != nullptr) {
+      surface = g_last_game_target;
+      ++g_late_swaps;
+    }
+  }
+  const HRESULT hr = o_SetRenderTarget(self, index, surface);
+  if (index == 0 && self == g_device && SUCCEEDED(hr)) g_bound = surface;
+  return hr;
+}
+
+HRESULT STDMETHODCALLTYPE h_SetDepthStencil(IDirect3DDevice9* self,
+                                            IDirect3DSurface9* surface) {
+  if (self == g_device && surface != nullptr) {
+    if (g_active && surface == g_game_depth && g_wide_depth != nullptr) {
+      surface = g_wide_depth;
+    } else if (!g_active && surface == g_wide_depth &&
+               g_last_game_depth != nullptr) {
+      surface = g_last_game_depth;
+    }
+  }
+  return o_SetDepthStencil(self, surface);
+}
+
+bool HookSlot(void** vtable, int slot, void* replacement, void** original) {
+  void* target = vtable[slot];
+  if (MH_CreateHook(target, replacement, original) != MH_OK) return false;
+  return MH_EnableHook(target) == MH_OK;
+}
+
+bool Install(IDirect3DDevice9* device) {
+  if (g_hooked) return true;
+  if (g_hook_failed) return false;
+  void** vtable = *reinterpret_cast<void***>(device);
+  bool ok = true;
+  ok &= HookSlot(vtable, kSlotSetRenderTarget,
+                 reinterpret_cast<void*>(&h_SetRenderTarget),
+                 reinterpret_cast<void**>(&o_SetRenderTarget));
+  ok &= HookSlot(vtable, kSlotSetDepthStencil,
+                 reinterpret_cast<void*>(&h_SetDepthStencil),
+                 reinterpret_cast<void**>(&o_SetDepthStencil));
+  ok &= HookSlot(vtable, kSlotClear, reinterpret_cast<void*>(&h_Clear),
+                 reinterpret_cast<void**>(&o_Clear));
+  ok &= HookSlot(vtable, kSlotDrawPrimitive,
+                 reinterpret_cast<void*>(&h_DrawPrimitive),
+                 reinterpret_cast<void**>(&o_DrawPrimitive));
+  ok &= HookSlot(vtable, kSlotDrawIndexedPrimitive,
+                 reinterpret_cast<void*>(&h_DrawIndexedPrimitive),
+                 reinterpret_cast<void**>(&o_DrawIndexedPrimitive));
+  ok &= HookSlot(vtable, kSlotDrawPrimitiveUP,
+                 reinterpret_cast<void*>(&h_DrawPrimitiveUP),
+                 reinterpret_cast<void**>(&o_DrawPrimitiveUP));
+  ok &= HookSlot(vtable, kSlotDrawIndexedPrimitiveUP,
+                 reinterpret_cast<void*>(&h_DrawIndexedPrimitiveUP),
+                 reinterpret_cast<void**>(&o_DrawIndexedPrimitiveUP));
+  ModLog("one walk     : 7 Direct3D 9 calls hooked %s", ok ? "ok" : "FAILED");
+  if (!ok) {
+    g_hook_failed = true;
+    return false;
+  }
+  g_hooked = true;
+  QueryPerformanceFrequency(&g_frequency);
+  return true;
+}
+
+void ReleaseWide() {
+  if (g_read_locked && g_read_memory != nullptr) g_read_memory->UnlockRect();
+  g_read_locked = false;
+  if (g_read_target != nullptr) g_read_target->Release();
+  if (g_read_memory != nullptr) g_read_memory->Release();
+  g_read_target = nullptr;
+  g_read_memory = nullptr;
+  if (g_wide != nullptr) g_wide->Release();
+  if (g_wide_depth != nullptr) g_wide_depth->Release();
+  g_wide = nullptr;
+  g_wide_depth = nullptr;
+  g_eye_width = 0;
+  g_eye_height = 0;
+}
+
+// The wide target and its depth, two eyes wide, in the format and the
+// multisampling of the game's own target and depth.
+bool EnsureWide(IDirect3DDevice9* device, const D3DSURFACE_DESC& target,
+                const D3DSURFACE_DESC* depth) {
+  const D3DFORMAT depth_format = depth != nullptr ? depth->Format
+                                                  : D3DFMT_UNKNOWN;
+  if (g_wide != nullptr && device == g_device &&
+      target.Width == g_eye_width && target.Height == g_eye_height &&
+      target.Format == g_format && target.MultiSampleType == g_samples &&
+      target.MultiSampleQuality == g_quality &&
+      depth_format == g_depth_format &&
+      (depth == nullptr) == (g_wide_depth == nullptr)) {
+    return true;
+  }
+  if (g_make_failed) return false;
+  if (device == g_device) ReleaseWide();
+  g_device = device;
+  HRESULT hr = device->CreateRenderTarget(
+      target.Width * 2, target.Height, target.Format, target.MultiSampleType,
+      target.MultiSampleQuality, FALSE, &g_wide, nullptr);
+  if (FAILED(hr) || g_wide == nullptr) {
+    ModLog("one walk     : the wide target %ux%u could not be made "
+           "(0x%08lX). Two walks stay", target.Width * 2, target.Height, hr);
+    g_wide = nullptr;
+    g_make_failed = true;
+    return false;
+  }
+  if (depth != nullptr) {
+    GpuBridgeOwnDepth(true);
+    hr = device->CreateDepthStencilSurface(
+        target.Width * 2, target.Height, depth->Format, depth->MultiSampleType,
+        depth->MultiSampleQuality, FALSE, &g_wide_depth, nullptr);
+    GpuBridgeOwnDepth(false);
+    if (FAILED(hr) || g_wide_depth == nullptr) {
+      ModLog("one walk     : the wide depth could not be made (0x%08lX). Two "
+             "walks stay", hr);
+      g_wide_depth = nullptr;
+      ReleaseWide();
+      g_make_failed = true;
+      return false;
+    }
+  }
+  g_eye_width = target.Width;
+  g_eye_height = target.Height;
+  g_fresh = true;
+  g_format = target.Format;
+  g_depth_format = depth_format;
+  g_samples = target.MultiSampleType;
+  g_quality = target.MultiSampleQuality;
+  ModLog("one walk     : made the wide target %ux%u, format %d, multisample "
+         "type %d, with %s depth", target.Width * 2, target.Height,
+         static_cast<int>(target.Format),
+         static_cast<int>(target.MultiSampleType),
+         depth != nullptr ? "a" : "no");
+  return true;
+}
+
+double Ms(uint64_t ticks) {
+  if (g_frequency.QuadPart == 0) return 0.0;
+  return static_cast<double>(ticks) * 1000.0 /
+         static_cast<double>(g_frequency.QuadPart);
+}
+
+}  // namespace
+
+void OneWalkSetWanted(bool on) {
+  g_wanted = on;
+  ModLog("one walk     : %s (one_walk=%d)", on
+             ? "on. The scene is walked one time, and the right eye is drawn "
+               "from the batches of the left eye"
+             : "off. The scene is walked one time for each eye",
+         on ? 1 : 0);
+}
+
+void OneWalkSetCheck(bool on) { g_check = on; }
+bool OneWalkCheck() { return g_check; }
+
+bool OneWalkWanted() { return g_wanted && !g_hook_failed && !g_make_failed; }
+
+void OneWalkToggle() { OneWalkSetWanted(!g_wanted); }
+
+bool OneWalkBeginPass(float separation) {
+  if (g_active) return true;
+  IDirect3DDevice9* device =
+      static_cast<IDirect3DDevice9*>(GpuBridgeDeviceObject());
+  if (device == nullptr || !Install(device)) return false;
+  IDirect3DSurface9* target = nullptr;
+  if (FAILED(device->GetRenderTarget(0, &target)) || target == nullptr) {
+    return false;
+  }
+  IDirect3DSurface9* depth = nullptr;
+  if (FAILED(device->GetDepthStencilSurface(&depth))) depth = nullptr;
+  D3DSURFACE_DESC target_desc, depth_desc;
+  bool ok = SUCCEEDED(target->GetDesc(&target_desc));
+  if (ok && depth != nullptr) ok = SUCCEEDED(depth->GetDesc(&depth_desc));
+  // A wide target bound already means a pass that did not end. Do not nest.
+  if (ok && target == g_wide) ok = false;
+  if (ok) ok = EnsureWide(device, target_desc,
+                          depth != nullptr ? &depth_desc : nullptr);
+  if (!ok) {
+    target->Release();
+    if (depth != nullptr) depth->Release();
+    return false;
+  }
+  g_game_target = target;
+  g_game_depth = depth;
+  g_last_game_target = target;
+  g_last_game_depth = depth;
+  g_separation = separation;
+  g_mode = kOneWalkBoth;
+  g_active = true;
+  float* max_screen = reinterpret_cast<float*>(bw::tech::kMaxScreen);
+  g_saved_max_x = max_screen[0];
+  g_max_moved = g_saved_max_x > 0.0f;
+  if (g_max_moved) max_screen[0] = g_saved_max_x + 0.5f * g_eye_width;
+  o_SetRenderTarget(device, 0, g_wide);
+  g_bound = g_wide;
+  if (g_wide_depth != nullptr) o_SetDepthStencil(device, g_wide_depth);
+  // THE FRAME BEFORE. The game draws each frame over the frame before
+  // (eye_clean.cpp). The wide target keeps the picture of each eye in its
+  // half from one frame to the next, so each eye has its own frame before.
+  // The cleans of the game and of eye_clean.cpp in the pass reach both halves
+  // through h_Clear. Only a target that was just made is cleaned here.
+  if (g_fresh) {
+    g_fresh = false;
+    const DWORD clear =
+        D3DCLEAR_TARGET | (g_wide_depth != nullptr ? D3DCLEAR_ZBUFFER : 0);
+    D3DVIEWPORT9 all = {0, 0, g_eye_width * 2, g_eye_height, 0.0f, 1.0f};
+    device->SetViewport(&all);
+    o_Clear(device, 0, nullptr, clear, D3DCOLOR_ARGB(255, 0, 0, 0), 1.0f, 0);
+  }
+  ++g_passes;
+  return true;
+}
+
+void OneWalkEndPass() {
+  if (!g_active) return;
+  g_active = false;
+  g_mode = kOneWalkBoth;
+  if (g_max_moved) {
+    reinterpret_cast<float*>(bw::tech::kMaxScreen)[0] = g_saved_max_x;
+    g_max_moved = false;
+  }
+  if (g_device != nullptr) {
+    o_SetRenderTarget(g_device, 0, g_game_target);
+    o_SetDepthStencil(g_device, g_game_depth);
+    g_bound = g_game_target;
+  }
+  if (g_game_target != nullptr) g_game_target->Release();
+  if (g_game_depth != nullptr) g_game_depth->Release();
+  g_game_target = nullptr;
+  g_game_depth = nullptr;
+}
+
+bool OneWalkActive() { return g_active; }
+
+float OneWalkShiftPerRhw() { return g_active ? PerRhwNow() : g_per_rhw; }
+
+void OneWalkHoldShift(bool hold, float shift) {
+  g_shift_held = hold;
+  g_held_shift = shift;
+}
+
+void OneWalkSetMode(int mode) {
+  // A batch of draw_merge goes out with the mode of the draw calls in it.
+  if (mode != g_mode) DrawMergeFlush();
+  g_mode = mode;
+}
+
+void* OneWalkTarget() { return g_wide; }
+
+bool OneWalkEyeRect(int eye, long rect[4]) {
+  if (g_wide == nullptr || eye < 0 || eye > 1) return false;
+  rect[0] = static_cast<long>(eye * g_eye_width);
+  rect[1] = 0;
+  rect[2] = static_cast<long>((eye + 1) * g_eye_width);
+  rect[3] = static_cast<long>(g_eye_height);
+  return true;
+}
+
+void* OneWalkGameSurface(void* surface) {
+  if (surface != nullptr && surface == g_wide && g_last_game_target != nullptr) {
+    return g_last_game_target;
+  }
+  return surface;
+}
+
+// The picture of one eye of the last pass, for a file. Slow (a copy to
+// system memory), so only for a frame that saves pictures. Call
+// OneWalkReadDone after each eye.
+const void* OneWalkReadEye(int eye, int* pitch, uint32_t* width,
+                           uint32_t* height) {
+  if (g_device == nullptr || g_wide == nullptr || eye < 0 || eye > 1 ||
+      g_read_locked) {
+    return nullptr;
+  }
+  if (g_read_target == nullptr &&
+      FAILED(g_device->CreateRenderTarget(g_eye_width, g_eye_height, g_format,
+                                          D3DMULTISAMPLE_NONE, 0, FALSE,
+                                          &g_read_target, nullptr))) {
+    g_read_target = nullptr;
+    return nullptr;
+  }
+  if (g_read_memory == nullptr &&
+      FAILED(g_device->CreateOffscreenPlainSurface(
+          g_eye_width, g_eye_height, g_format, D3DPOOL_SYSTEMMEM,
+          &g_read_memory, nullptr))) {
+    g_read_memory = nullptr;
+    return nullptr;
+  }
+  RECT half = {static_cast<LONG>(eye * g_eye_width), 0,
+               static_cast<LONG>((eye + 1) * g_eye_width),
+               static_cast<LONG>(g_eye_height)};
+  if (FAILED(g_device->StretchRect(g_wide, &half, g_read_target, nullptr,
+                                   D3DTEXF_NONE)) ||
+      FAILED(g_device->GetRenderTargetData(g_read_target, g_read_memory))) {
+    return nullptr;
+  }
+  D3DLOCKED_RECT locked;
+  if (FAILED(g_read_memory->LockRect(&locked, nullptr, D3DLOCK_READONLY))) {
+    return nullptr;
+  }
+  g_read_locked = true;
+  *pitch = locked.Pitch;
+  *width = g_eye_width;
+  *height = g_eye_height;
+  return locked.pBits;
+}
+
+void OneWalkReadDone() {
+  if (g_read_locked && g_read_memory != nullptr) g_read_memory->UnlockRect();
+  g_read_locked = false;
+}
+
+// The device is gone, and the objects on it with it. Drop, do not release.
+void OneWalkForgetDevice() {
+  g_read_target = nullptr;
+  g_read_memory = nullptr;
+  g_read_locked = false;
+  g_wide = nullptr;
+  g_wide_depth = nullptr;
+  g_device = nullptr;
+  g_game_target = nullptr;
+  g_game_depth = nullptr;
+  g_last_game_target = nullptr;
+  g_last_game_depth = nullptr;
+  g_bound = nullptr;
+  g_active = false;
+  g_eye_width = 0;
+  g_eye_height = 0;
+  g_make_failed = false;
+}
+
+void OneWalkReport(uint64_t frames) {
+  if (g_passes == 0) return;
+  const double per = static_cast<double>(g_passes);
+  ModLog("one walk     : %llu of %llu frames in one walk. A frame: %.0f world "
+         "batches, %.0f flat, %.0f sky, %.0f interface for the right eye only, "
+         "%.0f vertices, the right eye %.2f ms",
+         g_passes, frames, g_world_batches / per, g_flat_batches / per,
+         g_sky_batches / per, g_right_only / per, g_vertices / per,
+         Ms(g_right_ticks) / per);
+  if (g_not_screen_space > 0 || g_buffer_draws > 0 || g_late_swaps > 0) {
+    ModLog("one walk     : not in the right eye: %llu draws that are not "
+           "screen space, %llu draws from a vertex buffer. %llu late puts "
+           "back of the wide target were turned to the game's target",
+           g_not_screen_space, g_buffer_draws, g_late_swaps);
+  }
+  ModLog("one walk     : %.1f clears and %.1f binds of the game's target "
+         "turned wide in a frame, %.0f interface batches for the left eye only",
+         g_clears / per, g_target_swaps / per, g_left_only / per);
+  g_passes = 0;
+  g_world_batches = g_flat_batches = g_sky_batches = 0;
+  g_right_only = g_left_only = g_not_screen_space = g_buffer_draws = 0;
+  g_clears = g_vertices = g_right_ticks = g_target_swaps = g_late_swaps = 0;
+}

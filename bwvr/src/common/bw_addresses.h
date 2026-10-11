@@ -181,6 +181,13 @@ constexpr uintptr_t kGameTimeInc   = 0x00EA9EC0;  // uint32, 157 readers
 constexpr uintptr_t kDeltaTime     = 0x00C38134;  // uint32, 80 readers
 constexpr uintptr_t kNearPlane     = 0x00E839E0;  // float, clip in ProjectPoint
 
+// g_MaxScreen: two floats, res_x - 1 and res_y - 1, written by
+// LH3DTech::UpdateViewPort (0x00819030). About 160 places clamp a projected x
+// or y into 0..g_MaxScreen, for example LH3DTech::Draw3DWorldTriangle at
+// 0x0081C24C and DrawAndClip at 0x0082A503. A clamp, not a clip: a vertex
+// past the edge is put on the edge.
+constexpr uintptr_t kMaxScreen     = 0x00C2AB00;
+
 // InfoTransform, 0x3C bytes. Holds the screen mapping and the culling cone.
 constexpr uintptr_t kInfoTransform = 0x00E839E4;
 
