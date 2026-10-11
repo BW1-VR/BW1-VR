@@ -1877,7 +1877,11 @@ action, pixel, drag).
 - **The clock of the camera.** `TempleRoom::UpdateMouse` gives each update of
   the camera the frame time of the game as its seconds
   (`LH3DTech::g_delta_time` `0x00C38134`, read at `0x0079A509`). The update
-  runs in the mouse path of a frame, before the draw of that frame.
+  runs in the mouse path of a frame (`CMouse::ProcessButtons`): after the
+  scene walk of one frame and before the scene walk of the next. The mod
+  gives the game the real time of the frame there (`frame_time_real=1`,
+  `backend.md`, "The delta time after the passes"), so a move of the camera
+  takes its own time.
 - **The camera classes.** The hall has a `WorldRoomCamera`, the Creature Room
   a `CreatureRoomCamera`, and the Save Game Room a `ChallengeRoomCamera` [R].
   Each class has its own code for the state 1 and uses
@@ -2027,7 +2031,7 @@ A room from the ring, and Esc in a room, go through `Temple::GoToRoom`. The
 game ends the flight itself there, with the Temple black and with two updates
 of 1 s. In a room with pictures those two updates leave a part of the way to
 the rest pose: in the Save Game Room the camera was 2 units above its rest
-pose after them, and it then went down for 35 s [R]. So the first update of a
+pose after them, and it then went down to it [R]. So the first update of a
 camera after a different camera gets the steps 3 to 5 too
 (`RoomChangeAfter`).
 
@@ -2172,18 +2176,21 @@ ring item `enter` goes into the Temple. Seen in runs [R]:
   move after that: the trace has the same pose for each second of 239 s,
   through the guide of the first visit and after it, and the log has no line
   of a move. A second visit in the same run has the same cut.
-  With `temple_camera_flight=1` the camera flies for 98 s in each visit. After
-  the guide of the first visit it turns 312 degrees and goes 123 units in 56 s,
-  at 8 degrees and 2.8 units for each second at the most. The test key at a
-  frame in that flight puts the camera at its rest pose in the same frame.
+  With `temple_camera_flight=1` the camera flies for 5.5 s, while the guide
+  of the first visit plays. The test key at a frame in a flight puts the
+  camera at its rest pose in the same frame.
 - The trigger on the door of the Save Game Room starts the way of the camera
   through the door: the camera goes 83 units to the door, and the room
-  changes 5 s of the camera clock after the press. That was 5002 frames in a
-  run in the test save, and 161 frames in a new game (11.9). The camera of the
-  Save Game Room is at its rest pose from its first update, and the trace has
-  the same pose for each second after it. With `temple_camera_flight=1` that
-  camera flies from the door for 5.5 s of its clock: after the guide of the
-  room it turned 144 degrees and went 44 units.
+  changes 5.0 s after the press. The camera of the Save Game Room is at its
+  rest pose from its first update, and the trace has the same pose for each
+  second after it. With `temple_camera_flight=1` that camera flies from the
+  door for 5.5 s.
+- The moves of a room camera take the same time in a run in a test save and
+  in a run of a new game: 5.0 s for the way through the door, and 1.4 s from
+  the click on a picture to the camera at the picture. With
+  `frame_time_real=0` the same moves took 85.9 s and 17.2 s in the test save,
+  and 2.8 s and 0.6 s in the new game (`backend.md`, "The delta time after
+  the passes").
 - The ring item of the Save Game Room gives the camera of that room at its
   rest pose in the same update, with the Temple black, and the trace has the
   same pose for each second after it. `leave` from there gives the camera of
@@ -2216,21 +2223,6 @@ always starts in a new game.
   there.
 - **A drag of a scroll** was not seen: the first click on a scroll starts a
   guide.
-- **The clock of a room camera is not the time of a frame.** The camera gets
-  the frame time of the game as its seconds (11.1). After the two eye passes
-  the mod puts that number back to the value from before the passes
-  (`stereo.cpp`, the time of the second pass). In play only
-  `LH3DRender::StartFrame` writes it, inside the passes. So the camera gets
-  one old number in each update, at each frame rate: 1 ms in a run that
-  starts in a test save (the game loads a saved game, as "Continue Game"
-  does), and 31 ms in a new game from the end of its start dialog [R]. With
-  1 ms each move of a room camera that has a time takes 17 times as long at 60
-  frames for each second, and with 31 ms it takes half as long. The way
-  through a door is one such move: the room changes 5 s of the camera clock
-  after the press, which was 5002 frames (83 s) in a run with 1 ms. The look
-  at a picture after a click is one more: the camera was at the picture 1390
-  frames (18 s) after the click, and not 1.3 s. The flight of an entry is cut,
-  so it does not show this. The roadmap has this fault (B14).
 - **A turn of the camera while a dialog box is up.** In the state 1 a
   `ChallengeRoomCamera` adds 0.25 radians for each second to its heading
   while a dialog box is up (`ChallengeRoomCamera::UpdateMain` `0x007859D0`,
@@ -2255,3 +2247,7 @@ Needs the headset:
    room comes out of black at the rest pose, with no turn and no move after
    it (Ctrl and the star key of the number pad gives the flight of the plain
    game).
+8. The pace of the way through a door (5 s) and of the look at a picture
+   (1.4 s), in a game from a saved game. Ctrl, Shift and the star key of the
+   number pad give the frame time from before the two eye passes for a
+   comparison (`backend.md`, "The delta time after the passes").

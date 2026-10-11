@@ -31,9 +31,11 @@
 // 1. Animations advance per call, not per frame. Windmill::PreDraw reads
 //    LH3DTech::g_game_time_inc, steps its own rotation by it and stores the
 //    result, so a second call spins it twice as fast. Scrolls, the portal,
-//    swaying trees and the interface all do the same. Freezing the two time
-//    globals for the second pass leaves the state where the first pass put
-//    it, so both eyes show the same moment.
+//    swaying trees and the interface all do the same. Freezing the time step
+//    for the second pass leaves the state where the first pass put it, so
+//    both eyes show the same moment. The second time global, the delta time,
+//    cannot be held from here: LH3DRender::StartFrame writes it at the start
+//    of each walk (frame_time.cpp).
 //
 // 2. LH3DTech::g_camera, the camera position in world space, must NOT move
 //    with the eye. The Hand is
@@ -192,6 +194,14 @@ void ControllersCycleOwnerMode();
 void AudioCycleMode();
 // audio_voices.cpp: the A/B of audio_stop_wait.
 void AudioStopWaitToggle();
+// frame_time.cpp: the frame time of the game after the two eye passes.
+void FrameTimeHook(bool inside);
+void FrameTimeBeforePasses();
+void FrameTimePass(int eye);
+void FrameTimePassDone(int eye);
+uint32_t FrameTimeAfterPasses(uint32_t before_passes);
+void FrameTimeToggle(const char* cause);
+void FrameTimeReport();
 void InputWatchAskPointer(int count);
 void InputWatchFrame();
 void FovSetScale(float scale);
@@ -566,6 +576,9 @@ bool GameHasFocus() {
 //               on (audio_stop_wait, audio_voices.cpp). Windows gives the key
 //               VK_CANCEL for Pause with Ctrl down, so the keys of Pause
 //               alone (throw_physics.cpp) do not see it
+//   Ctrl Shift Numpad Star  after the two eye passes the game has the real
+//               time of the frame, or the number from before the passes
+//               (frame_time_real, frame_time.cpp)
 //
 // With play_mode=3, the tabletop mode, or play_mode=4, the God view, one
 // more for everyone:
@@ -585,11 +598,12 @@ bool GameHasFocus() {
 // values chosen. The ini keys stay, except the ones the launcher rewrites on
 // every save. See launcher.cpp, kRetiredKeys.
 void PollHotkeys() {
-  const int kKeys = 8;
-  static bool down[kKeys] = {false, false, false, false,
+  const int kKeys = 9;
+  static bool down[kKeys] = {false, false, false, false, false,
                              false, false, false, false};
   const int keys[kKeys] = {VK_F11,    VK_F12,    VK_NUMPAD0, VK_NUMPAD1,
-                           VK_INSERT, VK_DELETE, VK_HOME,    VK_CANCEL};
+                           VK_INSERT, VK_DELETE, VK_HOME,    VK_CANCEL,
+                           VK_MULTIPLY};
   bool now[kKeys];
   for (int i = 0; i < kKeys; ++i) {
     now[i] = (GetAsyncKeyState(keys[i]) & 0x8000) != 0;
@@ -658,6 +672,14 @@ void PollHotkeys() {
     // An A/B of the wait at the stop of a sound (docs/audio.md, "7.6 The
     // wait of a stop").
     if (g_test_keys && now[7] && !down[7] && !shift) AudioStopWaitToggle();
+    // An A/B of the frame time of the game after the two eye passes
+    // (docs/backend.md, "Time, bars and the second eye pass"). The star key
+    // with Ctrl and no Shift is the key of the camera flight of the Temple
+    // (temple.cpp), and with no Ctrl it is the key of the release at once
+    // (hand_direct.cpp).
+    if (g_test_keys && now[8] && !down[8] && ctrl && shift) {
+      FrameTimeToggle("Ctrl, Shift and the star key of the number pad");
+    }
   }
   // Kept up to date without focus too, so a key that is already down when
   // the game comes to the front does not count as a new press.
@@ -744,9 +766,11 @@ void __fastcall Process3dEngineBody(void* self, void* unused);
 
 void __fastcall h_Process3dEngine(void* self, void* unused) {
   FrameProfileHook(true);
+  FrameTimeHook(true);
   HeadCameraBeginScene();
   Process3dEngineBody(self, unused);
   HeadCameraEndScene();
+  FrameTimeHook(false);
   FrameProfileHook(false);
 }
 
@@ -1038,6 +1062,7 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
   FrameFunction(kFpFnOverlay, OverlayFrame);
   FrameFunction(kFpFnWater, WaterModeApply);
   FrameFunction(kFpFnTable, TabletopApplyFrame);
+  FrameTimeBeforePasses();
   g_in_pass = true;
   // ONE ROLL FOR BOTH EYES.
   //
@@ -1116,7 +1141,9 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
     }
 
     // The first pass advances the world. The second draws the same moment
-    // again, so it must not step any animation on.
+    // again, so it must not step any animation on. LH3DRender::StartFrame
+    // writes the delta time again at the start of each scene walk, so the
+    // number that is set here lasts only to that call (frame_time.cpp).
     if (time_ok && g_freeze_time) {
       *time_inc = (eye == 0) ? saved_inc : 0;
       *delta = (eye == 0) ? saved_delta : 0;
@@ -1128,7 +1155,9 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
     HandDirectPassBegin(eye);
     OverlayPassEye(eye);
     const uint64_t walk_start = profile ? FrameProfileTicks() : 0;
+    FrameTimePass(eye);
     o_Process3dEngine(self, unused);
+    FrameTimePassDone(eye);
     const uint64_t walk_end = profile ? FrameProfileTicks() : 0;
     OverlayPassEye(-1);
     HandDirectPassDone(eye);
@@ -1220,12 +1249,16 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
   g_in_pass = false;
 
   // Put everything back, because the Hand, the interface and the next game
-  // tick all read these.
+  // tick all read these. GGame::Loop wrote the time step and the two frame
+  // times of the game object for this frame, so those go back as they were.
+  // The delta time is not from this frame: only LH3DRender::StartFrame writes
+  // it, inside the passes. The cameras of the game read it before the next
+  // scene walk, so it gets the time of the whole frame (frame_time.cpp).
   EyeCameraRestore();
   if (camera_ok) memcpy(camera, base_camera, sizeof(base_camera));
   if (time_ok) {
     *time_inc = saved_inc;
-    *delta = saved_delta;
+    *delta = FrameTimeAfterPasses(saved_delta);
   }
   if (game_time != nullptr) *game_time = saved_game_time;
   if (raw_time != nullptr) *raw_time = saved_raw_time;
@@ -1330,6 +1363,7 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
     GpuBridgeReport(g_timed_now);
     PassGuardReport();
     FrameTimersReport(g_frames);
+    FrameTimeReport();
     FovReport();
     // Step the invented head, and photograph the result straight away. A
     // capture on a timer lands on whatever phase the timer happens to hit:

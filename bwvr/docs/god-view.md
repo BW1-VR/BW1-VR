@@ -1439,8 +1439,8 @@ camera can go to a new place at other times. At the start of a new game the
 start dialog is up, and the game camera is at the shore of Land 1: at 1486 27
 1974, with its focus at 1443 1 2079. After the row "Keep your old Creature"
 the game plays no story. 55 frames after OK it makes a new `CameraModeNew3`
-object, and that mode brings the camera to the door of the Temple in 42 to 79
-updates. A view that is built one time only would stay at the shore.
+object, and that mode brings the camera to the door of the Temple in about 1.1
+s. A view that is built one time only would stay at the shore.
 
 A script moves the camera only with a story camera (section 15.2). The focus
 of a story camera can be under the recenter pose, or under the land. So the
@@ -1593,7 +1593,7 @@ The tag of the place is `god view`, and the tag of the watch is `comfort`.
 
 ```
 god view     : god_spawn=1. When the game puts its camera at a new place, you go there: the land point that it looks at is 50 cm in front of your head (god_spawn_ahead_cm). Ctrl and Numpad 0 change it
-comfort      : the game moved its own camera (a new camera mode of the player). It was at 1486.3 26.7 1973.7 and looked at 1442.9 0.8 2078.5. Now it is at rest at 1891.0 32.5 2520.7 and looks at 1907.3 29.6 2516.7, update 690: the land point that it looks at went 638.5 units, from 1442.9 2078.5 to 1907.3 2516.7, and the camera turned 126.5 degrees. The move took 750 ms and 68 updates. Changes: 44 in the update, 0 between updates, 0 jumps, 1 new modes. Camera events 0x000, the camera input was the player's. This is a new place
+comfort      : the game moved its own camera (a new camera mode of the player). It was at 1486.3 26.7 1973.7 and looked at 1442.9 0.8 2078.5. Now it is at rest at 1891.0 32.5 2520.7 and looks at 1907.3 29.6 2516.7, update 690: the land point that it looks at went 638.5 units, from 1442.9 2078.5 to 1907.3 2516.7, and the camera turned 126.5 degrees. The move took 1390 ms and 80 updates. Changes: 63 in the update, 0 between updates, 0 jumps, 1 new modes. Camera events 0x000, the camera input was the player's. This is a new place
 god view     : the view goes to the game camera (a new camera mode of the player). The game camera is at 1891.0 32.5 2520.7 and looks at 1907.3 29.6 2516.7, heading 104.0 degrees, 17.1 units from its focus. The waist point was at 1462.1 0.0 2032.3, heading -22.5 degrees. Now it is at 1858.8 29.5 2528.7, heading 134.0 degrees, 100.0 units per meter. The land at 1907 29 2517 is 50 cm in front of your head and 0.60 m below it, and the land under your head is 0.62 m below it (god_spawn=1).
 god view     : the game camera went to a new place (a jump of the game camera): it is at ... and looks at .... The view stays where it is (god_spawn=0).
 comfort      : the player moved the view, so the move of the game camera is dropped, update N
@@ -1635,7 +1635,7 @@ the fake controller with `fake_controller_front=1`, and a render of 2560 by
 1440. The fake head looks 30 degrees left and 20 degrees down from frame 600
 (the word `look`), so the captures show the land in front. The runs to make:
 
-- "Keep your old Creature": the log must show one place 750 ms after the new
+- "Keep your old Creature": the log must show one place 1.4 s after the new
   mode, with the Temple door in front of the head in the capture.
 - The test key (`spawn_test_toggle`): `god_spawn=0` puts the waist point at
   the look point with the heading of the camera, and `god_spawn=1` puts it

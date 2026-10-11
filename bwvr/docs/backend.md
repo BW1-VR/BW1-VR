@@ -1914,10 +1914,24 @@ A hook on `0x00868C80` that uses the straight distance would fix it.
 
 ## Time, bars and the second eye pass
 
-The second eye pass freezes the clocks that the game advances in the pass.
-`0x00EA9EC0` and `0x00C38134` are zeroed. `GGame::Loop` also copies the frame time
-in milliseconds into the game object twice: `+0x250540` (`0x0054D366`) and `+0x205D48`
-(`0x0054D380`). Both are zeroed on the second pass and put back after it, because:
+The game has two kinds of frame time, in milliseconds.
+
+- **The time step of the game.** `GGame::Loop` writes `LH3DTech::g_game_time_inc`
+  (`0x00EA9EC0`) one time for each frame, before the scene walk (`0x0054D374`). It
+  copies the same value into the game object twice: `+0x250540` (`0x0054D366`) and
+  `+0x205D48` (`0x0054D380`). On a paused frame it writes zero to all three.
+- **The delta time.** `LH3DRender::StartFrame` (`0x0082F0E0`) writes
+  `LH3DTech::g_delta_time` (`0x00C38134`): the sample of its clock less the sample
+  that it kept at its call before (`0x00EA9EAC`), and 1 when that is not more than 0
+  (`0x0082F184` to `0x0082F195`). The number has no upper limit. The clock comes
+  from `GetTickCount`, which steps 15 or 16 ms. `GGame::Process3dEngine` calls
+  `StartFrame` at its start (`0x0054DAB5`), and in play no other code writes the
+  number.
+
+### The time step in the second eye pass
+
+The second eye pass has zero in the time step and in its two copies in the game
+object. The three numbers go back after the pass. The reasons:
 
 - `HelpSystem::Draw3D` runs in both passes and adds `+0x205D48` to the widescreen
   transition.
@@ -1926,9 +1940,143 @@ in milliseconds into the game object twice: `+0x250540` (`0x0054D366`) and `+0x2
 - A 50 ms emitter reached from `GLandscape::Draw` adds `+0x250540` too.
 
 The game writes zero to them itself on a paused frame, so zero is safe for their
-readers. The key `freeze_time` (default 1) covers the first pair. The keys
+readers. The key `freeze_time` (default 1) covers the time step. The keys
 `skip_hand_pass2`, `skip_physics_pass2` and `skip_hand_prepare` guard other work
 of the second pass (defaults 1, 1 and 0).
+
+### The delta time in a pass
+
+The mod runs the scene walk two times, so `StartFrame` runs two times in a frame.
+The first eye pass gets the time since the start of the second pass of the frame
+before. The second eye pass gets the time of the first pass, and 1 ms at the
+least. `freeze_time` also writes zero to the delta time before the second pass,
+but that zero lasts only to the call of `StartFrame` at the start of the pass.
+
+So a reader of the delta time in the scene walk counts in both passes. The hand
+states, `HelpSystem::Draw3D`, `Temple::Update`, `TempleRoom::Update` and the draw of
+a room of the Temple are such readers [R]. `Temple::UpdateFade` counts in the first
+pass only: the world steps run one time a frame (`pass_guard.cpp`). For one frame
+the two numbers have the real time as their sum, and 1 ms more for each pass that
+got the limit. In desktop runs at 50 to 80 frames a second the first pass got 11 to
+15 ms and the second pass 2 to 6 ms as a mean, and their sum was 4 to 9 percent
+more than the real time [R]. This is a known limit (roadmap B14).
+
+### The delta time after the passes
+
+The frame loop of the game reads the delta time outside the scene walk too. In the
+plain game it finds the time of one whole frame there.
+
+| Reader | Where in a frame | What counts with the number |
+| --- | --- | --- |
+| `GCamera::Update` `0x00441F80`, through `GGame::GetCameraTimeInc` `0x00555820` | Before the scene walk | The update of the camera mode of the player and the 6 Zoomers of the game camera. So each move of the game camera that takes time: a flight, the fit to the land after a move of the view, the follow of the Creature, the pull back past 3500 units, and the moves by the keys (`CameraModeNew3::ProcessKeyMovement`). While a cut scene with the cinema bars has the dialogue (`HelpSystem::IsDialogueControlled`), the function gives the time step of the game and not the delta time |
+| `CameraModeNew3::Update`, at `0x0045BC87` | The same | 1 s before the camera of a Creature fight starts (`StartFight`). No run reached it |
+| `CameraModeNew3::UpdateTricons`, at `0x0045924F` | The same | A wait of the camera mode that the interface starts (`0x00C5E178`) |
+| `CameraModeFree::Update` at `0x0044E306`, and `ProcessKeyMovement` at `0x0044EA61` | The same, by the listing | The free camera. No run reached it |
+| `TempleRoom::UpdateMouse`, at `0x0079A507` | After the scene walk, from `CMouse::ProcessButtons` | The seconds of each update of the camera of a room of the Temple (`controllers.md`, 11.1) |
+
+After the two passes the mod gives the game the time of the whole frame
+(`frame_time_real=1`, `frame_time.cpp`): the sample that `StartFrame` keeps after
+the passes less its sample from before the passes, with the limit of 1
+(`frame_time_math.h`). Both passes are between the two samples, and `StartFrame`
+makes the same number in a frame with one scene walk. The number that each pass
+gets does not change with the key.
+
+With `frame_time_real=0` the mod writes the number from before the passes. No code
+changes that number outside the passes. So the game then reads, for the whole
+session, the number that the last `StartFrame` before the first stereo frame left:
+1 ms after the load of a saved game ("Continue Game", and a run in a test save),
+and 31 or 32 ms in a new game from the end of its start dialog [R]. At 60 frames a
+second a move that counts 1 ms for each frame takes 16 times its own time, and a
+move that counts 31 ms takes half of it. The mod follows that number with each value of the
+key (`Kept` in `frame_time_math.h`): a `StartFrame` between two frames with eye
+passes gives a new one. So the test key gives the number of the session at each
+moment, and not the last real time.
+
+Seen in desktop runs with the value 1 and with the value 0 [R]:
+
+| The move | 1, a test save | 0, a test save | 1, a new game | 0, a new game |
+| --- | --- | --- | --- | --- |
+| The way through a door of the Temple, 5 s | 5.0 s | 85.9 s | 5.0 s | 2.8 s |
+| The look at a picture of the Save Game Room | 1.4 s | 17.2 s | 1.4 s | 0.6 s |
+| The flight of the hall with `temple_camera_flight=1`, 5.5 s | 5.5 s | | | |
+| The flight of the game camera to the Creature pen, with `instant_jumps=0` | 2.3 s | 22.4 s, and the camera then moves in small steps for 4 s more | | |
+| The move of the game camera to the door of the Temple at the start | | | 1.4 s | 1.0 s |
+
+The two rows of the game camera have the time of the log line of the watch
+(`god-view.md`, 15.3), which has 0.25 s of rest of the camera in it.
+
+In the same runs these things had the same speed with each value [R]:
+
+- The smooth zoom of the stick: 2.00 zoom steps for each second of a hold of 45
+  frames.
+- A throw: the first contact came 1.0 to 1.2 s after the release, the object was
+  at rest 3.6 to 4.7 s after the release, and the game ran 9.5 to 9.8 turns for
+  each second of the flight.
+- The Creature state: the state started at the same frame, and the strokes and
+  the three slaps of the recipe came at the same frames.
+- The number that each eye pass gets, and the frame cost (`bench_run.ps1`: the
+  work mean of each of the six scenes changed by 0.2 ms or less).
+
+They take their time from the scene walk, from the game turn or from the clock of
+the mod. The fades of the hint card use that clock too (`QueryPerformanceCounter`).
+
+One thing was different, and the cause is not known. At the same frame of a run
+the Creature was at a different step of its plan with the two values, the same way
+in each run [R]. In the recipe of the Creature state, 2 s after the state, the
+plan was desire 3 (to play) and action 172 with no action of the body with the
+value 1 (three runs). With the value 0 it was desire 18 (to show its state) and
+action 23 with an action of the body (three runs). In the recipe of the stay, at
+the first stay the plan was desire 9 (to idle around with the player). It was at
+step 1 of 2 with an action of the body with the value 1 (two runs), and at step 0
+of 2 with no such action with the value 0 (two runs). A Creature with an action of
+its body stood still for a stay 1.6 to 2.7 s after the start, and not 0.2 s after
+it. The game camera is the one reader of the number on the land, and with the
+value 1 it comes to rest sooner. The names of the desires are from the headers of
+the decompilation.
+
+**The other readers.** The code of the game has 80 references to the number. A
+count with a data breakpoint on the number (`frame_time_test_readers`) found no
+other reader outside the scene walk in three runs: in the hall and the Save Game
+Room of the Temple, at the door of the Temple with the Creature state, and in a
+fetch and a throw at the Creature pens [R]. One block copy of the game
+(`0x00837B41`) goes over the address and does not use the number. By the listing,
+the other references are in the scene walk (the hand states, the help system, the
+draws of the rooms of the Temple, the Creature, the glow of the Hand, the charge of
+a Worship Site, a miracle that falls from the sky, the boxes of the setup kind), or
+in code that a single player game does not run in play: the front end, the logos,
+the Temple of a multiplayer game, the text messages of players and a debug
+display.
+
+**The keys.** With `test_keys=1`, Ctrl, Shift and the star key of the number pad
+change `frame_time_real` while the game runs: a long pulse for the real time and a
+short pulse for the number from before the passes. The log has one line at the
+start, one line for each 450 frames, and one line for each press of the test key:
+
+```
+frame time   : frame_time_real=1. After the two eye passes the game has the real time of the frame as its frame time (LH3DTech::g_delta_time), so the cameras of the game and each other reader outside the passes move at the speed of the game
+frame time   : after the two eye passes the game had 16.4 ms as its frame time (1 to 32 ms, frame_time_real=1). The real time of a frame was 16.4 ms on the clock of the game, so a move of the game that counts this number took 1.00 times its own time. Eye pass 0 got 13.4 ms and eye pass 1 got 4.0 ms, 450 frames
+frame time   : after the two eye passes the game had 1.0 ms as its frame time (1 to 1 ms, frame_time_real=0). The real time of a frame was 16.4 ms on the clock of the game, so a move of the game that counts this number took 16.39 times its own time. Eye pass 0 got 13.4 ms and eye pass 1 got 3.9 ms, 450 frames
+frame time   : Ctrl, Shift and the star key of the number pad: frame_time_real is 0 now. After the two eye passes the mod puts the frame time of the game back to the number from before the passes, so the code of the game outside the passes reads one number for the session. The number from before the passes is 1 ms in this session, frame 3670
+```
+
+In a run in a test save the test key acted after the way through a door (5.0 s
+with the real time). The look at a picture then took 17.1 s, as it does with
+`frame_time_real=0` from the start [R].
+
+Two test keys are for desktop runs. The launcher removes them from `bwvr.ini` on
+each save.
+
+- `frame_time_test_frame=N`: the test key acts at frame N of the game. With
+  `fake_controller_play_frame` the frame counts as a step of the script counts it.
+- `frame_time_test_readers=N`: from frame N a data breakpoint of the processor is on
+  the delta time for the thread of the game, for `frame_time_test_readers_frames`
+  frames (600). At the end the log has one line for each instruction of the game
+  that read or wrote the number. The line has the count and the least and the most
+  number for each part of a frame: outside the hook of the scene walk, in the hook
+  and not in a pass, eye pass 0 and eye pass 1. The address of a line is the
+  address after the instruction, which is 4 more than the address of the reference
+  in the listing. The traps make each frame longer, so do not read a time from
+  such a run.
 
 ## Testing without a headset
 
@@ -2017,6 +2165,7 @@ in front. The mod reads the keys and never takes them from the game.
 | Ctrl Home | `test_keys=1` | The words of a target on the hint card: 3, 2, 1 or 0, with one short pulse for each unit of the value and one long pulse for 0. With 3 the prompt "Pull to fetch" stays from the end of the far target until the Hand holds the object, and a hint of the game that a prompt owned does not show for 0.25 s after the prompt went. With 2 only the prompt "Take" stays, from the close of the grip until the Hand holds the object. With 1 the hint of the game shows in those frames. With 0 the hint of the game takes the place of each prompt (`hint_words`, `controller-hints.md`) |
 | Ctrl Numpad 5 | `test_keys=1` | The rule of a Creature command: 3, 2 or 1 (`creature_command_rule`, `creature.md`) |
 | Ctrl Numpad Star | `test_keys=1` | In the Temple: the camera of a room is at its rest pose at once when the player comes into the room, or it flies there as in the plain game. A long pulse and a short pulse (`temple_camera_flight`, `controllers.md`, 11.4). Shift must be up. The star key alone is the key of the release at once (`throw.md`) |
+| Ctrl Shift Numpad Star | `test_keys=1` | After the two eye passes the game has the real time of the frame as its frame time, or the number from before the passes. The cameras of the rooms of the Temple and the game camera of the land then move at a different speed. A long pulse and a short pulse (`frame_time_real`, "The delta time after the passes"). Press it with the mouse at rest |
 | Ctrl Page Down | `test_keys=1` | The card says what the opening of the grip does with a tree, or shows the text of the game (`tree_plant_hint`, `grab.md`) |
 | Ctrl Shift Page Down | `test_keys=1` | The roots pile of a tree from a distance stands at the roots, or on the way of the glide (`far_roots_at_tree`, `grab.md`) |
 | Ctrl Shift Home | `test_keys=1` | A dip of the squeeze in the first 300 ms of a press does not open the grip, or the fast fall opens it at any time (`grip_press_guard`, `grab.md`) |
@@ -2108,6 +2257,8 @@ keys that the launcher sets.
 | `spirit_world_size` | 1 | The size of an advisor at a place of the world. See "The advisors" and `tabletop.md` |
 | `cloud_pole_pct`, `sun_glare`, `detail_distance` | 25, 0, 3 | See "Sky, clouds and detail" |
 | `freeze_time` | 1 | See "Time, bars and the second eye pass" |
+| `frame_time_real` | 1 | 1: after the two eye passes the game has the real time of the frame as its frame time. 0: it has the number from before the passes. See "The delta time after the passes" |
+| `frame_time_test_frame`, `frame_time_test_readers`, `frame_time_test_readers_frames` | 0, 0, 600 | Test keys of the desktop runs. See "The delta time after the passes" |
 | `skip_desktop_present` | 1 | See "The copy to the monitor" |
 | `anisotropy`, `force_mips` | 16, 1 | Texture filter. `force_mips` forces the mip filter |
 | `skip_snapshot` | 1 | |

@@ -3402,6 +3402,7 @@ void CreatureChecks() {
 #include "text_click_checks.h"
 #include "script_frame_checks.h"
 #include "frame_stats_checks.h"
+#include "frame_time_checks.h"
 #include "zoom_checks.h"
 
 int main() {
@@ -3792,6 +3793,7 @@ int main() {
   text_click_checks::TextClickChecks();
   script_frame_checks::ScriptFrameChecks();
   frame_stats_checks::FrameStatsChecks();
+  frame_time_checks::FrameTimeChecks();
 
   printf("\n%d checks, %d failed\n", g_checks, g_failures);
   return g_failures == 0 ? 0 : 1;

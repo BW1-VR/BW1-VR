@@ -46,6 +46,9 @@ bool StereoInPass();
 bool StereoIdle();
 void StereoSetSeparation(float world_units);
 void StereoSetFixes(bool freeze_time, bool move_camera_point);
+// frame_time.cpp: the frame time of the game after the two eye passes.
+void FrameTimeSetOptions(int real, int test_frame, int readers_frame,
+                         int readers_frames);
 void DrawProbeArm(bool on, int frames);
 void DrawProbeDelay(int frames);
 void StereoSetHeadless(bool on);
@@ -244,6 +247,13 @@ float g_separation = 0.0f;
 float g_ui_shift = 8.0f;
 bool g_freeze_time = true;
 bool g_move_camera_point = false;
+// After the two eye passes the game has the real time of the frame as its
+// frame time. 0 gives the number from before the passes. The three test keys
+// are for desktop runs. See frame_time.cpp.
+int g_frame_time_real = 1;
+int g_frame_time_test_frame = 0;
+int g_frame_time_test_readers = 0;
+int g_frame_time_test_readers_frames = 600;
 
 // The draw probe measures which draw calls break the stereo invariant.
 // It is off by default. draw_probe=1 arms it at the start, and
@@ -498,6 +508,14 @@ void ReadSettings() {
   g_ui_shift =
       static_cast<float>(GetPrivateProfileIntA("bwvr", "ui_shift_px", 8, path));
   g_freeze_time = GetPrivateProfileIntA("bwvr", "freeze_time", 1, path) != 0;
+  g_frame_time_real =
+      GetPrivateProfileIntA("bwvr", "frame_time_real", 1, path) != 0 ? 1 : 0;
+  g_frame_time_test_frame = static_cast<int>(
+      GetPrivateProfileIntA("bwvr", "frame_time_test_frame", 0, path));
+  g_frame_time_test_readers = static_cast<int>(
+      GetPrivateProfileIntA("bwvr", "frame_time_test_readers", 0, path));
+  g_frame_time_test_readers_frames = static_cast<int>(GetPrivateProfileIntA(
+      "bwvr", "frame_time_test_readers_frames", 600, path));
   g_draw_probe = GetPrivateProfileIntA("bwvr", "draw_probe", 0, path) != 0;
   g_ui_accounting =
       GetPrivateProfileIntA("bwvr", "ui_accounting", 0, path) != 0;
@@ -1306,6 +1324,9 @@ void StartVrOnce() {
     HeadCameraSetHandAnchored(g_hand_anchored);
     StereoSetHeadTracking(g_head_tracking);
     StereoSetFixes(g_freeze_time, g_move_camera_point);
+    FrameTimeSetOptions(g_frame_time_real, g_frame_time_test_frame,
+                        g_frame_time_test_readers,
+                        g_frame_time_test_readers_frames);
     StereoSetHeadless(g_stereo_headless);
     StereoSetProfile(g_profile);
     StereoSetTestKeys(g_test_keys);

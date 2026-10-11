@@ -215,20 +215,31 @@ is built, and no test has proven it.
   of black at the rest pose, with no turn and no move after it. The test key
   (Ctrl and the star key of the number pad) gives the flight of the plain
   game for a comparison.
-- **B14. The frame time of the game stops outside the two eye passes.**
-  After the two eye passes the mod puts `LH3DTech::g_delta_time` back to the
-  value from before the passes (`stereo.cpp`). In play only
-  `LH3DRender::StartFrame` writes that number, inside the passes. So the code
-  of the game that reads it outside the passes gets one old number: 1 ms for
-  the whole of a run that starts in a test save (the game loads a saved
-  game, as "Continue Game" does), and 31 ms in a new game from the end of
-  its start dialog. The cameras of the rooms of the Temple read it there
-  (`TempleRoom::UpdateMouse`). With 1 ms a move of such a camera takes 17
-  times as long at 60 frames for each second: the flight of the hall took
-  98 s and not 5.5 s (B13 cuts it now), and the way through a door took 83 s
-  and not 5 s (`controllers.md`, 11.9). Not known: what the other readers
-  outside the passes do with it (`GGame::GetCameraTimeInc` for the camera of
-  the land is one). Not built: the real time of the frame after the passes.
+- **B14. The frame time of the game after the two eye passes: check it in
+  a headset. In a pass the second eye does not have zero.** After the two
+  eye passes the game has the real time of the frame as its frame time
+  (`frame_time_real=1`, `backend.md`, "Time, bars and the second eye pass").
+  So the cameras of the game move at the speed of the game, also in a game
+  from a saved game. Desktop runs show the way through a door of the Temple
+  in 5.0 s and the look at a picture in 1.4 s, in a test save and in a new
+  game, and a flight of the game camera on the land in 2.3 s in a test save.
+  With the number from before the passes, the same moves took 85.9 s, 17.2 s
+  and 22.4 s in the test save. Check in a headset, in a game from a saved
+  game: the way through a door and the look at a picture in the Temple. The
+  test key (Ctrl, Shift and the star key of the number pad) gives the number
+  from before the passes for a comparison. Not run: a story camera with no
+  cinema bars, the camera of a Creature fight, the pull back past 3500 units
+  and the moves of the game camera by the keys. They read the same number.
+  Not known: why the Creature is at a different step of its plan at the same
+  frame of a desktop run with the two values (`backend.md`).
+  Still open: in the scene walk `LH3DRender::StartFrame` writes the frame
+  time at the start of each pass, so the second eye pass has the time of the
+  first pass there, and not zero. The readers in the walk count in both
+  passes (the hand states, `HelpSystem::Draw3D`, `Temple::Update`), and
+  their sum was 4 to 9 percent more than the real time in desktop runs. Not
+  built: a hook on `StartFrame` for the scene walk, as the intro has for its
+  call (`intro.md`). First find each reader that divides by the number: the
+  game never has less than 1 there.
 
 B1b, B2, B4 and B11 are one package: a thing that is held, thrown, or that
 moves while the Hand takes it.
