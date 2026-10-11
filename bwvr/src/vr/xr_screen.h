@@ -142,6 +142,19 @@ struct WindowLayer {
   float alpha;
 };
 
+// A LATE FRAME: a frame whose eye pictures are in textures that the GPU has
+// not finished. See XrScreen::EndFrameLate.
+struct LateFrame {
+  // As for SetEyeTexture. Null: the eye has its picture, or it gets none.
+  void* eye_texture[2];
+  // As for SetPanelTexture. Null: the frame has no panel.
+  void* panel_texture;
+  // Returns when the GPU has finished the textures. It runs on the thread
+  // that sends the frame, and it must not write a line of the log. Null: the
+  // textures are finished.
+  void (*wait)();
+};
+
 class XrScreen {
  public:
   XrScreen();
@@ -241,6 +254,26 @@ class XrScreen {
   // Presents whatever was uploaded.
   void EndFrame();
 
+  // EndFrame for a late frame. The call makes the layers first. Then come
+  // frame.wait, the copy of each texture to its swapchain image, and
+  // xrEndFrame. With on_thread a second thread does those three, and the
+  // call returns at once. The next BeginFrame calls xrWaitFrame, and then it
+  // waits for the second thread: the runtime must have a frame before the
+  // next one begins. The textures must stay valid until Join returns.
+  void EndFrameLate(const LateFrame& frame, bool on_thread);
+
+  // Returns when the second thread has no frame. Call it before a change of
+  // a texture that the frame of EndFrameLate reads.
+  void Join();
+
+  // True while the second thread has a frame.
+  bool sending() const;
+
+  // How long the last EndFrameLate waited for the GPU on the thread of the
+  // caller, in ticks of QueryPerformanceCounter. 0 when the second thread
+  // has the frame.
+  uint64_t LateWaitTicks() const;
+
   // Mono convenience: one call does a whole frame.
   bool SubmitBgra(const void* pixels, int pitch);
 
@@ -326,6 +359,9 @@ class XrScreen {
  private:
   struct Impl;
   Impl* impl_;
+  bool BuildFrame();   // the layers of the frame
+  void FinishFrame();  // after xrEndFrame, on the frame thread
+  void FinishLate();   // after the copies of a late frame, on the frame thread
   bool running_;
   bool should_render_;
   int eyes_;

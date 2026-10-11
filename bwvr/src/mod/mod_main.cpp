@@ -58,6 +58,12 @@ void StereoSetCaptureInterval(int seconds);
 void StereoSetHeadlessGrab(bool on);
 void StereoSetUiDepth(bool adaptive, float ceiling_pixels);
 void StereoSetScreen(bwvr::XrScreen* screen);
+// frame_send.cpp: the way of the eye pictures to the headset.
+void FrameSendSetOptions(int key);
+void FrameSendSetScreen(bwvr::XrScreen* screen);
+// gpu_bridge.cpp: with frame_send=2 a second thread makes calls on the
+// device of the backend.
+void GpuBridgeWantTwoThreads(bool on);
 // intro_vr.cpp: the Lionhead intro in stereo.
 void IntroSetOptions(bool on, int motion, int speed_pct, int distance_cm,
                      int model_distance_cm, bool eye_trails, bool text_place,
@@ -453,6 +459,8 @@ bool g_intro_eye_trails = true;
 int g_eye_clean = 1;
 int g_eye_clean_test = 0;
 int g_eye_clean_test_frame = 0;
+// The way of the eye pictures to the headset (frame_send.cpp).
+int g_frame_send = 0;
 // A speech bubble of the game as one card (bubble_card.cpp), and its test
 // keys for desktop runs.
 int g_bubble_card = 1;
@@ -1139,6 +1147,8 @@ void ReadSettings() {
       static_cast<int>(GetPrivateProfileIntA("bwvr", "eye_clean_test", 0, path));
   g_eye_clean_test_frame = static_cast<int>(
       GetPrivateProfileIntA("bwvr", "eye_clean_test_frame", 0, path));
+  g_frame_send =
+      static_cast<int>(GetPrivateProfileIntA("bwvr", "frame_send", 0, path));
   g_bubble_card =
       GetPrivateProfileIntA("bwvr", "bubble_card", 1, path) != 0 ? 1 : 0;
   g_bubble_card_test =
@@ -1375,6 +1385,7 @@ void StartVrOnce() {
     IntroInstall();
     EyeCleanSetOptions(g_eye_clean, g_eye_clean_test, g_eye_clean_test_frame);
     EyeCleanInstall();
+    FrameSendSetOptions(g_frame_send);
     BubbleCardSetOptions(g_bubble_card, g_bubble_card_test,
                          g_bubble_card_test_frame);
     BubbleCardInstall();
@@ -1437,6 +1448,7 @@ void StartVrOnce() {
 
   g_screen = screen;
   StereoSetScreen(g_screen);
+  FrameSendSetScreen(g_screen);
   IntroSetScreen(g_screen);
   ControllersSetScreen(g_screen);
 
@@ -1725,6 +1737,11 @@ void EarlyHooks() {
     ModLog("gpu bridge   : MinHook would not start, staying on the CPU path");
     return;
   }
+  // With frame_send=2 a second thread makes calls on the device of the
+  // backend. The test key can choose that value in a session.
+  GpuBridgeWantTwoThreads(
+      GetPrivateProfileIntA("bwvr", "frame_send", 0, path) == 2 ||
+      GetPrivateProfileIntA("bwvr", "test_keys", 0, path) != 0);
   GpuBridgeSetEnabled(true);
   GpuBridgeInstall();
 }
@@ -1847,6 +1864,7 @@ void Shutdown(const char* path) {
       // Each file that holds the screen lets it go first: the game can call
       // a hook after this.
       StereoSetScreen(nullptr);
+      FrameSendSetScreen(nullptr);
       IntroSetScreen(nullptr);
       ControllersSetScreen(nullptr);
       bwvr::XrScreen* screen = g_screen;

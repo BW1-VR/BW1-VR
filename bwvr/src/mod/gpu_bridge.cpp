@@ -64,6 +64,10 @@
 extern void ModLog(const char* format, ...);
 // comfort_camera.cpp: true for a moment after a snap turn or a jump.
 bool ComfortBlinkActive();
+// frame_send.cpp: the second thread that gives a frame to the runtime. While
+// it has a frame, it reads the event query and the shared textures.
+bool FrameSendBusy();
+void FrameSendJoin();
 
 namespace {
 
@@ -84,6 +88,18 @@ IDirect3DTexture9* g_shared[kEyes] = {nullptr, nullptr};
 IDirect3DSurface9* g_shared_surface[kEyes] = {nullptr, nullptr};
 ID3D11Texture2D* g_opened[kEyes] = {nullptr, nullptr};
 IDirect3DQuery9* g_flush_query = nullptr;
+// The device permits calls from two threads (D3DCREATE_MULTITHREADED).
+bool g_two_threads = false;
+// The mod asks the backend for such a device (GpuBridgeWantTwoThreads).
+bool g_two_threads_wanted = false;
+// The wait of the second thread for the GPU (GpuBridgeWaitOnThread). The
+// second thread writes these. The frame thread reads them in the next frame,
+// when the second thread has no frame.
+bool g_thread_waited = false;
+bool g_thread_gave_up = false;
+uint64_t g_thread_wait_ticks = 0;
+uint32_t g_thread_polls = 0;
+int g_gave_up_lines = 0;
 
 uint32_t g_width = 0;
 uint32_t g_height = 0;
@@ -331,6 +347,15 @@ void ForgetDevice() {
 }
 
 ULONG STDMETHODCALLTYPE h_DeviceRelease(IDirect3DDevice9* self) {
+  // The second thread makes calls on the device while it waits for the GPU.
+  // When this count is the last one of the device, the second thread ends
+  // its frame first. The hook does not wait at each other count: Direct3D 9
+  // can have the lock of the device at this call, and the second thread
+  // needs that lock to end its frame.
+  if (self == g_device && FrameSendBusy()) {
+    self->AddRef();
+    if (o_DeviceRelease(self) <= 1) FrameSendJoin();
+  }
   const ULONG left = o_DeviceRelease(self);
   if (left == 0 && self != nullptr && self == g_device) {
     ForgetDevice();
@@ -538,11 +563,20 @@ void TakeDevice(IDirect3DDevice9* device,
   // The newest device is the one the backend draws with. If the Release hook
   // did not see the old device go, the old device can already be freed, so
   // the bridge makes no call on it.
-  if (g_device != nullptr) ForgetDevice();
+  if (g_device != nullptr) {
+    FrameSendJoin();
+    ForgetDevice();
+  }
   g_device = device;
   g_device->AddRef();
   HookDeviceRelease(device);
   HookCreateDepth(device);
+  D3DDEVICE_CREATION_PARAMETERS made = {};
+  g_two_threads = SUCCEEDED(g_device->GetCreationParameters(&made)) &&
+                  (made.BehaviorFlags & D3DCREATE_MULTITHREADED) != 0;
+  ModLog("gpu bridge   : the device %s calls from two threads (behavior "
+         "flags 0x%lX)", g_two_threads ? "permits" : "does not permit",
+         made.BehaviorFlags);
   if (SUCCEEDED(g_device->QueryInterface(__uuidof(IDirect3DDevice9Ex),
                                          reinterpret_cast<void**>(&g_device_ex)))) {
     ModLog("gpu bridge   : captured a Direct3D 9Ex device");
@@ -553,13 +587,26 @@ void TakeDevice(IDirect3DDevice9* device,
   }
 }
 
+// With frame_send=2 a second thread makes calls on the device, so the device
+// must permit calls from two threads.
+DWORD TwoThreadFlags(DWORD flags) {
+  if (!g_two_threads_wanted || (flags & D3DCREATE_MULTITHREADED) != 0) {
+    return flags;
+  }
+  ModLog("gpu bridge   : the backend asked for a device for one thread. The "
+         "mod asks for a device that permits calls from two threads "
+         "(frame_send)");
+  return flags | D3DCREATE_MULTITHREADED;
+}
+
 HRESULT STDMETHODCALLTYPE h_CreateDevice(IDirect3D9* self, UINT adapter,
                                          D3DDEVTYPE type, HWND focus,
                                          DWORD flags,
                                          D3DPRESENT_PARAMETERS* present,
                                          IDirect3DDevice9** out) {
   const HRESULT hr =
-      o_CreateDevice(self, adapter, type, focus, flags, present, out);
+      o_CreateDevice(self, adapter, type, focus, TwoThreadFlags(flags),
+                     present, out);
   if (SUCCEEDED(hr) && out != nullptr) TakeDevice(*out, present);
   return hr;
 }
@@ -571,7 +618,8 @@ HRESULT STDMETHODCALLTYPE h_CreateDeviceEx(IDirect3D9Ex* self, UINT adapter,
                                            D3DDISPLAYMODEEX* mode,
                                            IDirect3DDevice9Ex** out) {
   const HRESULT hr =
-      o_CreateDeviceEx(self, adapter, type, focus, flags, present, mode, out);
+      o_CreateDeviceEx(self, adapter, type, focus, TwoThreadFlags(flags),
+                       present, mode, out);
   if (SUCCEEDED(hr) && out != nullptr) TakeDevice(*out, present);
   return hr;
 }
@@ -829,6 +877,8 @@ int g_consecutive_failures = 0;
 // Stops using the GPU path and frees what it held. The caller falls back to
 // reading the frame back through the CPU, which is slower but always works.
 void GiveUpOnSharing(const char* why) {
+  // The second thread can read the textures that this frees.
+  FrameSendJoin();
   g_ready = false;
   ReleaseShared();
   ModLog("gpu bridge   : OFF, %s. The frame goes back through a readback.",
@@ -849,7 +899,13 @@ void GpuBridgeResume() {
   GpuBridgeStart(g_start_d3d11, g_width, g_height, g_start_format);
 }
 
-void* GpuBridgeCaptureEye(int eye) {
+namespace {
+
+// Puts the copy of the picture that the game finished in the queue of the
+// GPU: from the render target to the shared texture of one eye. It does not
+// wait for the GPU. Returns the Direct3D 11 texture of the eye, or null when
+// the caller must use the CPU path in this frame.
+void* CopyEye(int eye) {
   if (!g_ready || eye < 0 || eye >= kEyes) return nullptr;
 
   // A device reset throws away everything in the default pool, which is both
@@ -861,7 +917,7 @@ void* GpuBridgeCaptureEye(int eye) {
     return nullptr;
   }
 
-  LARGE_INTEGER t0, t1, t2;
+  LARGE_INTEGER t0, t1;
   QueryPerformanceCounter(&t0);
 
   IDirect3DSurface9* source = nullptr;
@@ -891,23 +947,32 @@ void* GpuBridgeCaptureEye(int eye) {
                         D3DCOLOR_ARGB(255, 0, 0, 0));
   }
   QueryPerformanceCounter(&t1);
+  g_blit_ticks += t1.QuadPart - t0.QuadPart;
+  ++g_captures;
+  return g_opened[eye];
+}
 
-  // Wait for the GPU before the other device reads the texture.
-  //
-  // Note what this really waits for. D3DQUERYTYPE_EVENT with D3DGETDATA_FLUSH
-  // drains the whole Direct3D 9 command buffer to idle, so it waits for
-  // everything the game queued for this eye, not for the copy alone. The
-  // number it produces is a GPU drain, not the price of the copy, and it
-  // moves when anything else on the GPU moves. It dropped from about 0.9 ms
-  // to about 0.34 ms when the copy to the monitor stopped, and nothing in
-  // this file changed.
-  //
-  // It cannot simply be removed. Microsoft's contract for a Direct3D 9Ex
-  // texture shared into Direct3D 11 requires the producer to synchronize. A
-  // keyed mutex would be the usual answer and is not available here, because
-  // Direct3D 9Ex cannot create or open a keyed mutex shared resource.
-  // The loop is bounded: if the query never completes, the frame goes out
-  // slightly torn rather than the game locking up.
+// Waits on this thread for the GPU, before the other device reads a shared
+// texture.
+//
+// Note what this really waits for. D3DQUERYTYPE_EVENT with D3DGETDATA_FLUSH
+// drains the whole Direct3D 9 command buffer to idle, so it waits for
+// everything the game queued before it, not for the copy alone. The
+// number it produces is a GPU drain, not the price of the copy, and it
+// moves when anything else on the GPU moves. It dropped from about 0.9 ms
+// to about 0.34 ms when the copy to the monitor stopped, and nothing in
+// this file changed.
+//
+// It cannot simply be removed. Microsoft's contract for a Direct3D 9Ex
+// texture shared into Direct3D 11 requires the producer to synchronize. A
+// keyed mutex would be the usual answer and is not available here, because
+// Direct3D 9Ex cannot create or open a keyed mutex shared resource.
+// The loop is bounded: if the query never completes, the frame goes out
+// slightly torn rather than the game locking up.
+void WaitForGpu() {
+  if (g_flush_query == nullptr) return;
+  LARGE_INTEGER t1, t2;
+  QueryPerformanceCounter(&t1);
   g_flush_query->Issue(D3DISSUE_END);
   int spins = 0;
   while (g_flush_query->GetData(nullptr, 0, D3DGETDATA_FLUSH) == S_FALSE) {
@@ -915,12 +980,104 @@ void* GpuBridgeCaptureEye(int eye) {
   }
   if (spins > 0) ++g_flush_spins;
   QueryPerformanceCounter(&t2);
-
-  g_blit_ticks += t1.QuadPart - t0.QuadPart;
   g_flush_ticks += t2.QuadPart - t1.QuadPart;
-  ++g_captures;
-  return g_opened[eye];
 }
+
+// Takes the wait of the second thread in the frame before, for the report.
+// Call it only when the second thread has no frame.
+void TakeThreadWait() {
+  if (!g_thread_waited) return;
+  g_thread_waited = false;
+  g_flush_ticks += g_thread_wait_ticks;
+  if (g_thread_polls > 0) ++g_flush_spins;
+  if (g_thread_gave_up && g_gave_up_lines < 5) {
+    ++g_gave_up_lines;
+    ModLog("gpu bridge   : the GPU did not finish a frame in 100 ms. The "
+           "second thread sent the frame as it was");
+  }
+}
+
+}  // namespace
+
+// The copy of one eye picture, and then the wait for the GPU.
+void* GpuBridgeCaptureEye(int eye) {
+  // The second thread can read the shared textures of the frame before.
+  FrameSendJoin();
+  void* texture = CopyEye(eye);
+  if (texture != nullptr) WaitForGpu();
+  return texture;
+}
+
+// A FRAME WITH ONE WAIT FOR THE GPU (frame_send.cpp). GpuBridgeCopyEye puts
+// the copy of an eye picture in the queue and does not wait. After the
+// second eye pass one wait covers the two copies, and the copy of the
+// interface panel: the work of one device is done in the order of its queue.
+// Until that wait is over, the Direct3D 11 device must not read a texture
+// that GpuBridgeCopyEye returned.
+void* GpuBridgeCopyEye(int eye) {
+  TakeThreadWait();
+  return CopyEye(eye);
+}
+
+// The one wait, on the frame thread.
+void GpuBridgeWaitHere() { WaitForGpu(); }
+
+// The one wait on a second thread has two parts. The frame thread puts the
+// end of the frame in the queue and sends the queue to the GPU.
+void GpuBridgeWaitBegin() {
+  if (g_flush_query == nullptr) return;
+  g_flush_query->Issue(D3DISSUE_END);
+  g_flush_query->GetData(nullptr, 0, D3DGETDATA_FLUSH);
+}
+
+// Then the second thread waits for that end. The device takes a lock for
+// each call, and the frame thread can draw the next frame at the same time.
+// So this loop asks about 20,000 times a second and not without a stop, and
+// it does not send the queue again before 2 ms are over. It has a limit of
+// 100 ms: the frame then goes out as it is.
+void GpuBridgeWaitOnThread() {
+  IDirect3DQuery9* query = g_flush_query;
+  if (query == nullptr || g_frequency.QuadPart == 0) return;
+  const LONGLONG pause = g_frequency.QuadPart / 20000;
+  const LONGLONG flush_each = g_frequency.QuadPart / 500;
+  const LONGLONG limit = g_frequency.QuadPart / 10;
+  LARGE_INTEGER start, now;
+  QueryPerformanceCounter(&start);
+  LONGLONG next_flush = flush_each;
+  uint32_t polls = 0;
+  bool gave_up = false;
+  for (;;) {
+    QueryPerformanceCounter(&now);
+    const LONGLONG waited = now.QuadPart - start.QuadPart;
+    DWORD flags = 0;
+    if (waited >= next_flush) {
+      flags = D3DGETDATA_FLUSH;
+      next_flush += flush_each;
+    }
+    if (query->GetData(nullptr, 0, flags) != S_FALSE) break;
+    ++polls;
+    if (waited > limit) {
+      gave_up = true;
+      break;
+    }
+    LARGE_INTEGER then;
+    do {
+      YieldProcessor();
+      QueryPerformanceCounter(&then);
+    } while (then.QuadPart - now.QuadPart < pause);
+  }
+  QueryPerformanceCounter(&now);
+  g_thread_wait_ticks = static_cast<uint64_t>(now.QuadPart - start.QuadPart);
+  g_thread_polls = polls;
+  g_thread_gave_up = gave_up;
+  g_thread_waited = true;
+}
+
+// True when a second thread can wait for the GPU on this device.
+bool GpuBridgeTwoThreads() { return g_ready && g_two_threads; }
+
+// Call it before the backend makes its device.
+void GpuBridgeWantTwoThreads(bool on) { g_two_threads_wanted = on; }
 
 // Frees the keeps of the eye pictures. See the note at g_keep.
 void GpuBridgeKeepFree() {
@@ -1590,6 +1747,7 @@ void GpuBridgeSelfTestDone() {
 }
 
 void GpuBridgeShutdown() {
+  FrameSendJoin();
   if (g_test_staging != nullptr) {
     g_test_staging->Release();
     g_test_staging = nullptr;

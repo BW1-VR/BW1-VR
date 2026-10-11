@@ -210,6 +210,12 @@ void EyeCleanAfterPass(int eye);
 void EyeCleanEndPair();
 void EyeCleanToggle(const char* cause);
 void EyeCleanReport();
+// frame_send.cpp: the way of the eye pictures to the headset.
+int FrameSendMode();
+uint64_t FrameSendEnd(const bwvr::LateFrame& pictures, int mode);
+void FrameSendCycle(const char* cause);
+// gpu_bridge.cpp: the copy of an eye picture with no wait for the GPU.
+void* GpuBridgeCopyEye(int eye);
 void InputWatchAskPointer(int count);
 void InputWatchFrame();
 void FovSetScale(float scale);
@@ -603,6 +609,10 @@ bool GameHasFocus() {
 //               (eye_clean, eye_clean.cpp)
 //   Shift Delete  a speech bubble of the game is one card at the depth of its
 //               sign, or it is drawn as before (bubble_card, bubble_card.cpp)
+//   Ctrl Shift Numpad Slash  the mod waits for the GPU after each eye pass,
+//               one time a frame, or one time a frame on a second thread
+//               that also gives the frame to the runtime (frame_send,
+//               frame_send.cpp)
 //
 // With play_mode=3, the tabletop mode, or play_mode=4, the God view, one
 // more for everyone:
@@ -622,12 +632,12 @@ bool GameHasFocus() {
 // values chosen. The ini keys stay, except the ones the launcher rewrites on
 // every save. See launcher.cpp, kRetiredKeys.
 void PollHotkeys() {
-  const int kKeys = 10;
-  static bool down[kKeys] = {false, false, false, false, false,
+  const int kKeys = 11;
+  static bool down[kKeys] = {false, false, false, false, false, false,
                              false, false, false, false, false};
   const int keys[kKeys] = {VK_F11,    VK_F12,    VK_NUMPAD0, VK_NUMPAD1,
                            VK_INSERT, VK_DELETE, VK_HOME,    VK_CANCEL,
-                           VK_MULTIPLY, VK_NEXT};
+                           VK_MULTIPLY, VK_NEXT, VK_DIVIDE};
   bool now[kKeys];
   for (int i = 0; i < kKeys; ++i) {
     now[i] = (GetAsyncKeyState(keys[i]) & 0x8000) != 0;
@@ -717,6 +727,13 @@ void PollHotkeys() {
     // is the key of the choice of a far target (hand_direct.cpp).
     if (g_test_keys && now[5] && !down[5] && shift && !ctrl) {
       BubbleCardToggle("Shift and Delete");
+    }
+    // An A/B of the way of the eye pictures to the headset (docs/backend.md,
+    // "Keeping the two devices in step"). The slash key with Shift and no
+    // Ctrl is a key of the Temple (temple.cpp), and with no Shift it is a
+    // key of the throw (throw_physics.cpp).
+    if (g_test_keys && now[10] && !down[10] && ctrl && shift) {
+      FrameSendCycle("Ctrl, Shift and the slash key of the number pad");
     }
   }
   // Kept up to date without focus too, so a key that is already down when
@@ -1116,6 +1133,11 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
 
   uint64_t scene = 0, grab = 0;
   uint64_t eye_scene[2] = {0, 0};
+  // The way of the eye pictures to the headset, the same for both eye passes
+  // (frame_send.cpp). A frame with one wait for the GPU keeps its textures
+  // here until the second eye pass is over.
+  const int send_mode = FrameSendMode();
+  bwvr::LateFrame late = {};
   const bool profile = FrameProfileOn();
   for (int eye = 0; eye < 2; ++eye) {
     // Left eye is negative, right eye is positive, both about the camera the
@@ -1227,7 +1249,8 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
     // never sees a pixel. Its cost does not grow with resolution.
     //
     // The interface panel of eye pass 0 goes first, with no flush of its own.
-    // The flush of the eye 0 capture drains its copy too.
+    // The next wait for the GPU covers its copy too: the wait of the eye 0
+    // capture, or the one wait of the frame (frame_send.cpp).
     if (eye == 0) UiPanelAfterFirstEye(g_frames + 1, capture_frame);
     void* ui_texture = nullptr;
     if (eye == 0 && to_headset && GpuBridgeReady() &&
@@ -1236,10 +1259,17 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
     }
     bool sent = false;
     if (to_headset && GpuBridgeReady()) {
-      void* texture = GpuBridgeCaptureEye(eye);
-      if (texture != nullptr) {
-        g_screen->SetEyeTexture(eye, texture);
-        sent = true;
+      if (send_mode == 0) {
+        void* texture = GpuBridgeCaptureEye(eye);
+        if (texture != nullptr) {
+          g_screen->SetEyeTexture(eye, texture);
+          sent = true;
+        }
+      } else {
+        // The copy alone. The wait for the GPU and the copy to the headset
+        // come one time, after the second eye pass.
+        late.eye_texture[eye] = GpuBridgeCopyEye(eye);
+        sent = late.eye_texture[eye] != nullptr;
       }
     }
     if (ui_texture != nullptr && sent) {
@@ -1248,7 +1278,11 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
       if (!IsBadReadPtr(info, sizeof(*info)) &&
           UiPanelQuads(static_cast<uint32_t>(info->res_x),
                        static_cast<uint32_t>(info->res_y), quads)) {
-        g_screen->SetPanelTexture(ui_texture);
+        if (send_mode == 0) {
+          g_screen->SetPanelTexture(ui_texture);
+        } else {
+          late.panel_texture = ui_texture;
+        }
         g_screen->SetPanelQuads(quads);
       }
     }
@@ -1323,9 +1357,20 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
   {
     const uint64_t end_start = profile ? FrameProfileTicks() : 0;
     CutsceneWindowStage(to_headset, g_frames + 1, eyes_apart);
-    if (to_headset) g_screen->EndFrame();
+    // A wait for the GPU on this thread is time of the eye pictures, as the
+    // wait after each eye pass is.
+    uint64_t gpu_wait = 0;
+    if (to_headset) {
+      if (late.eye_texture[0] != nullptr || late.eye_texture[1] != nullptr) {
+        gpu_wait = FrameSendEnd(late, send_mode);
+      } else {
+        g_screen->EndFrame();
+      }
+    }
+    grab += gpu_wait;
     if (profile) {
-      FrameProfileAdd(kFpEndFrame, FrameProfileTicks() - end_start);
+      FrameProfileAdd(kFpEndFrame,
+                      FrameProfileTicks() - end_start - gpu_wait);
     }
   }
   ++g_frames;

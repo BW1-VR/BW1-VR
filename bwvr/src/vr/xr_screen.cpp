@@ -320,6 +320,64 @@ struct XrScreen::Impl {
   bool profiles_logged = false;
   char profile[2][XR_MAX_PATH_LENGTH] = {{0}, {0}};
 
+  // The layers of one frame. BuildFrame fills them, and SendFrame gives them
+  // to xrEndFrame. They are here, and not on the stack, because SendFrame
+  // can run on the second thread.
+  struct Built {
+    XrCompositionLayerProjectionView eye_views[2];
+    XrCompositionLayerProjection projection;
+    XrCompositionLayerQuad panels[kPanelQuads];
+    XrCompositionLayerQuad card_quads[kCards];
+    XrCompositionLayerQuad walls[4];
+    XrCompositionLayerQuad quads[2];
+    XrCompositionLayerQuad subtitle_quad;
+    const XrCompositionLayerBaseHeader* layers[1 + kPanelQuads + kCards + 4];
+    uint32_t layer_count;
+    XrTime display_time;
+    bool world;               // a projection layer, and not a screen
+    bool with_card[kCards];
+    bool with_subtitles;      // a screen with the subtitle card
+    LARGE_INTEGER before;     // the start of BuildFrame
+    LARGE_INTEGER built;      // its end
+    LARGE_INTEGER end_start;  // the start of xrEndFrame
+    LARGE_INTEGER end_done;   // its end
+    XrResult result;          // of xrEndFrame
+  };
+  Built built = {};
+
+  // A LATE FRAME (EndFrameLate). RunLate waits for the GPU and copies the
+  // textures to the swapchain images, and SendFrame calls xrEndFrame. Both
+  // run on the frame thread or on the second thread. While the second thread
+  // has a frame, the frame thread calls only xrPollEvent, xrWaitFrame and
+  // Haptic, and it does not use the Direct3D 11 context.
+  LateFrame late = {};
+  XrResult late_result[3] = {XR_SUCCESS, XR_SUCCESS, XR_SUCCESS};
+  uint64_t late_gpu = 0;   // the last frame: the ticks of the wait for the GPU
+  uint64_t late_copy = 0;  // and of the copies
+  HANDLE send_thread = nullptr;
+  DWORD send_thread_id = 0;
+  HANDLE send_go = nullptr;    // the second thread has a frame to send
+  HANDLE send_done = nullptr;  // the runtime has that frame
+  bool send_busy = false;      // only the frame thread writes it
+  bool send_quit = false;
+  bool send_failed = false;    // the second thread did not start
+  // For the report.
+  uint64_t late_frames = 0;
+  uint64_t late_thread_frames = 0;
+  uint64_t late_gpu_ticks = 0;
+  uint64_t late_copy_ticks = 0;
+  uint64_t late_end_ticks = 0;
+  uint64_t join_ticks = 0;
+  uint64_t join_worst = 0;
+
+  static DWORD WINAPI SendThreadMain(void* param);
+  bool StartSendThread();
+  void StopSendThread();
+  XrResult CopyLate(XrSwapchain chain, ID3D11Texture2D** chain_images,
+                    void* texture);
+  void RunLate();
+  void SendFrame();
+
   bool CreateInput();                  // Start, after the LOCAL space
   void SuggestProfile(const Profile& info);
   void SyncInput(HandInput* hands, XrTime when);  // after xrWaitFrame
@@ -1030,6 +1088,9 @@ bool XrScreen::BeginFrame() {
   for (;;) {
     XrEventDataBuffer event = {XR_TYPE_EVENT_DATA_BUFFER};
     if (xrPollEvent(s.instance, &event) != XR_SUCCESS) break;
+    // An event can end the session, so the second thread gives its frame to
+    // the runtime first.
+    Join();
 
     if (event.type == XR_TYPE_EVENT_DATA_SESSION_STATE_CHANGED) {
       const XrEventDataSessionStateChanged* changed =
@@ -1086,6 +1147,7 @@ bool XrScreen::BeginFrame() {
 
   // A sleeping headset must not leave a button held.
   if (!s.session_running) {
+    Join();
     s.ClearInput(hands_);
     return true;  // alive, just not presenting yet
   }
@@ -1093,8 +1155,11 @@ bool XrScreen::BeginFrame() {
   // --- wait and begin -----------------------------------------------------
   XrFrameWaitInfo wait_info = {XR_TYPE_FRAME_WAIT_INFO};
   s.frame_state = {XR_TYPE_FRAME_STATE};
-  if (!s.Check(xrWaitFrame(s.session, &wait_info, &s.frame_state),
-               "xrWaitFrame")) {
+  const XrResult waited = xrWaitFrame(s.session, &wait_info, &s.frame_state);
+  // xrWaitFrame can run while the second thread sends the frame before.
+  // xrBeginFrame cannot: the runtime must have that frame first.
+  Join();
+  if (!s.Check(waited, "xrWaitFrame")) {
     s.ClearInput(hands_);
     return true;
   }
@@ -1643,6 +1708,33 @@ void XrScreen::ReportUpload(uint64_t frames) {
           s.cards[kCardRing].layers);
     s.cards[kCardRing].layers = 0;
   }
+  if (s.late_frames > 0 && s.frequency.QuadPart != 0) {
+    const double to_ms = 1000.0 / static_cast<double>(s.frequency.QuadPart);
+    const double count = static_cast<double>(s.late_frames);
+    s.log("  frame send   : %llu frames with one wait for the GPU, %llu of "
+          "them on the second thread. The mean of a frame: the wait for the "
+          "GPU %.2f ms, the copies to the runtime %.2f ms, xrEndFrame %.2f "
+          "ms. The frame thread waited for the second thread %.2f ms, and "
+          "%.2f ms at the most",
+          s.late_frames, s.late_thread_frames,
+          (static_cast<double>(s.late_gpu_ticks) / count) * to_ms,
+          (static_cast<double>(s.late_copy_ticks) / count) * to_ms,
+          (static_cast<double>(s.late_end_ticks) / count) * to_ms,
+          (static_cast<double>(s.join_ticks) / count) * to_ms,
+          static_cast<double>(s.join_worst) * to_ms);
+    s.late_frames = 0;
+    s.late_thread_frames = 0;
+    s.late_gpu_ticks = 0;
+    s.late_copy_ticks = 0;
+    s.late_end_ticks = 0;
+    s.join_ticks = 0;
+    s.join_worst = 0;
+    // A late frame is no upload, so the lines below do not clear these.
+    if (s.uploads == 0) {
+      s.end_ticks = 0;
+      s.ends = 0;
+    }
+  }
   if (s.uploads == 0 || s.frequency.QuadPart == 0 || frames == 0) return;
   const double to_ms = 1000.0 / static_cast<double>(s.frequency.QuadPart);
   const double per_frame = static_cast<double>(frames);
@@ -1673,12 +1765,26 @@ void XrScreen::SetRenderPose(int index, const float position[3],
 }
 
 void XrScreen::EndFrame() {
+  if (!BuildFrame()) return;
+  impl_->SendFrame();
+  FinishFrame();
+}
+
+// Makes the layers of the frame, and sends the cards and the walls of the
+// frame. The layers are in Impl::built after it. False when no frame is
+// open.
+bool XrScreen::BuildFrame() {
   Impl& s = *impl_;
-  if (!s.frame_open) return;
+  if (!s.frame_open) return false;
   if (s.frequency.QuadPart == 0) QueryPerformanceFrequency(&s.frequency);
-  LARGE_INTEGER before;
-  QueryPerformanceCounter(&before);
+  Impl::Built& b = s.built;
+  QueryPerformanceCounter(&b.before);
   s.frame_open = false;
+  b.layer_count = 0;
+  b.display_time = s.frame_state.predictedDisplayTime;
+  b.world = false;
+  b.with_subtitles = false;
+  for (int i = 0; i < kCards; ++i) b.with_card[i] = false;
 
   // PROJECTION, OR A SCREEN.
   //
@@ -1701,7 +1807,7 @@ void XrScreen::EndFrame() {
   const bool as_screen = window_staged && window.screen;
   if (projection_ && !as_screen && eyes_ == 2 && s.acquired[0] >= 0 &&
       s.acquired[1] >= 0 && views_[0].valid && views_[1].valid) {
-    XrCompositionLayerProjectionView eye_views[2];
+    XrCompositionLayerProjectionView* eye_views = b.eye_views;
     for (int eye = 0; eye < 2; ++eye) {
       XrCompositionLayerProjectionView& v = eye_views[eye];
       v = {XR_TYPE_COMPOSITION_LAYER_PROJECTION_VIEW};
@@ -1745,14 +1851,14 @@ void XrScreen::EndFrame() {
       s.log("  openxr: submitting a projection layer, half angle %.1f deg",
             render_half_angle_ * 57.29578f);
     }
-    XrCompositionLayerProjection projection = {
-        XR_TYPE_COMPOSITION_LAYER_PROJECTION};
+    XrCompositionLayerProjection& projection = b.projection;
+    projection = {XR_TYPE_COMPOSITION_LAYER_PROJECTION};
     projection.layerFlags = 0;
     projection.space = s.space;
     projection.viewCount = 2;
     projection.views = eye_views;
 
-    const XrCompositionLayerBaseHeader* layers[1 + kPanelQuads + kCards + 4];
+    const XrCompositionLayerBaseHeader** layers = b.layers;
     uint32_t layer_count = 0;
     layers[layer_count++] =
         reinterpret_cast<const XrCompositionLayerBaseHeader*>(&projection);
@@ -1761,7 +1867,7 @@ void XrScreen::EndFrame() {
     // an earlier one. Without the unpremultiplied flag the runtime reads the
     // color as premultiplied, which is what the panel holds. All the quads
     // read the one image, each through its own rect.
-    XrCompositionLayerQuad panels[kPanelQuads];
+    XrCompositionLayerQuad* panels = b.panels;
     if (s.panel_acquired >= 0) {
       for (int i = 0; i < kPanelQuads; ++i) {
         const PanelQuad& q = s.panel_quads[i];
@@ -1811,8 +1917,8 @@ void XrScreen::EndFrame() {
     // frame that staged it. The subtitle card is the far one, so it goes
     // first, and the hint cards at the hands draw over it. The ring is open
     // only while the player holds its control, so it draws over all of them.
-    XrCompositionLayerQuad card_quads[kCards];
-    bool with_card[kCards] = {false, false, false, false};
+    XrCompositionLayerQuad* card_quads = b.card_quads;
+    bool* with_card = b.with_card;
     const int card_order[kCards] = {kCardSubtitles, kCardHintPointing,
                                     kCardHintOther, kCardRing};
     for (int i = 0; i < kCards; ++i) {
@@ -1829,7 +1935,7 @@ void XrScreen::EndFrame() {
 
     // THE WALLS OF THE CUT SCENE WINDOW, over all the other layers, so the
     // room past the opening is black and calm.
-    XrCompositionLayerQuad walls[4];
+    XrCompositionLayerQuad* walls = b.walls;
     if (window_staged && window.mask && s.SendMask(window, walls)) {
       for (int k = 0; k < 4; ++k) {
         layers[layer_count++] =
@@ -1840,43 +1946,16 @@ void XrScreen::EndFrame() {
     ++presented_;
     for (int eye = 0; eye < 2; ++eye) s.acquired[eye] = -1;
 
-    XrFrameEndInfo end = {XR_TYPE_FRAME_END_INFO};
-    end.displayTime = s.frame_state.predictedDisplayTime;
-    end.environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
-    end.layerCount = layer_count;
-    end.layers = layers;
-    if (!s.Check(xrEndFrame(s.session, &end), "xrEndFrame")) {
-      // The runtime refused a frame. A refused frame shows nothing, so a
-      // card of that frame must not go in the next one. The newest kind goes
-      // first: the ring, then the subtitle card. A frame that fails with
-      // neither takes the hint cards away.
-      if (with_card[kCardRing]) {
-        g_card_failed[kCardRing] = true;
-        s.log("  openxr: the runtime refused a frame with the ring, so the "
-              "ring does not show. Its items still act");
-      } else if (with_card[kCardSubtitles]) {
-        g_card_failed[kCardSubtitles] = true;
-        s.log("  openxr: the runtime refused a frame with the subtitle card, "
-              "so the subtitles stay in the eye pictures");
-      } else if (with_card[kCardHintPointing] || with_card[kCardHintOther]) {
-        g_card_failed[kCardHintPointing] = true;
-        g_card_failed[kCardHintOther] = true;
-        s.log("  openxr: the runtime refused a frame with a hint card, so the "
-              "hints stay in the eye pictures");
-      }
-    }
-
-    LARGE_INTEGER done;
-    QueryPerformanceCounter(&done);
-    s.end_ticks += done.QuadPart - before.QuadPart;
-    ++s.ends;
-    return;
+    b.layer_count = layer_count;
+    b.world = true;
+    QueryPerformanceCounter(&b.built);
+    return true;
   }
 
   // One quad per eye. With two eyes each quad is visible to one eye only, so
   // the two pictures are seen as one screen with depth in it.
-  XrCompositionLayerQuad quads[2];
-  const XrCompositionLayerBaseHeader* layers[3];
+  XrCompositionLayerQuad* quads = b.quads;
+  const XrCompositionLayerBaseHeader** layers = b.layers;
   uint32_t layer_count = 0;
   // The columns that each eye picture loses in the cut scene window. See
   // WindowLayer.
@@ -1942,8 +2021,8 @@ void XrScreen::EndFrame() {
   // THE SUBTITLE CARD OF THE CUT SCENE WINDOW goes over the two eye quads,
   // as one quad for both eyes. A screen has no other card: the hints are in
   // its picture.
-  XrCompositionLayerQuad subtitle_quad;
-  bool with_subtitles = false;
+  XrCompositionLayerQuad& subtitle_quad = b.subtitle_quad;
+  bool& with_subtitles = b.with_subtitles;
   if (as_screen && layer_count > 0 && g_have_staged_card[kCardSubtitles] &&
       g_staged_card[kCardSubtitles].visible &&
       s.SendCard(kCardSubtitles, g_staged_card[kCardSubtitles],
@@ -1961,25 +2040,234 @@ void XrScreen::EndFrame() {
   }
   for (int i = 0; i < kCards; ++i) g_have_staged_card[i] = false;
 
-  XrFrameEndInfo end_info = {XR_TYPE_FRAME_END_INFO};
-  end_info.displayTime = s.frame_state.predictedDisplayTime;
-  end_info.environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
-  end_info.layerCount = layer_count;
-  end_info.layers = layer_count ? layers : nullptr;
-  if (!s.Check(xrEndFrame(s.session, &end_info), "xrEndFrame") &&
-      with_subtitles) {
-    // A refused frame shows nothing, so the card must not go in the next
-    // one. The subtitles then stay in the picture of the window.
-    g_card_failed[kCardSubtitles] = true;
-    s.log("  openxr: the runtime refused a frame of the cut scene window "
-          "with the subtitle card, so the subtitles stay in the eye "
-          "pictures");
-  }
+  b.layer_count = layer_count;
+  QueryPerformanceCounter(&b.built);
+  return true;
+}
 
-  LARGE_INTEGER after;
-  QueryPerformanceCounter(&after);
-  s.end_ticks += after.QuadPart - before.QuadPart;
+// Gives the layers of BuildFrame to the runtime. It reads only Impl::built
+// and it writes no line of the log, so the second thread can call it.
+void XrScreen::Impl::SendFrame() {
+  Built& b = built;
+  XrFrameEndInfo end = {XR_TYPE_FRAME_END_INFO};
+  end.displayTime = b.display_time;
+  end.environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
+  end.layerCount = b.layer_count;
+  end.layers = b.layer_count ? b.layers : nullptr;
+  QueryPerformanceCounter(&b.end_start);
+  b.result = xrEndFrame(session, &end);
+  QueryPerformanceCounter(&b.end_done);
+}
+
+// After SendFrame, on the frame thread: the result of xrEndFrame, and the
+// time of BuildFrame and of xrEndFrame for the report.
+void XrScreen::FinishFrame() {
+  Impl& s = *impl_;
+  const Impl::Built& b = s.built;
+  if (!s.Check(b.result, "xrEndFrame")) {
+    if (b.world) {
+      // The runtime refused a frame. A refused frame shows nothing, so a
+      // card of that frame must not go in the next one. The newest kind goes
+      // first: the ring, then the subtitle card. A frame that fails with
+      // neither takes the hint cards away.
+      if (b.with_card[kCardRing]) {
+        g_card_failed[kCardRing] = true;
+        s.log("  openxr: the runtime refused a frame with the ring, so the "
+              "ring does not show. Its items still act");
+      } else if (b.with_card[kCardSubtitles]) {
+        g_card_failed[kCardSubtitles] = true;
+        s.log("  openxr: the runtime refused a frame with the subtitle card, "
+              "so the subtitles stay in the eye pictures");
+      } else if (b.with_card[kCardHintPointing] ||
+                 b.with_card[kCardHintOther]) {
+        g_card_failed[kCardHintPointing] = true;
+        g_card_failed[kCardHintOther] = true;
+        s.log("  openxr: the runtime refused a frame with a hint card, so the "
+              "hints stay in the eye pictures");
+      }
+    } else if (b.with_subtitles) {
+      // A refused frame shows nothing, so the card must not go in the next
+      // one. The subtitles then stay in the picture of the window.
+      g_card_failed[kCardSubtitles] = true;
+      s.log("  openxr: the runtime refused a frame of the cut scene window "
+            "with the subtitle card, so the subtitles stay in the eye "
+            "pictures");
+    }
+  }
+  s.end_ticks +=
+      static_cast<uint64_t>(b.built.QuadPart - b.before.QuadPart) +
+      static_cast<uint64_t>(b.end_done.QuadPart - b.end_start.QuadPart);
   ++s.ends;
+}
+
+// A LATE FRAME. The layers come first, so the cards go to the runtime while
+// the GPU works on the eye pictures. Then come the wait for the GPU, the
+// copies and xrEndFrame, on the second thread or on this thread.
+void XrScreen::EndFrameLate(const LateFrame& frame, bool on_thread) {
+  Impl& s = *impl_;
+  if (!s.frame_open) return;
+  s.late = frame;
+  // BuildFrame makes a layer only for a picture that the frame has.
+  for (int eye = 0; eye < 2; ++eye) {
+    if (!should_render_ || eye >= eyes_ ||
+        s.swapchain[eye] == XR_NULL_HANDLE) {
+      s.late.eye_texture[eye] = nullptr;
+    }
+    if (s.late.eye_texture[eye] != nullptr) s.acquired[eye] = 0;
+  }
+  if (!should_render_ || s.panel_swapchain == XR_NULL_HANDLE) {
+    s.late.panel_texture = nullptr;
+  }
+  s.panel_acquired = s.late.panel_texture != nullptr ? 0 : -1;
+  if (!BuildFrame()) return;
+  ++s.late_frames;
+  if (on_thread && s.StartSendThread()) {
+    ++s.late_thread_frames;
+    s.send_busy = true;
+    ResetEvent(s.send_done);
+    SetEvent(s.send_go);
+    return;
+  }
+  s.RunLate();
+  s.SendFrame();
+  FinishLate();
+  FinishFrame();
+}
+
+void XrScreen::Join() {
+  Impl& s = *impl_;
+  if (!s.send_busy || GetCurrentThreadId() == s.send_thread_id) return;
+  LARGE_INTEGER start, done;
+  QueryPerformanceCounter(&start);
+  WaitForSingleObject(s.send_done, INFINITE);
+  QueryPerformanceCounter(&done);
+  s.send_busy = false;
+  const uint64_t waited =
+      static_cast<uint64_t>(done.QuadPart - start.QuadPart);
+  s.join_ticks += waited;
+  if (waited > s.join_worst) s.join_worst = waited;
+  FinishLate();
+  FinishFrame();
+}
+
+bool XrScreen::sending() const { return impl_->send_busy; }
+
+uint64_t XrScreen::LateWaitTicks() const {
+  return impl_->send_busy ? 0 : impl_->late_gpu;
+}
+
+// After RunLate and SendFrame, on the frame thread: the results of the
+// copies, and the times for the report.
+void XrScreen::FinishLate() {
+  Impl& s = *impl_;
+  const char* const what[3] = {"the copy of the left eye picture",
+                               "the copy of the right eye picture",
+                               "the copy of the panel"};
+  for (int i = 0; i < 3; ++i) s.Check(s.late_result[i], what[i]);
+  s.late_gpu_ticks += s.late_gpu;
+  s.late_copy_ticks += s.late_copy;
+  s.late_end_ticks += static_cast<uint64_t>(s.built.end_done.QuadPart -
+                                            s.built.end_start.QuadPart);
+}
+
+// One texture to the next image of its swapchain: acquire, wait, one copy on
+// the GPU, release. As SetEyeTexture, with no line of the log.
+XrResult XrScreen::Impl::CopyLate(XrSwapchain chain,
+                                  ID3D11Texture2D** chain_images,
+                                  void* texture) {
+  uint32_t image = 0;
+  XrSwapchainImageAcquireInfo acquire = {XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
+  XrResult result = xrAcquireSwapchainImage(chain, &acquire, &image);
+  if (XR_FAILED(result)) return result;
+  XrSwapchainImageWaitInfo image_wait = {XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO};
+  image_wait.timeout = XR_INFINITE_DURATION;
+  result = xrWaitSwapchainImage(chain, &image_wait);
+  if (XR_FAILED(result)) return result;
+  context->CopyResource(chain_images[image],
+                        static_cast<ID3D11Texture2D*>(texture));
+  XrSwapchainImageReleaseInfo release = {XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
+  return xrReleaseSwapchainImage(chain, &release);
+}
+
+// The wait for the GPU, and then the copies. The other device must not read
+// a shared texture before the GPU has written it.
+void XrScreen::Impl::RunLate() {
+  LARGE_INTEGER start, waited, copied;
+  QueryPerformanceCounter(&start);
+  if (late.wait != nullptr) late.wait();
+  QueryPerformanceCounter(&waited);
+  for (int eye = 0; eye < 2; ++eye) {
+    late_result[eye] =
+        late.eye_texture[eye] != nullptr
+            ? CopyLate(swapchain[eye], images[eye], late.eye_texture[eye])
+            : XR_SUCCESS;
+  }
+  late_result[2] =
+      late.panel_texture != nullptr
+          ? CopyLate(panel_swapchain, panel_images, late.panel_texture)
+          : XR_SUCCESS;
+  QueryPerformanceCounter(&copied);
+  late_gpu = static_cast<uint64_t>(waited.QuadPart - start.QuadPart);
+  late_copy = static_cast<uint64_t>(copied.QuadPart - waited.QuadPart);
+}
+
+// THE SECOND THREAD. It sends one frame for each signal of send_go, and it
+// says with send_done that the runtime has the frame.
+DWORD WINAPI XrScreen::Impl::SendThreadMain(void* param) {
+  Impl* s = static_cast<Impl*>(param);
+  for (;;) {
+    WaitForSingleObject(s->send_go, INFINITE);
+    if (s->send_quit) break;
+    s->RunLate();
+    s->SendFrame();
+    SetEvent(s->send_done);
+  }
+  return 0;
+}
+
+// Starts the second thread at the first frame that needs it. False when it
+// cannot start: the frame thread then sends the frame.
+bool XrScreen::Impl::StartSendThread() {
+  if (send_thread != nullptr) return true;
+  if (send_failed) return false;
+  send_quit = false;
+  send_go = CreateEventA(nullptr, FALSE, FALSE, nullptr);
+  send_done = CreateEventA(nullptr, TRUE, TRUE, nullptr);
+  if (send_go != nullptr && send_done != nullptr) {
+    send_thread =
+        CreateThread(nullptr, 0, &SendThreadMain, this, 0, &send_thread_id);
+  }
+  if (send_thread == nullptr) {
+    send_failed = true;
+    if (send_go != nullptr) CloseHandle(send_go);
+    if (send_done != nullptr) CloseHandle(send_done);
+    send_go = nullptr;
+    send_done = nullptr;
+    log("  openxr: the second thread did not start (error %lu), so the frame "
+        "thread sends each frame", GetLastError());
+    return false;
+  }
+  // The thread must not wait behind the other work of the PC: a late frame
+  // is a frame that the headset does not show.
+  SetThreadPriority(send_thread, THREAD_PRIORITY_ABOVE_NORMAL);
+  log("  openxr: a second thread gives the frames to the runtime");
+  return true;
+}
+
+// Ends the second thread. The caller made sure that it has no frame. The
+// wait has a limit: at the end of the process a thread can not end.
+void XrScreen::Impl::StopSendThread() {
+  if (send_thread == nullptr) return;
+  send_quit = true;
+  SetEvent(send_go);
+  WaitForSingleObject(send_thread, 500);
+  CloseHandle(send_thread);
+  CloseHandle(send_go);
+  CloseHandle(send_done);
+  send_thread = nullptr;
+  send_thread_id = 0;
+  send_go = nullptr;
+  send_done = nullptr;
 }
 
 bool XrScreen::SubmitTexture(void* texture) {
@@ -2022,6 +2310,9 @@ double StopMs(const LARGE_INTEGER& start) {
 void XrScreen::Stop() {
   Impl& s = *impl_;
   running_ = false;
+  // The second thread gives its frame to the runtime, and then it ends.
+  Join();
+  s.StopSendThread();
   // The lines of the end are for a session that was made. A start that
   // failed comes here too, many times, and it has nothing to say.
   const bool had_session = s.session != XR_NULL_HANDLE;

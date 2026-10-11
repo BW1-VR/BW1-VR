@@ -31,6 +31,7 @@ Other docs: `software-tnl.md` (the CPU transform and the camera matrix),
 | `src/proxy/ddraw_proxy.cpp` | The `ddraw.dll` stub. Loads the backend named by `backend` |
 | `src/mod/mod_main.cpp` | Settings (`ReadSettings`), hook installation, the log, the shutdown |
 | `src/mod/gpu_bridge.cpp` | Shared textures, Direct3D 9 to Direct3D 11 copy, depth format hook |
+| `src/mod/frame_send.cpp` | The way of the eye pictures to the headset: when the mod waits for the GPU, and on which thread (`frame_send`) |
 | `src/mod/present_watch.cpp` | Skips the copy to the monitor |
 | `src/mod/stereo.cpp` | The scene walk twice, the hotkeys, the view setup |
 | `src/mod/head_camera.cpp`, `head_pose.cpp`, `eye_camera.cpp` | The head on the camera, the per eye matrix |
@@ -387,6 +388,54 @@ all the work that the game queued for that eye. The blit itself measures 0.00 to
 0.01 ms. The flush wait at 1080p with a headset is 0.34 ms, and 0.74 to 1.14 ms
 while the monitor copy is also running. A headless self test shows 0.01 ms
 because it has almost nothing to wait for. Do not compare it to the others.
+
+### One wait a frame, and a second thread
+
+`frame_send` sets when the mod waits for the GPU, and which thread waits
+(`frame_send.cpp`). The pixels of a frame are the same with each value.
+
+| Value | The wait | The frame thread |
+| --- | --- | --- |
+| 0, the default | After each eye pass. Then the picture of that eye goes to its swapchain image | Does no work in the two waits |
+| 1 | One time, after the second eye pass. Then both pictures go to their swapchain images | Walks the scene for the second eye while the GPU draws the first eye |
+| 2 | As 1, on a second thread. That thread also makes the two copies and calls `xrEndFrame` | Goes on with the game. It calls `xrWaitFrame` for the next frame, and then it waits until the runtime has the frame |
+
+One wait is enough because each eye has its own shared texture, and a device
+does its work in the order of its queue. The copy of the interface panel is in
+the same queue.
+
+With the value 2, `XrScreen::EndFrameLate` makes the layers and sends the cards
+on the frame thread. The second thread gets only the wait, the copies and
+`xrEndFrame`. OpenXR permits `xrWaitFrame` for a frame while a different thread
+ends the frame before. It does not permit `xrBeginFrame` then, so `BeginFrame`
+waits for the second thread after `xrWaitFrame`. While the second thread has a
+frame, the frame thread does not use the Direct3D 11 context. Each code path
+that writes or frees a shared texture waits for the second thread first
+(`FrameSendJoin`): the capture of a menu frame, the end of the bridge, and the
+last count of a device that the backend destroys.
+
+The second thread reads the event query while the frame thread can draw. So
+the value 2 needs a Direct3D 9 device that permits calls from two threads
+(`D3DCREATE_MULTITHREADED`). The log says which device the backend made
+(`gpu bridge   : the device permits calls from two threads`). With
+`frame_send=2` or `test_keys=1` in the ini, the mod adds that flag when the
+backend does not ask for it. On a device for one thread the value 2 acts as 1.
+The second thread asks the query about 20,000 times a second, and not without
+a stop: the device takes a lock for each call. After 100 ms with no answer the
+frame goes out as it is.
+
+For each 450 frames the log has the line `frame send   :`. It gives the mean
+time of the wait for the GPU, of the copies and of `xrEndFrame`, and how long
+the frame thread waited for the second thread. With the values 1 and 2 the
+line `gpu bridge   :` has one wait for two captures. The number `grab x2` of
+the line `stereo       :` is the time of the frame thread for the eye
+pictures, so it does not have a wait of the second thread.
+
+Not shown: no session in a headset has run with the values 1 and 2. Only a
+headset shows the frame rate of each value, and whether the runtime gives
+`xrWaitFrame` back while a second thread ends a frame. A desktop run sends no
+frame to a runtime. With `test_keys=1`, Ctrl, Shift and the slash key of the
+number pad step the value while the game runs.
 
 ### The self test
 
@@ -2222,6 +2271,7 @@ in front. The mod reads the keys and never takes them from the game.
 | Shift Page Down | `test_keys=1` | While the Lionhead logo plays in stereo: each eye has its own trails, or each eye pass draws over the picture of the other eye and each orb shows two times (`intro_eye_trails`, `intro.md`). In play: each eye pass of the scene starts from its own frame before, or the two eye passes share the render target (`eye_clean`, `stereo-artifacts.md`, "The frame before of each eye"). A long pulse and a short pulse. Ctrl must be up |
 | Shift Delete | `test_keys=1` | While the Lionhead logo plays in stereo: the mark beside the logo has the depth of the logo, or the same pixel in each eye (`intro_text_place`, `intro.md`). In play: a speech bubble of the game (a signpost, a villager that speaks, the Creature) is one flat card at the depth of its sign, or it is drawn as the game and the interface depth make it in each eye pass (`bubble_card`, `ui-layer.md`, section 18). A long pulse and a short pulse. Ctrl must be up |
 | Ctrl Pause | `test_keys=1` | The mod skips the wait of 20 ms of the audio DLL at the stop of a sound that the mixer of the mod plays, or each stop has the wait. A long pulse and a short pulse (`audio_stop_wait`, `audio.md`, 7.6). Shift must be up |
+| Ctrl Shift Numpad Slash | `test_keys=1` | The mod waits for the GPU after each eye pass, one time a frame, or one time a frame on a second thread that also gives the frame to the runtime. A long pulse, a pulse of middle length and a short pulse (`frame_send`, "One wait a frame, and a second thread"). The slash key with Shift and no Ctrl is a key of the Temple, and with no Shift it is a key of the throw |
 
 The launcher shows `test_keys` as "Test keys", in a group named "Testing". It is off
 by default.
@@ -2272,6 +2322,7 @@ keys that the launcher sets.
 | --- | --- | --- |
 | `backend` | dxwrapper when installed | See "Settings" |
 | `gpu_bridge` | 1 | The GPU path |
+| `frame_send` | 0 | 0: the mod waits for the GPU after each eye pass. 1: one wait a frame. 2: one wait a frame on a second thread, which also gives the frame to the runtime. See "One wait a frame, and a second thread" |
 | `depth24` | 1 | A 24 bit Z buffer |
 | `near_plane_cm`, `near_plane_cm_16` | 5, 10 | The near plane in the room. 0 keeps the game's |
 | `vr`, `stereo` | 1, 1 | VR on, two eye passes |

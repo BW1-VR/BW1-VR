@@ -351,6 +351,24 @@ that moves while the Hand takes it.
     compositor and no encoder. The lines `frame cost   : window` of the log
     say what these cost. They also say what a slow frame is made of when it
     is not a game turn. Set the key after the last save of the launcher.
+  - **One wait for the GPU in a frame, and a second thread
+    (`frame_send`).** Built, and off by default: no session in a headset has
+    run with it. In a headset session at 90 Hz, the windows with 11 to 12 ms
+    of work on the frame thread had a mean of 2.7 ms in the two waits for
+    the GPU, and a frame that is late takes two display frames. With
+    `frame_send=1` the mod waits one time a frame. With `frame_send=2` a
+    second thread waits, copies the eye pictures and calls `xrEndFrame`
+    (`backend.md`, "One wait a frame, and a second thread"). Check in a
+    headset, with `test_keys=1` and Ctrl, Shift and the slash key of the
+    number pad:
+    - the frame rate of each value in a scene that does not hold 90 (the
+      lines `stereo       :` and `frame send   :` of the log),
+    - a picture with no tear, and no eye that shows a different frame,
+    - that the runtime accepts the value 2: no line `xrEndFrame failed`.
+
+    Not known: whether Virtual Desktop gives `xrWaitFrame` back for each
+    display frame while a second thread ends the frame before, and what the
+    value does to the left eye faults B13 and B16.
   - **The wait at the stop of a sound.** The mod skips the 20 ms that
     the audio DLL waits on the frame thread at the stop of a sound
     (`audio_stop_wait=0`, `audio.md`, 7.6). In a desktop run the worst frame
