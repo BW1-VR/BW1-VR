@@ -1384,13 +1384,16 @@ holds the view until the pen. If camera switch `0x10` is off at the pen, the
 press of A is refused and the log says so. Then use a game start that turns it
 on.
 
-`aim_queue.ps1 -Runs ring1,ring0` in `bwvr/tools/desk` makes three teleports at
-the pen: at 100 units a meter, after two zoom steps in (44.4) and after five
-zoom steps out (337.5). The runs show for each teleport that the head is over
-the target (0.000 units off), that the land under the head keeps its room
-height, and that the scale and the heading stay. With `teleport_ring_mode=1`
-the ring has a radius of 11.0 cm, 24.7 cm and 4.0 cm of the room at the three
-scales. With `teleport_ring_mode=0` it has 11.0 cm at each scale.
+`aim_queue.ps1 -Runs ring1,ring0 -NewGame` in `bwvr/tools/desk` makes three
+teleports at the pen: at 100 units a meter, after two zoom steps in (44.4) and
+after five zoom steps out (337.5). The runs show for each teleport that the
+head is over the target (0.000 units off), that the land under the head keeps
+its room height, and that the scale and the heading stay. With
+`teleport_ring_mode=1` the ring has a radius of 11.0 cm, 24.7 cm and 4.0 cm of
+the room at the three scales. With `teleport_ring_mode=0` it has 11.0 cm at
+each scale. In the test save `pen` the runs show the same ring sizes and two
+teleports: the third aim is on the sea (`tools/desk/README.md`, "Known limits
+of the recipes").
 
 1. A at the pen: `a@3000+10`. With the switch off, the log shows "A is
    refused: the game's jump switch is off (camera switch 0x10)".

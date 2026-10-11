@@ -574,6 +574,33 @@ const char* const kRetiredKeys[] = {
     "fake_controller_play_frame", "fake_controller_play_after",
     "menu_skip_test_frame", "intro_motion_test_seconds",
     "intro_push_test_px",
+    // More keys for desktop tests: each key that the mod reads with _test in
+    // its name, the turns and the places of the scripted controller, and the
+    // keys of a self test, of a probe and of test pictures.
+    "aim_test_keys", "aim_test_touch", "audio_stop_wait_test",
+    "audio_test_bank", "audio_test_path", "audio_test_solo",
+    "audio_test_step_ms", "audio_test_tag", "audio_test_tag_bank",
+    "audio_test_voice", "bulk_test_influence", "bulk_test_no_keep",
+    "command_test_class", "creature_command_test",
+    "cutscene_depth_test_off", "cutscene_depth_test_on",
+    "cutscene_window_test_off", "cutscene_window_test_on",
+    "cutscene_window_capture", "far_test_aim_blend_pct",
+    "far_test_aim_class", "far_test_aim_toward", "far_test_creature",
+    "far_test_forest", "far_test_influence", "far_test_least_cm",
+    "far_test_no_trees", "far_test_scroll", "far_test_thrown",
+    "far_test_tree", "god_zoom_about_test", "god_zoom_test_toggle",
+    "hand_feel_test_toggle", "hand_model_test_look", "hand_model_test_swap",
+    "help_test", "near_test_flips", "spawn_test_flag", "spawn_test_temple",
+    "spawn_test_toggle", "spawn_test_x", "spawn_test_z",
+    "spirit_point_world_test", "spirit_world_size_test",
+    "subtitle_card_test", "subtitle_selftest", "temple_test_click_frame",
+    "temple_test_door_on", "temple_test_enter_frame",
+    "temple_test_follow_frame", "temple_test_scan", "temple_test_scan_frame",
+    "temple_test_scan_hall", "temple_test_taps_frame", "temple_test_targets",
+    "text_click_test", "text_click_test_text", "fake_controller_rots",
+    "fake_controller_turns", "seek_plan", "seek_go", "seek_picture",
+    "seek_class", "seek_bulk", "seek_forest", "seek_scroll", "seek_tap",
+    "seek_thrown", "intro_probe",
     // Settings that the launcher offered before. Each has one right answer
     // in a headset, and the mod's default is that answer. The other
     // settings that are not offered now (the sizes and the depth of the

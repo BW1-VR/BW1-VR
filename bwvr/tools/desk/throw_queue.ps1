@@ -108,8 +108,8 @@ $defs = @{
     # zoom steps keep the land under the head in its place (god_zoom_about=0).
     landout = @{ Set = 'throw_land=1;god_zoom_about=0'; Steps = "stick_down@2800+10 stick_down@2830+10 $two"; Seconds = 112 }
     landin = @{ Set = 'throw_land=1;god_zoom_about=0'; Steps = "stick_up@2800+10 $two"; Seconds = 112 }
-    # A throw of about 8.3 m/s toward the sea, with no fetch after it. The
-    # rock comes down on the sea about 7.8 m of the room from the release.
+    # A throw of about 9.5 m/s toward the sea, with no fetch after it. The
+    # rock comes down on the sea about 10 m of the room from the release.
     sea = @{ Set = 'throw_land=1'; Steps = 'point@2990+1 aimfar@3000+1 grip@3060+141 pull@3100+3 pull@3150+3 point@3200+1 shot@3260+1 shot@3500+1'; Seconds = 100; Points = '0,0,100 0,0,100 -10,-10,60 -25,8,70' }
 }
 $Runs = @($Runs | ForEach-Object { $_.Split(',') } | Where-Object { $_ -ne '' })

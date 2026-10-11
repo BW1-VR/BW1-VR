@@ -345,14 +345,15 @@ turns and steps, and the time that the steps took.
 `throw_queue.ps1` and `village_run.ps1` in `bwvr/tools/desk` throw an object
 with the scripted hand, and the log has the lines of each flight. The runs
 show these flights. The distance is from the object to the real arc at the
-first contact, in cm of the room.
+first contact, in cm of the room. The speed of a scripted throw is not the
+same in each run, and the times and the places change with it.
 
 | Recipe | The object and the throw | The first contact | The end |
 | --- | --- | --- | --- |
 | `throw_queue.ps1 -Runs landout` | A rock, 2.5 m/s, at 225 units per meter | After 1.09 s, 0.3 cm from the arc | At rest |
 | `throw_queue.ps1 -Runs landin` | A rock, two throws of 3.0 and 3.1 m/s, at 66.7 units per meter | After 0.83 s and 0.82 s, 0.3 cm and 1.2 cm from the arc | At rest |
 | `throw_queue.ps1 -Runs tree` | A tree, 3.0 m/s, at 100 units per meter | After 1.03 s, 2.3 cm from the arc | The tree settles, and the game takes it out of the physics 2.7 s after the release |
-| `throw_queue.ps1 -Runs sea` | A rock, 8.3 m/s toward the sea, at 100 units per meter | After 2.64 s on the sea, about 7.8 m from the release, 0.4 cm from the arc | The flight ends 20 s later, when the object is under the sea |
+| `throw_queue.ps1 -Runs sea` | A rock, 9.5 and 9.7 m/s toward the sea in two runs, at 100 units per meter | After 2.94 s and 3.01 s on the sea, 9.8 m and 10.3 m from the release, 0.5 cm and 0.4 cm from the arc | The flight ends 0.6 s and 0.7 s later, when the object is under the sea |
 | `village_run.ps1 -Kind throw` | A villager, 2.6 m/s, at 44.4 units per meter | After 0.51 to 0.55 s on an object, 1.5 to 3.1 cm from the arc | At rest 3.1 to 4.5 s after the release, 0.76 m from it. 32 to 42 substeps have a touch of the object |
 
 The same throw of the villager shows the picture between the steps. With

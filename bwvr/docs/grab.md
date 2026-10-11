@@ -1076,9 +1076,9 @@ one, and the flag 8 of the tree), and what the tree is when it leaves the
 physics (its class and its forest).
 
 **The lean in a desktop run.** The tree in the Hand turns with the hand
-(`hand_hold_turn`, [hand.md](hand.md)). `throw_queue.ps1 -Runs treelean` turns
-the hand 30 degrees with a tree in it, 1.6 cm of the room over dry land. The
-tree then leans 0.26 and -0.46 rad, and the card says "Hold upright to plant.
+(`hand_hold_turn`, [hand.md](hand.md)). `throw_queue.ps1 -Runs treelean
+-NewGame` turns the hand 30 degrees with a tree in it, 1.6 cm of the room
+over dry land. The tree then leans 0.26 and -0.46 rad, and the card says "Hold upright to plant.
 Open to drop". After the opening the tree is in the physics with the same
 lean and with no forest: the game did not plant it. The game does not plant
 an upright tree at that place either (the next paragraph). So the run shows
@@ -1086,17 +1086,21 @@ the lean that the card and the game read, and it does not show that the lean
 alone stops the planting.
 
 **A tree that the card calls "plant" and the game does not plant.**
-`throw_queue.ps1 -Runs treeset` is the same recipe with a hand that does not
-turn. The hand takes a tree at the land and sets it down upright where it
-stood, 1.3 cm of the room over dry land. A rock lies 0.8 units from that
-place. The card says "Plant". The game does not plant the tree: it is in the
-physics with no forest, its mesh is 0.7 units over the land in its first
+`throw_queue.ps1 -Runs treeset -NewGame` is the same recipe with a hand that
+does not turn. The hand takes a tree at the land and sets it down upright
+where it stood, 1.3 cm of the room over dry land. A rock lies 0.8 units from
+that place. The card says "Plant". The game does not plant the tree: it is in
+the physics with no forest, its mesh is 0.7 units over the land in its first
 frame there, and the flag 8 of its physics object is not set. The physics of
 the game then has 6 other objects with their center nearer to the tree than
 the sum of the two radii, and the nearest one is a rock. After a set down
 with a still hand, with no lean, on dry land and with no fire, the release
 leaves the flag 8 out only when it raised the tree. So a body was in the way.
 [I: which of the 6 objects raised the tree.]
+
+In the test save `pen` the two recipes take a small rock beside the tree and
+not the tree, so they need `-NewGame` (`tools/desk/README.md`, "Known limits
+of the recipes").
 
 **Open.** A body in the way is not predicted, and the card says "Plant" for a
 tree that the game then lets fall (the run above). Whether the pile at the

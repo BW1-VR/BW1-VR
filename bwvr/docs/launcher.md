@@ -91,10 +91,10 @@ hand, for tests.
 | `head_units_per_meter_x10` | 75: 7.5 game units for each meter, the life size scale |
 
 The list `kRetiredKeys` also holds the keys of earlier modes (`head_tracking`,
-`immersive`) and the keys of the desktop test tools (`fake_head*`,
-`fake_controller*`, `fake_mouse*`, the `*_probe` keys, the `village_test_*`
-keys and some more). `stereo_headless=1` is in that list because it stops the
-headset session with no message.
+`immersive`) and the keys of the desktop test tools: `fake_head*`,
+`fake_controller*`, `fake_mouse*`, `seek_*`, the `*_probe` keys, each key
+with `_test` in its name, and some more. `stereo_headless=1` is in that list
+because it stops the headset session with no message.
 
 Every OpenXR runtime reports a pose for each eye, so the IPD is always known.
 The mod takes it from the distance between the two eye poses, and takes it

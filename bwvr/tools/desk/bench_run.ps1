@@ -122,14 +122,15 @@ function Get-BenchScenes([string]$Log) {
         }
         if ($rest -match '^mean ms of a frame by part: (.*)$') { $s.Parts = ConvertFrom-BenchList $Matches[1]; continue }
         if ($rest -match '^inside those parts, mean ms of a frame: (.*)$') { $s.Inside = ConvertFrom-BenchList $Matches[1]; continue }
-        $m = [regex]::Match($rest, "^(\d+) game turns in (\d+) frames\. The turn of such a frame, ms: mean $num, median $num, 99th percentile $num, worst $num\. A frame has (\d+) draw calls and (\d+) vertices")
+        # The log has "1 game turn", "1 frame" and "1 slow frame" for a count of 1.
+        $m = [regex]::Match($rest, "^(\d+) game turns? in (\d+) frames?\. The turn of such a frame, ms: mean $num, median $num, 99th percentile $num, worst $num\. A frame has (\d+) draw calls and (\d+) vertices")
         if ($m.Success) {
             $g = $m.Groups
             $s.Turns = [int]$g[1].Value; $s.TurnMean = ConvertTo-BenchNumber $g[3].Value; $s.TurnMedian = ConvertTo-BenchNumber $g[4].Value
             $s.TurnWorst = ConvertTo-BenchNumber $g[6].Value; $s.Draws = [int]$g[7].Value; $s.Vertices = [int]$g[8].Value
             continue
         }
-        $m = [regex]::Match($rest, "^(\d+) slow frames of \d+ \(over $num ms less the desktop copy\), (\d+) of them with a game turn\. The part that is the most over its median: (.*)$")
+        $m = [regex]::Match($rest, "^(\d+) slow frames? of \d+ \(over $num ms less the desktop copy\), (\d+) of them with a game turn\. The part that is the most over its median: (.*)$")
         if ($m.Success) {
             $s.SlowCount = [int]$m.Groups[1].Value; $s.SlowLimit = ConvertTo-BenchNumber $m.Groups[2].Value
             $s.Slow = $m.Groups[4].Value
@@ -210,7 +211,7 @@ function Show-BenchRun([string]$Run, [string]$Log) {
     'ms of a frame. "frame" is the mean of the whole frame. "work" is the frame less the copy to the monitor: its mean, median, 99th percentile and worst frame. Then the mean of each part: the game turn, each eye pass, the frame and pass functions of the mod, the copy to the monitor, the rest. "D3D" is the time in Direct3D draw calls, which is inside the eye passes.'
     Format-BenchTable $rows
     foreach ($s in $scenes) {
-        "  scene $($s.Scene): $($s.SlowCount) slow frames (work over $('{0:F1}' -f $s.SlowLimit) ms). The cause: $($s.Slow). A game turn: mean $('{0:F2}' -f $s.TurnMean) ms, worst $('{0:F2}' -f $s.TurnWorst)"
+        "  scene $($s.Scene): $($s.SlowCount) slow frame$(if ($s.SlowCount -ne 1) { 's' }) (work over $('{0:F1}' -f $s.SlowLimit) ms). The cause: $($s.Slow). A game turn: mean $('{0:F2}' -f $s.TurnMean) ms, worst $('{0:F2}' -f $s.TurnWorst)"
     }
     if ($scenes.Count -lt 6) { "run ${Run}: the log has $($scenes.Count) of 6 scenes. The run ended before the last scene: give more -Seconds" }
 }

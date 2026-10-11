@@ -51,12 +51,13 @@
 #   shows its walk to the object.
 # -Kind stay:
 #   At 100 units a meter: the hand aims at the Creature from a distance and
-#   holds the grip for 300 frames (the Creature stays at the door, and then
-#   starts a walk). A second grip of 200 frames comes while the Creature
-#   walks (it stops, stays and goes on). Then two short grips of 6 frames
+#   holds the grip for 300 frames (the Creature stays at the door). A second
+#   grip of 200 frames is a second stay. Then two short grips of 6 frames
 #   (the leash goes on and comes off), and a grip of 40 frames (a stay that
-#   ends soon after its start). With creature_hold_stay=0 each close of the
-#   grip is a leash click, and no grip makes the Creature stay.
+#   ends soon after its start). The Creature of the profile stands at the
+#   door between the grips, so the run does not show a stay that stops a
+#   walk. With creature_hold_stay=0 each close of the grip is a leash click,
+#   and no grip makes the Creature stay.
 # -Kind click:
 #   A text that waits for a click (bwvr/docs/controller-hints.md, section
 #   10). At 100 units a meter: the grip from a distance puts the leash on.
@@ -131,8 +132,7 @@ $points = '0,-30,60'
 if ($Kind -eq 'stay') {
     # No picture in the hold: the frame of a picture can take 250 ms, and the
     # controller then lets go of its buttons.
-    # The Creature starts its walk about 100 frames after the first grip
-    # opens. The second grip closes in that walk.
+    # The second grip closes 135 frames after the first grip opens.
     $steps = 'look@800+1700 point@860+1 aimfar@890+1 grip@910+300 ' +
              'aimfar@1335+1 grip@1345+200 ' +
              'aimfar@1700+1 grip@1720+6 aimfar@1820+1 grip@1840+6 ' +

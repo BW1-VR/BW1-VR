@@ -442,13 +442,14 @@ void Summarize(const char* label) {
   }
   const Summary turn =
       frame_stats_math::Summarize(g_values, with_turn, g_scratch);
-  ModLog("frame cost   : %s, %llu game turns in %d frames. The turn of such "
+  ModLog("frame cost   : %s, %llu game turn%s in %d frame%s. The turn of such "
          "a frame, ms: mean %.2f, median %.2f, 99th percentile %.2f, worst "
          "%.2f. A frame has %.0f draw calls and %.0f vertices in both "
          "passes. In the %d frames: %llu surface locks, %llu surface copies, "
          "%llu file opens, %llu file reads, %llu lines of the log, %llu "
          "calls of Sleep",
-         label, turns, with_turn, turn.mean, turn.median, turn.p99,
+         label, turns, turns == 1 ? "" : "s", with_turn,
+         with_turn == 1 ? "" : "s", turn.mean, turn.median, turn.p99,
          turn.worst, static_cast<double>(draws) / n,
          static_cast<double>(vertices) / n, n, g_group_count[kFpcLocks],
          g_group_count[kFpcCopies], g_group_count[kFpcOpens],
@@ -493,10 +494,11 @@ void Summarize(const char* label) {
                 cause_over[p] / cause_count[p], cause_worst[p]);
     strcat_s(line, sizeof(line), one);
   }
-  ModLog("frame cost   : %s, %d slow frames of %d (over %.2f ms less the "
+  ModLog("frame cost   : %s, %d slow frame%s of %d (over %.2f ms less the "
          "desktop copy), %d of them with a game turn. The part that is the "
          "most over its median: %s",
-         label, slow, n, limit, slow_turn, slow > 0 ? line : "none");
+         label, slow, slow == 1 ? "" : "s", n, limit, slow_turn,
+         slow > 0 ? line : "none");
   if (slow > 0) {
     float slow_mean[kInside];
     for (int k = 0; k < kInside; ++k) {
@@ -516,9 +518,10 @@ void Summarize(const char* label) {
   AddList(inside_line, sizeof(inside_line), kInsideName, w.inside, kInside,
           "%s%s %.3f");
   ModLog("frame cost   : %s, the worst frame is frame %u of the controllers, "
-         "%.2f ms less the desktop copy, with %u game turns and %u draw "
-         "calls. Its parts, ms: %s. Inside them: %s. %s%s",
-         label, w.frame, w.total - w.part[kPartFlip], w.turns, w.draws, line,
+         "%.2f ms less the desktop copy, with %u game turn%s and %u draw "
+         "call%s. Its parts, ms: %s. Inside them: %s. %s%s",
+         label, w.frame, w.total - w.part[kPartFlip], w.turns,
+         w.turns == 1 ? "" : "s", w.draws, w.draws == 1 ? "" : "s", line,
          inside_line,
          g_slowest_file[0] != 0 ? "The last file that it opened: "
                                 : "It opened no file",

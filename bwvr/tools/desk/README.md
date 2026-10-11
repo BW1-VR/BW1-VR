@@ -62,7 +62,10 @@ calls it. It keeps these rules, and a new script must keep them too:
 - The script also keeps a copy of the folder `Scripts\CreatureMind` of the
   game folder and of `MemoryLeaks.txt`, and it puts each file back. The mind
   of the Creature of the profile is in that folder, and a game that ends by
-  itself writes it (see "A run in which the game ends by itself").
+  itself writes it (see "A run in which the game ends by itself"). In a run
+  with the Creature of the profile, the game also writes it by itself in
+  play, with `creature.lhp` of the profile. That write comes 65 s to 118 s
+  after the start of the game, so a run of a minute or more can have it.
 - The tools never write the registry. A run starts `runblack.exe` directly,
   not the launcher. The game writes its own values there. In its start it
   writes the values of the profile that it read, so each value stays the
@@ -128,7 +131,7 @@ that `-NewGame` uses, and the length of a run in the test save.
 
 | Script | The start: the test save, and the row with `-NewGame` | The kinds and what they do | A run takes |
 | --- | --- | --- | --- |
-| `hand_run.ps1` | `pen`, "Skip straight to the Creature select" (`one`, `creature`, `fixed`). `temple`, "Keep your old Creature" (`old`) | `one`: the grip in the air, at a scroll and at the crown of a tree, with `near_rule` 1 and 2. With `near_rule` 2 the grip at the scroll takes the rock beside it and sets it down. `old`: the grip on the Creature, strokes and slaps. `creature`: the choice of a Creature at the Creature select. `fixed`: places from `-Points` and steps from `-Steps` | 44 s for `one`, 142 s for `old`, 202 s for `creature` |
+| `hand_run.ps1` | `pen`, "Skip straight to the Creature select" (`one`, `fixed`). `temple`, "Keep your old Creature" (`old`) | `one`: the grip in the air, at a scroll and at the crown of a tree, with `near_rule` 1 and 2. With `near_rule` 2 the grip at the scroll takes the rock beside it and sets it down. `old`: the grip on the Creature, strokes and slaps. `fixed`: places from `-Points` and steps from `-Steps` | 44 s for `one`, 142 s for `old` |
 | `throw_queue.ps1 -Runs <names>` | `pen`, "Skip straight to the Creature select" | A far fetch at the pen and a throw (`land`, `base`, `early`, `tree`, `sea`), the same at a different scale (`landout`, `landin`), a release with a still hand (`fall`, `fallold`), the same with a tree that the hand holds upright or turns by 30 degrees (`treeset`, `treelean`), and a new grip on an object that falls, flies or rolls (the names with `drop`, `fly` and `roll`) | 31 to 63 s each |
 | `aim_queue.ps1 -Runs <names>` | `pen`, "Skip straight to the Creature select" | The aim presets and the trim (`aim2`), a fetch of a thrown rock over the sea and from the sea (`move2`, `move1b`), a Creature command with the leash counted as on (`cmd1b`), and the teleport at three scales (`ring1`, `ring0`) | 26 to 54 s each |
 | `creature_recipe.ps1` | `temple`, "Keep your old Creature" | `state`: the Creature state, strokes and a slap. `leash`: the leash on and off. `stay`: the stay from a distance. `tie`: the leash tied to an object, and the walk of the Creature to it. `click`: a text of the game that waits for a click, with the leash on and with the Hand off the view (`text_click`) | 42 to 62 s |
@@ -151,14 +154,42 @@ What these scripts need:
 
 Known limits of the recipes:
 
-- `hand_run.ps1 -Kind creature` does not choose a Creature: the double click
-  of A at the pen makes the jump of the game, and a grip on a Creature of the
-  Creature select starts no Creature state.
+- No recipe chooses a Creature at the Creature select. A Creature in a pen
+  has no player, so a grip on it starts no Creature state. A press of the
+  trigger there starts a drag of the land, and the double click of A makes
+  the jump of the game. The recipes with the Creature state start in the
+  test save `temple` (`hand_run.ps1 -Kind old`, `creature_recipe.ps1`).
 - `throw_queue.ps1 -Runs rollnear` and `-Runs rollfar` do not take the rock
   in its roll. The word `seek` or `aimfar` comes 1.6 s after the release.
   The rock is then 1.1 to 1.2 m of the room from the Hand, and the draw of
   the game does not offer it (the log says "seen 0"), so it is no candidate.
   `dropfarroll` takes a rock that rolls after a fall.
+- `throw_queue.ps1 -Runs droproll` and `-Runs treenear` do not close the grip
+  on the object after its fall. The word `seek` puts the hand 50 cm below
+  the head. That place is below the view of the desktop window, and the
+  controller code drops a press that starts off view (the log says "the
+  right button press started off view"). The two presses in the air of
+  `hand_run.ps1 -Kind one` start off view too, and the code drops them.
+- The word `aimfar` does not choose the same object in the test save `pen`
+  and in a new game. The head is 1 cm from its place in a new game, and some
+  objects are at the least distance of the word (50 cm for a rock, 17 cm for
+  a tree). In a new game the first `aimfar` of a recipe that fetches a rock
+  (`aim_queue.ps1`, `throw_queue.ps1`) aims at a small rock 0.50 m of the
+  room from the Hand. In the test save it aims at the rock 3.86 m from the
+  Hand. Two proofs need `-NewGame`:
+  - `aim_queue.ps1 -Runs ring1,ring0`. In the test save the hand keeps the
+    aim at the far rock, which is almost level. The third aim, at 337.5 units
+    a meter, is then on the sea, and its release makes no teleport. The run
+    shows the three ring sizes and two teleports. In a new game the hand aims
+    61 degrees down, and each of the three teleports goes.
+  - `throw_queue.ps1 -Runs treeset` and `-Runs treelean`. In the test save
+    the second `aimfar` aims at a different tree, the hand turns to it, the
+    Hand's point is then on a small rock, and the grip takes the rock. In a
+    new game the grip takes the tree at the land.
+- `village_run.ps1 -Kind scaffold` shows the join of two scaffolds and the
+  tap that takes them apart. Its last opening of the grip makes no building
+  site: the game has no place for a building there, and the hand is 18 cm
+  over the land, so the scaffold falls. `-Kind site` shows a building site.
 - A run in which a person uses the PC does not count: the game window can
   lose the front, and the real mouse can take the pointer from the scripted
   controller. `desk_run.ps1` says when a person used the PC in a run.
@@ -414,7 +445,6 @@ Hand in the loaded game (`fake_controller_play_frame`).
 | `aim_queue.ps1` | The test save `pen` | 2750 | 75 to 103 s, 518 s for the six runs | 26 to 54 s, 224 s for the six runs |
 | `throw_queue.ps1` | The test save `pen` | 2750 | 80 to 112 s, 2104 s for the 22 runs | 31 to 63 s, 1026 s for the 22 runs |
 | `hand_run.ps1 -Kind one` | The test save `pen` | 4600 | 163 s | 44 s |
-| `hand_run.ps1 -Kind creature` | The test save `pen` | 4600 | 223 s | 202 s |
 | `hand_run.ps1 -Kind fixed` | The test save `pen` | 4600 | 163 s | 16 s and the time of `-Steps` |
 | `hand_run.ps1 -Kind old` | The test save `temple` | 700 | 163 s | 142 s |
 | `creature_recipe.ps1` | The test save `temple` | 800 | 65 to 80 s, 350 s for the five kinds | 42 to 62 s, 257 s for the five kinds |
@@ -427,8 +457,8 @@ Hand in the loaded game (`fake_controller_play_frame`).
 
 The start in the test save `pen` is 49 s shorter than the start of a new game
 with `select`, and the start in the test save `temple` is 10 s shorter than
-the start with `keep`. A run of `hand_run.ps1 -Kind old`, `-Kind creature` or
-`temple_run.ps1` is long because its steps are long.
+the start with `keep`. A run of `hand_run.ps1 -Kind old` or `temple_run.ps1`
+is long because its steps are long.
 
 No recipe of `throw_queue.ps1` needs the first story. Each one needs the
 Hand, the rock at the pen (or a tree) and the land, and the test save `pen`

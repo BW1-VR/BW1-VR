@@ -52,8 +52,9 @@ is built, and no test has proven it.
     fell from a still hand does not come back to the hand when the player
     does not want it. Such an object has no guard of `catch_grace_ms`. The
     test key (Ctrl and Page Up) gives the rules 1 and 0 for a comparison.
-  - Not shown: the grip on an object that rolls. The recipes `rollnear` and
-    `rollfar` do not reach that state on the desktop.
+  - Not shown: the grip on an object that rolls. The recipes `rollnear`,
+    `rollfar`, `droproll` and `treenear` do not reach that state on the
+    desktop (`bwvr/tools/desk/README.md`, "Known limits of the recipes").
   - A tree that is let go comes to rest in about 1 s now
     (`throw_tree_settle`, `throw.md`, "The landing of a tree"). Not shown:
     a far target that hides and shows by itself (not seen in a desktop
@@ -71,7 +72,7 @@ is built, and no test has proven it.
   "Plant", and the game does not plant it. The log has the 6 objects of the
   game's physics that are near the tree, and the flag of the tree that the
   release leaves out when it raised the tree (`throw_queue.ps1 -Runs
-  treeset` in `bwvr/tools/desk`).
+  treeset -NewGame` in `bwvr/tools/desk`).
   The test of the game puts each near object into its physics and compares
   two physics bodies, and the tree has a physics body only from the release
   on (`grab.md`, "The test of a body in the way"). So no call of the game
@@ -81,7 +82,8 @@ is built, and no test has proven it.
   bodies that the mod makes for the tree and for each near object.
   The lean is shown in a desktop run: a hand that turns 30 degrees makes the
   tree lean 0.26 and -0.46 rad, the card says "Hold upright to plant", and the
-  tree has the same lean in the physics of the game (`-Runs treelean`). That
+  tree has the same lean in the physics of the game (`-Runs treelean
+  -NewGame`). That
   run is at the place with the rock, so it does not show that the lean alone
   stops the planting. Not run: a tree that leans at a place where the game
   plants an upright tree.
@@ -164,8 +166,41 @@ is built, and no test has proven it.
   the rule 0 for a comparison. Not run: a picture that stays at the place of
   a guess (the math checks cover it). A run shows the clock that falls back
   after a wait.
+- **B11. A tree that fell can leave the Hand at once.** A tree that falls
+  comes to rest about 0.9 s after its first contact, and the game then takes
+  it out of its physics. In one of three desktop runs the grab from a
+  distance took the tree at that moment. The Hand held the tree for 2 frames
+  (Hand state 4). Then the game ended the physics of the tree, and the Hand
+  was empty with the grip closed. After that the physics of the game has no
+  entry for the tree, and the draw of the next 3 frames does not offer it to
+  the pick. In the two
+  other runs the pick up was over 14 frames after the Hand took the tree, and
+  the tree stayed in the Hand until the grip opened (`throw_queue.ps1 -Runs
+  treedroproll` in `bwvr/tools/desk`, one of those two runs with
+  `throw_tree_settle=0`). A near grip on a tree in its fall keeps the tree
+  (`-Runs treedrop`). Not known: where the tree is after the Hand loses it,
+  and whether a tree that lies after a throw does the same.
+- **B12. A thrown rock trembles after its landing at 66.7 units for each
+  meter: check it in a headset.** One zoom step in, a rock thrown at 3 m/s
+  moved for 5 to 42 s after its first contact, in four throws of two desktop
+  runs (`throw_queue.ps1 -Runs landin`). In that time its height over the
+  land changed direction 18 to 52 times a second, by 0.1 cm of the room as a
+  mean. At 100 units for each meter the same throw moves for 3 to 7 s with 3
+  to 6 changes a second, and at 225 units with less than 1 change a second.
+  With `test_keys=1` the Pause key gives the landing of the game
+  (`throw_land=0`) for a comparison. Not run: which part of the landing of
+  the mod is the cause, and a scale below 66.7 units for each meter.
+- **B13. The camera of the hall moves after the guide of the first visit:
+  check it in a headset.** In a desktop run the guide of the first visit of
+  the hall of the Temple ended at frame 1930. From frame 1931 to frame 5312
+  the camera of the hall turned 36.1 degrees to the side and 16.7 degrees up,
+  and it went 17.5 units, with no button and no drag (`temple_run.ps1`, the
+  log line "the camera of the hall moved"). A camera that moves by itself is
+  a motion that the player did not make (`controllers.md`, 11.4). Not known:
+  whether the game moves the camera back from the place of the guide, how
+  fast the move is at its start, and what the player sees of it.
 
-B1b, B2 and B4 are one package: a thing that is held, thrown, or that
+B1b, B2, B4 and B11 are one package: a thing that is held, thrown, or that
 moves while the Hand takes it.
 
 ### Changes to the controls
@@ -366,12 +401,14 @@ moves while the Hand takes it.
 - **R1. The installer and a person.** No person has run the installer on a
   real game folder and told the result: the install, an update over a
   build that is installed, and the uninstall.
-- **R2. `hand_run.ps1 -Kind creature` does not choose a Creature.** At the
-  Creature select the double click of A makes the jump of the game, and a
-  grip on one of the three Creatures starts no Creature state. Find how the
-  plain game chooses a Creature there, and correct the recipe
-  (`bwvr/tools/desk/README.md`, "The scripts of one area"). `-Kind old`
-  reaches the Creature state.
+- **R2. No desktop run chooses a Creature at the Creature select.** A
+  Creature in a pen has no player. A grip on it starts no Creature state, a
+  press of the trigger there starts a drag of the land, and the double click
+  of A makes the jump of the game (`bwvr/tools/desk/README.md`, "Known
+  limits of the recipes"). Find how the plain game chooses a Creature
+  there, and make a recipe for it: no run shows that choice with the
+  controllers. The recipes with the Creature state start in the test save
+  `temple`.
 - **R3. The game window is in front in a desktop run.** Windows gives the
   front to the game window of a run on a PC that nobody uses, with no call
   of the game process (`bwvr/tools/desk/README.md`, and `backend.md`, "Who
@@ -393,3 +430,20 @@ moves while the Hand takes it.
   only, and each session imports the exe into a new temporary project, so
   it has none of the names that `bwvr/tools/re.ps1` gives. It fits when it
   can open a project that is there, or take a symbol file, on Windows.
+- **R7. The word `aimfar` chooses a different object in the test save
+  `pen`.** The head is 1 cm from its place in a new game, and some objects
+  are at the least distance of the word. So `aim_queue.ps1 -Runs
+  ring1,ring0` and `throw_queue.ps1 -Runs treeset,treelean` show their proof
+  only with `-NewGame` (`bwvr/tools/desk/README.md`, "Known limits of the
+  recipes"). Give these recipes an aim that does not depend on the least
+  distance, or the start of a new game by default.
+- **R8. The wait for the lock of a run can stop a caller.** `desk_run.ps1`
+  reads the age of the lock after a failed open. When the other run removes
+  the lock between those two lines, PowerShell gives the error "Cannot find
+  an overload for op_Subtraction". A caller that has the call in a `try`
+  block stops there, and no run starts. With no `try` block the wait goes
+  on. It happened one time, with two queues of runs that waited for each
+  other.
+- **R9. No recipe shows a stay that stops a walk.** `creature_recipe.ps1
+  -Kind stay` makes three stays of a Creature that stands (`creature.md`,
+  6.2). A grip from a distance in the walk of `-Kind tie` can show it.

@@ -3,7 +3,6 @@
 #
 #   hand_run.ps1 -Name hs1 -Dll <dll> -Kind one -Seconds 163
 #   hand_run.ps1 -Name hs2 -Dll <dll> -Kind old -Seconds 163
-#   hand_run.ps1 -Name hs3 -Dll <dll> -Kind creature -Seconds 223
 #
 # -Kind chooses the script:
 #   one       One target: the air, the scroll and the crown, each with
@@ -12,11 +11,6 @@
 #             it: the Tug state, the Holding state and a set down.
 #   old       The start "Keep your old Creature". Four times: the grip on the
 #             Creature (the Creature state), four strokes and two slaps.
-#   creature  The start "Skip straight to the Creature select". The steps for
-#             the choice of a Creature at the Creature select, and then the
-#             steps of "old". The choice does not work now: no Creature is
-#             chosen, and no Creature state starts (README.md, "Known limits
-#             of the recipes").
 #   fixed     The places from -Points (cm from the head), with no seek, so a
 #             DLL of an older build runs the same test. -Steps gives the
 #             script after the start dialog. With no -Points and no -Steps
@@ -24,8 +18,8 @@
 #             has no test save needs -NewGame.
 #
 # THE START. The run starts in a test save (README.md, "A fast start"): the
-# save "pen" for the kinds one, creature and fixed (the Creature pens of Land
-# 1 after the first story), and the save "temple" for the kind old (no story,
+# save "pen" for the kinds one and fixed (the Creature pens of Land 1 after
+# the first story), and the save "temple" for the kind old (no story,
 # the Creature of the profile at the door of the Temple). When the save is not
 # there, one run makes it. In a test save the steps count from the frame at
 # which the controller first places the Hand: that frame is frame 4600 of
@@ -35,9 +29,8 @@
 # first story, or "Keep your old Creature" for the kind old. The steps then
 # have their own frames. -Save gives a different test save with the state.
 #
-# -Seconds: the length of the run. With no -Seconds, a new game runs 163 s
-# (223 s for the kind creature), and a run in a test save ends 4 s after its
-# last step.
+# -Seconds: the length of the run. With no -Seconds, a new game runs 163 s,
+# and a run in a test save ends 4 s after its last step.
 param(
     [Parameter(Mandatory = $true)][string]$Name,
     [Parameter(Mandatory = $true)][string]$Dll,
@@ -115,32 +108,6 @@ if ($Kind -eq 'one') {
              'seek@5325+1 shot@5365+1 grip@5375+30 point@5435+1 ' +
              'seek@5450+1 grip@5500+40 shot@5525+1 point@5570+1 ' +
              'seek@5585+1 grip@5635+40 shot@5660+1 point@5710+1'
-} elseif ($Kind -eq 'creature') {
-    # The Creature. teleport=0 makes the A button the double click of the
-    # game, which chooses a Creature at the Creature select. The head looks
-    # down, two zoom steps in, and seek_plan=creature puts the hand on the
-    # body bone of the nearest Creature in view. First the choice, at four
-    # headings. Then three times, at three headings: the grip held with four
-    # strokes (nudge), a slap of the wrist (rot out and in: the grip is still
-    # and the tip moves) and a slap of the arm.
-    $p = '0,-40,60'
-    $extra.fake_controller_points = "$first $p"
-    $extra.fake_controller_rots = '-27,1,0 8,1,0'
-    $extra.seek_plan = 'creature'
-    $extra.teleport = 0
-    $Steps = 'look@4600+12000 point@4620+1 stick_up@4650+10 stick_up@4680+10'
-    $b = 4720
-    foreach ($k in 0..3) {
-        $Steps += " seek@$($b)+1 trigger@$($b + 45)+6 a@$($b + 75)+4"
-        if ($k -lt 3) { $Steps += " stick_right@$($b + 110)+8 stick_right@$($b + 140)+8" }
-        $b += 180
-    }
-    foreach ($b in 7400, 9300, 11200) {
-        $Steps += " seek@$($b)+1 grip@$($b + 50)+700 nudge@$($b + 150)+1 nudge@$($b + 190)+1" +
-                  " nudge@$($b + 230)+1 nudge@$($b + 270)+1 seek@$($b + 300)+1" +
-                  " rot@$($b + 340)+1 rot@$($b + 490)+1 slap@$($b + 560)+1 slap@$($b + 700)+1" +
-                  " stick_right@$($b + 800)+8 stick_right@$($b + 830)+8"
-    }
 } elseif ($Kind -eq 'old') {
     # A new game with "keep your old Creature" (the fourth box of the start
     # dialog, -Box gives its point). The head looks down, one zoom step in,
@@ -173,7 +140,7 @@ if ($start) {
     $from.Save = $start
     if ($Seconds -le 0) { $Seconds = Get-BwvrSaveSeconds $Steps $play }
 } elseif ($Seconds -le 0) {
-    $Seconds = if ($Kind -eq 'creature') { 223 } else { 163 }
+    $Seconds = 163
 }
 foreach ($pair in $Set.Split(';')) {
     if ($pair -match '^\s*([^=\s]+)\s*=\s*(.*)$') { $extra[$Matches[1]] = $Matches[2] }

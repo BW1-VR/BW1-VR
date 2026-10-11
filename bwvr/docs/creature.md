@@ -1277,11 +1277,15 @@ Creature state).
 The kind `stay` stays at 100 units a meter too. Each grip comes after an
 `aimfar`:
 
-1. A grip of 300 frames. The Creature stays at the door. After the open it
-   starts a walk.
-2. A grip of 200 frames in that walk. The Creature stops, stays and goes on.
+1. A grip of 300 frames. The Creature stays at the door.
+2. A grip of 200 frames, 135 frames after the first grip opens: a second
+   stay.
 3. Two grips of 6 frames. The leash goes on and comes off.
 4. A grip of 40 frames: a stay that ends soon after its start.
+
+The Creature of the profile stands at the door between the grips, in the
+test save and in a new game. So this kind does not show a stay that stops a
+walk.
 
 The kind `tie` stays at 100 units a meter: the grip from a distance (the
 leash goes on), `aimcmd`, and two presses of the trigger 17 frames apart (a
