@@ -2306,7 +2306,7 @@ keys that the launcher sets.
 | `frame_time_test_frame`, `frame_time_test_readers`, `frame_time_test_readers_frames` | 0, 0, 600 | Test keys of the desktop runs. See "The delta time after the passes" |
 | `eye_clean` | 1 | 1: each eye pass of the scene starts from its own frame before. 0: the two eye passes share the render target. See `stereo-artifacts.md`, "The frame before of each eye" |
 | `eye_clean_test`, `eye_clean_test_frame` | 0, 0 | Test keys of the desktop runs. See the same section |
-| `bubble_card` | 0 | 1: a speech bubble of the game is one flat card at the depth of its sign. 0: it is drawn as the game and the interface depth make it in each eye pass. See `ui-layer.md`, section 18 |
+| `bubble_card` | 1 | 1: a speech bubble of the game is one flat card at the depth of its sign. 0: it is drawn as the game and the interface depth make it in each eye pass. See `ui-layer.md`, section 18 |
 | `bubble_card_test`, `bubble_card_test_frame` | 0, 0 | Test keys of the desktop runs. See the same section |
 | `skip_desktop_present` | 1 | See "The copy to the monitor" |
 | `test_frame_rate` | 0 | A test key of the desktop runs: the frame rate of a run with no copy to the monitor. See "The copy to the monitor" |

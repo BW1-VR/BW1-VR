@@ -1140,7 +1140,7 @@ void ReadSettings() {
   g_eye_clean_test_frame = static_cast<int>(
       GetPrivateProfileIntA("bwvr", "eye_clean_test_frame", 0, path));
   g_bubble_card =
-      GetPrivateProfileIntA("bwvr", "bubble_card", 0, path) != 0 ? 1 : 0;
+      GetPrivateProfileIntA("bwvr", "bubble_card", 1, path) != 0 ? 1 : 0;
   g_bubble_card_test =
       GetPrivateProfileIntA("bwvr", "bubble_card_test", 0, path) != 0 ? 1 : 0;
   g_bubble_card_test_frame = static_cast<int>(

@@ -217,17 +217,12 @@ is built, and no test has proven it.
     sky` names the scene of that frame.
   - Not run: the video of a falling spell, the one scene of play that draws
     no sky. The first frame of such a scene is drawn as before.
-- **B17. A signpost from near: check it in a headset.** With
-  `bubble_card=1` the speech bubble of a signpost is one flat card at the
-  depth of the sign: one layout for both eyes, the box at its pixels, and
-  the text with no interface depth (`ui-layer.md`, section 18). The key is 0
-  by default, because no desktop run has shown the card: a run with a tap on
-  the silver scroll at the Temple made no bubble (section 18.5 has the
-  recipe). Still open:
-  - Check in a headset, with `bubble_card=1` in `bwvr.ini` or with Shift and
-    Delete (`test_keys=1`, a long pulse is the card): that the text reads
-    from near and from far, and that the tail keeps its side while the head
-    is still. Then make 1 the default.
+- **B17. The name of a villager, and the size of a speech bubble.** The
+  speech bubble of a signpost is one flat card at the depth of the sign
+  (`bubble_card=1`, `ui-layer.md`, section 18), and a headset session read
+  it well. No desktop run has shown the card: a run with a tap on the silver
+  scroll at the Temple made no bubble (section 18.5 has the recipe). Still
+  open:
   - The name of a villager draws its own box, and the mod does not change
     it (`ui-layer.md`, 18.6).
   - The size of a bubble comes from the depth of the sign in units, with no
@@ -238,12 +233,24 @@ that moves while the Hand takes it.
 
 ### Changes to the controls
 
-- **P1. The choice of a far target: test it in the headset.** The choice by
-  the body, the size term and the bias for living things (`far_grab_choice=1`,
-  `grab.md`) are proven by the math checks and by log lines of a desktop run
-  with a rock and a tree. No run had a villager beside a tree. In the quest to
-  save the children, check that the halo goes to the character and not to the
-  tree (Ctrl Delete with `test_keys=1` changes the choice). Open numbers: the
+- **P1. The choice of a far target takes a tree where the player means a
+  character.** In a headset, in the quest in which a man leads the children
+  away, the halo went to the trees around the man and not to the man, again
+  and again. The choice is by the body, with a size term and a bias for
+  living things (`far_grab_choice=1`, `grab.md`): the angle from the ray to
+  the nearest point of the upright body, a body that covers 2 degrees or
+  more, and 3 degrees better for a villager, an animal and the player's
+  Creature. A new target needs 8 degrees, and the target of now stays up to
+  14 degrees. Two rules to decide by the facts of that session and of a run:
+  - A list of ranks: a living thing in its cone comes before a tree, a rock
+    and a building, also when the ray crosses the body of the tree. Find
+    first which class the man of that quest has, and whether the bias counts
+    him as a living thing.
+  - A target that stays: when the halo is on a thing, a different thing takes
+    it only when the aim leaves the first one by a clear margin, so a tree
+    behind or beside a character does not take the halo back.
+
+  No run had a villager beside a tree. Open numbers: the
   bias of 3 degrees, the least size of 2 degrees, and the range of 10 m for a
   Creature command. The screen test offers an object to the pick by its base
   point (12 degrees), so a tall tree that the ray crosses only at its crown,

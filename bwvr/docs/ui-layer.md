@@ -1311,7 +1311,7 @@ With `bubble_card=0` the mod changes nothing of the bubble.
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| `bubble_card` | 0 | 1: a speech bubble of the game is one flat card at the depth of its sign. 0: the bubble is drawn as the game and the interface depth make it in each eye pass |
+| `bubble_card` | 1 | 1: a speech bubble of the game is one flat card at the depth of its sign. 0: the bubble is drawn as the game and the interface depth make it in each eye pass |
 | `bubble_card_test` | 0 | A test key of the desktop runs. 1: one line of the log each 30 frames while a bubble is in view |
 | `bubble_card_test_frame` | 0 | A test key of the desktop runs: the frame at which `bubble_card` changes, as the test key does |
 

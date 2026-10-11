@@ -837,8 +837,6 @@ before you start a quest. These faults are known:
   - In the Temple, black frames can show in the guide of the hall.
     In the hall the frame rate is low while the pool is in your
     view.
-  - A signpost is hard to read from near: its text is at a
-    different place for each eye.
   - One eye can show faint pictures of the frames before.
   - The aim at a distance can select a tree when you want a
     villager or a different object near it.

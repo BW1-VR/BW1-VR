@@ -918,13 +918,16 @@ void BuildControls() {
     if (used > tallest) tallest = used;
   }
 
-  const int columns = column + 1;
-  const int width = pad + columns * (col_w + pad);
-  const int height = pad + tallest * row + Scaled(76);
-
-  // The buttons and the status line, along the bottom.
+  // The buttons and the status line, along the bottom. The window is as
+  // wide as its columns, and at least as wide as the four buttons in a row.
   const int button_w = Scaled(110);
   const int button_h = Scaled(28);
+  const int button_gap = Scaled(8);
+  const int columns = column + 1;
+  const int columns_w = pad + columns * (col_w + pad);
+  const int buttons_w = pad * 2 + button_w * 4 + button_gap * 3;
+  const int width = columns_w > buttons_w ? columns_w : buttons_w;
+  const int height = pad + tallest * row + Scaled(76);
   const int button_y = height - Scaled(66);
   HWND play = CreateWindowExA(
       0, "BUTTON", "Play in VR", WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON,
