@@ -235,6 +235,7 @@ void EyeCaptureSave(uint64_t stereo_frame, int eye, const void* pixels,
 // draw_probe.cpp: measure which draw calls break the stereo invariant.
 void DrawProbeBeginPass(int eye);
 bool DrawProbeProfile(bool on);
+bool DrawProbeStates(bool on);
 void DrawProbeProfileTake(double* d3d_ms, uint64_t* calls, uint64_t* vertices,
                           uint64_t* indices, uint64_t frames);
 
@@ -326,9 +327,11 @@ DWORD g_next_capture_tick = 0;
 // F12 and Shift F12, for tests. Off for players. See PollHotkeys.
 bool g_test_keys = false;
 bool g_enabled = false;
-// profile=1: a timer on each Direct3D draw call. profile=1 and profile=2 are
+// profile=1 and profile=3: a timer on each Direct3D draw call. profile=3:
+// also the state count of the draw probe. Each value of profile from 1 is
 // the frame cost measure (frame_profile.cpp).
 bool g_profile_draws = false;
+bool g_profile_states = false;
 bool g_profile_ready = false;
 
 // Read the frame back even with no headset, so the cost of the readback can be
@@ -862,6 +865,7 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
   if (g_frequency.QuadPart == 0) QueryPerformanceFrequency(&g_frequency);
   if (g_profile_draws && !g_profile_ready) {
     g_profile_ready = DrawProbeProfile(true);
+    if (g_profile_ready && g_profile_states) DrawProbeStates(true);
     UiDepthTimeSubmit(true);
   }
   // Catching something that only appears when the player holds the hand over
@@ -1610,7 +1614,10 @@ void StereoSetFixes(bool freeze_time, bool move_camera_point) {
 
 void StereoSetHeadless(bool on) { g_headless = on; }
 
-void StereoSetProfile(int level) { g_profile_draws = level == 1; }
+void StereoSetProfile(int level) {
+  g_profile_draws = level == 1 || level == 3;
+  g_profile_states = level == 3;
+}
 
 // The two test keys, F12 and Shift F12. See PollHotkeys.
 void StereoSetTestKeys(bool on) { g_test_keys = on; }

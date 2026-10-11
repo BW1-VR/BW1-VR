@@ -36,6 +36,9 @@
 #
 # -Set and -Set2 are lists of ini keys, "key=value;key=value". -ProfileLevel 2
 # gives the measure with no timer on the Direct3D draw calls.
+# -ProfileLevel 3 gives the measure of 1 with the state count: the runs of
+# draw calls with one state. Its line is in the log of each run, and not in
+# the tables.
 #
 # The last line is BENCH DONE (exit code 0) or BENCH STOPPED (exit code 2).
 param(

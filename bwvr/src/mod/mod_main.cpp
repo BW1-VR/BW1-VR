@@ -551,7 +551,7 @@ void ReadSettings() {
       GetPrivateProfileIntA("bwvr", "filter_survey", 0, path) != 0;
   g_profile =
       static_cast<int>(GetPrivateProfileIntA("bwvr", "profile", 0, path));
-  if (g_profile < 0 || g_profile > 2) g_profile = 1;
+  if (g_profile < 0 || g_profile > 3) g_profile = 1;
   g_skip_desktop =
       GetPrivateProfileIntA("bwvr", "skip_desktop_present", 1, path) != 0;
   g_capture_seconds =

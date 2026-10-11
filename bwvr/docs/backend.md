@@ -1034,6 +1034,14 @@ numbers of the Direct3D draw calls (the time, the draw calls and the vertices)
 are 0. Those timers cost 0.2 to 0.4 ms of a frame with 2000 to 2900 draw calls
 (2.3 to 3.8 percent). A frame of `profile=2` is that much shorter.
 
+`profile=3` is the measure of `profile=1` with the state count of the draw
+probe (`draw_probe.cpp`, "THE STATE COUNT"). It counts the runs of a frame: a
+run is a row of draw calls with one state of the device, which the mod could
+give to Direct3D as one draw call. Each summary then has one more line: the
+draw calls and the runs of a frame, the causes that start a run, and the calls
+of the game that set a state. The count has hooks on 13 more calls of the
+device, so the times of a frame are a little longer than with `profile=1`.
+
 In a headset session, set `profile=1` in `bwvr.ini` after the last save of the
 launcher, because the launcher removes the key (see "Testing without a
 headset"). The windows then give the parts that only a headset has: the wait,

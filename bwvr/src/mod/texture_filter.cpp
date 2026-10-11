@@ -32,6 +32,10 @@
 #include "../common/bw_addresses.h"
 
 extern void ModLog(const char* format, ...);
+// draw_probe.cpp: the state count of profile=3 gets each call of the game for
+// a texture and for a stage state from the hooks of this file.
+void DrawProbeTexture(DWORD stage, void* texture);
+void DrawProbeStageState(DWORD stage, DWORD state, DWORD value);
 
 namespace {
 
@@ -80,6 +84,7 @@ uint64_t g_mips_forced = 0;
 // texture is inspected, so a surface bound every frame is asked once.
 HRESULT WINAPI h_SetTexture(void* self, DWORD stage,
                             LPDIRECTDRAWSURFACE7 texture) {
+  DrawProbeTexture(stage, texture);
   if (g_survey && texture != nullptr && texture != g_last_texture) {
     g_last_texture = texture;
     DDSURFACEDESC2 desc;
@@ -103,6 +108,7 @@ HRESULT WINAPI h_SetTexture(void* self, DWORD stage,
 HRESULT WINAPI h_SetTextureStageState(void* self, DWORD stage,
                                       D3DTEXTURESTAGESTATETYPE state,
                                       DWORD value) {
+  DrawProbeStageState(stage, static_cast<DWORD>(state), value);
   if (g_survey && value < 8) {
     if (state == D3DTSS_MINFILTER) ++g_asked_min[value];
     else if (state == D3DTSS_MAGFILTER) ++g_asked_mag[value];

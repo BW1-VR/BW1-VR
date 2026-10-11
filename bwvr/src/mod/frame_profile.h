@@ -1,4 +1,4 @@
-// The frame cost measure of profile=1 and profile=2. See frame_profile.cpp
+// The frame cost measure of profile=1, profile=2 and profile=3. See frame_profile.cpp
 // and docs/backend.md, "Frame cost".
 
 #pragma once
@@ -43,6 +43,16 @@ enum FrameProfileCounter {
   kFpcReads,
   kFpcLogLines,
   kFpcSleeps,
+  // The state count of profile=3 (draw_probe.cpp).
+  kFpcRuns,          // rows of draw calls with one state
+  kFpcRunsTexture,   // runs that start at a change of a texture only
+  kFpcRunsState,     // runs that start at a change of a render or stage state
+  kFpcRunsOther,     // runs that start for a different cause
+  kFpcNotLists,      // draw calls that are not triangle lists
+  kFpcStateCalls,    // calls for render states, stage states and textures
+  kFpcStateChanges,  // of them, the calls that change a value
+  kFpcSceneCalls,    // calls of BeginScene and EndScene
+  kFpcOtherCalls,    // the other calls that end a run
   kFpcCounters
 };
 
@@ -60,13 +70,14 @@ enum FrameProfileFunctionIndex {
   kFpFunctions
 };
 
-// True with profile=1 or profile=2. With profile=0 each call below returns at
+// True with profile=1, 2 or 3. With profile=0 each call below returns at
 // its first line, and a caller that reads this flag first makes no call.
 extern bool g_frame_profile_on;
 inline bool FrameProfileOn() { return g_frame_profile_on; }
 
 // profile of bwvr.ini: 0 is off, 1 is the measure with a timer on each
-// Direct3D draw call, 2 is the measure with no such timer.
+// Direct3D draw call, 2 is the measure with no such timer, and 3 is the
+// measure of 1 with the state count of the draw probe.
 void FrameProfileSetLevel(int level);
 // The hooks of the measure: the surface calls, the file calls and Sleep. It
 // needs the render target of the game. With profile=0 it does nothing.

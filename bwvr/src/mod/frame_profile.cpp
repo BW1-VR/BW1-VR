@@ -456,6 +456,31 @@ void Summarize(const char* label) {
          g_group_count[kFpcReads], g_group_count[kFpcLogLines],
          g_group_count[kFpcSleeps]);
 
+  // The state count of profile=3: the draw calls that a merge can save.
+  if (g_level == 3 && draws > 0) {
+    const double frames = static_cast<double>(n);
+    const double runs = static_cast<double>(g_group_count[kFpcRuns]);
+    ModLog("frame cost   : %s, the state count, means of a frame in both "
+           "passes: %.0f draw calls in %.0f runs with one state, which is "
+           "%.1f percent fewer draw calls. A run starts at a change of a "
+           "texture only %.0f times, at a change of a render state or of a "
+           "stage state %.0f times, and for a different cause %.0f times. "
+           "%.0f draw calls are not triangle lists. The game makes %.0f "
+           "calls for render states, stage states and textures, and %.0f of "
+           "them change a value. %.0f calls of BeginScene and EndScene and "
+           "%.0f other calls end a run",
+           label, static_cast<double>(draws) / frames, runs / frames,
+           100.0 * (1.0 - runs / static_cast<double>(draws)),
+           static_cast<double>(g_group_count[kFpcRunsTexture]) / frames,
+           static_cast<double>(g_group_count[kFpcRunsState]) / frames,
+           static_cast<double>(g_group_count[kFpcRunsOther]) / frames,
+           static_cast<double>(g_group_count[kFpcNotLists]) / frames,
+           static_cast<double>(g_group_count[kFpcStateCalls]) / frames,
+           static_cast<double>(g_group_count[kFpcStateChanges]) / frames,
+           static_cast<double>(g_group_count[kFpcSceneCalls]) / frames,
+           static_cast<double>(g_group_count[kFpcOtherCalls]) / frames);
+  }
+
   // The slow frames, and the part of each one that is the cause. The test
   // is on the frame less the copy to the monitor. So the limit is the one of
   // a headset session, and a slow copy to the monitor makes no slow frame.
@@ -751,8 +776,10 @@ void FrameProfileInstall() {
          "and Sleep, %d of 2 of CreateFile. A run with no word \"bench\" "
          "gets one summary for each %d frames",
          g_level,
-         g_level == 1 ? ", and each Direct3D draw call"
-                      : ", with no timer on the Direct3D draw calls",
+         g_level == 1   ? ", and each Direct3D draw call"
+         : g_level == 3 ? ", each Direct3D draw call, and the state calls "
+                          "between the draw calls"
+                        : ", with no timer on the Direct3D draw calls",
          surface, system, files, kWindowFrames);
 }
 

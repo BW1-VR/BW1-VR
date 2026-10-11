@@ -330,9 +330,197 @@ uint32_t CallerAddress() {
   return engine != 0 ? engine : reinterpret_cast<uint32_t>(_ReturnAddress());
 }
 
+// THE STATE COUNT (profile=3). It answers one question: how many draw calls
+// of a frame can the mod put together?
+//
+// The cost of a frame follows the count of the draw calls, and a draw call
+// has about 37 vertices. The mod can make one draw call of two that follow
+// each other when the device has the same state at both. So this counts the
+// RUNS: a run is a row of draw calls with one state. A frame with 2800 draw
+// calls in 700 runs needs 700 draw calls.
+//
+// The game sets many states to the value that they have, and it can change a
+// state and put it back. So the count compares the state at a draw call with
+// the state at the draw call before: each render state, each state of a
+// texture stage, and the texture of each stage. The other calls that change
+// what a draw call does end the run with no test of a value: BeginScene,
+// EndScene, SetRenderTarget, Clear, SetTransform, SetViewport, and the calls
+// for lights, materials, clip planes and state blocks.
+//
+// A draw call also starts a run when its vertex format is not that of the
+// run, when it is not made of triangles, and when the run would have more
+// than 65,535 vertices: an index has 16 bits. The count does not see a
+// texture that the game writes between two draw calls.
+bool g_states = false;
+bool g_states_installed = false;
+
+const int kSlotBeginScene = 5;
+const int kSlotEndScene = 6;
+const int kSlotSetRenderTarget = 8;
+const int kSlotClear = 10;
+const int kSlotSetTransform = 11;
+const int kSlotSetViewport = 13;
+const int kSlotMultiplyTransform = 14;
+const int kSlotSetMaterial = 16;
+const int kSlotSetLight = 18;
+const int kSlotSetRenderState = 20;
+const int kSlotApplyStateBlock = 39;
+const int kSlotLightEnable = 44;
+const int kSlotSetClipPlane = 46;
+
+const uint32_t kBreakRender = 1;
+const uint32_t kBreakStage = 2;
+const uint32_t kBreakTexture = 4;
+const uint32_t kBreakOther = 8;
+
+// One place for each state: the render states, then the states of each
+// stage, then the texture of each stage.
+const uint32_t kRenderStates = 256;
+const uint32_t kStages = 8;
+const uint32_t kStageStates = 40;
+const uint32_t kFirstStage = kRenderStates;
+const uint32_t kFirstTexture = kFirstStage + kStages * kStageStates;
+const uint32_t kStates = kFirstTexture + kStages;
+const int kMaxChanged = 128;
+
+uintptr_t g_state_now[kStates];      // the value that the game set last
+bool g_state_known[kStates];
+uintptr_t g_state_at_draw[kStates];  // the value at the last draw call
+bool g_state_drawn[kStates];
+// The states that the game changed since the last draw call.
+uint16_t g_changed[kMaxChanged];
+int g_changed_count = 0;
+bool g_changed_all = false;  // more than the list holds
+// The other causes that end the run, since the last draw call.
+uint32_t g_break = kBreakOther;
+// The vertex format of the run, or 0 after a draw call that is in no run.
+uint32_t g_run_format = 0;
+uint32_t g_run_vertices = 0;
+
+// One call of the game that sets a state. \`id\` is the place of the state, or
+// kStates for a state that has no place.
+void CountState(uint32_t id, uintptr_t value, uint32_t cause) {
+  FrameProfileCount(kFpcStateCalls, 1);
+  if (id >= kStates) {
+    FrameProfileCount(kFpcStateChanges, 1);
+    g_break |= cause;
+    return;
+  }
+  if (g_state_known[id] && g_state_now[id] == value) return;
+  g_state_now[id] = value;
+  g_state_known[id] = true;
+  FrameProfileCount(kFpcStateChanges, 1);
+  if (g_changed_count < kMaxChanged) {
+    g_changed[g_changed_count++] = static_cast<uint16_t>(id);
+  } else {
+    g_changed_all = true;
+  }
+}
+
+uint32_t CauseOf(uint32_t id) {
+  if (id < kFirstStage) return kBreakRender;
+  return id < kFirstTexture ? kBreakStage : kBreakTexture;
+}
+
+// One draw call: does it start a run?
+void CountDraw(D3DPRIMITIVETYPE type, DWORD fvf, DWORD count) {
+  const bool triangles = type == D3DPT_TRIANGLELIST ||
+                         type == D3DPT_TRIANGLESTRIP ||
+                         type == D3DPT_TRIANGLEFAN;
+  if (type != D3DPT_TRIANGLELIST) FrameProfileCount(kFpcNotLists, 1);
+  uint32_t why = g_break;
+  if (g_changed_all) {
+    // The list was too short, so each state can be a different one.
+    for (uint32_t id = 0; id < kStates; ++id) {
+      if (!g_state_known[id]) continue;
+      if (!g_state_drawn[id] || g_state_at_draw[id] != g_state_now[id]) {
+        why |= CauseOf(id);
+      }
+      g_state_at_draw[id] = g_state_now[id];
+      g_state_drawn[id] = true;
+    }
+  } else {
+    for (int i = 0; i < g_changed_count; ++i) {
+      const uint32_t id = g_changed[i];
+      if (!g_state_drawn[id] || g_state_at_draw[id] != g_state_now[id]) {
+        why |= CauseOf(id);
+      }
+      g_state_at_draw[id] = g_state_now[id];
+      g_state_drawn[id] = true;
+    }
+  }
+  g_changed_count = 0;
+  g_changed_all = false;
+
+  const uint32_t format = triangles ? fvf : 0;
+  if (format == 0 || format != g_run_format ||
+      g_run_vertices + count > 65535) {
+    why |= kBreakOther;
+  }
+  if (why != 0) {
+    FrameProfileCount(kFpcRuns, 1);
+    if (why == kBreakTexture) {
+      FrameProfileCount(kFpcRunsTexture, 1);
+    } else if ((why & kBreakOther) == 0) {
+      FrameProfileCount(kFpcRunsState, 1);
+    } else {
+      FrameProfileCount(kFpcRunsOther, 1);
+    }
+    g_run_vertices = 0;
+  }
+  g_run_format = format;
+  g_run_vertices += count;
+  g_break = 0;
+}
+
+HRESULT WINAPI h_SetRenderState(void* self, DWORD state, DWORD value) {
+  if (g_states) {
+    CountState(state < kRenderStates ? state : kStates, value, kBreakRender);
+  }
+  return reinterpret_cast<HRESULT(WINAPI*)(void*, DWORD, DWORD)>(
+      g_original[kSlotSetRenderState])(self, state, value);
+}
+
+// The calls that end a run with no test of a value. Each argument of these
+// calls has 4 bytes, so one hook for each count of arguments passes a call
+// on.
+void EndRun(int counter) {
+  FrameProfileCount(counter, 1);
+  g_break |= kBreakOther;
+}
+
+template <int kSlot>
+HRESULT WINAPI h_Scene(void* self) {
+  if (g_states) EndRun(kFpcSceneCalls);
+  return reinterpret_cast<HRESULT(WINAPI*)(void*)>(g_original[kSlot])(self);
+}
+
+template <int kSlot>
+HRESULT WINAPI h_EndRun1(void* self, DWORD a) {
+  if (g_states) EndRun(kFpcOtherCalls);
+  return reinterpret_cast<HRESULT(WINAPI*)(void*, DWORD)>(g_original[kSlot])(
+      self, a);
+}
+
+template <int kSlot>
+HRESULT WINAPI h_EndRun2(void* self, DWORD a, DWORD b) {
+  if (g_states) EndRun(kFpcOtherCalls);
+  return reinterpret_cast<HRESULT(WINAPI*)(void*, DWORD, DWORD)>(
+      g_original[kSlot])(self, a, b);
+}
+
+HRESULT WINAPI h_Clear(void* self, DWORD count, void* rects, DWORD flags,
+                       DWORD color, float z, DWORD stencil) {
+  if (g_states) EndRun(kFpcOtherCalls);
+  return reinterpret_cast<
+      HRESULT(WINAPI*)(void*, DWORD, void*, DWORD, DWORD, float, DWORD)>(
+      g_original[kSlotClear])(self, count, rects, flags, color, z, stencil);
+}
+
 HRESULT WINAPI h_DrawPrimitive(void* self, D3DPRIMITIVETYPE type, DWORD fvf,
                                LPVOID verts, DWORD count, DWORD flags) {
   if (g_armed) Record(CallerAddress(), kSlotDrawPrimitive, fvf, verts, count);
+  if (g_states) CountDraw(type, fvf, count);
   if (!g_profiling) {
     return reinterpret_cast<DrawPrimitiveFn>(g_original[kSlotDrawPrimitive])(
         self, type, fvf, verts, count, flags);
@@ -359,6 +547,7 @@ HRESULT WINAPI h_DrawIndexedPrimitive(void* self, D3DPRIMITIVETYPE type,
   if (g_armed) {
     Record(CallerAddress(), kSlotDrawIndexedPrimitive, fvf, verts, count);
   }
+  if (g_states) CountDraw(type, fvf, count);
   if (!g_profiling) {
     return reinterpret_cast<DrawIndexedPrimitiveFn>(
         g_original[kSlotDrawIndexedPrimitive])(self, type, fvf, verts, count,
@@ -457,6 +646,27 @@ bool Install() {
   any |= HookSlot(kSlotDrawIndexedPrimitiveVB, &h_DrawIndexedPrimitiveVB,
                   "DrawIndexedPrimitiveVB");
   return any;
+}
+
+// The hooks of the state count. SetTexture and SetTextureStageState have the
+// hooks of texture_filter.cpp, and those hooks give their calls to the count.
+void InstallStates() {
+  HookSlot(kSlotSetRenderState, &h_SetRenderState, "SetRenderState");
+  HookSlot(kSlotBeginScene, &h_Scene<kSlotBeginScene>, "BeginScene");
+  HookSlot(kSlotEndScene, &h_Scene<kSlotEndScene>, "EndScene");
+  HookSlot(kSlotClear, &h_Clear, "Clear");
+  HookSlot(kSlotSetViewport, &h_EndRun1<kSlotSetViewport>, "SetViewport");
+  HookSlot(kSlotSetMaterial, &h_EndRun1<kSlotSetMaterial>, "SetMaterial");
+  HookSlot(kSlotApplyStateBlock, &h_EndRun1<kSlotApplyStateBlock>,
+           "ApplyStateBlock");
+  HookSlot(kSlotSetRenderTarget, &h_EndRun2<kSlotSetRenderTarget>,
+           "SetRenderTarget");
+  HookSlot(kSlotSetTransform, &h_EndRun2<kSlotSetTransform>, "SetTransform");
+  HookSlot(kSlotMultiplyTransform, &h_EndRun2<kSlotMultiplyTransform>,
+           "MultiplyTransform");
+  HookSlot(kSlotSetLight, &h_EndRun2<kSlotSetLight>, "SetLight");
+  HookSlot(kSlotLightEnable, &h_EndRun2<kSlotLightEnable>, "LightEnable");
+  HookSlot(kSlotSetClipPlane, &h_EndRun2<kSlotSetClipPlane>, "SetClipPlane");
 }
 
 // Compare the two passes, caller by caller, and add the verdict to the totals.
@@ -674,6 +884,34 @@ bool DrawProbeProfile(bool on) {
   return true;
 }
 
+// profile=3: the state count. Call it after DrawProbeProfile(true) gave true,
+// because that call makes the hooks of the draw calls.
+bool DrawProbeStates(bool on) {
+  if (on && !g_installed) return false;
+  if (on && !g_states_installed) {
+    g_states_installed = true;
+    InstallStates();
+  }
+  g_states = on;
+  return true;
+}
+
+// texture_filter.cpp gives each call of the game for a texture and for a
+// stage state to the state count.
+void DrawProbeTexture(DWORD stage, void* texture) {
+  if (!g_states) return;
+  CountState(stage < kStages ? kFirstTexture + stage : kStates,
+             reinterpret_cast<uintptr_t>(texture), kBreakTexture);
+}
+
+void DrawProbeStageState(DWORD stage, DWORD state, DWORD value) {
+  if (!g_states) return;
+  CountState(stage < kStages && state < kStageStates
+                 ? kFirstStage + stage * kStageStates + state
+                 : kStates,
+             value, kBreakStage);
+}
+
 // Milliseconds spent inside Direct3D draw calls since the last report, plus
 // the geometry that went through them. Resets the counters.
 void DrawProbeProfileTake(double* d3d_ms, uint64_t* calls, uint64_t* vertices,
@@ -717,6 +955,8 @@ void DrawProbeDelay(int frames) {
 // stereo.cpp calls this at the top of each eye pass, and with -1 once the two
 // passes are over.
 void DrawProbeBeginPass(int eye) {
+  // A run of the state count does not go from one eye pass to the next.
+  g_break |= kBreakOther;
   if (!g_armed) return;
   if (!g_installed) {
     g_installed = Install();
