@@ -124,6 +124,7 @@
 
 #include "../common/bw_addresses.h"
 #include "MinHook.h"
+#include "catch_math.h"
 #include "controller_math.h"
 #include "controllers.h"
 #include "creature_command.h"
@@ -5465,8 +5466,8 @@ int __fastcall h_RightPress(void* self, void* unused) {
                *reinterpret_cast<const int32_t*>(g_face + kFaceHandMode),
                g_frame);
       } else if (next != nullptr && next == g_choice && !g_choice_far) {
-        // An object that the physics of the game has: the game takes it only
-        // after the button was down for 225 ms (HandDirectGripPress).
+        // An object that the physics of the game has. The line of the catch
+        // says how the game takes it (ThrowPhysicsCatchPress).
         const uint8_t* bytes = static_cast<const uint8_t*>(next);
         const bool moves = (bytes[kObjectFlags] & 0x40) != 0 &&
                            (bytes[kObjectOtherFlags] & 0x10) == 0;
@@ -5478,9 +5479,7 @@ int __fastcall h_RightPress(void* self, void* unused) {
                    ? ", but the land under the Hand is outside your influence"
                    : "",
                units > 0.0f ? g_choice_gap / units * 100.0f : 0.0f,
-               moves ? ". The physics of the game has the object: it moves, "
-                       "and the game takes it when the button was down for "
-                       "225 ms"
+               moves ? ". The physics of the game has the object: it moves"
                      : "",
                State(g_hand),
                *reinterpret_cast<const int32_t*>(g_face + kFaceHandMode),
@@ -5531,7 +5530,74 @@ int __fastcall h_RightPress(void* self, void* unused) {
       }
     }
   }
-  return o_RightPress(self, unused);
+  // A CATCH (docs/grab.md, "A catch at once"). The press put an object in
+  // the Hand of the picture that the physics of the game still has
+  // (fn_0046DC30): it falls, flies or rolls.
+  void* const held_before =
+      *reinterpret_cast<void* const*>(g_hand + kHandHeld);
+  const int result = o_RightPress(self, unused);
+  const uint8_t* held_now =
+      *reinterpret_cast<uint8_t* const*>(g_hand + kHandHeld);
+  if (held_before == nullptr && held_now != nullptr &&
+      !IsBadReadPtr(held_now, kObjectFlags + 1) &&
+      (held_now[kObjectFlags] & 0x40) != 0 &&
+      (held_now[kObjectOtherFlags] & 0x10) == 0) {
+    ThrowPhysicsCatchPress(const_cast<uint8_t*>(held_now), g_choice_far);
+  }
+  return result;
+}
+
+// THE PICK UP AT ONCE (catch_at_once, docs/grab.md, "A catch at once"). The
+// step of the pick up action, fn_005D5250 (thiscall on GInterface, no
+// arguments, a plain ret), runs on each frame after a press on an object that
+// the Hand can hold. For an object that the physics of the game has it only
+// waits until the press is 225 ms old on the clock of the game, and then it
+// calls fn_005D2800, which sends the pick up (packet 0x13) after its own
+// tests. A button that goes up before that is a click. [V]
+// While the catch of the object of the record runs, the step gets a press
+// that is old enough: the clock and the game turn of the press
+// (GInterface+0x454 and +0x458) are 225 ms and 3 game turns back for this one
+// call, and then they have their values again. So the game sends its pick up
+// on the first step after the press, with each test that it makes, and a
+// press on an object that moves is never a click.
+typedef int(__fastcall* PickStepFn)(void* self, void* unused);
+const uintptr_t kPickStep = 0x005D5250;
+const int32_t kActionPickedUp = 7;  // fn_005D2800 starts this action
+PickStepFn o_PickStep = nullptr;
+
+int __fastcall h_PickStep(void* self, void* unused) {
+  uint8_t* face = static_cast<uint8_t*>(self);
+  if (self == nullptr || self != g_face || !g_owns || g_hand == nullptr) {
+    return o_PickStep(self, unused);
+  }
+  uint8_t* object = *reinterpret_cast<uint8_t* const*>(face + kFaceNextObject);
+  const uint8_t* game = *reinterpret_cast<uint8_t* const*>(kGame);
+  if (object == nullptr || game == nullptr ||
+      !ThrowPhysicsCatchActs(object) ||
+      IsBadReadPtr(object, kObjectFlags + 1) ||
+      (object[kObjectFlags] & 0x40) == 0 ||
+      (object[kObjectOtherFlags] & 0x10) != 0) {
+    return o_PickStep(self, unused);
+  }
+  uint32_t* press_clock = reinterpret_cast<uint32_t*>(face + kFacePressClock);
+  uint32_t* press_turn = reinterpret_cast<uint32_t*>(face + kFacePressTurn);
+  const uint32_t clock = *reinterpret_cast<const uint32_t*>(kGameClock);
+  const uint32_t turn = *reinterpret_cast<const uint32_t*>(game + kGameTurn);
+  const uint32_t age =
+      controller_math::GamePressAge(clock, *press_clock, turn, *press_turn);
+  if (age >= controller_math::kGripClickMs) return o_PickStep(self, unused);
+  const uint32_t kept_clock = *press_clock;
+  const uint32_t kept_turn = *press_turn;
+  catch_math::OldPress(clock, turn,
+                       static_cast<uint32_t>(controller_math::kGripClickMs),
+                       press_clock, press_turn);
+  const int result = o_PickStep(self, unused);
+  *press_clock = kept_clock;
+  *press_turn = kept_turn;
+  ThrowPhysicsCatchSent(
+      object, age,
+      *reinterpret_cast<const int32_t*>(face + kFaceAction) == kActionPickedUp);
+  return result;
 }
 
 // THE LEASH AT THE MOD'S HAND (docs/grab.md, "The leash at the mod's hand").
@@ -6426,6 +6492,22 @@ void InstallNear() {
       Hook(kRightPress, reinterpret_cast<void*>(&h_RightPress),
            reinterpret_cast<void**>(&o_RightPress),
            "the right press (the target of each press)");
+    }
+    // The step of the pick up action, for a catch at once.
+    static const uint8_t kStepBytes[16] = {0x55, 0x56, 0x8B, 0xF1, 0x8B, 0x86,
+                                           0x54, 0x04, 0x00, 0x00, 0x8B, 0x8E,
+                                           0x58, 0x04, 0x00, 0x00};
+    const void* step = reinterpret_cast<const void*>(kPickStep);
+    if (IsBadReadPtr(step, sizeof(kStepBytes)) ||
+        memcmp(step, kStepBytes, sizeof(kStepBytes)) != 0) {
+      ModLog("hooks        : the step of the pick up action at 0x%08X does "
+             "not have the bytes of the disassembly, so the game sends the "
+             "pick up of an object that moves 225 ms after the press",
+             static_cast<unsigned>(kPickStep));
+    } else {
+      Hook(kPickStep, reinterpret_cast<void*>(&h_PickStep),
+           reinterpret_cast<void**>(&o_PickStep),
+           "the step of the pick up action (a catch at once)");
     }
     // A rock that splits goes to the log. The hook changes nothing.
     static const uint8_t kSplitBytes[10] = {0x83, 0xEC, 0x5C, 0x56, 0x57,

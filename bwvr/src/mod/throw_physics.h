@@ -50,6 +50,28 @@ void ThrowPhysicsSetRest(int rule);
 // the Hand has it. With test_keys=1, Ctrl and Shift with Scroll Lock turn
 // the guard off and on.
 void ThrowPhysicsSetTake(bool guard, int test);
+// catch_at_once: 1 puts an object that moves in the hand at the press of the
+// grip (docs/grab.md, "A catch at once"). 0 is the pick up of the game: the
+// object moves on until the game takes it out of its physics. With
+// test_keys=1, Ctrl and Shift with Backspace go between the two.
+void ThrowPhysicsSetCatch(int rule);
+// For hand_direct.cpp: the press of the grip put `object` in the Hand of the
+// picture while the physics of the game has it. The catch of that object
+// starts, and with each value of catch_at_once the mod measures its picture
+// for the log. fetch: the press of a fetch from a distance, whose glide
+// draws the object.
+void ThrowPhysicsCatchPress(void* object, bool fetch);
+// True while the catch of `object` runs with catch_at_once=1: the game must
+// send its pick up now.
+bool ThrowPhysicsCatchActs(void* object);
+// For hand_direct.cpp: the step of the pick up action ran for the object of
+// the catch with a press that the mod made old. age_ms is the real age of
+// the press on the clock of the game. sent: the game sent its pick up.
+void ThrowPhysicsCatchSent(void* object, unsigned age_ms, bool sent);
+// For hand_exact.cpp: the mesh matrix of the picture of `object` before the
+// press, while its catch runs with catch_at_once=1. The object starts its
+// way to its place in the Hand there. False for a fetch from a distance.
+bool ThrowPhysicsCatchFrom(void* object, float matrix[12]);
 // throw_draw: where the mod draws a thrown object between the steps of the
 // game (docs/throw.md, "The picture between the steps"). 1: a substep in
 // which another object touches the thrown object is 5 ms of the picture, the

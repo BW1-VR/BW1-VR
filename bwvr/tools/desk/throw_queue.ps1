@@ -70,7 +70,7 @@ function Show-BwvrGripLines([string]$Name) {
     $taps = @(Select-String -LiteralPath $log -Pattern '^rock split   : .*the game taps it').Count
     $splits = @(Select-String -LiteralPath $log -Pattern '^rock split   : ').Count
     "rocks that split in ${Name}: $taps by a tap of the game (a click of the Action button), $($splits - $taps) by a different cause"
-    Select-String -LiteralPath $log -Pattern '^grip         : grip_press_hold=|^hand pick    : catch_moving=|^hand pick    : seek |^hand press   : the grip pressed|^grip         : (the pick up is over|the object left the Hand|the grip opened on an object|the press that the mod held|the button of the game goes up|the object came after|an object is in the Hand with)|^rock split   : |^hand throw   : (release at|first contact of|the flight of .* is over)|^far grab    : the Hand holds|^controllers  : the right button press started off' |
+    Select-String -LiteralPath $log -Pattern '^grip         : grip_press_hold=|^hand pick    : catch_moving=|^hand pick    : seek |^hand press   : the grip pressed|^grip         : (the pick up is over|the object left the Hand|the grip opened on an object|the press that the mod held|the button of the game goes up|the object came after|an object is in the Hand with)|^rock split   : |^hand throw   : (release at|first contact of|the flight of .* is over)|^far grab    : the Hand holds|^hand catch   : (the|catch_at_once)|^controllers  : the right button press started off' |
         ForEach-Object { $t = $_.Line; if ($t.Length -gt 330) { $t = $t.Substring(0, 330) + ' ...' }; "  $t" }
 }
 # The first two points are the points of the start dialog. aim_run.ps1 puts
@@ -132,6 +132,20 @@ $landGrip = "$dropBase seek@3246+1 grip@3250+60 shot@3330+1 shot@3500+1"
 # new press after a full opening.
 $tossUp = 'point@2990+1 aimfar@3000+1 grip@3100+101 pull@3140+3 pull@3170+3 point@3200+1 seek@3236+1 grip@3240+60 shot@3320+1 shot@3500+1'
 $tossPoints = '0,0,100 0,0,100 -10,-25,60 -10,-10,60'
+# A CATCH AT ONCE (docs/grab.md, "A catch at once", catch_at_once). The
+# recipes dropnear, tossup, landgrip and dropshort are the catches, and each
+# is also for -More 'catch_at_once=0'. Two more recipes:
+#
+# A throw after a catch of the rock in its fall: the hand steps 15 cm over 3
+# frames, and the grip opens in that step.
+$catchThrow = "$dropBase seek@3217+1 grip@3221+59 pull@3277+3 shot@3330+1 shot@3500+1"
+# Eye pictures of a catch: one near the frame of the press, and one 3 frames
+# later. Run it with no -Fps, so the frames of the recipe are the frames of
+# the run.
+$catchShot = "$dropBase seek@3217+1 shot@3220+1 grip@3221+60 shot@3223+1 shot@3300+1 shot@3500+1"
+# A fetch from a distance of a tree 1.0 s after its release, while it still
+# moves on the land: the press of the fetch is a catch.
+$catchFar = "$dropBase pull@3207+3 aimfar@3262+1 grip@3266+60 pull@3276+3 shot@3360+1 shot@3500+1"
 $defs = @{
     dropshort = @{ Set = 'throw_land=1;release_fall_cm=15;seek_thrown=1'; Steps = $dropShort; Seconds = 80; Points = $stillPoints }
     landgrip = @{ Set = 'throw_land=1;release_fall_cm=15;seek_thrown=1;fake_head_pitch=-25'; Steps = $landGrip; Seconds = 80; Points = $stillPoints }
@@ -144,10 +158,14 @@ $defs = @{
     # first game turn in which the Hand has the tree. With catch_rest_guard=1
     # the tree stays in the Hand. With -More 'catch_rest_guard=0' the game
     # makes a dead tree, and the Hand is empty (docs/grab.md, "An object that
-    # comes to rest while the Hand takes it").
+    # comes to rest while the Hand takes it"). The step of the tree runs
+    # after the press only with -More 'catch_at_once=0'.
     treedropend = @{ Set = 'throw_land=1;release_fall_cm=15;far_test_thrown=1;far_test_no_trees=0;far_test_tree=1;catch_rest_test=1'; Steps = $dropFarRoll; Seconds = 80; Points = $stillPoints }
     treenear = @{ Set = 'throw_land=1;release_fall_cm=15;seek_thrown=1;far_test_no_trees=0;far_test_tree=1'; Steps = $dropRoll; Seconds = 100; Points = $stillPoints }
     dropnear = @{ Set = 'throw_land=1;release_fall_cm=15;seek_thrown=1'; Steps = $dropNear; Seconds = 80; Points = $stillPoints }
+    catchthrow = @{ Set = 'throw_land=1;release_fall_cm=15;seek_thrown=1'; Steps = $catchThrow; Seconds = 80; Points = $stillPoints }
+    catchfar = @{ Set = 'throw_land=1;release_fall_cm=15;far_test_thrown=1;far_test_no_trees=0;far_test_tree=1'; Steps = $catchFar; Seconds = 80; Points = $stillPoints }
+    catchshot = @{ Set = 'throw_land=1;release_fall_cm=15;seek_thrown=1'; Steps = $catchShot; Seconds = 80; Points = $stillPoints }
     droproll = @{ Set = 'throw_land=1;release_fall_cm=15;seek_thrown=1'; Steps = $dropRoll; Seconds = 80; Points = $stillPoints }
     dropfar = @{ Set = 'throw_land=1;release_fall_cm=15;far_test_thrown=1'; Steps = $dropFar; Seconds = 80; Points = $stillPoints }
     dropfarroll = @{ Set = 'throw_land=1;release_fall_cm=15;far_test_thrown=1'; Steps = $dropFarRoll; Seconds = 80; Points = $stillPoints }

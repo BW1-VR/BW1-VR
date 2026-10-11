@@ -362,7 +362,9 @@ sends the packet with `fn_005D2800`. An object at rest gets the packet when
 its Tug is over. An object that the physics of the game has gets it only
 when the button was down for 225 ms, and a shorter press is a click that
 taps the object. The detail is in [grab.md](grab.md), "The press of the
-game".
+game". With the direct hand the mod makes that press old for the step, so
+the packet goes out on the first frame after the press, and the object is in
+the hand at once ([grab.md](grab.md), "A catch at once").
 
 ### Hold [V]
 
@@ -841,6 +843,13 @@ the object), the mod writes the object's mesh matrix (`Object+0x40`, then
 - On the first frame the object is where the game put it. It moves to the
   palm in 0.12 s, in the frame of the hand, so there is no jump when the
   Holding state starts.
+- An object that moves at the press of the grip (a catch, `catch_at_once=1`)
+  starts at the place and with the axes that its picture had before the
+  press, and not at the place that the game writes at the Hand's point. While
+  the physics of the game still has that object, the axes of the body are
+  not new axes of the object, and `throw_physics.cpp` writes the matrix that
+  the draw of the Hand left again before the game draws its physics objects
+  ([grab.md](grab.md), "A catch at once").
 - The place is made once a frame, and both eye passes write the same matrix.
 - A small object (the hold types 1 and 6, less than 0.16 hand lengths across)
   goes to the point between the tips of the thumb and of the index finger,

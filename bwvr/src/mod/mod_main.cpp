@@ -420,6 +420,7 @@ int g_throw_draw = 1;
 // The take of an object that comes to rest (throw_physics.cpp).
 int g_catch_rest_guard = 1;
 int g_catch_rest_test = 0;
+int g_catch_at_once = 1;
 GrabSettings g_grab;
 GestureSettings g_gesture;
 int g_fake_lean_cm[3] = {0, 0, 0};
@@ -1072,6 +1073,12 @@ void ReadSettings() {
     // "at rest" while the Hand has it.
     g_catch_rest_guard = number("catch_rest_guard", 1);
     g_catch_rest_test = number("catch_rest_test", 0);
+    // catch_at_once: 1 puts an object that moves in the hand at the press of
+    // the grip: the game sends its pick up at once, the body of the object
+    // stays where it is, and the mod draws the object in the Hand. 0 is the
+    // pick up of the game, which comes 225 ms and some game turns after the
+    // press, and the object moves on until then.
+    g_catch_at_once = number("catch_at_once", 1);
     // throw_draw: 1 gives a substep with a touch of another object 5 ms of
     // the picture of a thrown object, and the picture does not go back to a
     // place behind a guess. 0 gives each substep its time of the flight.
@@ -1343,6 +1350,7 @@ void StartVrOnce() {
         ThrowPhysicsSetSettle(g_throw_tree_settle != 0);
         ThrowPhysicsSetRest(g_throw_land_rest);
         ThrowPhysicsSetTake(g_catch_rest_guard != 0, g_catch_rest_test);
+        ThrowPhysicsSetCatch(g_catch_at_once);
         ThrowPhysicsSetDraw(g_throw_draw);
         ThrowPhysicsInstallEarly();
         FarGrabInstall();

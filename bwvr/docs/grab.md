@@ -58,8 +58,7 @@ a real hand, in every play mode:
 
 1. Close the grip on a target (the glow is gold). The game's pick up starts at
    once. An object at rest is in the Hand one or two game turns later. An
-   object that moves is in the Hand of the picture at once, and the game has
-   it 225 ms and one game turn later ("The press of the game").
+   object that moves is in the hand at once ("A catch at once").
 2. Keep the grip closed. The Hand carries the object. The game's right button
    is up during the carry, so the trigger still drags the land.
 3. Open the grip. The Hand lets go. A fast hand throws with the speed of the
@@ -120,6 +119,12 @@ game has two ways to take an object [V]:
   the byte `GInterfaceStatus+0x90`: it is not 0 while the game has an object
   in its Hand.
 
+With `catch_at_once=1` the mod gives the step of action 13 a press that is
+225 ms old for an object that the physics of the game has, so the step sends
+the pick up on the first frame after the press ("A catch at once"). The
+rules below are for each press, and for `catch_at_once=0` they are the only
+guard against a click.
+
 So a time or a count of frames must not end the press of a closed grip. With
 `grip_press_hold=1` the machine reads the facts of the game on each pump
 (`HandDirectGripPress`):
@@ -135,14 +140,18 @@ So a time or a count of frames must not end the press of a closed grip. With
    then takes the object, and the machine lets it go with its click when the
    game has it in its Hand. So a press on an object in the air never splits
    a rock: the object comes into the Hand, and the open Hand lets it fall.
+   With `catch_at_once=1` the game sent its pick up before the grip opened,
+   and the button stays down in the same way until the game has the object.
 3. **A short press on an object at rest** is a click, as in the plain game:
    the button goes up with the grip, and a rock at rest splits.
 
 `grip_press_hold=0` gives a carry when the pick lock is clear, or 167 ms
 after the object came into the Hand of the picture, and no press that the
 mod holds. That time is 15 frames at 90 frames a second, which is less than
-225 ms: the press on an object that moves is then a click, the Hand lets the
-object go one frame after the line `the pick up is over`, and a rock splits.
+225 ms. With `catch_at_once=0` the press on an object that moves is then a
+click: the Hand lets the object go one frame after the line `the pick up is
+over`, and a rock splits. With `catch_at_once=1` the game sent its pick up
+on the first step, so that press is no click.
 With `test_keys=1`, Shift and the plus key of the number pad change the key
 while the game runs (Ctrl must be up). The pointing controller gives a long
 pulse for 1 and a short pulse for 0.
@@ -243,17 +252,180 @@ frames a second, at 20 times in a game turn. A closed grip and a press of 50
 ms on an object that moves are never a click with `grip_press_hold=1`, and
 each one is a click with 0. A game turn of 180 ms and a press on an object at
 rest are there too. Desktop runs: `throw_queue.ps1 -Runs
-dropnear,tossup,landgrip,dropshort` in `bwvr/tools/desk` closes the grip on
-a rock in its fall, on a rock that the hand threw up, on a rock on the land
-0.15 s after its first contact, and for 50 ms on a rock in its fall. `-More
-'grip_press_hold=0'` gives the other value, and `-Fps 90` a run at 90 frames
-a second.
+dropnear,tossup,dropshort` in `bwvr/tools/desk` closes the grip on
+a rock in its fall, on a rock that the hand threw up, and for 50 ms on a
+rock in its fall. `-More 'catch_at_once=0;grip_press_hold=0'` gives the
+click of the game, and `-Fps 90` a run at 90 frames a second. The recipe
+`landgrip`, for a rock on the land 0.15 s after its first contact, does not
+reach its state (`bwvr/tools/desk/README.md`, "Known limits of the
+recipes").
 
 **Needs the headset.** Whether 3 to 4 frames from the opening to the release
 feel at once. Whether the window of 80 ms before the opening gives the throw
 the player meant. Whether a still hand sets the object down where it is.
 Whether a catch with a real hand takes the object each time: a real grip
 closes over some frames, and a real hand moves with the object.
+
+### A catch at once
+
+A press of the grip on an object that moves puts the object in the hand at
+once (`catch_at_once=1`, the default). "Moves" is the test of the game: its
+physics has the object (bit `0x40` of `Object+0x24` is set and bit `0x10` of
+`Object+0x0A` is clear), so the object falls, flies or rolls. An object at
+rest keeps the press of the game, and a short press on it is a click.
+
+**What the game does [V].** The press puts the object in the Hand of the
+picture (`fn_0046DC30` writes `CHand+0x4904`), and the Hand is in the Holding
+state on the next frame. The step of action 13 (`fn_005D5250`) then only
+waits until the press is 225 ms old ("The press of the game"). In that time
+it changes nothing: not the hand mode, and not the pick lock. Then
+`fn_005D2800` asks the object three things (the table slots `+0x6FC` with
+the player and `+0x180`, and the slot `+0x714` when the land under the Hand
+is outside the influence), sends packet `0x13`, starts action 7 and sets the
+pick lock. When that function refuses, the step clears the pick lock, resets
+the action and lets the object go (`CHand::ThrowObject`).
+
+The game takes the object out of its physics in a game turn after the
+packet. Until then the physics moves the object. `PhysicsObject::DrawAll`
+`0x00646DE0` draws each object of the physics with the matrix of its mesh as
+it is then. For an object that the Hand threw or let fall, the flight of the
+mod writes that matrix on each frame ([throw.md](throw.md), "The picture
+between the steps"). So the object moves on for 0.25 to 0.35 s, and then it
+is in the Hand in one frame.
+
+**What the mod does.** The catch starts at the press, when the game put an
+object that its physics has in the Hand of the picture
+(`ThrowPhysicsCatchPress` in `throw_physics.cpp`). It has three parts:
+
+1. **The game sends its pick up at once.** A hook on the step of action 13
+   (`h_PickStep` in `hand_direct.cpp`) gives the step a press that is old
+   enough. For that one call the clock and the game turn of the press
+   (`GInterface+0x454` and `+0x458`) are 225 ms and 3 game turns back
+   (`catch_math::OldPress`), and then they have their values again. So the
+   step of the game calls `fn_005D2800` on the first frame after the press,
+   with each test of that function, and the game sends its own packet. The
+   step then does not read a release as a click, so no press on an object
+   that moves taps it, and no rock splits.
+2. **The body stays where it is.** While the Hand of the picture has the
+   object and the physics of the game has it too, the hook on `fn_007FE260`
+   does not run the step of that object. It gives the game 1, the answer of
+   a step that moved (`CatchStep`). So the body does not fall on, does not
+   hit the land or a different object, and does not come to rest in that
+   time. The contact force of a step that did not run does not go to the sum
+   of the turn (`PhysicsObject+0x0C`), so the object gets no impact from it.
+3. **The mod draws the object in the Hand.** The flight of the mod does not
+   draw the object (`DrawFlights`). `PlaceHeld` in `hand_exact.cpp` places
+   it as it places each object in the Hand. For a catch it starts the settle
+   of 0.12 s at the place and with the axes that the picture had before the
+   press (`ThrowPhysicsCatchFrom`), and not at the place that the game
+   writes at the Hand's point. So the object does not jump: it stops, and it
+   goes to its place in the Hand in 0.12 s, in the frame of the hand. While
+   the physics of the game has the object, the mesh has the place of the
+   body again before `DrawAll`, on each frame of the desktop runs [I: which
+   code of the game writes it there]. So the mod writes the matrix that the
+   draw of the Hand left (`HandExactHeldMatrix`) again before `DrawAll` in
+   each eye pass (`CatchFrame`), and `PlaceHeld` does not take the axes of
+   the body as new axes of the object.
+
+The catch ends when the game took the object out of its physics. From then
+on the object is a held object as each other: the grip carries it, and the
+opening lets it go with a throw or a drop.
+
+- **The Hand lets the object go before that** (the game refused the pick
+  up): the catch ends, the picture is at its place of the press again, the
+  body moves again from there, and the log says so.
+- **The game does not take the object in 3 s:** the catch ends, and the body
+  moves again.
+- **A fetch from a distance** of an object that moves is a catch too. Parts 1
+  and 2 act. The glide of the fetch draws the object from the frame of the
+  press ("The glide"): the matrix that the mod writes before `DrawAll` has
+  the point of the glide.
+- The mouse keeps the pick up of the game: the mod acts only while the
+  controller places the Hand. A multiplayer game keeps it too.
+- The catch needs the hooks of the real flight (`throw_law=2` at the start of
+  the game).
+- With `hand_hold_palm=0` the mod does not place an object in the Hand. The
+  game then sends its pick up at once and the body stays where it is, but the
+  mesh has the place of the body until the game takes the object [I: from the
+  code, not run].
+
+`catch_at_once=0` in `bwvr.ini` gives the pick up of the game: the packet
+goes out 225 ms after the press, and the object moves on until the game
+takes it. With `test_keys=1`, Ctrl and Shift with Backspace go between 1 and
+0 while the game runs. The pointing controller gives a long pulse for 1 and
+a short pulse for 0, and the log has a line. A catch that runs keeps its
+value.
+
+**The log.** Tag `hand catch`: the value at the start, one line at each
+press on an object that moves, with the place of its picture, and one line
+when the catch is over. That line has the numbers of the picture
+(`catch_math::Track`): the time from the press to the first frame in which
+the mod drew the object in the Hand, how far the picture went and came down
+before that by the motion of the object, and the largest move of the picture
+from one frame to the next. It also has the age of the press when the game
+sent its pick up, the time and the game turn in which the game took the
+object, the count of the steps that the mod held back, and the count of the
+frames in which the mod wrote the matrix of the Hand again. The numbers are
+there with each value of the key. With `throw_log=2` each frame of a catch
+has a line `c` with the place of the picture.
+
+**Tests.** The math checks (`CatchChecks` in `catch_checks.h`) make the
+press old for the rule of the game with a clock and a game turn that wrap,
+and run one catch at 60, 72, 90 and 120 frames a second, at 20 times in a
+game turn. With the catch the object is in the Hand from the frame of the
+press, it does not fall, the largest move of a frame is the settle, the
+game sends its pick up on the first step, and a press of 50 ms is no click.
+With `catch_at_once=0` the same model falls 47 cm or more and then jumps.
+
+**Desktop runs.** `throw_queue.ps1 -Runs dropnear,tossup,dropshort,catchthrow`
+in `bwvr/tools/desk` closes the grip on a rock in its fall, on a rock that
+the hand threw up, for 50 ms on a rock in its fall, and on a rock in its
+fall with a step of the hand at the opening. `-More 'catch_at_once=0'` gives
+the pick up of the game, and `-Fps 90` a run at 90 frames a second. `-Runs
+catchshot` takes eye pictures of the frame of the press and of 3 frames
+later. The numbers are from the line of the log of each catch, at 90 frames a
+second and at the frame rate of the rig (53 frames a second):
+
+| | `catch_at_once=1` | `catch_at_once=0` |
+| --- | --- | --- |
+| The first frame with the object in the Hand | The first frame after the press: 7 to 9 ms after it at 90 frames a second, 14 to 15 ms at 53 | 242 to 353 ms after the press |
+| The way of the picture before that, by the motion of the object | 0.0 cm | 11 to 34 cm. A rock in its fall comes down 28 to 33 cm |
+| The largest move of the picture in one frame | 0.6 to 4.8 cm, in the settle. For the rock in its fall, with a way of 26 cm to its place in the Hand, it is 3 cm at 90 frames a second and 4.8 cm at 53 | 45 to 49 cm for a rock in its fall, in the frame in which the game takes it |
+| The game sends its pick up | On the first step, with a real press of 0 to 16 ms | 225 ms after the press or later |
+| The game takes the object out of its physics | 31 to 131 ms after the press, in game turn 1 or 2 | 242 to 353 ms after the press, in game turn 3 or 4 |
+| A rock that splits | None | None, with `grip_press_hold=1` |
+
+With `catch_at_once=1` the mod held the 20 steps of one game turn back in
+each run in which a game turn came between the press and the take, and the
+body of the rock did not move in that turn. It wrote the matrix of the Hand
+again on each frame in which the physics had the object, 2 to 8 frames a
+catch. After the catch an open grip with a still hand lets the rock fall
+from its place in the Hand, and a hand that steps 15 cm in 3 frames throws
+it from there at 3.4 m/s of the room. In the run with the grip of 50 ms the
+game has the rock 50 to 97 ms after the press, and the open Hand lets it go
+then. A tree in its fall is in the Hand in the same way (`-Runs treedrop`).
+
+`-Runs catchfar` fetches a tree from a distance 1.0 s after its release,
+while the physics of the game still has it. With `catch_at_once=1` the glide
+draws the tree from the first frame after the press. The largest move of a
+frame is 5.5 cm, which is the first frame of a glide of 0.5 m in 0.32 s, and
+the game takes the tree 42 to 54 ms after the press. With `catch_at_once=0`
+the tree stays at its place for 320 ms. The game takes it then, and the tree
+is 52 to 54 cm nearer in one frame, at the end of the glide.
+
+Not shown on the desktop: a catch of a rock that touches the land. The
+recipe `landgrip` does not reach that state (`bwvr/tools/desk/README.md`,
+"Known limits of the recipes"). For such a catch the step of the body does
+not run, as for each catch, and the game adds no contact force of that step
+to the sum of the turn (`0x00645FEE` adds the force of a step with a contact
+after the call of `fn_007FE260`, and the hook takes that force off before).
+
+
+**Needs the headset.** Whether the object is in the hand at the press with a
+real hand, which closes over some frames and moves with the object. Whether
+the way of 0.12 s to the place in the Hand looks right when the object was
+15 to 23 cm from the finger tip at the press. Whether the throw after a
+catch is the throw that the player meant.
 
 ## One point for each interaction
 
@@ -583,6 +755,7 @@ put the leash on from a new game.
 | `catch_cap_cm` | 8 | The most extra reach, in cm of the room. 0 to 20 |
 | `catch_grace_ms` | 600 | The object that the Hand threw has no extra reach for this time at the most, in ms. 0 to 3000 |
 | `catch_rest_guard` | 1 | 1 holds the end of the physics of an object back while the Hand takes it, so a tree that comes to rest in that time stays a tree and goes into the Hand (see "An object that comes to rest while the Hand takes it"). 0 lets the game end the physics: the tree is then a dead tree on the land, and the Hand is empty. The test key Ctrl Shift Scroll Lock turns it off and on (`test_keys=1`) |
+| `catch_at_once` | 1 | 1 puts an object that moves in the hand at the press of the grip: the game sends its pick up at once, the body of the object stays where it is, and the mod draws the object in the Hand (see "A catch at once"). 0 is the pick up of the game: it goes out 225 ms after the press, and the object moves on until the game takes it out of its physics. The test key Ctrl Shift Backspace goes between the two (`test_keys=1`) |
 | `far_grab_near_cm` | 10 | The far grab goes off when an object that a press acts on is this near the Hand's point |
 | `far_grab_near_out_cm` | 15 | The far grab comes back past this distance |
 | `palm_search` | 0 | 1 leaves the game's search at the palm on |
@@ -1310,7 +1483,9 @@ the Hand's point (nothing, hold, take, tap or the Creature).
 The game takes the object of the record by its pointer, where it is, so the
 fetch needs no change for an object that moves. The game also takes an object
 that is in its physics: a rock that falls or flies after a release is a far
-target, and the fetch puts it in the Hand while it moves.
+target, and the fetch puts it in the Hand while it moves. The press of that
+fetch is a catch: the game sends its pick up at once, and the body of the
+object stays where it is while the glide draws it ("A catch at once").
 
 - **The pick reaches farther for an object that moves** (`catch_moving`). The
   player closes the hand on the place where the object was a moment ago: the
@@ -1389,8 +1564,8 @@ puts the object in the Hand in a later game turn.
 that function takes the object out of the physics with
 `PhysicsObject::RemoveObject` `0x00646A00` (`0x005DC346`). Its two flags are
 0, so the call makes no end of the physics, and the object stays what it is.
-In the desktop runs the physics ran 2 or 3 game turns between the press and
-that turn.
+With the pick up of the game (`catch_at_once=0`) the physics ran 2 or 3 game
+turns between the press and that turn in the desktop runs.
 
 In each of those turns the object can come to rest. Then the step of the
 object (`fn_007FE260`) gives 2, and `PhysicsObject::GameTurnUpdate` calls
@@ -1412,6 +1587,12 @@ step that moved (`TakeStep`). The step has set the velocity and the turn of
 the object to 0, so the object lies still. The game then takes the object
 out of the physics in its own turn, as it takes each object that moves. A
 tree stays a tree, and it is in the Hand until the grip opens.
+
+With `catch_at_once=1` the step of the object does not run from the press
+on ("A catch at once"), so the object cannot come to rest after the press.
+The guard then acts in the lock and the pull of a far grab. With
+`catch_at_once=0` it also acts in the game turns between the press and the
+take.
 
 The limits:
 
@@ -1450,7 +1631,8 @@ release, so the rest of the game itself comes in the take in some runs only.
 For the other runs the recipe has the test key `catch_rest_test=1`: it makes
 one step of the object give 2 in the first game turn in which the Hand of
 the game has the object, with the state that the step of the game leaves
-then (no velocity and no turn).
+then (no velocity and no turn). That step runs only with `catch_at_once=0`,
+so the runs of the table have `-More 'catch_at_once=0'`.
 
 | `catch_rest_guard` | What the runs show |
 | --- | --- |

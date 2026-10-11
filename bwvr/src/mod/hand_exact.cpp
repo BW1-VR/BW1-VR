@@ -121,6 +121,9 @@ float HeadPoseScale();
 // hand_feel.cpp: the weight of the pinch (0 the fist, 1 the pinch) for the
 // object in the Hand, once a frame, and the point between the tips of the
 // thumb and of the index finger in the hand frame, in hand lengths.
+// throw_physics.cpp: the mesh matrix of the picture of an object before the
+// press of a catch, while that catch runs (docs/grab.md, "A catch at once").
+bool ThrowPhysicsCatchFrom(void* object, float matrix[12]);
 float HandFeelPinch(void* held, uint64_t frame, float body_radius,
                     float hand_length, float units_per_cm, float point[3]);
 
@@ -304,6 +307,15 @@ const int kMaxHoldLogs = 40;
 // state that holds one.
 void* g_radius_object = nullptr;
 float g_radius_2d = 0.0f;
+
+// The mesh matrix of the object in the Hand after PlaceHeld and the calls
+// below ran in this pass: the place in the palm, or the point of the glide of
+// a far grab. For a catch (HandExactHeldMatrix).
+struct Prepared {
+  void* object = nullptr;
+  float matrix[12];
+};
+Prepared g_prepared;
 
 // Later features: a call after CHand::PrepareForDrawing.
 typedef void (*PrepareHook)(void* hand);
@@ -819,16 +831,24 @@ void PlaceHeld(uint8_t* hand) {
   float* matrix = HeldMatrix(held);
   if (matrix == nullptr) return;
   const bool fresh = held != g_hold.object;
+  // A CATCH (docs/grab.md, "A catch at once"). The physics of the game still
+  // has the object, and the game wrote the place of the Hand over the place
+  // of its picture. The object starts where its picture was before the
+  // press, with the axes that it had there. A game turn writes the axes of
+  // the body in that time, and they are not new axes of the object.
+  float caught[12];
+  const bool catching = ThrowPhysicsCatchFrom(held, caught);
   if (fresh) {
     g_hold = Hold();
     g_hold.object = held;
     g_hold.radius_2d = HeldRadius(held);
+    if (catching) memcpy(matrix, caught, sizeof(caught));
     memcpy(g_hold.rotation0, rotation, sizeof(g_hold.rotation0));
     memcpy(g_hold.base, matrix, sizeof(g_hold.base));
     LARGE_INTEGER start;
     QueryPerformanceCounter(&start);
     g_hold.start = start.QuadPart;
-  } else if (g_hold.have_wrote &&
+  } else if (!catching && g_hold.have_wrote &&
              memcmp(matrix, g_hold.wrote, sizeof(g_hold.wrote)) != 0) {
     // The game gave the object new axes. They are the axes to turn now, by
     // the turn of the hand since the object came into it.
@@ -895,13 +915,15 @@ void PlaceHeld(uint8_t* hand) {
                             matrix[11] - origin[2]};
       ModLog("hand exact   : the Hand holds %p, frame %llu. The body is a ball "
              "of %.2f units (2D radius or trunk %.2f, hang %.2f %.2f %.2f), "
-             "%.1f cm of the room. The game put the object at %.1f %.1f %.1f, "
+             "%.1f cm of the room. %s %.1f %.1f %.1f, "
              "and its "
              "place in the palm is %.1f %.1f %.1f, %.1f cm away. It moves "
              "there in %.2f s and turns with the hand: %s",
              held, frame, g_hold.radius, g_hold.radius_2d, hang[0], hang[1],
              hang[2],
              units_per_cm > 0.0f ? g_hold.radius / units_per_cm : 0.0f,
+             catching ? "It is a catch: its picture before the press was at"
+                      : "The game put the object at",
              matrix[9], matrix[10], matrix[11], origin[0], origin[1],
              origin[2],
              units_per_cm > 0.0f ? hx::Length(gap) / units_per_cm : 0.0f,
@@ -1051,6 +1073,14 @@ void HandExactAfterPrepare(void* hand) {
     g_hold.object = nullptr;
   }
   for (int i = 0; i < g_prepare_hook_count; ++i) g_prepare_hooks[i](hand);
+  g_prepared.object = nullptr;
+  if (g_hold.object != nullptr && g_hold.have_out) {
+    const float* matrix = HeldMatrix(g_hold.object);
+    if (matrix != nullptr) {
+      g_prepared.object = g_hold.object;
+      memcpy(g_prepared.matrix, matrix, sizeof(g_prepared.matrix));
+    }
+  }
 }
 
 // For overlay.cpp: the game's Hand of this frame, for the pose and the color
@@ -1116,6 +1146,19 @@ bool HandExactHeld(void** object, float origin[3], float up[3]) {
     up[i] = g_hold.out[3 + i];
   }
   return hx::Normalize(up);
+}
+
+// For throw_physics.cpp (docs/grab.md, "A catch at once"): the mesh matrix
+// of the object in the Hand as the last pass of the Hand's draw left it: the
+// place that PlaceHeld made, with the point of the glide of a far grab on
+// it. False when the mod does not place that object.
+bool HandExactHeldMatrix(void* object, float out[12]) {
+  if (object == nullptr || g_prepared.object != object ||
+      g_hold.object != object) {
+    return false;
+  }
+  memcpy(out, g_prepared.matrix, sizeof(g_prepared.matrix));
+  return true;
 }
 
 // For a later feature, for example the glide of a far grab: a call after

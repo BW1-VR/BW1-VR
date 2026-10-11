@@ -297,6 +297,10 @@ gain of `throw_law=0`.
 - Ctrl with Scroll Lock goes between the two rules of `throw_draw`. A long
   pulse of the pointing hand means 1, and a short pulse means 0. A flight
   that is in the air keeps its rule.
+- Ctrl and Shift with Backspace go between the two values of
+  `catch_at_once` ([grab.md](grab.md), "A catch at once"). A long pulse of
+  the pointing hand means 1, and a short pulse means 0. A catch that runs
+  keeps its value.
 - Numpad Plus makes k larger by 0.25 (slower), and Numpad Divide makes it
   smaller by 0.25 (faster), from 1.0 to 10.0. Each press gives a short pulse
   of the pointing hand (weaker at the end of the range) and a log line with
@@ -963,6 +967,7 @@ use this time is not traced.
 | `grip_fast_open` | 1 | 1 also opens a closed grip on a fast fall of its value. 0 opens it only below 35 percent |
 | `grip_press_guard` | 1 | 1 keeps the fast fall from opening the grip in the first 300 ms of a press, before the Hand holds the object. 0 lets it open the grip at any time. The test key Ctrl Shift Home goes between the two (`test_keys=1`) |
 | `grip_press_hold` | 1 | 1 keeps the button of the game down until the game has the object in its Hand, and until a press on an object that moves is no click for the game. 0 lets the button go up 167 ms after the object came into the Hand of the picture (`grab.md`, "The press of the game"). The test key Shift and the plus key of the number pad goes between the two (`test_keys=1`) |
+| `catch_at_once` | 1 | 1 puts an object that moves in the hand at the press of the grip. 0 is the pick up of the game, and the object moves on until the game takes it (`grab.md`, "A catch at once"). The test key Ctrl Shift Backspace goes between the two (`test_keys=1`) |
 
 The keys are read from `bwvr.ini`. They are not in the launcher.
 

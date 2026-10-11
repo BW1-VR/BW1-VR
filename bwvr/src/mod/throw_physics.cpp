@@ -96,6 +96,7 @@
 #include <string.h>
 
 #include "MinHook.h"
+#include "catch_math.h"
 #include "controller_math.h"
 #include "far_grab.h"
 #include "throw_math.h"
@@ -112,6 +113,12 @@ void ControllersGesturePulse(float amplitude, float seconds);
 void* HandDirectHand(bool* active);
 // hand_direct.cpp: the Hand's point after the land test, and the size.
 bool HandDirectExactFacts(float target[3], float* size, uint64_t* frame);
+// hand_exact.cpp: the mesh matrix that the mod made last for the object in
+// the Hand (the place in the palm). False when the mod does not place it.
+bool HandExactHeldMatrix(void* object, float out[12]);
+// tabletop.cpp and head_pose.cpp: the world units in a meter of the room.
+float TabletopViewScale();
+float HeadPoseScale();
 
 namespace {
 
@@ -1336,7 +1343,248 @@ int TakeStep(uint8_t* ob, int code) {
   return 1;
 }
 
+// THE CATCH (catch_at_once, docs/grab.md, "A catch at once"). A press of the
+// grip on an object that the physics of the game has puts the object in the
+// Hand of the picture at once (CHand+0x4904). The game takes it out of its
+// physics some game turns after it sent its pick up, and until then the
+// object moves on. With catch_at_once=1 the object is in the hand from the
+// press:
+//   - hand_direct.cpp makes the step of the game send the pick up at the
+//     press (ThrowPhysicsCatchActs).
+//   - The step of the object does not move it (CatchStep), so its body stays
+//     where it was at the press. It does not fall on, and it hits nothing.
+//   - The flight of the mod does not draw it. hand_exact.cpp places it in
+//     the Hand with the settle of each pick up, from the place of its
+//     picture before the press (ThrowPhysicsCatchFrom).
+// The press of a fetch from a distance is a catch too, when its object
+// moves. The glide of the fetch draws that object, from the place in the
+// Hand that hand_exact.cpp made.
+// The catch ends when the game has the object in its Hand, when the Hand
+// lets the object go, or after kCatchLimitMs. With each value of the key the
+// mod measures the picture from the press, and the log has one line with the
+// numbers (catch_math::Track).
+struct Catch {
+  void* object;        // the object of the press, or null
+  bool rule;           // catch_at_once at the press
+  bool far_grab;       // the press of a fetch from a distance
+  bool flight;         // the object was on a flight of the mod
+  uint64_t frame0;     // the frame of the press
+  uint64_t frame;      // the last frame that the mod measured
+  double t0;           // the real time of the press
+  float from[12];      // the mesh matrix of its picture before the press
+  float s;             // world units in a meter of the room
+  bool steps;          // this game turn: the step of the object does not move
+  int turns;           // the game turns since the press
+  int frozen;          // the steps of its physics that the mod held back
+  int again;           // the frames in which the mod put the matrix in again
+  bool sent;           // the game sent its pick up
+  uint32_t sent_age;   // the age of the press then, on the clock of the game
+  bool taken;          // the game took the object out of its physics
+  double taken_ms;
+  int taken_turns;
+  int trace_logs;
+  catch_math::Track track;
+};
+Catch g_catch = {};
+int g_catch_rule = catch_math::kCatchAtOnce;
+int g_catch_logs = 0;
+const int kMaxCatchLogs = 120;
+// The game does not take an object for longer than this. After it the object
+// moves again.
+const double kCatchLimitMs = 3000.0;
+// The mod measures the picture for this long after the game took the object,
+// so the numbers of a catch have the frames of the take.
+const double kCatchTailMs = 250.0;
+const int kMaxCatchTrace = 400;
+
+// The Hand of the picture has the object of the catch now.
+bool CatchInHand() {
+  if (g_catch.object == nullptr) return false;
+  bool active = false;
+  const uint8_t* hand = static_cast<const uint8_t*>(HandDirectHand(&active));
+  return hand != nullptr &&
+         *reinterpret_cast<void* const*>(hand + kHandHeld) == g_catch.object;
+}
+
+// The catch is over. One line with the numbers of its picture.
+void CatchOver(const char* why) {
+  Catch& c = g_catch;
+  if (c.object == nullptr) return;
+  if (g_catch_logs < kMaxCatchLogs) {
+    ++g_catch_logs;
+    const float cm = c.s > 0.0f ? 100.0f / c.s : 0.0f;
+    const catch_math::Track& t = c.track;
+    char hold[160];
+    if (t.first_hold_frame >= 0) {
+      sprintf_s(hold, "The mod drew it in the Hand from %.0f ms after the "
+                      "press (frame %d of the catch)",
+                t.first_hold_ms, t.first_hold_frame);
+    } else {
+      sprintf_s(hold, "The mod did not draw it in the Hand");
+    }
+    char sent[160];
+    if (c.sent) {
+      sprintf_s(sent, "The game sent its pick up with a press of %u ms on its "
+                      "clock, because the mod made the press old",
+                c.sent_age);
+    } else {
+      sprintf_s(sent, "The game sent its pick up by its own rule");
+    }
+    char taken[160];
+    if (c.taken) {
+      sprintf_s(taken, "The game took it out of its physics %.0f ms after the "
+                       "press, in game turn %d",
+                c.taken_ms, c.taken_turns);
+    } else {
+      sprintf_s(taken, "The game did not take it out of its physics");
+    }
+    ModLog("hand catch   : the catch of %p is over after %d frames: %s. %s. "
+           "Before that its picture went %.1f cm of the room by the motion of "
+           "the object, and came down %.1f cm from its height at the press. "
+           "The largest move of the picture from one frame to the next is "
+           "%.1f cm, %.0f ms after the press (frame %d). %s. %s. The mod held "
+           "%d steps of its physics back, and in %d frames it put the matrix "
+           "of the Hand in again over the place of the body. "
+           "catch_at_once=%d%s",
+           c.object, t.frames, why, hold, t.own * cm, t.fell * cm,
+           t.jump * cm, t.jump_ms, t.jump_frame, sent, taken, c.frozen,
+           c.again, c.rule ? 1 : 0,
+           c.far_grab ? " (a fetch from a distance: the glide draws it)" : "");
+  }
+  c.object = nullptr;
+}
+
+// Once a game turn, before the physics: whether the step of the object of
+// the catch moves it in this turn.
+void CatchTurnBegin() {
+  Catch& c = g_catch;
+  c.steps = false;
+  if (c.object == nullptr) return;
+  ++c.turns;
+  c.steps = c.rule && !c.taken && CatchInHand() && !Multiplayer();
+}
+
+// True when the step of this PhysOb must not move it: it is the object of the
+// catch. The contact force of a step that did not run is no impact, so the
+// sum of the turn (PhysicsObject+0x0C) does not get it: the game adds the
+// force after this call when the step had a contact (0x00645FEE).
+bool CatchStep(uint8_t* ob) {
+  Catch& c = g_catch;
+  if (c.object == nullptr || !c.steps) return false;
+  int count = 0;
+  const uint8_t* base = Entries(&count);
+  uint8_t* entry = ob - kEntryPhysOb;
+  if (base == nullptr || entry < base || entry >= base + count * kEntrySize ||
+      (entry - base) % kEntrySize != 0 ||
+      *reinterpret_cast<void* const*>(entry + kEntryObject) != c.object) {
+    return false;
+  }
+  if (ob[kObContact] != 0) {
+    float* sum = reinterpret_cast<float*>(entry + kEntryImpulse);
+    const float* force = reinterpret_cast<const float*>(ob + kObForce);
+    for (int i = 0; i < 3; ++i) sum[i] -= force[i];
+  }
+  ++c.frozen;
+  return true;
+}
+
+// Before the game draws its physics objects, in each eye pass, after the
+// flights: the picture of the object of the catch, and its numbers once a
+// frame.
+void CatchFrame() {
+  Catch& c = g_catch;
+  if (c.object == nullptr) return;
+  const double ms = (NowSeconds() - c.t0) * 1000.0;
+  bool active = false;
+  const uint8_t* hand = static_cast<const uint8_t*>(HandDirectHand(&active));
+  if (hand == nullptr ||
+      *reinterpret_cast<void* const*>(hand + kHandHeld) != c.object) {
+    if (c.taken) {
+      CatchOver("the game had the object in its Hand, and the Hand let it go");
+    } else if (FindEntry(c.object) == nullptr) {
+      CatchOver("the object left the Hand, and the physics of the game does "
+                "not have it");
+    } else if (!c.rule) {
+      CatchOver("the Hand let the object go before the game took it");
+    } else {
+      // The picture goes back to the place of the object itself.
+      float* matrix = c.far_grab ? nullptr : MeshMatrix(c.object);
+      if (matrix != nullptr) memcpy(matrix, c.from, sizeof(c.from));
+      CatchOver("the Hand let the object go before the game took it. Its "
+                "picture is at its place of the press again, and its body "
+                "moves again from there");
+    }
+    return;
+  }
+  if (!c.taken && FindEntry(c.object) == nullptr) {
+    c.taken = true;
+    c.taken_ms = ms;
+    c.taken_turns = c.turns;
+  }
+  float* matrix = MeshMatrix(c.object);
+  if (matrix == nullptr) {
+    CatchOver("the object has no mesh");
+    return;
+  }
+  float hold[12];
+  const bool have_hold = HandExactHeldMatrix(c.object, hold);
+  const uint64_t frame = ControllersFrameCount();
+  // THE PICTURE. After the draw of the Hand, hand_exact.cpp placed the
+  // object in the Hand, and the glide of a fetch from a distance put its
+  // point on that. While the physics of the game has the object, the mesh
+  // can have the place of the body again at this point, so that matrix goes
+  // in again here. Before the Holding state the picture stays where it was
+  // at the press.
+  if (c.rule && !c.taken) {
+    if (have_hold) {
+      if (frame != c.frame && Gap(&matrix[9], &hold[9]) > c.s * 0.0005f) {
+        ++c.again;
+      }
+      memcpy(matrix, hold, sizeof(hold));
+    } else if (!c.far_grab &&
+               *reinterpret_cast<const int32_t*>(hand + kHandState) !=
+                   kStateHolding) {
+      memcpy(matrix, c.from, sizeof(c.from));
+    }
+  }
+  if (frame != c.frame) {
+    c.frame = frame;
+    // The picture is the mod's: the place in the Hand, or the point of the
+    // glide. With catch_at_once=0 the flight draws the object until the
+    // game takes it.
+    const bool in_hand =
+        have_hold && Gap(&matrix[9], &hold[9]) <= c.s * 0.0005f;
+    catch_math::TrackAdd(&c.track, &matrix[9], in_hand, ms);
+    if (g_log >= 2 && c.trace_logs < kMaxCatchTrace) {
+      ++c.trace_logs;
+      ModLog("hand catch   : c %llu %.1f p %.2f %.2f %.2f h %d e %d s %d",
+             frame, ms, matrix[9], matrix[10], matrix[11], in_hand ? 1 : 0,
+             c.taken ? 0 : 1,
+             *reinterpret_cast<const int32_t*>(hand + kHandState));
+    }
+  }
+  if (c.taken && ms - c.taken_ms >= kCatchTailMs) {
+    CatchOver("the game has the object in its Hand");
+  } else if (!c.taken && ms >= kCatchLimitMs) {
+    CatchOver("the game did not take the object out of its physics in 3 s, "
+              "and the object moves again");
+  }
+}
+
 int __fastcall h_Integrate(void* ob, void* unused) {
+  if (CatchStep(static_cast<uint8_t*>(ob))) {
+    // The flight of the object does not run this substep. PhysOb+0x78 is as
+    // FlySubstep leaves it.
+    Flight* held = FlightOfOb(ob);
+    if (held != nullptr && held->substep_open) {
+      uint8_t* o = static_cast<uint8_t*>(ob);
+      if (*reinterpret_cast<void* const*>(o + kObHitBy) == nullptr) {
+        *reinterpret_cast<void**>(o + kObHitBy) = held->hit_before;
+      }
+      held->substep_open = false;
+    }
+    return 1;
+  }
   Flight* f = FlightOfOb(ob);
   int code = f == nullptr ? o_Integrate(ob, unused)
                           : FlySubstep(f, static_cast<uint8_t*>(ob));
@@ -1474,6 +1722,12 @@ void DrawFlights() {
     const bool held = hand != nullptr &&
                       *reinterpret_cast<void* const*>(hand + kHandHeld) ==
                           f.object;
+    // The Hand has the object from the press of a catch: hand_exact.cpp
+    // draws it in the Hand, and the flight draws it no more.
+    if (held && f.phase == kPhysics && g_catch.object == f.object &&
+        g_catch.rule && !g_catch.taken) {
+      continue;
+    }
     if (held || FindEntry(f.object) != nullptr) WriteDraw(&f);
   }
 }
@@ -1723,6 +1977,40 @@ void PollTakeKey() {
   down = now;
 }
 
+// THE CATCH IN THE HEADSET. With test_keys=1, Ctrl and Shift with Backspace
+// turn catch_at_once on and off. A long pulse means on, a short pulse means
+// off. A catch that runs keeps its rule. Read once a frame, and only while a
+// window of the game is in front.
+void PollCatchKey() {
+  static uint64_t last_frame = 0;
+  static bool down = false;
+  if (!g_test_keys) return;
+  const uint64_t frame = ControllersFrameCount();
+  if (frame == last_frame) return;
+  last_frame = frame;
+  const bool now = (GetAsyncKeyState(VK_BACK) & 0x8000) != 0 &&
+                   (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0 &&
+                   (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
+  if (now && !down) {
+    DWORD process = 0;
+    const HWND window = GetForegroundWindow();
+    if (window != nullptr) GetWindowThreadProcessId(window, &process);
+    if (process == GetCurrentProcessId()) {
+      g_catch_rule = g_catch_rule != catch_math::kCatchWaits
+                         ? catch_math::kCatchWaits
+                         : catch_math::kCatchAtOnce;
+      ControllersGesturePulse(
+          0.5f, g_catch_rule != catch_math::kCatchWaits ? 0.30f : 0.06f);
+      ModLog("hand catch   : Ctrl, Shift and Backspace: catch_at_once is %d "
+             "now. An object that moves %s", g_catch_rule,
+             g_catch_rule != catch_math::kCatchWaits
+                 ? "is in the hand at the press of the grip"
+                 : "moves on until the game takes it out of its physics");
+    }
+  }
+  down = now;
+}
+
 // THE TIME FACTOR IN THE HEADSET. With test_keys=1, Numpad Plus makes the
 // flight slower and Numpad Divide makes it faster, 0.25 a press, from 1.0
 // (the real flight) to 10.0. With the Ctrl key down the same keys change the
@@ -1785,8 +2073,10 @@ void __cdecl h_DrawAll() {
   PollSettleKey();
   PollRestKey();
   PollTakeKey();
+  PollCatchKey();
   PollSlowKeys();
   DrawFlights();
+  CatchFrame();
   o_DrawAll();
 }
 
@@ -1842,6 +2132,79 @@ void ThrowPhysicsSetRest(int rule) {
 void ThrowPhysicsSetTake(bool guard, int test) {
   g_take_guard = guard;
   g_take_test = test;
+}
+
+void ThrowPhysicsSetCatch(int rule) {
+  g_catch_rule = rule != 0 ? catch_math::kCatchAtOnce : catch_math::kCatchWaits;
+}
+
+void ThrowPhysicsCatchPress(void* object, bool fetch) {
+  if (!g_installed || object == nullptr) return;
+  CatchOver("a new press of the grip took an object");
+  float* matrix = MeshMatrix(object);
+  if (matrix == nullptr) return;
+  Catch& c = g_catch;
+  c = Catch{};
+  c.object = object;
+  c.far_grab = fetch;
+  c.rule = g_catch_rule != catch_math::kCatchWaits && !Multiplayer();
+  c.frame0 = ControllersFrameCount();
+  c.t0 = NowSeconds();
+  const float table = TabletopViewScale();
+  c.s = table > 0.0f ? table : HeadPoseScale();
+  // The picture before the press: the place where the flight drew the object
+  // on the last frame, or the place where the game has its mesh.
+  memcpy(c.from, matrix, sizeof(c.from));
+  for (int i = 0; i < kMaxFlights; ++i) {
+    const Flight& f = g_flights[i];
+    if (!f.active || f.object != object) continue;
+    c.flight = true;
+    if (f.draw_valid && c.frame0 - f.draw_frame <= 1) {
+      const int first = f.phase == kPhysics && !f.axes_ok ? 9 : 0;
+      for (int k = first; k < 12; ++k) c.from[k] = f.draw_matrix[k];
+    }
+  }
+  catch_math::TrackReset(&c.track, &c.from[9]);
+  if (g_catch_logs < kMaxCatchLogs) {
+    ++g_catch_logs;
+    ModLog("hand catch   : the grip closed on %p at frame %llu while the "
+           "physics of the game has it (%s). Its picture is at %.1f %.1f "
+           "%.1f. catch_at_once=%d: %s", object, c.frame0,
+           c.flight ? "a flight of the mod" : "no flight of the mod",
+           c.from[9], c.from[10], c.from[11], g_catch_rule,
+           !c.rule ? "the object moves on until the game takes it out of its "
+                     "physics"
+           : fetch ? "the game sends its pick up now, its body stays there, "
+                     "and the glide of the fetch from a distance draws it "
+                     "from this frame"
+                   : "the game sends its pick up now, its body stays there, "
+                     "and the mod draws it in the Hand from this frame");
+  }
+}
+
+bool ThrowPhysicsCatchActs(void* object) {
+  return object != nullptr && g_catch.object == object && g_catch.rule &&
+         !g_catch.taken;
+}
+
+void ThrowPhysicsCatchSent(void* object, unsigned age_ms, bool sent) {
+  if (object == nullptr || g_catch.object != object) return;
+  if (sent) {
+    g_catch.sent = true;
+    g_catch.sent_age = age_ms;
+  } else if (g_catch_logs < kMaxCatchLogs) {
+    ++g_catch_logs;
+    ModLog("hand catch   : the game refused the pick up of %p, %u ms after "
+           "the press on its clock. The Hand lets the object go", object,
+           age_ms);
+  }
+}
+
+bool ThrowPhysicsCatchFrom(void* object, float matrix[12]) {
+  // The glide of a fetch from a distance has its own start.
+  if (!ThrowPhysicsCatchActs(object) || g_catch.far_grab) return false;
+  memcpy(matrix, g_catch.from, sizeof(g_catch.from));
+  return true;
 }
 
 void ThrowPhysicsSetDraw(int rule) {
@@ -1998,6 +2361,17 @@ void ThrowPhysicsInstall() {
                         "tree is then a dead tree and not in the Hand",
          ok ? "" : ". The hook of the step is not there, so the game ends "
                    "the physics in each case");
+  ModLog("hand catch   : catch_at_once=%d: an object that moves %s%s",
+         g_catch_rule,
+         g_catch_rule != catch_math::kCatchWaits
+             ? "is in the hand at the press of the grip. The game sends its "
+               "pick up at once, the body of the object stays where it is, "
+               "and the mod draws the object in the Hand"
+             : "moves on after the press of the grip, until the game takes "
+               "it out of its physics. The game sends its pick up 225 ms "
+               "after the press",
+         ok ? "" : ". The hook of the step is not there, so the body of the "
+                   "object moves on in each case");
   if (g_take_test != 0) {
     ModLog("hand take    : catch_rest_test=%d (a test): while the Hand takes "
            "an object that the physics of the game has, one step of the "
@@ -2214,6 +2588,7 @@ void ThrowPhysicsReleased(void* held) {
 
 void ThrowPhysicsTurnBegin() {
   TakeTurnBegin();
+  CatchTurnBegin();
   if (g_active == 0) return;
   const double now = NowSeconds();
   bool hand_active = false;

@@ -37,33 +37,33 @@ is built, and no test has proven it.
 
 ### Faults in play
 
-- **B2. The grip on an object that moves: check it in a headset.** The
-  game takes an object that its physics has (it falls, flies
-  or rolls) only when the Action button stays down for 225 ms. A shorter
-  press is a click: the Hand lets the object go, and a rock splits. So the
-  button of the game stays down until the game has the object in its Hand,
-  and a grip that opens sooner on such an object is no click for the game
-  (`grip_press_hold=1`, `grab.md`, "The press of the game"). Each time of
-  the grip is real time, and not a count of frames. The math checks run the
-  rule of the game with the grip machine at 60, 72, 90 and 120 frames a
-  second. Desktop runs show it, at the frame rate of the rig and at 90
-  frames a second (`throw_queue.ps1 -Runs dropnear,tossup,landgrip` in
-  `bwvr/tools/desk`, and the same with `-Fps 90`): the grip takes a rock in
-  its fall, a rock that the hand threw up, and a rock on the land 0.15 s
-  after its first contact, and no rock splits. With `-More
-  'grip_press_hold=0'` the press on the rock in its fall and on the rock
-  thrown up is a click, the object leaves the Hand, and a rock splits. Not
-  read: the run of a grip of 50 ms (`-Runs dropshort`).
+- **B2. A catch at once: check it in a headset.** A press of the grip on
+  an object that moves (it falls, flies or rolls) puts the object in the
+  hand from the first frame after the press. The game sends its pick up at
+  once, the body of the object stays where it is, and the mod draws the
+  object in the Hand (`catch_at_once=1`, `grab.md`, "A catch at once"). No
+  such press is a click, so no rock splits. Desktop runs show it at the frame
+  rate of the rig and at 90 frames a second, with a rock in its fall, a rock
+  that the hand threw up, a grip of 50 ms, a throw and a drop after the
+  catch, and a fetch from a distance of a tree that still moves.
 
   Check in a headset, with a real hand:
-  - a catch of a rock in its fall, and of a rock that you threw up,
-  - a grip on a rock or a ball that rolls on the land,
+  - that a rock in its fall, a rock that you threw up and a rock that rolls
+    on the land is in the hand at the press: it does not move on, and it
+    does not jump,
+  - that its way to its place in the hand (0.12 s) looks right when it was
+    15 to 23 cm from the finger tip at the press,
+  - that it leaves the hand as each held object does: a throw with the speed
+    of the hand, or a drop,
+  - that an object that still moves comes from a distance with the glide
+    from the press, and does not wait at its place first,
   - that no grip on an object that moves breaks a rock,
   - that the guard of a throw does not stop a catch (`catch_moving=3`: the
     guard ends when the grip is fully open).
 
-  The test key (Shift and the plus key of the number pad) gives a click
-  after 167 ms for a comparison. Still open:
+  The test key (Ctrl and Shift with Backspace) gives the pick up of the game
+  for a comparison: the object moves on for 0.3 s and then jumps into the
+  hand. Still open:
   - Not shown: a grip on an object that rolls for more than 1 s. The recipes
     `rollnear`, `rollfar`, `droproll` and `treenear` do not reach that state
     on the desktop (`bwvr/tools/desk/README.md`, "Known limits of the
@@ -148,11 +148,13 @@ is built, and no test has proven it.
   `catch_rest_guard=1` the tree does not come to rest in those turns: it
   stays a tree, and it is in the Hand until the grip opens (`grab.md`, "An
   object that comes to rest while the Hand takes it"). The take starts at
-  the lock of a far grab. Desktop runs show both ends: with the rest of the
+  the lock of a far grab. With `catch_at_once=1` the body of the tree does
+  not move after the press, so the rest can come only in the lock and the
+  pull. Desktop runs show both ends: with the rest of the
   game itself in a turn of the take (one run with each value), and with a
   test key that makes the rest in the first turn in which the Hand has the
-  tree (`throw_queue.ps1 -Runs treedropend` in `bwvr/tools/desk`, and the
-  same with `-More 'catch_rest_guard=0'`). Check in a headset that a tree
+  tree (`throw_queue.ps1 -Runs treedropend -More 'catch_at_once=0'` in
+  `bwvr/tools/desk`, and the same with `catch_rest_guard=0`). Check in a headset that a tree
   which fell comes to the hand each time. The test key (Ctrl, Shift and
   Scroll Lock) gives the rule of the game for a comparison.
 - **B13. The Temple in a headset: check the view, and find the black
