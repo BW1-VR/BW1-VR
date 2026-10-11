@@ -32,6 +32,7 @@ Other docs: `software-tnl.md` (the CPU transform and the camera matrix),
 | `src/mod/mod_main.cpp` | Settings (`ReadSettings`), hook installation, the log, the shutdown |
 | `src/mod/gpu_bridge.cpp` | Shared textures, Direct3D 9 to Direct3D 11 copy, depth format hook |
 | `src/mod/frame_send.cpp` | The way of the eye pictures to the headset: when the mod waits for the GPU, and on which thread (`frame_send`) |
+| `src/mod/draw_merge.cpp` | One draw call for a row of draw calls of the game with one state (`draw_merge`) |
 | `src/mod/present_watch.cpp` | Skips the copy to the monitor |
 | `src/mod/stereo.cpp` | The scene walk twice, the hotkeys, the view setup |
 | `src/mod/head_camera.cpp`, `head_pose.cpp`, `eye_camera.cpp` | The head on the camera, the per eye matrix |
@@ -1151,15 +1152,75 @@ passes of a frame:
 - Each state call of the game changes a value: the game makes no call that
   sets a state to the value that it has. So a filter of such calls saves
   nothing.
-- A draw call takes 1.6 to 1.7 microseconds in Direct3D. If a merged draw
-  call costs as much as one draw call, the merge saves 1.3 to 1.9 ms of a
-  frame in scenes 1 to 5. That is 12 to 16 percent of the two eye passes (9.2
-  to 11.7 ms with this measure at 2880 by 2880), and 30 to 39 percent of the
-  time in the Direct3D draw calls (3.3 to 4.8 ms). The copy of each vertex
-  for the merge comes off that gain. So the merge does not take the place of
-  a render thread.
+- A draw call takes 1.6 to 1.7 microseconds in Direct3D, so the draw calls
+  that a merge can save are 1.3 to 1.9 ms of a frame in scenes 1 to 5. The
+  merge of the mod gets 0.4 to 0.8 ms of that (see the next section). The
+  Direct3D draw calls are 3.3 to 4.8 ms of a frame, so the merge does not take
+  the place of a render thread.
 - The count does not see a texture that the game writes between two draw
   calls with the same texture.
+
+### One draw call for a row of draw calls
+
+`draw_merge=1`, the default, gives a run to Direct3D as one draw call
+(`draw_merge.cpp`). In an eye pass of the scene, the hook of a draw call of
+the game copies the vertices and the indices into a batch and returns. The
+batch goes to Direct3D as one draw call before each call that changes what a
+draw call does, or that needs the picture so far:
+
+- a call of the device that sets a state, clears, or starts or ends a scene,
+  and a draw call that the merge does not take,
+- a call of a DirectDraw surface that reads or writes pixels (`Lock`, `Blt`,
+  `BltFast`, `GetDC`), or that changes a color key or a palette,
+- a call of the mod on the Direct3D 9 device of the backend (`gpu_bridge.cpp`),
+- the end of the eye pass.
+
+So each triangle has the state and the place in the order that it has with no
+merge. The merge takes a triangle list with vertices that have their place on
+the screen, from the code of the game. A draw call of the mod itself goes to
+Direct3D as it comes, and so does each draw call outside an eye pass of the
+scene (a menu, the logo). With `draw_merge=0` the mod puts in no hook for the
+merge.
+
+Two desktop runs with the merge and two with no merge (`bench_run.ps1 -Set2
+"draw_merge=0"`, 2880 by 2880, `profile=1`):
+
+| Scene | Draw calls with no merge | With the merge | Both eye passes with no merge | With the merge | Gain |
+| --- | --- | --- | --- | --- | --- |
+| 1 | 1992 | 1319 | 9.18 ms | 8.50 ms | 0.68 ms |
+| 2 | 2485 | 1620 | 10.51 ms | 9.72 ms | 0.79 ms |
+| 3 | 2868 | 1875 | 11.56 ms | 11.12 ms | 0.44 ms |
+| 4 | 2917 | 1886 | 11.75 ms | 11.00 ms | 0.75 ms |
+| 5 | 2789 | 2062 | 11.82 ms | 11.06 ms | 0.75 ms |
+| 6 | 307 | 270 | 1.95 ms | 2.03 ms | none |
+
+- The gain of scenes 1 to 5 is more than two times the spread of the runs
+  (0.03 to 0.17 ms). The difference of scene 6 is in the spread.
+- The merge sends 5 to 8 percent more draw calls than the count of the runs:
+  it also ends a batch at a state that the game changes and puts back.
+- The gain is less than the count of the saved draw calls times the time of
+  one draw call: a merged draw call has more vertices, and the merge copies
+  each vertex.
+- The table of "The measure on the desktop" is from runs with no merge.
+
+The proof that the picture is the same, from a desktop run of the six scenes:
+
+- `draw_merge_test=1` makes a checksum of the triangles that the game gave in
+  an eye pass, and of the triangles that went out. In more than 7000 eye
+  passes with about 250 million triangles, no eye pass had a different
+  checksum.
+- `draw_merge_test_frame=N` makes four frames with a picture of each eye: two
+  with the merge, then two with no merge. Between the frame with the merge and
+  the frame with no merge, 0.6 to 0.7 percent of the pixels differ. Between
+  two frames of one kind, 0.5 to 1.2 percent differ: the villagers, the smoke
+  and the clouds move.
+
+Not run: the merge in a headset, and the check of the triangles in the Temple,
+in a story, in a fight of Creatures and with the effect of a miracle. The
+check runs in each eye pass of the scene, so one session with
+`draw_merge_test=1` in the ini gives that proof: the line `draw merge   : the
+check of the triangles` of the log has the count of the eye passes with a
+different checksum. The check takes time of each frame.
 
 ### The slow frames
 
@@ -2402,6 +2463,8 @@ keys that the launcher sets.
 | `backend` | dxwrapper when installed | See "Settings" |
 | `gpu_bridge` | 1 | The GPU path |
 | `frame_send` | 2 | 0: the mod waits for the GPU after each eye pass. 1: one wait a frame. 2: one wait a frame on a second thread, which also gives the frame to the runtime. See "One wait a frame, and a second thread" |
+| `draw_merge` | 1 | 1: in an eye pass of the scene, a row of draw calls of the game with one state goes to Direct3D as one draw call. 0: each draw call goes as it comes. See "One draw call for a row of draw calls" |
+| `draw_merge_test`, `draw_merge_test_frame` | 0, 0 | Test keys of the desktop runs. See the same section |
 | `depth24` | 1 | A 24 bit Z buffer |
 | `near_plane_cm`, `near_plane_cm_16` | 5, 10 | The near plane in the room. 0 keeps the game's |
 | `vr`, `stereo` | 1, 1 | VR on, two eye passes |

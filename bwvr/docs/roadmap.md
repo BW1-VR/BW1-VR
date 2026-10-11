@@ -385,12 +385,13 @@ that moves while the Hand takes it.
     walk. The test projects each vertex again from its `rhw`. The draw probe
     and a picture of each eye then say which batches are wrong (the clip at
     the near plane, the sprites that face the eye, the flat interface).
-  - **Fewer draw calls.** The mod can give a row of draw calls with one state
-    to Direct3D as one draw call. The state count (`profile=3`, `backend.md`,
-    "Draw calls with one state") says that this makes 30 to 39 percent fewer
-    draw calls in scenes 1 to 5, and that it saves 1.3 to 1.9 ms of a frame at
-    the most. Not built. The gain is small: the merge copies each vertex, and
-    it must keep each state call of the game at its place.
+  - **The merge of draw calls in a headset.** The mod gives a row of draw
+    calls with one state to Direct3D as one draw call (`draw_merge=1`,
+    `backend.md`, "One draw call for a row of draw calls"). Desktop runs of
+    the six scenes show the same triangles and 0.4 to 0.8 ms less in a frame.
+    Not run: a headset session, and the check of the triangles in the Temple,
+    in a story, in a fight of Creatures and with the effect of a miracle
+    (`draw_merge_test=1` in the ini for one session).
   - **A render thread for the Direct3D calls.** The Direct3D draw calls are
     3.3 to 4.8 ms of a frame in scenes 1 to 5, and the game makes 3200 to 5400
     state calls in a frame. A thread that gets a record of these calls and
