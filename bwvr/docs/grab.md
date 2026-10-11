@@ -1281,7 +1281,14 @@ fall keeps the tree until the grip opens. In `-Runs treerest` the aim is on
 a tree that falls with no lock, the tree comes to rest 1.5 to 1.6 s after the
 release, and the target is then the dead tree.
 
-**Open.** Not run: a villager or a rock that comes to rest in a take, and
+A rock that comes to rest in a take is in the Hand with each value
+(`throw_queue.ps1 -Runs dropfarroll`, one run with each value). With
+`catch_rest_guard=1` the rock came to rest in game turn 4 of the take, the mod
+held 15 steps back, and the game put the rock in the Hand in that turn. With
+`catch_rest_guard=0` the game ended the physics of the rock at its rest, and
+the Hand kept the rock until the grip opened.
+
+**Open.** Not run: a villager that comes to rest in a take, and
 the mouse. Only a headset shows whether a tree that the player takes at the
 moment of its rest comes to the hand each time.
 

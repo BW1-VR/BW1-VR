@@ -186,6 +186,25 @@ Known limits of the recipes:
     the second `aimfar` aims at a different tree, the hand turns to it, the
     Hand's point is then on a small rock, and the grip takes the rock. In a
     new game the grip takes the tree at the land.
+- The speed of a throw is not the same in each run. The scripted hand makes
+  its step of 15 cm in one frame, so the top speed that the mod measures
+  depends on the time of the frames at the step. Four runs of
+  `throw_queue.ps1 -Runs landout` gave 1.9 to 3.6 m/s for the same two
+  throws, and the object then lands at a different place. Compare the place
+  and the time of a landing in two runs only when the two lines `the flight
+  of ... starts` have the same speed.
+- In `throw_queue.ps1 -Runs early` the pick up of the game takes 2 or 3 game
+  turns. It ends from 2 frames before the opening of the grip to 3 frames
+  after it. So the release comes 17 to 64 ms after the opening, and the line
+  `the pick up is over` is in the log of some runs only. The throw goes in
+  each run.
+- The Creature of the profile acts by its own plan, and the plan at one frame
+  is not the same in each run. In `creature_recipe.ps1` and `hand_run.ps1
+  -Kind old` the Creature state starts 8 to 170 frames after the press, and
+  a state that starts late can have no stroke. The Creature stands still
+  for a stay 0.2 to 2.7 s after its start. In one run of three of
+  `hand_run.ps1 -Kind old` the Creature walked away before the third grip,
+  and the third and the fourth grip had no target.
 - `village_run.ps1 -Kind scaffold` shows the join of two scaffolds and the
   tap that takes them apart. Its last opening of the grip makes no building
   site: the game has no place for a building there, and the hand is 18 cm

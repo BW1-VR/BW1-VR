@@ -189,10 +189,13 @@ is built, and no test has proven it.
   the brake holds, the object goes down as in the game
   (`throw_land_rest=1`, `throw.md`, "The rest after a landing"). Desktop
   runs at 7.5 to 225 units for each meter show the time from the first
-  contact to the rest: 1.2 to 3.4 s on land that the brake holds, and 5 to
-  9 s on the slope at the pen, where the object goes down 41 units to the
+  contact to the rest: 1.1 to 3.4 s on land that the brake holds, and 5 to
+  11 s on the slope at the pen, where the object goes down 41 units to the
   foot of the slope. With `throw_land_rest=0` the same throws need 2.7 to
-  12.4 s, and a landing on that slope took 15 s and 30 s in two more runs.
+  14.4 s, and a landing on that slope took 15 s and 30 s in two more runs.
+  A thrown villager and a scaffold that falls are at rest 1.1 and 1.2 s
+  after the first contact, and 3.6 and 4.2 s after it with
+  `throw_land_rest=0` (`village_run.ps1 -Kind throw` and `-Kind scaffold`).
   The object does not tremble with either value: its center changes its
   vertical direction 0 to 8 times in a landing. Only a headset shows
   whether an object that stops its turn this fast looks right, and whether
@@ -230,8 +233,10 @@ is built, and no test has proven it.
   from before the passes for a comparison. Not run: a story camera with no
   cinema bars, the camera of a Creature fight, the pull back past 3500 units
   and the moves of the game camera by the keys. They read the same number.
-  Not known: why the Creature is at a different step of its plan at the same
-  frame of a desktop run with the two values (`backend.md`).
+  Not known: why the Creature is one step further in its plan 1 s after the
+  start of play with the real time (the first stay of `creature_recipe.ps1
+  -Kind stay`, `backend.md`). Later in a run the plan of the Creature does not
+  depend on the key.
   Still open: in the scene walk `LH3DRender::StartFrame` writes the frame
   time at the start of each pass, so the second eye pass has the time of the
   first pass there, and not zero. The readers in the walk count in both
@@ -240,9 +245,30 @@ is built, and no test has proven it.
   built: a hook on `StartFrame` for the scene walk, as the intro has for its
   call (`intro.md`). First find each reader that divides by the number: the
   game never has less than 1 there.
+- **B15. A rock that the grip takes in its fall can leave the Hand when the
+  pick up ends.** Seen in 1 of 6 desktop runs of `throw_queue.ps1 -Runs
+  dropfar` in `bwvr/tools/desk`. The grip closes on a rock that falls, 13 cm
+  of the room from the Hand's point, and the Hand of the picture has the
+  rock one frame later. 16 frames after the press the grip code says `the
+  pick up is over` and lets the button of the game go. At that frame the
+  pick is locked and the interface hand mode is 0x9, in each of the 6 runs.
+  In 5 runs the mode is 0x12 one or two frames later, and the rock stays in
+  the Hand until the grip opens. In 1 run the Hand is empty one frame later
+  (`grip : the object left the Hand another way (holding 0, pick open)`), and
+  the game takes the rock out of its physics 3 frames after that. The grip
+  stays closed on an empty Hand, and the rock is in no picture of the run
+  after it. That run had `throw_land_rest=0`. Two more runs with that value
+  and three runs with the default kept the rock, so no key is shown as the
+  cause. Not seen in the other takes of an object that moves (`-Runs
+  dropnear`, `dropfarroll`, `flyfar`, `treedrop`). First find where the rock
+  is after the loss, and what the plain game does with a button that goes up
+  between the press and the game turn that puts the object in the Hand
+  (`grab.md`, "An object that comes to rest while the Hand takes it"). A
+  correction to test: the grip code lets the button go only when the pick is
+  open.
 
-B1b, B2, B4 and B11 are one package: a thing that is held, thrown, or that
-moves while the Hand takes it.
+B1b, B2, B4, B11 and B15 are one package: a thing that is held, thrown, or
+that moves while the Hand takes it.
 
 ### Changes to the controls
 

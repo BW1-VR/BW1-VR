@@ -1983,11 +1983,13 @@ gets does not change with the key.
 
 With `frame_time_real=0` the mod writes the number from before the passes. No code
 changes that number outside the passes. So the game then reads, for the whole
-session, the number that the last `StartFrame` before the first stereo frame left:
-1 ms after the load of a saved game ("Continue Game", and a run in a test save),
-and 31 or 32 ms in a new game from the end of its start dialog [R]. At 60 frames a
-second a move that counts 1 ms for each frame takes 16 times its own time, and a
-move that counts 31 ms takes half of it. The mod follows that number with each value of the
+session, the number that the last `StartFrame` before the first stereo frame left.
+After the load of a saved game ("Continue Game", and a run in a test save) that
+number is not the same in each run: it was 1 ms in 14 runs, and 15 or 16 ms in 3
+runs [R]. In a new game it was 31 or 32 ms from the end of its start dialog [R].
+At 60 frames a second a move that counts 1 ms for each frame takes 16 times its
+own time, a move that counts 15 ms takes about its own time, and a move that
+counts 31 ms takes half of it. The mod follows that number with each value of the
 key (`Kept` in `frame_time_math.h`): a `StartFrame` between two frames with eye
 passes gives a new one. So the test key gives the number of the session at each
 moment, and not the last real time.
@@ -2020,19 +2022,25 @@ In the same runs these things had the same speed with each value [R]:
 They take their time from the scene walk, from the game turn or from the clock of
 the mod. The fades of the hint card use that clock too (`QueryPerformanceCounter`).
 
-One thing was different, and the cause is not known. At the same frame of a run
-the Creature was at a different step of its plan with the two values, the same way
-in each run [R]. In the recipe of the Creature state, 2 s after the state, the
-plan was desire 3 (to play) and action 172 with no action of the body with the
-value 1 (three runs). With the value 0 it was desire 18 (to show its state) and
-action 23 with an action of the body (three runs). In the recipe of the stay, at
-the first stay the plan was desire 9 (to idle around with the player). It was at
-step 1 of 2 with an action of the body with the value 1 (two runs), and at step 0
-of 2 with no such action with the value 0 (two runs). A Creature with an action of
-its body stood still for a stay 1.6 to 2.7 s after the start, and not 0.2 s after
-it. The game camera is the one reader of the number on the land, and with the
-value 1 it comes to rest sooner. The names of the desires are from the headers of
-the decompilation.
+One thing was different, and the cause is not known. In the recipe of the stay
+(`creature_recipe.ps1 -Kind stay`), the first stay comes 1 s after the start of
+play, and the plan of the Creature is then desire 9 (to idle around with the
+player) [R]. It was at step 1 of 2 with an action of the body with the value 1
+(three runs). It was at step 0 of 2 with no such action with the value 0 and 1 ms
+as the number (three runs). A Creature with an action of its body stood still for
+that stay 2.6 s after the start, and not 0.2 s after it. The game camera is the
+one reader of the number on the land, and with the value 1 it comes to rest
+sooner.
+
+The plan of the Creature later in a run does not depend on the key [R]. In the
+recipe of the Creature state, 2 s after the state, the plan was one of two: desire
+3 (to play) and action 172 with no action of the body, or desire 18 (to show its
+state) and action 23 with an action of the body. With the value 1 it was desire 3
+in 4 runs and desire 18 in 2 runs. With the value 0 it was desire 18 in 3 runs and
+desire 3 in 2 runs, and each plan came with 1 ms and with 15 or 16 ms as the
+number. A Creature with an action of its body stood still for a stay 0.9 to 2.7 s
+after the start. The names of the desires are from the headers of the
+decompilation.
 
 **The other readers.** The code of the game has 80 references to the number. A
 count with a data breakpoint on the number (`frame_time_test_readers`) found no
