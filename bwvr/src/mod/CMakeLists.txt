@@ -8,6 +8,7 @@ add_library(bwvr_mod SHARED
     intro_skip.cpp
     eye_clean.cpp
     frame_send.cpp
+    draw_merge.cpp
     bubble_card.cpp
     draw_hooks.cpp
     ui_panel.cpp

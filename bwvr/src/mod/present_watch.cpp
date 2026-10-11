@@ -36,6 +36,9 @@
 #include "frame_profile.h"
 
 extern void ModLog(const char* format, ...);
+// draw_merge.cpp: the batch of the merge of draw calls goes to Direct3D
+// before a copy between surfaces and before the end of the frame.
+void DrawMergeFlush();
 // controllers.cpp: how many frames the controllers have seen.
 uint64_t ControllersFrameCount();
 
@@ -154,6 +157,7 @@ bool IsPrimary(IDirectDrawSurface7* surface) {
 HRESULT WINAPI h_Blt(IDirectDrawSurface7* self, LPRECT destination,
                      IDirectDrawSurface7* source, LPRECT source_rect,
                      DWORD flags, LPDDBLTFX fx) {
+  DrawMergeFlush();
   // self is the destination surface. A copy onto the primary surface is the
   // frame going to the monitor, and while the headset is on it is wasted.
   if (g_skip_present && IsPrimary(self)) {
@@ -192,6 +196,7 @@ HRESULT WINAPI h_Blt(IDirectDrawSurface7* self, LPRECT destination,
 
 HRESULT WINAPI h_Flip(IDirectDrawSurface7* self, IDirectDrawSurface7* target,
                       DWORD flags) {
+  DrawMergeFlush();
   LARGE_INTEGER before, after;
   QueryPerformanceCounter(&before);
   const HRESULT hr = o_Flip(self, target, flags);

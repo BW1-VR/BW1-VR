@@ -61,6 +61,8 @@ void StereoSetScreen(bwvr::XrScreen* screen);
 // frame_send.cpp: the way of the eye pictures to the headset.
 void FrameSendSetOptions(int key);
 void FrameSendSetScreen(bwvr::XrScreen* screen);
+// draw_merge.cpp: the merge of draw calls with one state.
+void DrawMergeSetOptions(int key, int test, int test_frame);
 // gpu_bridge.cpp: with frame_send=2 a second thread makes calls on the
 // device of the backend.
 void GpuBridgeWantTwoThreads(bool on);
@@ -461,6 +463,11 @@ int g_eye_clean_test = 0;
 int g_eye_clean_test_frame = 0;
 // The way of the eye pictures to the headset (frame_send.cpp).
 int g_frame_send = 2;
+// The merge of draw calls with one state (draw_merge.cpp), and its test keys
+// for desktop runs.
+int g_draw_merge = 1;
+int g_draw_merge_test = 0;
+int g_draw_merge_test_frame = 0;
 // A speech bubble of the game as one card (bubble_card.cpp), and its test
 // keys for desktop runs.
 int g_bubble_card = 1;
@@ -1149,6 +1156,12 @@ void ReadSettings() {
       GetPrivateProfileIntA("bwvr", "eye_clean_test_frame", 0, path));
   g_frame_send =
       static_cast<int>(GetPrivateProfileIntA("bwvr", "frame_send", 2, path));
+  g_draw_merge =
+      GetPrivateProfileIntA("bwvr", "draw_merge", 1, path) != 0 ? 1 : 0;
+  g_draw_merge_test = static_cast<int>(
+      GetPrivateProfileIntA("bwvr", "draw_merge_test", 0, path));
+  g_draw_merge_test_frame = static_cast<int>(
+      GetPrivateProfileIntA("bwvr", "draw_merge_test_frame", 0, path));
   g_bubble_card =
       GetPrivateProfileIntA("bwvr", "bubble_card", 1, path) != 0 ? 1 : 0;
   g_bubble_card_test =
@@ -1386,6 +1399,8 @@ void StartVrOnce() {
     EyeCleanSetOptions(g_eye_clean, g_eye_clean_test, g_eye_clean_test_frame);
     EyeCleanInstall();
     FrameSendSetOptions(g_frame_send);
+    DrawMergeSetOptions(g_draw_merge, g_draw_merge_test,
+                        g_draw_merge_test_frame);
     BubbleCardSetOptions(g_bubble_card, g_bubble_card_test,
                          g_bubble_card_test_frame);
     BubbleCardInstall();

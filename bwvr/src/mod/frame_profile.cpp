@@ -66,6 +66,9 @@
 #include "frame_stats_math.h"
 
 extern void ModLog(const char* format, ...);
+// draw_merge.cpp: the batch of the merge of draw calls goes to Direct3D
+// before the game reads or writes a surface.
+void DrawMergeFlush();
 // exit_test.cpp: the hooks of CreateFileA and CreateFileW. They give the time
 // of each call to this file.
 int ExitTestFileHooks();
@@ -641,6 +644,7 @@ SleepFn o_Sleep = nullptr;
 
 HRESULT WINAPI h_Lock(IDirectDrawSurface7* self, LPRECT rect,
                       LPDDSURFACEDESC2 desc, DWORD flags, HANDLE event) {
+  DrawMergeFlush();
   if (!OnThread()) return o_Lock(self, rect, desc, flags, event);
   const uint64_t start = FrameProfileTicks();
   const HRESULT hr = o_Lock(self, rect, desc, flags, event);
@@ -670,6 +674,7 @@ HRESULT WINAPI h_Unlock(IDirectDrawSurface7* self, LPRECT rect) {
 HRESULT WINAPI h_BltFast(IDirectDrawSurface7* self, DWORD x, DWORD y,
                          IDirectDrawSurface7* source, LPRECT rect,
                          DWORD flags) {
+  DrawMergeFlush();
   if (!OnThread()) return o_BltFast(self, x, y, source, rect, flags);
   const uint64_t start = FrameProfileTicks();
   const HRESULT hr = o_BltFast(self, x, y, source, rect, flags);

@@ -36,6 +36,9 @@ extern void ModLog(const char* format, ...);
 // a texture and for a stage state from the hooks of this file.
 void DrawProbeTexture(DWORD stage, void* texture);
 void DrawProbeStageState(DWORD stage, DWORD state, DWORD value);
+// draw_merge.cpp: the batch of the merge of draw calls goes to Direct3D
+// before a texture or a stage state changes.
+void DrawMergeFlush();
 
 namespace {
 
@@ -84,6 +87,7 @@ uint64_t g_mips_forced = 0;
 // texture is inspected, so a surface bound every frame is asked once.
 HRESULT WINAPI h_SetTexture(void* self, DWORD stage,
                             LPDIRECTDRAWSURFACE7 texture) {
+  DrawMergeFlush();
   DrawProbeTexture(stage, texture);
   if (g_survey && texture != nullptr && texture != g_last_texture) {
     g_last_texture = texture;
@@ -108,6 +112,7 @@ HRESULT WINAPI h_SetTexture(void* self, DWORD stage,
 HRESULT WINAPI h_SetTextureStageState(void* self, DWORD stage,
                                       D3DTEXTURESTAGESTATETYPE state,
                                       DWORD value) {
+  DrawMergeFlush();
   DrawProbeStageState(stage, static_cast<DWORD>(state), value);
   if (g_survey && value < 8) {
     if (state == D3DTSS_MINFILTER) ++g_asked_min[value];

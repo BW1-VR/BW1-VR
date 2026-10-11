@@ -68,6 +68,10 @@ bool ComfortBlinkActive();
 // it has a frame, it reads the event query and the shared textures.
 bool FrameSendBusy();
 void FrameSendJoin();
+// draw_merge.cpp: the batch of the merge of draw calls. The calls of this
+// file on the Direct3D 9 device do not go through the hooks of the merge, so
+// the batch goes to Direct3D before each of them.
+void DrawMergeFlush();
 
 namespace {
 
@@ -906,6 +910,7 @@ namespace {
 // wait for the GPU. Returns the Direct3D 11 texture of the eye, or null when
 // the caller must use the CPU path in this frame.
 void* CopyEye(int eye) {
+  DrawMergeFlush();
   if (!g_ready || eye < 0 || eye >= kEyes) return nullptr;
 
   // A device reset throws away everything in the default pool, which is both
@@ -1087,6 +1092,7 @@ void GpuBridgeKeepFree() {
 // picture of that eye is finished. False when there is no keep: then the
 // caller must not count on GpuBridgeKeepGive.
 bool GpuBridgeKeepTake(int eye) {
+  DrawMergeFlush();
   if (g_device == nullptr || g_keep_failed || eye < 0 || eye >= kEyes) {
     return false;
   }
@@ -1152,6 +1158,7 @@ bool GpuBridgeKeepTake(int eye) {
 // Copies the keep of one eye back to the render target that it came from.
 // Call it before the eye pass draws. False when the keep holds no picture.
 bool GpuBridgeKeepGive(int eye) {
+  DrawMergeFlush();
   if (g_device == nullptr || g_keep_failed || eye < 0 || eye >= kEyes ||
       g_keep[eye] == nullptr || !g_keep_filled[eye] ||
       g_keep_target == nullptr) {
@@ -1382,6 +1389,7 @@ void GpuBridgePanelNewFrame(bool check) {
 // Binds the panel target (0) or the check target (1) for the next draw.
 // False when the batch must draw into the eye as before.
 bool GpuBridgePanelBind(int which) {
+  DrawMergeFlush();
   if (!GpuBridgePanelUsable() || g_read_locked) return false;
   which = which == 1 ? 1 : 0;
   // The check target only follows a panel draw of the same batch.
@@ -1443,6 +1451,7 @@ bool GpuBridgePanelBind(int which) {
 // Puts the game's target, depth, viewport, scissor rect and alpha states
 // back. Does nothing when the game's target is bound.
 void GpuBridgePanelUnbind() {
+  DrawMergeFlush();
   if (g_bound < 0) return;
   if (g_device == nullptr) {
     g_bound = -1;
@@ -1477,6 +1486,7 @@ void GpuBridgePanelStates(UiPanelStates* out) {
 // eye 0 capture, which the caller runs next, drains this copy too. Returns
 // the Direct3D 11 texture, or null when there is nothing to send.
 void* GpuBridgeCaptureUi() {
+  DrawMergeFlush();
   if (!g_ready || g_panel_opened == nullptr || g_panel == nullptr ||
       !g_panel_cleared || g_bound >= 0) {
     return nullptr;
@@ -1501,6 +1511,7 @@ void* GpuBridgeCaptureUi() {
 
 const void* GpuBridgePanelRead(int which, int* pitch, uint32_t* width,
                                uint32_t* height) {
+  DrawMergeFlush();
   if (g_device == nullptr || g_read_locked || g_bound >= 0) return nullptr;
   IDirect3DSurface9* source = nullptr;
   if (which == 0) {
@@ -1549,6 +1560,7 @@ void GpuBridgePanelReadDone() {
 // when a step failed.
 const void* GpuBridgePanelReadHalf(const int rect[4], int* pitch,
                                    uint32_t* width, uint32_t* height) {
+  DrawMergeFlush();
   if (g_device == nullptr || g_read_locked || g_bound >= 0 ||
       g_panel == nullptr || !g_panel_cleared) {
     return nullptr;
@@ -1720,6 +1732,7 @@ bool GpuBridgeSelfTestStart(uint32_t width, uint32_t height) {
 // Captures one eye through the shared texture and brings it back so it can be
 // written to a file. Returns null if any step failed.
 const void* GpuBridgeSelfTestRead(int eye, int* pitch) {
+  DrawMergeFlush();
   if (g_test_staging == nullptr) return nullptr;
   void* texture = GpuBridgeCaptureEye(eye);
   if (texture == nullptr) return nullptr;

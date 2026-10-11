@@ -85,6 +85,13 @@ extern void ModLog(const char* format, ...);
 // The four call sites into Direct3D all live inside LH3DRender, so they name
 // the renderer rather than the thing that went wrong. One level up does.
 uint32_t DrawHooksCaller();
+// draw_merge.cpp: the merge of draw calls with one state. A hook of a call
+// that changes what a draw call does calls DrawMergeFlush first.
+bool DrawMergeTake(void* self, D3DPRIMITIVETYPE type, DWORD fvf,
+                   const void* vertices, DWORD vertex_count,
+                   const WORD* indices, DWORD index_count, DWORD flags,
+                   const void* caller);
+void DrawMergeFlush();
 
 namespace {
 
@@ -353,6 +360,7 @@ uint32_t CallerAddress() {
 // texture that the game writes between two draw calls.
 bool g_states = false;
 bool g_states_installed = false;
+bool g_states_ok = false;  // each hook of a state call is in
 
 const int kSlotBeginScene = 5;
 const int kSlotEndScene = 6;
@@ -364,8 +372,15 @@ const int kSlotMultiplyTransform = 14;
 const int kSlotSetMaterial = 16;
 const int kSlotSetLight = 18;
 const int kSlotSetRenderState = 20;
+const int kSlotBeginStateBlock = 22;
+const int kSlotEndStateBlock = 23;
+const int kSlotPreLoad = 24;
+const int kSlotSetClipStatus = 27;
 const int kSlotSetTexture = 35;
+const int kSlotSetTextureStageState = 37;
 const int kSlotApplyStateBlock = 39;
+const int kSlotCaptureStateBlock = 40;
+const int kSlotLoad = 43;
 const int kSlotLightEnable = 44;
 const int kSlotSetClipPlane = 46;
 
@@ -475,6 +490,7 @@ void CountDraw(D3DPRIMITIVETYPE type, DWORD fvf, DWORD count) {
 }
 
 HRESULT WINAPI h_SetRenderState(void* self, DWORD state, DWORD value) {
+  DrawMergeFlush();
   if (g_states) {
     CountState(state < kRenderStates ? state : kStates, value, kBreakRender);
   }
@@ -483,6 +499,7 @@ HRESULT WINAPI h_SetRenderState(void* self, DWORD state, DWORD value) {
 }
 
 HRESULT WINAPI h_SetTexture(void* self, DWORD stage, void* texture) {
+  DrawMergeFlush();
   if (g_states) {
     CountState(stage < kStages ? kFirstTexture + stage : kStates,
                reinterpret_cast<uintptr_t>(texture), kBreakTexture);
@@ -501,12 +518,14 @@ void EndRun(int counter) {
 
 template <int kSlot>
 HRESULT WINAPI h_Scene(void* self) {
+  DrawMergeFlush();
   if (g_states) EndRun(kFpcSceneCalls);
   return reinterpret_cast<HRESULT(WINAPI*)(void*)>(g_original[kSlot])(self);
 }
 
 template <int kSlot>
 HRESULT WINAPI h_EndRun1(void* self, DWORD a) {
+  DrawMergeFlush();
   if (g_states) EndRun(kFpcOtherCalls);
   return reinterpret_cast<HRESULT(WINAPI*)(void*, DWORD)>(g_original[kSlot])(
       self, a);
@@ -514,6 +533,7 @@ HRESULT WINAPI h_EndRun1(void* self, DWORD a) {
 
 template <int kSlot>
 HRESULT WINAPI h_EndRun2(void* self, DWORD a, DWORD b) {
+  DrawMergeFlush();
   if (g_states) EndRun(kFpcOtherCalls);
   return reinterpret_cast<HRESULT(WINAPI*)(void*, DWORD, DWORD)>(
       g_original[kSlot])(self, a, b);
@@ -521,16 +541,51 @@ HRESULT WINAPI h_EndRun2(void* self, DWORD a, DWORD b) {
 
 HRESULT WINAPI h_Clear(void* self, DWORD count, void* rects, DWORD flags,
                        DWORD color, float z, DWORD stencil) {
+  DrawMergeFlush();
   if (g_states) EndRun(kFpcOtherCalls);
   return reinterpret_cast<
       HRESULT(WINAPI*)(void*, DWORD, void*, DWORD, DWORD, float, DWORD)>(
       g_original[kSlotClear])(self, count, rects, flags, color, z, stencil);
 }
 
+HRESULT WINAPI h_SetTextureStageState(void* self, DWORD stage, DWORD state,
+                                      DWORD value) {
+  DrawMergeFlush();
+  if (g_states) {
+    CountState(stage < kStages && state < kStageStates
+                   ? kFirstStage + stage * kStageStates + state
+                   : kStates,
+               value, kBreakStage);
+  }
+  return reinterpret_cast<HRESULT(WINAPI*)(void*, DWORD, DWORD, DWORD)>(
+      g_original[kSlotSetTextureStageState])(self, stage, state, value);
+}
+
+template <int kSlot>
+HRESULT WINAPI h_EndRun0(void* self) {
+  DrawMergeFlush();
+  if (g_states) EndRun(kFpcOtherCalls);
+  return reinterpret_cast<HRESULT(WINAPI*)(void*)>(g_original[kSlot])(self);
+}
+
+template <int kSlot>
+HRESULT WINAPI h_EndRun5(void* self, DWORD a, DWORD b, DWORD c, DWORD d,
+                         DWORD e) {
+  DrawMergeFlush();
+  if (g_states) EndRun(kFpcOtherCalls);
+  return reinterpret_cast<
+      HRESULT(WINAPI*)(void*, DWORD, DWORD, DWORD, DWORD, DWORD)>(
+      g_original[kSlot])(self, a, b, c, d, e);
+}
+
 HRESULT WINAPI h_DrawPrimitive(void* self, D3DPRIMITIVETYPE type, DWORD fvf,
                                LPVOID verts, DWORD count, DWORD flags) {
   if (g_armed) Record(CallerAddress(), kSlotDrawPrimitive, fvf, verts, count);
   if (g_states) CountDraw(type, fvf, count);
+  if (DrawMergeTake(self, type, fvf, verts, count, nullptr, 0, flags,
+                    _ReturnAddress())) {
+    return D3D_OK;
+  }
   if (!g_profiling) {
     return reinterpret_cast<DrawPrimitiveFn>(g_original[kSlotDrawPrimitive])(
         self, type, fvf, verts, count, flags);
@@ -558,6 +613,10 @@ HRESULT WINAPI h_DrawIndexedPrimitive(void* self, D3DPRIMITIVETYPE type,
     Record(CallerAddress(), kSlotDrawIndexedPrimitive, fvf, verts, count);
   }
   if (g_states) CountDraw(type, fvf, count);
+  if (DrawMergeTake(self, type, fvf, verts, count, indices, index_count,
+                    flags, _ReturnAddress())) {
+    return D3D_OK;
+  }
   if (!g_profiling) {
     return reinterpret_cast<DrawIndexedPrimitiveFn>(
         g_original[kSlotDrawIndexedPrimitive])(self, type, fvf, verts, count,
@@ -585,6 +644,7 @@ HRESULT WINAPI h_DrawIndexedPrimitive(void* self, D3DPRIMITIVETYPE type,
 HRESULT WINAPI h_DrawPrimitiveVB(void* self, D3DPRIMITIVETYPE type, void* vb,
                                  DWORD start, DWORD count, DWORD flags) {
   g_slots_seen |= (1ull << kSlotDrawPrimitiveVB);
+  DrawMergeFlush();
   return reinterpret_cast<DrawPrimitiveVBFn>(g_original[kSlotDrawPrimitiveVB])(
       self, type, vb, start, count, flags);
 }
@@ -594,6 +654,7 @@ HRESULT WINAPI h_DrawIndexedPrimitiveVB(void* self, D3DPRIMITIVETYPE type,
                                         LPWORD indices, DWORD index_count,
                                         DWORD flags) {
   g_slots_seen |= (1ull << kSlotDrawIndexedPrimitiveVB);
+  DrawMergeFlush();
   return reinterpret_cast<DrawIndexedPrimitiveVBFn>(
       g_original[kSlotDrawIndexedPrimitiveVB])(self, type, vb, start, count,
                                                indices, index_count, flags);
@@ -603,6 +664,7 @@ HRESULT WINAPI h_DrawPrimitiveStrided(void* self, D3DPRIMITIVETYPE type,
                                       DWORD fvf, void* data, DWORD count,
                                       DWORD flags) {
   g_slots_seen |= (1ull << kSlotDrawPrimitiveStrided);
+  DrawMergeFlush();
   return reinterpret_cast<DrawPrimitiveStridedFn>(
       g_original[kSlotDrawPrimitiveStrided])(self, type, fvf, data, count,
                                              flags);
@@ -613,6 +675,7 @@ HRESULT WINAPI h_DrawIndexedPrimitiveStrided(void* self, D3DPRIMITIVETYPE type,
                                              DWORD count, LPWORD indices,
                                              DWORD index_count, DWORD flags) {
   g_slots_seen |= (1ull << kSlotDrawIndexedPrimitiveStrided);
+  DrawMergeFlush();
   return reinterpret_cast<DrawIndexedPrimitiveStridedFn>(
       g_original[kSlotDrawIndexedPrimitiveStrided])(
       self, type, fvf, data, count, indices, index_count, flags);
@@ -658,29 +721,65 @@ bool Install() {
   return any;
 }
 
-// The hooks of the state count. SetTextureStageState has the hook of
-// texture_filter.cpp, and that hook gives its calls to the count. With
-// filter_survey=1 that file has the hook of SetTexture too. The hook of
-// SetTexture here then fails, and the hook of that file gives its calls to
-// the count.
-void InstallStates() {
-  HookSlot(kSlotSetRenderState, &h_SetRenderState, "SetRenderState");
-  HookSlot(kSlotSetTexture, &h_SetTexture, "SetTexture");
-  HookSlot(kSlotBeginScene, &h_Scene<kSlotBeginScene>, "BeginScene");
-  HookSlot(kSlotEndScene, &h_Scene<kSlotEndScene>, "EndScene");
-  HookSlot(kSlotClear, &h_Clear, "Clear");
-  HookSlot(kSlotSetViewport, &h_EndRun1<kSlotSetViewport>, "SetViewport");
-  HookSlot(kSlotSetMaterial, &h_EndRun1<kSlotSetMaterial>, "SetMaterial");
-  HookSlot(kSlotApplyStateBlock, &h_EndRun1<kSlotApplyStateBlock>,
-           "ApplyStateBlock");
-  HookSlot(kSlotSetRenderTarget, &h_EndRun2<kSlotSetRenderTarget>,
-           "SetRenderTarget");
-  HookSlot(kSlotSetTransform, &h_EndRun2<kSlotSetTransform>, "SetTransform");
-  HookSlot(kSlotMultiplyTransform, &h_EndRun2<kSlotMultiplyTransform>,
-           "MultiplyTransform");
-  HookSlot(kSlotSetLight, &h_EndRun2<kSlotSetLight>, "SetLight");
-  HookSlot(kSlotLightEnable, &h_EndRun2<kSlotLightEnable>, "LightEnable");
-  HookSlot(kSlotSetClipPlane, &h_EndRun2<kSlotSetClipPlane>, "SetClipPlane");
+// One hook of the state count and of the merge of draw calls. True when the
+// hook is in. Also true when a different file of the mod has the hook of that
+// call: texture_filter.cpp gives the calls of its hooks to the count and to
+// the merge.
+bool HookState(int slot, void* replacement, const char* name) {
+  void* target = g_vtable[slot];
+  if (target == nullptr) return false;
+  MH_STATUS status = MH_CreateHook(target, replacement, &g_original[slot]);
+  if (status == MH_ERROR_ALREADY_CREATED) return true;
+  g_target[slot] = target;
+  if (status == MH_OK) status = MH_EnableHook(target);
+  if (status != MH_OK) {
+    ModLog("draw probe   : %s at 0x%08X FAILED", name,
+           reinterpret_cast<uintptr_t>(target));
+  }
+  return status == MH_OK;
+}
+
+// The hooks of the state count and of the merge: each call of the device
+// that changes what a draw call does. False when one of them is not in.
+bool InstallStates() {
+  bool all = true;
+  all &= HookState(kSlotSetRenderState, &h_SetRenderState, "SetRenderState");
+  all &= HookState(kSlotSetTexture, &h_SetTexture, "SetTexture");
+  all &= HookState(kSlotSetTextureStageState, &h_SetTextureStageState,
+                   "SetTextureStageState");
+  all &= HookState(kSlotBeginScene, &h_Scene<kSlotBeginScene>, "BeginScene");
+  all &= HookState(kSlotEndScene, &h_Scene<kSlotEndScene>, "EndScene");
+  all &= HookState(kSlotClear, &h_Clear, "Clear");
+  all &= HookState(kSlotBeginStateBlock, &h_EndRun0<kSlotBeginStateBlock>,
+                   "BeginStateBlock");
+  all &= HookState(kSlotSetViewport, &h_EndRun1<kSlotSetViewport>,
+                   "SetViewport");
+  all &= HookState(kSlotSetMaterial, &h_EndRun1<kSlotSetMaterial>,
+                   "SetMaterial");
+  all &= HookState(kSlotEndStateBlock, &h_EndRun1<kSlotEndStateBlock>,
+                   "EndStateBlock");
+  all &= HookState(kSlotPreLoad, &h_EndRun1<kSlotPreLoad>, "PreLoad");
+  all &= HookState(kSlotSetClipStatus, &h_EndRun1<kSlotSetClipStatus>,
+                   "SetClipStatus");
+  all &= HookState(kSlotApplyStateBlock, &h_EndRun1<kSlotApplyStateBlock>,
+                   "ApplyStateBlock");
+  all &= HookState(kSlotCaptureStateBlock,
+                   &h_EndRun1<kSlotCaptureStateBlock>, "CaptureStateBlock");
+  all &= HookState(kSlotSetRenderTarget, &h_EndRun2<kSlotSetRenderTarget>,
+                   "SetRenderTarget");
+  all &= HookState(kSlotSetTransform, &h_EndRun2<kSlotSetTransform>,
+                   "SetTransform");
+  all &= HookState(kSlotMultiplyTransform, &h_EndRun2<kSlotMultiplyTransform>,
+                   "MultiplyTransform");
+  all &= HookState(kSlotSetLight, &h_EndRun2<kSlotSetLight>, "SetLight");
+  all &= HookState(kSlotLightEnable, &h_EndRun2<kSlotLightEnable>,
+                   "LightEnable");
+  all &= HookState(kSlotSetClipPlane, &h_EndRun2<kSlotSetClipPlane>,
+                   "SetClipPlane");
+  all &= HookState(kSlotLoad, &h_EndRun5<kSlotLoad>, "Load");
+  ModLog("draw probe   : the hooks of the calls of the device that change "
+         "what a draw call does: %s", all ? "ok" : "FAILED");
+  return all;
 }
 
 // Compare the two passes, caller by caller, and add the verdict to the totals.
@@ -904,10 +1003,62 @@ bool DrawProbeStates(bool on) {
   if (on && !g_installed) return false;
   if (on && !g_states_installed) {
     g_states_installed = true;
-    InstallStates();
+    g_states_ok = InstallStates();
   }
   g_states = on;
   return true;
+}
+
+// The hooks that the merge of draw calls needs: each draw call, and each call
+// of the device that changes what a draw call does. 1: each hook is in. 0:
+// the device is not there yet. -1: a hook failed.
+int DrawProbeMergeHooks() {
+  if (!g_installed) {
+    g_installed = Install();
+    if (!g_installed) return g_vtable == nullptr ? 0 : -1;
+  }
+  if (!g_states_installed) {
+    g_states_installed = true;
+    g_states_ok = InstallStates();
+  }
+  const int draws[6] = {kSlotDrawPrimitive,
+                        kSlotDrawIndexedPrimitive,
+                        kSlotDrawPrimitiveStrided,
+                        kSlotDrawIndexedPrimitiveStrided,
+                        kSlotDrawPrimitiveVB,
+                        kSlotDrawIndexedPrimitiveVB};
+  for (int i = 0; i < 6; ++i) {
+    if (g_original[draws[i]] == nullptr) return -1;
+  }
+  return g_states_ok ? 1 : -1;
+}
+
+// The draw call of a batch of the merge (draw_merge.cpp): a triangle list
+// with indices. It has the timer and the counts of the measure, as a draw
+// call of the game has.
+HRESULT DrawProbeSendMerged(void* self, DWORD fvf, void* vertices,
+                            DWORD vertex_count, WORD* indices,
+                            DWORD index_count, DWORD flags) {
+  const DrawIndexedPrimitiveFn send = reinterpret_cast<DrawIndexedPrimitiveFn>(
+      g_original[kSlotDrawIndexedPrimitive]);
+  if (send == nullptr) return E_FAIL;
+  if (!g_profiling) {
+    return send(self, D3DPT_TRIANGLELIST, fvf, vertices, vertex_count, indices,
+                index_count, flags);
+  }
+  LARGE_INTEGER a, b;
+  QueryPerformanceCounter(&a);
+  const HRESULT hr = send(self, D3DPT_TRIANGLELIST, fvf, vertices,
+                          vertex_count, indices, index_count, flags);
+  QueryPerformanceCounter(&b);
+  g_d3d_ticks += b.QuadPart - a.QuadPart;
+  ++g_d3d_calls;
+  g_d3d_vertices += vertex_count;
+  g_d3d_indices += index_count;
+  FrameProfileAdd(kFpD3d, b.QuadPart - a.QuadPart);
+  FrameProfileCount(kFpcDraws, 1);
+  FrameProfileCount(kFpcVertices, vertex_count);
+  return hr;
 }
 
 // texture_filter.cpp gives each call of the game for a stage state to the

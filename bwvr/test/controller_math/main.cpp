@@ -3440,6 +3440,7 @@ void CreatureChecks() {
 #include "intro_skip_checks.h"
 #include "intro_motion_checks.h"
 #include "eye_clean_checks.h"
+#include "draw_merge_checks.h"
 #include "bubble_card_checks.h"
 #include "spawn_checks.h"
 #include "spirit_size_checks.h"
@@ -3828,6 +3829,7 @@ int main() {
   intro_skip_checks::IntroSkipChecks();
   intro_motion_checks::IntroMotionChecks();
   eye_clean_checks::EyeCleanChecks();
+  draw_merge_checks::DrawMergeChecks();
   bubble_card_checks::BubbleCardChecks();
   spawn_checks::SpawnChecks();
   spirit_size_checks::SpiritSizeChecks();

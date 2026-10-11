@@ -214,6 +214,10 @@ void EyeCleanReport();
 int FrameSendMode();
 uint64_t FrameSendEnd(const bwvr::LateFrame& pictures, int mode);
 void FrameSendCycle(const char* cause);
+// draw_merge.cpp: the merge of draw calls with one state.
+bool DrawMergeFrame(uint64_t frame);
+void DrawMergePass(bool inside);
+void DrawMergeReport();
 // gpu_bridge.cpp: the copy of an eye picture with no wait for the GPU.
 void* GpuBridgeCopyEye(int eye);
 void InputWatchAskPointer(int count);
@@ -1037,6 +1041,9 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
   UiDepthNewFrame();
   // The route of the interface for both eye passes, latched here. A flat
   // frame has no projection layer, so its interface stays in its picture.
+  // The merge of draw calls: its hooks at the first frame of the scene, and
+  // the pictures of its test.
+  if (DrawMergeFrame(ControllersFrameCount())) EyeCaptureArmNow(g_frames + 1);
   const bool capture_frame = EyeCaptureWanted(g_frames + 1);
   UiPanelBeginFrame(to_headset, to_headset && g_screen->projection() && !flat,
                     g_frames + 1, capture_frame);
@@ -1228,7 +1235,10 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
     FrameTimePass(eye);
     // The render target of this eye pass: its clean, or the keep of the eye.
     EyeCleanBeforePass(eye);
+    // The merge of draw calls takes the draw calls of the scene walk only.
+    DrawMergePass(true);
     o_Process3dEngine(self, unused);
+    DrawMergePass(false);
     EyeCleanAfterPass(eye);
     FrameTimePassDone(eye);
     const uint64_t walk_end = profile ? FrameProfileTicks() : 0;
@@ -1471,6 +1481,7 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
     FrameTimeReport();
     EyeLumaReport();
     EyeCleanReport();
+    DrawMergeReport();
     BubbleCardReport();
     FovReport();
     // Step the invented head, and photograph the result straight away. A
