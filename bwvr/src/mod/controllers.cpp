@@ -105,6 +105,12 @@ bool HandDirectClaimFree(const char** why);
 bool HandDirectGripFacts(bool* holding, bool* settled, bool* spring,
                          bool* take);
 void HandDirectGripOpened();
+// hand_direct.cpp: the facts of the press of the game (the game has an object
+// in its Hand, the object is in the physics of the game, and the age of the
+// press on the clock of the game), and the grip is fully open now.
+bool HandDirectGripPress(bool* game_holds, bool* moving,
+                         uint32_t* press_age_ms);
+void HandDirectGripFullyOpen();
 // hand_direct.cpp: a bulk take still runs with the grip open, so the next
 // interface step must end it. See docs/grab.md, "The bulk take".
 void HandDirectEndTake();
@@ -1364,6 +1370,21 @@ int g_fast_open = -1;           // grip_fast_open, read at the first pump
 // Ctrl Shift Home changes it while the game runs.
 int g_press_guard = -1;
 bool g_press_guard_key_down = false;
+// grip_press_hold, read at the first pump: 1 keeps the button of the game
+// down until the pick up of the game is over, and a press on an object that
+// moves is never a click for the game (GripStep). 0 gives a carry 167 ms
+// after the object came into the Hand of the picture. The test key Shift and
+// the plus key of the number pad changes it while the game runs.
+int g_press_hold = -1;
+bool g_press_hold_key_down = false;
+// The time of the frame for the grip machine, in ms: the time of the first
+// pump of a frame, so each step of one frame has the same time.
+uint64_t g_grip_ms = 0;
+uint64_t g_grip_ms_frame = ~0ull;
+// The time the button of the game last went down by the grip machine, for
+// the log of how long a press was for the game.
+uint64_t g_grip_down_ms = 0;
+bool g_grip_button_was = false;
 ULONGLONG g_right_close_ms = 0;  // the right control closed at this time
 uint64_t g_fast_opens = 0;      // openings by a fast fall, this window
 uint64_t g_slow_opens = 0;      // openings below kGripOpenBelow
@@ -1478,6 +1499,8 @@ uint64_t g_hold_late = 0;
 uint64_t g_hold_clicks = 0;
 uint64_t g_hold_regrips = 0;
 uint64_t g_hold_waited = 0;
+uint64_t g_hold_held_on = 0;  // presses that the mod held for the game
+uint64_t g_hold_short = 0;    // presses that were a click on a moving object
 
 bool DirectMode() { return g_on && g_direct.mode == 1; }
 
@@ -2358,14 +2381,35 @@ controller_math::GripStepOut StepGrip(bool usable, bool far_claim) {
   facts.mod_take = facts.direct && HandDirectModTake();
   // Both buttons together are the game's camera mode, not a drop.
   facts.other_held = RawDown(kLeft) || (g_game_mask & 1) != 0;
+  // THE PRESS OF THE GAME (grip_press_hold): the game has the object in its
+  // Hand, the object is in the physics of the game, and a release now is a
+  // click for the game.
+  bool game_holds = false, moving = false;
+  uint32_t press_age = 0;
+  const bool have_press =
+      HandDirectGripPress(&game_holds, &moving, &press_age);
+  facts.game_holds = game_holds;
+  facts.moving = have_press && moving;
+  facts.click = have_press && GameClick(press_age);
+  facts.press_hold = g_press_hold != 0;
   // A grip that the grab from a distance holds back looks open to the machine.
   // While the mod lets a one-off seed go to make it active, the grip looks
   // open too, until the real grip opens (miracle.cpp). The call comes first,
   // on each pump, because an open grip ends the mask.
   const bool masked = MiracleGripMasked(RawDown(kRight));
   const bool grip = RawDown(kRight) && !far_claim && !masked;
-  const GripStepOut out = GripStep(&g_hold, grip, facts, g_frame);
+  // Each step of one frame has the time of the first pump of that frame.
+  if (g_grip_ms_frame != g_frame) {
+    g_grip_ms_frame = g_frame;
+    g_grip_ms = static_cast<uint64_t>(NowSeconds() * 1000.0);
+  }
+  const GripStepOut out = GripStep(&g_hold, grip, facts, g_frame, g_grip_ms);
   if (out.opened) HandDirectGripOpened();
+  // How long the button was down for the game, for the log.
+  if (out.button && !g_grip_button_was) g_grip_down_ms = g_grip_ms;
+  const uint64_t down_ms = g_grip_ms - g_grip_down_ms;
+  const bool went_up = !out.button && g_grip_button_was;
+  g_grip_button_was = out.button;
   // Nothing collects after the grip opens: a take that still runs with the
   // button up is ended in the next interface step.
   if (out.end_take) HandDirectEndTake();
@@ -2395,9 +2439,25 @@ controller_math::GripStepOut StepGrip(bool usable, bool far_claim) {
   const bool new_wait = waits && !g_hold_waits;
   g_hold_waits = waits;
   if (new_wait) ++g_hold_waited;
+  if ((e & kGripHeldOn) != 0) ++g_hold_held_on;
+  // A PRESS THAT IS A CLICK FOR THE GAME: the button goes up while the pick
+  // is locked, a release is a click and the physics of the game has the
+  // object. The Hand of the game lets the object go, and a rock splits.
+  if (went_up && facts.direct && facts.moving && facts.click &&
+      !facts.settled) {
+    ++g_hold_short;
+    if (HoldLogRoom()) {
+      ModLog("grip         : the button of the game goes up %llu ms after it "
+             "went down, on an object that the physics of the game has. The "
+             "press is %u ms old on the clock of the game, so it is a click: "
+             "the Hand lets the object go, and the game taps it "
+             "(grip_press_hold=%d), frame %llu", down_ms, press_age,
+             g_press_hold, g_frame);
+    }
+  }
   const int shown = (e & ~kGripWaits) | (new_wait ? kGripWaits : 0);
   if (shown == 0 || !HoldLogRoom()) return out;
-  static const char* const kName[10] = {
+  static const char* const kName[12] = {
       "the pick up is over, the grip carries the object",
       "an object is in the Hand with the grip open",
       "the grip opens: let go",
@@ -2407,12 +2467,24 @@ controller_math::GripStepOut StepGrip(bool usable, bool far_claim) {
       "the grip closes on the object again",
       "the object left the Hand another way",
       "the controller does not place the Hand now: the grip is the button",
-      "the click waits until the other button is up"};
-  for (int i = 0; i < 10; ++i) {
+      "the click waits until the other button is up",
+      "the grip opened on an object that moves, and a release now is a click "
+      "for the game: the button of the game stays down until it is no click",
+      "the press that the mod held for the game is over"};
+  for (int i = 0; i < 12; ++i) {
     if ((shown & (1 << i)) == 0) continue;
-    ModLog("grip         : %s (holding %d, pick %s, hand mode 0x17 %d), "
-           "frame %llu", kName[i], holding, settled ? "open" : "locked",
-           spring, g_frame);
+    // The carry, and the two lines of a press that the mod held, say how
+    // long the button was down for the game.
+    char press[160] = "";
+    if (i == 0 || i == 10 || i == 11) {
+      sprintf_s(press, ". The button of the game was down for %llu ms, and "
+                       "the press is %u ms old on the clock of the game",
+                down_ms, have_press ? press_age : 0u);
+    }
+    ModLog("grip         : %s (holding %d, pick %s, the game holds %d, the "
+           "physics has the object %d, hand mode 0x17 %d)%s, frame %llu",
+           kName[i], holding, settled ? "open" : "locked", game_holds,
+           moving, spring, press, g_frame);
   }
   return out;
 }
@@ -2450,6 +2522,31 @@ void PollPressGuardKey() {
              : "A fast fall of the squeeze opens the grip at any time");
 }
 
+// THE TEST KEY OF THE PRESS OF THE GAME: Shift and the plus key of the number
+// pad, with Ctrl up (test_keys=1), turn grip_press_hold off and on while the
+// game runs.
+void PollPressHoldKey() {
+  static int test_keys = -1;
+  if (test_keys < 0) test_keys = IniInt("test_keys", 0) != 0 ? 1 : 0;
+  if (test_keys == 0) return;
+  const bool down = (GetAsyncKeyState(VK_ADD) & 0x8000) != 0 &&
+                    (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0 &&
+                    (GetAsyncKeyState(VK_CONTROL) & 0x8000) == 0;
+  const bool pressed = down && !g_press_hold_key_down;
+  g_press_hold_key_down = down;
+  if (!pressed || !GameInFront()) return;
+  g_press_hold = g_press_hold != 0 ? 0 : 1;
+  ControllersGesturePulse(0.5f, g_press_hold != 0 ? 0.30f : 0.08f);
+  ModLog("grip         : Shift and the plus key of the number pad: "
+         "grip_press_hold is %d now, frame %llu. %s", g_press_hold, g_frame,
+         g_press_hold != 0
+             ? "The button of the game stays down until the pick up of the "
+               "game is over, and a press on an object that moves is no "
+               "click"
+             : "The button of the game goes up 167 ms after the object came "
+               "into the Hand of the picture");
+}
+
 void PumpButtons(ULONGLONG now) {
   const bwvr::HandInput& hand = g_hands[PointingIndex()];
   // THE GRIP OPENS AT ONCE. The control that is the game's right button with
@@ -2473,7 +2570,25 @@ void PumpButtons(ULONGLONG now) {
                  "the squeeze does not end the press early"
                : "A closed grip can open on a fast fall at any time");
   }
+  if (g_press_hold < 0) {
+    g_press_hold = IniInt("grip_press_hold", 1) != 0 ? 1 : 0;
+    ModLog("grip         : grip_press_hold=%d. %s", g_press_hold,
+           g_press_hold != 0
+               ? "While the grip is closed, the button of the game stays "
+                 "down until the game has the object in its Hand and the "
+                 "pick is open. The game takes an object that moves (one "
+                 "that its physics has) only after 225 ms of a held button, "
+                 "and a shorter press is a click that lets the object go and "
+                 "splits a rock. A grip that opens sooner on such an object "
+                 "keeps the button down until the press is 240 ms old on the "
+                 "clock of the game"
+               : "The button of the game goes up when the pick is open, or "
+                 "167 ms after the object came into the Hand of the picture. "
+                 "That is less than the 225 ms that the game needs for an "
+                 "object that moves");
+  }
   PollPressGuardKey();
+  PollPressHoldKey();
   const bool trigger_was = g_trigger_down, grip_was = g_grip_down;
   // The control of the game's right button, as the last pump left it.
   const bool right_was = g_swap_buttons ? trigger_was : grip_was;
@@ -2490,6 +2605,13 @@ void PumpButtons(ULONGLONG now) {
   if (g_swap_buttons ? (!trigger_was && g_trigger_down)
                      : (!grip_was && g_grip_down)) {
     g_right_close_ms = now;
+  }
+  // THE GRIP IS FULLY OPEN: the value of the control of the right button is
+  // at or below the level that opens a slow grip. The guard of a throw ends
+  // here (hand_direct.cpp, catch_moving=3).
+  if (!((g_swap_buttons ? hand.trigger : hand.squeeze) >
+        controller_math::kGripOpenBelow)) {
+    HandDirectGripFullyOpen();
   }
   {
     // Each opening of the right button's control, with the values of the
@@ -4216,14 +4338,17 @@ void ControllersReport() {
     g_grab_trigger_held = g_grab_stick_refused = 0;
   }
   if (g_hold_carries != 0 || g_hold_let_go != 0 || g_hold_late != 0 ||
-      g_hold_clicks != 0) {
+      g_hold_clicks != 0 || g_hold_held_on != 0 || g_hold_short != 0) {
     ModLog("grip         : %llu carries, %llu openings to let go, %llu late "
            "objects let go, %llu clicks sent, %llu closes on the object again, "
-           "%llu clicks that waited for the other button", g_hold_carries,
+           "%llu clicks that waited for the other button. On an object that "
+           "moves, the mod held %llu presses for the game, and %llu presses "
+           "were a click for the game", g_hold_carries,
            g_hold_let_go, g_hold_late, g_hold_clicks, g_hold_regrips,
-           g_hold_waited);
+           g_hold_waited, g_hold_held_on, g_hold_short);
     g_hold_carries = g_hold_let_go = g_hold_late = g_hold_clicks = 0;
     g_hold_regrips = g_hold_waited = 0;
+    g_hold_held_on = g_hold_short = 0;
   }
   if (g_hold_take_opens != 0 || g_hold_take_ends != 0 || g_fast_opens != 0 ||
       g_slow_opens != 0) {

@@ -122,7 +122,11 @@ it needs no measure (see "A run with a test save").
 Each of these scripts makes runs of one area, and prints the lines of the
 log that show the result. The header comment of each script has its
 parameters. The frames of a recipe fit a game that runs at about 60 frames a
-second.
+second. `throw_queue.ps1 -Fps 90` makes a run at 90 frames a second, as a
+headset session has: the mod does not copy the picture to the monitor and
+gives each frame its time (the test key `test_frame_rate`), and the script
+gives each step of the recipe 1.5 times as many frames, so it keeps its
+time. The window of the game shows no new picture in such a run.
 
 Each script starts its runs in a test save (see "A fast start"). `-NewGame`
 gives the start of a new game, and `-Save <name>` a different test save with
@@ -132,8 +136,8 @@ that `-NewGame` uses, and the length of a run in the test save.
 | Script | The start: the test save, and the row with `-NewGame` | The kinds and what they do | A run takes |
 | --- | --- | --- | --- |
 | `hand_run.ps1` | `pen`, "Skip straight to the Creature select" (`one`, `fixed`). `temple`, "Keep your old Creature" (`old`) | `one`: the grip in the air, at a scroll and at the crown of a tree, with `near_rule` 1 and 2. With `near_rule` 2 the grip at the scroll takes the rock beside it and sets it down. `old`: the grip on the Creature, strokes and slaps. `fixed`: places from `-Points` and steps from `-Steps` | 44 s for `one`, 142 s for `old` |
-| `throw_queue.ps1 -Runs <names>` | `pen`, "Skip straight to the Creature select" | A far fetch at the pen and a throw (`land`, `base`, `early`, `tree`, `sea`), the same at a different scale (`landout`, and `landin`, `landin2`, `landin3` and `landlife` for 66.7, 44.4, 29.6 and 7.5 units for each meter), a release with a still hand (`fall`, `fallold`), the same with a tree that the hand holds upright or turns by 30 degrees (`treeset`, `treelean`), a new grip on an object that falls, flies or rolls (the names with `drop`, `fly` and `roll`), and a tree that comes to rest while the Hand takes it (`treedropend`, with the test key `catch_rest_test` for the runs in which the tree does not come to rest by itself in the take) | 31 to 63 s each |
-| `aim_queue.ps1 -Runs <names>` | `pen`, "Skip straight to the Creature select" | The aim presets and the trim (`aim2`), a fetch of a thrown rock over the sea and from the sea (`move2`, `move1b`), a Creature command with the leash counted as on (`cmd1b`), and the teleport at three scales (`ring1`, `ring0`) | 26 to 54 s each |
+| `throw_queue.ps1 -Runs <names>` | `pen`, "Skip straight to the Creature select" | A far fetch at the pen and a throw (`land`, `base`, `early`, `tree`, `sea`), the same at a different scale (`landout`, and `landin`, `landin2`, `landin3` and `landlife` for 66.7, 44.4, 29.6 and 7.5 units for each meter), a release with a still hand (`fall`, `fallold`), the same with a tree that the hand holds upright or turns by 30 degrees (`treeset`, `treelean`), a new grip on an object that falls, flies or rolls (the names with `drop`, `fly` and `roll`), a grip on a rock in its fall, on a rock that the hand threw up, on a rock on the land that still moves, and a grip of 50 ms on a rock in its fall (`dropnear`, `tossup`, `landgrip`, `dropshort`: with `-More 'grip_press_hold=0'` the game takes each of these presses as a click), and a tree that comes to rest while the Hand takes it (`treedropend`, with the test key `catch_rest_test` for the runs in which the tree does not come to rest by itself in the take) | 31 to 63 s each |
+| `aim_queue.ps1 -Runs <names>` | `pen`, "Skip straight to the Creature select" | The aim presets and the trim (`aim2`), a fetch of a thrown rock over the sea and from the sea (`move2`, `move1b`), a Creature command with the leash counted as on (`cmd1b`), the teleport at three scales (`ring1`, `ring0`), and the aim and the grip at a Creature that is not the Creature of the player (`other`) | 21 to 54 s each |
 | `creature_recipe.ps1` | `temple`, "Keep your old Creature" | `state`: the Creature state, strokes and a slap. `leash`: the leash on and off. `stay`: the stay from a distance. `tie`: the leash tied to an object, and the walk of the Creature to it. `click`: a text of the game that waits for a click, with the leash on and with the Hand off the view (`text_click`) | 42 to 62 s |
 | `village_run.ps1` | `temple`, "Keep your old Creature" | `miracle`: a miracle from an icon of the Worship Site (`-Icon 3` is Food). `totem`, `charge`. `store`, `tree` and `job`: wood, a tree and a villager at the Village Store. `throw`: a thrown villager. `scaffold`, `build`, `site`, `probe`, `workshop` | 31 to 63 s |
 | `miracle_run.ps1` | `temple`, "Keep your old Creature" | `creature`, `throw`, `cancel`, `place`, `shield`: a miracle from a seed that the test key `miracle_test_seeds` makes. `-Seeds` gives other seed types, and `-Steps` other steps | 44 to 57 s |
@@ -159,11 +163,17 @@ Known limits of the recipes:
   trigger there starts a drag of the land, and the double click of A makes
   the jump of the game. The recipes with the Creature state start in the
   test save `temple` (`hand_run.ps1 -Kind old`, `creature_recipe.ps1`).
-- `throw_queue.ps1 -Runs rollnear` and `-Runs rollfar` do not take the rock
-  in its roll. The word `seek` or `aimfar` comes 1.6 s after the release.
-  The rock is then 1.1 to 1.2 m of the room from the Hand, and the draw of
-  the game does not offer it (the log says "seen 0"), so it is no candidate.
-  `dropfarroll` takes a rock that rolls after a fall.
+- `throw_queue.ps1 -Runs rollfar` does not take the rock in its roll. The
+  word `aimfar` comes 1.6 s after the release. The rock is then 1.1 to 1.2 m
+  of the room from the Hand, and the land hides it from the head (the log
+  says "seen 0"), so it is no far target. `dropfarroll` takes a rock that
+  rolls after a fall. `landgrip` closes the grip on a rock on the land 0.15
+  s after its first contact, with the head 25 degrees down so that the hand
+  is in the view (not run).
+- `throw_queue.ps1 -Runs rollnear` is not run with the word `seek` of now.
+  The word takes the place of the thrown object from its mesh when the draw
+  does not offer the object. The rock is 1.1 to 1.2 m of the room from the
+  Hand there, and the hand at it can be off the view.
 - `throw_queue.ps1 -Runs droproll` and `-Runs treenear` do not close the grip
   on the object after its fall. The word `seek` puts the hand 50 cm below
   the head. That place is below the view of the desktop window, and the
@@ -461,8 +471,8 @@ Hand in the loaded game (`fake_controller_play_frame`).
 | `verify_build.ps1`, the run `aim2` | The test save `pen` | 2750 | 79 s | 30 s |
 | `verify_build.ps1`, the run `tland` | A new game, `select` | 2750 | 112 s | This run keeps the first story: the cut scene window, the story camera and the God view after a story need one run |
 | `verify_build.ps1`, the run `vc` | The test save `temple` | 800 | 65 s | 42 s |
-| `aim_queue.ps1` | The test save `pen` | 2750 | 75 to 103 s, 518 s for the six runs | 26 to 54 s, 224 s for the six runs |
-| `throw_queue.ps1` | The test save `pen` | 2750 | 80 to 112 s, 2520 s for the 26 runs | 31 to 63 s, 1246 s for the 26 runs |
+| `aim_queue.ps1` | The test save `pen` | 2750 | 70 to 103 s, 588 s for the seven runs | 21 to 54 s, 245 s for the seven runs |
+| `throw_queue.ps1` | The test save `pen` | 2750 | 80 to 112 s, 2760 s for the 29 runs | 31 to 63 s, 1339 s for the 29 runs |
 | `hand_run.ps1 -Kind one` | The test save `pen` | 4600 | 163 s | 44 s |
 | `hand_run.ps1 -Kind fixed` | The test save `pen` | 4600 | 163 s | 16 s and the time of `-Steps` |
 | `hand_run.ps1 -Kind old` | The test save `temple` | 700 | 163 s | 142 s |

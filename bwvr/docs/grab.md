@@ -57,7 +57,9 @@ grip twice. So with the direct hand (`controller_hand=1`) the grip holds like
 a real hand, in every play mode:
 
 1. Close the grip on a target (the glow is gold). The game's pick up starts at
-   once. The object is in the Hand about 10 frames later.
+   once. An object at rest is in the Hand one or two game turns later. An
+   object that moves is in the Hand of the picture at once, and the game has
+   it 225 ms and one game turn later ("The press of the game").
 2. Keep the grip closed. The Hand carries the object. The game's right button
    is up during the carry, so the trigger still drags the land.
 3. Open the grip. The Hand lets go. A fast hand throws with the speed of the
@@ -73,9 +75,77 @@ to one.
 | Phase | When | The game's right button |
 | --- | --- | --- |
 | Pass | The Hand holds nothing, or the game does not hold the object in the Holding state | The grip, one to one |
-| Carry | An object came into the Hand while the grip is closed, and the pick up is over: the pick lock `GInterface+0x38` is clear, or 15 frames passed | Up |
+| Carry | An object came into the Hand while the grip is closed, and the pick up is over: the game has the object in its Hand (`GInterfaceStatus+0x90`) and the pick lock `GInterface+0x38` is clear | Up |
 | OpenHeld | An object is in the Hand and the grip is open, for example after the game refused a drop | Up. A close carries it again |
-| LetGo | The grip opened while it carried | The mod's click: down, then up when the hand mode is `0x17` on a later frame, when the object left the Hand, or after 8 frames |
+| LetGo | The grip opened while it carried | The mod's click: down, then up when the hand mode is `0x17` on a later frame, when the object left the Hand, or after 130 ms |
+
+Each time of the machine is in milliseconds of real time, so the grip does
+the same thing at each frame rate. A count of frames is only the order of
+two events: the game must read a release in one frame and a press in a later
+frame.
+
+**The press of the game.** While the grip is closed in the Pass phase, the
+button of the game stays down until the pick up of the game is over. The
+game has two ways to take an object [V]:
+
+- The right press on an object that the Hand can hold is `fn_005D1740`. It
+  keeps the clock and the game turn of the press (`GInterface+0x454` and
+  `+0x458`), sets bit `0x10` of the pick lock and starts the interface
+  action 13. For an object that it can put in the Hand of the picture at
+  once it calls `fn_0046DC30`, which writes `CHand+0x4904`.
+- The step of action 13 is `fn_005D5250`. It takes the age of the press: the
+  smaller of the real time since the press (the clock that
+  `LH3DRender::StartFrame` writes at `0x00EA9EB0`) and 100 ms for each game
+  turn since the press and one more. So a press is 225 ms old only when the
+  second game turn after it has started.
+- **An object that the physics of the game has** (bit `0x40` of `Object+0x24`
+  is set and bit `0x10` of `Object+0x0A` is clear: it falls, flies or rolls).
+  While the age is less than 225 ms, the step only waits. A button that goes
+  up in that time is a click: the step calls `CHand::ThrowObject`, so the
+  Hand lets the object go, and then `fn_005D3930`, which taps the object.
+  The tap of a rock splits it (`Rock::InterfaceTap` `0x006E7480` calls
+  `Rock::SplitInTwo` `0x006E7560`). From 225 ms on the step calls
+  `fn_005D2800`, which sends the pick up (packet `0x13`) and starts action 7.
+  The game has the object in its Hand one game turn later
+  (`GInterface::PlaceObjectInMagicHand`, which takes the object out of the
+  physics). The step of action 7 (`fn_005D4A90`) clears the pick lock and
+  resets the action when the object of the record has bit `0x04` of
+  `Object+0x24`, with the button down or up [I: the bit is the mark of an
+  object in a Hand]. With no object in the record that step gives 0, and
+  the interface step then ends the pick up (`fn_005D1260`).
+- **An object at rest.** The step waits while the Tug flag `CHand+0x4908` is
+  set, and then it sends the pick up in the same way. A button that goes up
+  before that is a click when the press is 225 ms old or less.
+- `fn_005D1330` tells a press on an object from the press of a release by
+  the byte `GInterfaceStatus+0x90`: it is not 0 while the game has an object
+  in its Hand.
+
+So a time or a count of frames must not end the press of a closed grip. With
+`grip_press_hold=1` the machine reads the facts of the game on each pump
+(`HandDirectGripPress`):
+
+1. The carry starts when the game has the object in its Hand and the pick
+   lock is clear. While a release is a click for the game, no time ends the
+   press. A pick up that the game does not end in 1 s is a carry from then
+   on.
+2. **A short press on an object that moves.** When the grip opens while the
+   physics of the game has the object and a release is a click for the game,
+   the button stays down until the press is 240 ms old on the clock of the
+   game (`controller_math::GamePressAge`), and for 1.5 s at most. The game
+   then takes the object, and the machine lets it go with its click when the
+   game has it in its Hand. So a press on an object in the air never splits
+   a rock: the object comes into the Hand, and the open Hand lets it fall.
+3. **A short press on an object at rest** is a click, as in the plain game:
+   the button goes up with the grip, and a rock at rest splits.
+
+`grip_press_hold=0` gives a carry when the pick lock is clear, or 167 ms
+after the object came into the Hand of the picture, and no press that the
+mod holds. That time is 15 frames at 90 frames a second, which is less than
+225 ms: the press on an object that moves is then a click, the Hand lets the
+object go one frame after the line `the pick up is over`, and a rock splits.
+With `test_keys=1`, Shift and the plus key of the number pad change the key
+while the game runs (Ctrl must be up). The pointing controller gives a long
+pulse for 1 and a short pulse for 0.
 
 **The click.** The press comes on the frame the grip opens. The game sees the
 throw spring 2 frames after a press and the release action 1 frame after the
@@ -137,10 +207,12 @@ trigger, takes the 80 ms before the release.
   with the mouse. `grip_press_guard=0` gives the fast opening at each time. With
   `test_keys=1`, Ctrl Shift Home turns the guard off and on while the game
   runs.
-- **The grip opens before the object comes** (during the 10 frames of the pick
-  up): the take press ends at once, and the game stops the pick up, as for a
-  short mouse click. If the object still comes within 20 frames, the machine
-  lets it go with a click.
+- **The grip opens before the object comes** (during the pick up of an
+  object at rest): the take press ends at once, and the game stops the pick
+  up, as for a short mouse click. If the object still comes within 350 ms,
+  the machine lets it go with a click. The click waits until the game has
+  the object in its Hand, because before that it is a press on the object.
+  An object that moves is in "The press of the game".
 - **The mouse takes the Hand** during a carry: the grip is the button again,
   and a closed grip must open before it presses. A carry counts as a held
   controller button for the pointer owner rule (`ControllersGripCarries`, read by
@@ -152,12 +224,36 @@ trigger, takes the 80 ms before the release.
   Hand (`IsSpaceInHands`). Not tested.
 
 **The log.** Tag `grip`: each change of the machine, with the facts of the
-Hand. Tag `hand throw` adds the time between the opening and the release.
-Each report window counts the carries, the openings, the clicks and the waits.
+Hand (the Holding state, the pick lock, whether the game has the object in
+its Hand, whether the physics of the game has it, and the throw spring). The
+line `the pick up is over` and the two lines of a press that the mod held
+say how long the button was down for the game, and how old the press is on
+the clock of the game. A button that goes up while a release is a click has
+its own line ("so it is a click"). Tag `hand press`: a press on an object
+that the physics of the game has says so. Tag `rock split`: each rock that
+splits, with the cause (the tap of the game, a hard impact, or a different
+call) and the age of the last press. Tag `hand throw` adds the time between
+the opening and the release. Each report window counts the carries, the
+openings, the clicks, the waits, the presses that the mod held and the
+presses that were a click on an object that moves.
+
+**Tests.** The math checks (`PressHoldChecks` in `grip_checks.h`) run a model
+of the game's rule with the machine: the same press at 60, 72, 90 and 120
+frames a second, at 20 times in a game turn. A closed grip and a press of 50
+ms on an object that moves are never a click with `grip_press_hold=1`, and
+each one is a click with 0. A game turn of 180 ms and a press on an object at
+rest are there too. Desktop runs: `throw_queue.ps1 -Runs
+dropnear,tossup,landgrip,dropshort` in `bwvr/tools/desk` closes the grip on
+a rock in its fall, on a rock that the hand threw up, on a rock on the land
+0.15 s after its first contact, and for 50 ms on a rock in its fall. `-More
+'grip_press_hold=0'` gives the other value, and `-Fps 90` a run at 90 frames
+a second.
 
 **Needs the headset.** Whether 3 to 4 frames from the opening to the release
 feel at once. Whether the window of 80 ms before the opening gives the throw
 the player meant. Whether a still hand sets the object down where it is.
+Whether a catch with a real hand takes the object each time: a real grip
+closes over some frames, and a real hand moves with the object.
 
 ## One point for each interaction
 
@@ -482,10 +578,10 @@ put the leash on from a new game.
 | `hand_pick_cm` | 4 | The reach of the pick from the Hand's point, in cm of the room. 1 to 20 |
 | `hand_wide_pick_cm` | 15 | The reach of the pick for an object that the Hand can hold, when no object that a press acts on is nearer, in cm of the room. 0 turns it off. 0 to 30. The test key Ctrl Shift Page Up goes between 0 and the value (`test_keys=1`) |
 | `hand_touch_cm` | 1 | The point touches a body when the gap is this or less, in cm of the room. 0 to `hand_pick_cm` |
-| `catch_moving` | 2 | The reach of the pick for an object that moves (see "A target that moves, floats or dies"). 2 puts the extra reach on the reach that the object has at rest, the wide reach too, and only a throw has the guard of `catch_grace_ms`. 1 puts the extra reach on `hand_pick_cm` only, and each object that the Hand let go has the guard. 0 gives each object the same reach, moving or still. The test key Ctrl Page Up goes through 2, 1 and 0, with a long pulse, a pulse of middle length and a short pulse (`test_keys=1`) |
+| `catch_moving` | 3 | The reach of the pick for an object that moves (see "A target that moves, floats or dies"). 3 puts the extra reach on the reach that the object has at rest, the wide reach too. Only a throw has the guard of `catch_grace_ms`, and that guard ends when the grip is fully open. 2 is the same, but the guard lasts for the whole of `catch_grace_ms`. 1 puts the extra reach on `hand_pick_cm` only, and each object that the Hand let go has the guard. 0 gives each object the same reach, moving or still. The test key Ctrl Page Up goes through 3, 2, 1 and 0, with a pulse that is shorter for each lower value (`test_keys=1`) |
 | `catch_lag_ms` | 100 | The time that the speed of the object counts for, in ms. 0 to 500 |
 | `catch_cap_cm` | 8 | The most extra reach, in cm of the room. 0 to 20 |
-| `catch_grace_ms` | 600 | The object that the Hand threw has no extra reach for this time, in ms. 0 to 3000 |
+| `catch_grace_ms` | 600 | The object that the Hand threw has no extra reach for this time at the most, in ms. 0 to 3000 |
 | `catch_rest_guard` | 1 | 1 holds the end of the physics of an object back while the Hand takes it, so a tree that comes to rest in that time stays a tree and goes into the Hand (see "An object that comes to rest while the Hand takes it"). 0 lets the game end the physics: the tree is then a dead tree on the land, and the Hand is empty. The test key Ctrl Shift Scroll Lock turns it off and on (`test_keys=1`) |
 | `far_grab_near_cm` | 10 | The far grab goes off when an object that a press acts on is this near the Hand's point |
 | `far_grab_near_out_cm` | 15 | The far grab comes back past this distance |
@@ -664,12 +760,12 @@ in a run].
    the steps of actions 4, 5 and 6 find the source and end the take, as they do
    for the mouse. A take that is in action 5 ends on the next step.
 4. **Nothing collects after the grip opens.** While a take runs, the grip is the
-   button. When the button was up for `kGripTakeEndFrames` (18 frames, two game
-   turns at 90 frames a second) and the take still runs, `GripStep` sets
+   button. When the button was up for `kGripTakeEndMs` (200 ms, two game
+   turns) and the take still runs, `GripStep` sets
    `end_take` on each frame. `EndTakeNow` then acts before the next interface
    step. In action 4 it sets the release bit for that one step. In actions 5 and
    6 the record is enough. In any other action it sets the pick lock and calls
-   `FUN_005D49B0`. If the take still runs 18 frames later, it calls the handler
+   `FUN_005D49B0`. If the take still runs 200 ms later, it calls the handler
    of the end packet (`FUN_005DAA10`), clears the pick lock and calls
    `ResetActionState`. The handler never runs in a multiplayer game.
 5. **The take ends at once.** After the step that reads the release, the mod
@@ -926,10 +1022,11 @@ The Hold state is the grip on the player's own Creature (see
 - **Fetch state.** The claim goes, and the grip machine presses the button. The
   press needs no pixel in view (`FarGrabPressing`), because after a pull the
   hand is near the head. The game then picks the object up as for any object.
-  When `CHand+0x4904` is the object, the fetch is done. After 40 frames
-  (`kFetchFrames`) without it, the fetch ends and the grip stays held back until
-  it opens. For a forest the fetch waits 90 frames (`kForestFetchFrames`),
-  because the game makes the tree after 225 ms.
+  When `CHand+0x4904` is the object, the fetch is done. After 700 ms
+  (`kFetchMs`) without it, the fetch ends and the grip stays held back until
+  it opens. For a forest the fetch waits 1.5 s (`kForestFetchMs`),
+  because the game makes the tree after 225 ms. The waits are real time, so
+  a fetch does the same thing at each frame rate.
 - After the Hand holds the object, the grip machine carries it as before, and
   the throw is the throw of [throw.md](throw.md).
 
@@ -948,7 +1045,7 @@ game gives hand mode `0xD`. Then Fetch sends the grip as a press, and the game
 starts the take (`FUN_005D1330` reads the record). When `GInterfaceStatus+0x3C`
 is the source, the state is Take: the grip is not held back, and `GripStep`
 makes it the button. The tether and the halo stay until the game ends the take.
-A press that the game does not answer in 40 frames ends as a fetch does. The
+A press that the game does not answer in 700 ms ends as a fetch does. The
 rule of "The bulk take" applies: hold the grip to collect, open it to stop and
 keep the bundle, close and open it again to drop.
 
@@ -1123,7 +1220,8 @@ A scroll in the cone of the aim ray is a far target, with the range of
    bulk source).
 3. The grip goes to the game as a press (the Fetch state). The game taps the
    scroll with its own action, as in "A scroll, a house".
-4. After 8 frames (`kTouchFrames`) the far grab lets the press go. The grip
+4. After 130 ms (`kTouchMs`), and two frames at the least, the far grab lets
+   the press go. The grip
    stays held back until it opens.
 
 A scroll scores 3 degrees better than its angle (`kFarTouchBiasDeg`), because
@@ -1154,8 +1252,9 @@ target, and the fetch puts it in the Hand while it moves.
   only this reach chose ("moves at"). Only the pick up has the extra reach: a
   scroll, a house and a pile keep theirs.
 
-  With `catch_moving=2` the extra reach is on the reach that the object has at
-  rest: on `hand_pick_cm`, and on the wide reach (`near_math::WideMoving`). So
+  With `catch_moving=2` or 3 the extra reach is on the reach that the object
+  has at rest: on `hand_pick_cm`, and on the wide reach
+  (`near_math::WideMoving`). So
   a rock that falls at 95 cm a second or more is the target up to 23 cm from
   the Hand's point, when no object that a press acts on is nearer. While such
   an object is the target, there is no far target. With `catch_moving=1` the
@@ -1165,12 +1264,22 @@ target, and the fetch puts it in the Hand while it moves.
   **The guard of a throw.** The object that the Hand threw has no extra reach
   for `catch_grace_ms` after the release (`near_math::GuardHolds`), so a throw
   does not come back to the hand in the same closing of the grip. It keeps
-  the reach that it has at rest. With `catch_moving=2` the guard is for a
+  the reach that it has at rest. With `catch_moving=2` or 3 the guard is for a
   throw only. An object that fell from a hand that was still (the height rule
   of `release_fall_cm`) is no throw: it starts with no speed, and the player
   who closes the grip on it in its fall wants it back. A fall from 46 cm of
   the room lasts 0.63 s, so a guard of 600 ms is almost all of that time.
   With `catch_moving=1` each object that the Hand let go has the guard.
+
+  **The guard ends when the grip is fully open** (`catch_moving=3`, the
+  default). The guard is for a grip that closes again by a dip of the squeeze:
+  a fast fall opens the grip at a value that is still high, and a small rise
+  closes it again. A grip that was fully open (its value came to 35 percent or
+  less after the opening that let the object go) closes only when the player
+  closes the hand, and that is a catch. So the object that the player threw
+  up has its extra reach from that moment, and a new close of the grip
+  catches it. With `catch_moving=2` the guard lasts for the whole of
+  `catch_grace_ms`.
 
   **The frames after a release.** The game holds the object in the Hand from
   the release action to the drop action of a game turn: 3 to 16 frames in the
@@ -1272,7 +1381,7 @@ then (no velocity and no turn).
 
 | `catch_rest_guard` | What the runs show |
 | --- | --- |
-| 1 | In 3 of 4 runs the mod holds the rest back (1, 11 and 30 steps), the pick up is over 15 frames after the Hand took the tree, and the tree leaves the Hand when the grip opens, 46 frames after the Hand took it. In one of the three the rest of the game itself came in the lock, before the pull. In the fourth run the tree came to rest before the aim, so there was no take |
+| 1 | In 3 of 4 runs the mod holds the rest back (1, 11 and 30 steps), and the tree leaves the Hand when the grip opens, 46 frames after the Hand took it. In one of the three the rest of the game itself came in the lock, before the pull. In the fourth run the tree came to rest before the aim, so there was no take |
 | 0 | In 3 of 3 runs the game ends the physics of the tree in a turn of the take: by the test key in 2 runs, and by itself in 1 run. The Hand holds nothing 1 or 2 frames after it took the tree, and the grip stays closed on an empty Hand for 44 frames more |
 
 With `catch_rest_guard=1` the two recipes with no test key keep their
@@ -1366,12 +1475,14 @@ Test keys for the desktop runs only:
 - `far_test_no_trees=1`: no tree is a far target.
 - `far_test_thrown=1`: the word `aimfar` aims at the object that the Hand threw
   last, where the draw saw it, so a run can fetch an object that flies, rolls or
-  is in the sea.
+  is in the sea. When the draw did not offer the object, the place is from its
+  mesh. `seek_thrown=1` does the same for the word `seek`: the hand steps onto
+  the thrown object.
 - `far_test_least_cm=N`: the word takes an object N cm or more from the Hand,
   and not 50 cm.
 - `far_test_aim_class=N`: the word `aimfar` aims at the middle of the body of the
-  nearest villager (1), living thing (2), rock (3), your Creature (4) or tree
-  (5). `far_test_aim_toward=1` (a tree) or 2 (a rock) then turns the aim toward
+  nearest villager (1), living thing (2), rock (3), your Creature (4), tree
+  (5) or Creature that is not your Creature (6). `far_test_aim_toward=1` (a tree) or 2 (a rock) then turns the aim toward
   the nearest such object, 20 units or less from the target, by
   `far_test_aim_blend_pct` percent of the way. The same aim then runs with
   `far_grab_choice=0` and `1`, and the log of each new target names the winner

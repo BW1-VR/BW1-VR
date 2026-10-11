@@ -638,6 +638,9 @@ above 0.55 and release below 0.35. With the direct hand, a closed grip also
 opens when its value falls by 30 percent in 3 frames to less than 80 percent
 (`grip_fast_open=1`, the default). In the first 300 ms of a press, before the
 Hand holds the object, the fast fall does not open it (`grip_press_guard=1`).
+While the grip is closed on an object, the button of the game stays down
+until the game has the object in its Hand, and a press on an object that
+moves is never a click for the game (`grip_press_hold=1`).
 
 **The grip holds** (direct hand only). The game takes an object with one right
 click and lets go with a second one. So with `controller_hand=1` the right
@@ -645,7 +648,10 @@ button comes from a small machine (`GripStep` in `controller_math.h`) and not
 straight from the grip. Closing the grip on an object takes it. Keeping it
 closed carries the object, with the right button of the game up. Opening it
 lets go: the pump sends the second click, and `hand_direct.cpp` latches the
-throw at the opening. With nothing in the Hand, and for a Miracle, the Tug,
+throw at the opening. Each time of the machine is in milliseconds of real
+time, and the machine reads the age of a press from the clock of the game, so
+the grip does the same thing at 60 and at 90 frames a second. With nothing
+in the Hand, and for a Miracle, the Tug,
 the leash and the Creature, the grip is the right button, one to one. A carry
 counts as a held controller button for the owner rule. See `grab.md` and
 `throw.md`. With `controller_hand=0` the grip is the right button.
@@ -972,6 +978,7 @@ hands change sides. The default mode is the God view (`god-view.md`).
 | `controller_hand` | 1 | 1 puts the Hand at the controller (the direct hand). 0 keeps the pointer mode of section 3. Not in the launcher, and a save of the launcher removes the key |
 | `grip_fast_open` | 1 | With the direct hand, a closed grip also opens on a fast fall of its value (3.6) |
 | `grip_press_guard` | 1 | In the first 300 ms of a press, before the Hand holds the object, a closed grip opens only below 35 percent (`grab.md`, "The grip holds"). 0 lets the fast fall open it at any time. The test key Ctrl Shift Home goes between the two (`test_keys=1`) |
+| `grip_press_hold` | 1 | 1: while the grip is closed on an object, the button of the game stays down until the game has the object in its Hand and the pick lock is clear. A grip that opens sooner on an object that moves keeps the button down until the press is 240 ms old on the clock of the game, so the game takes the object and does not tap it (`grab.md`, "The press of the game"). 0: the button goes up when the pick lock is clear, or 167 ms after the object came into the Hand of the picture, which is a click for the game on an object that moves. The test key Shift and the plus key of the number pad goes between the two (`test_keys=1`) |
 | `gesture_button` | 1 | The gesture draw button: 0 off, 1 the second face button of the pointing hand, 2 the stick click |
 | `gesture_size_cm` | 30 | This much hand motion is a third of the view height to the game |
 | `teleport` | 1 | 1: A makes the teleport. 0: A makes a jump |

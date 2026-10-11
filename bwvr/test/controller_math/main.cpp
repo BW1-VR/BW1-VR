@@ -2671,13 +2671,25 @@ void OverlayChecks() {
 }  // namespace
 
 // THE GRIP HOLDS (docs/grab.md, "The grip holds"). A small driver: one step a
-// frame, with the facts of that frame.
+// frame, with the facts of that frame. A frame of the driver is 10 ms, so the
+// times of the grip are whole frames.
+const uint64_t kGripTestFrameMs = 10;
+
 struct GripRun {
   GripHold hold;
   uint64_t frame;
+  uint64_t ms;
   GripStepOut out;
 };
 
+// The frames of the driver in a time of the grip.
+int GripTestFrames(uint64_t ms) {
+  return static_cast<int>(ms / kGripTestFrameMs);
+}
+
+// The object in the Hand is in the Hand of the game too, and no press is a
+// click: the facts of an object at rest. The checks of an object that moves
+// set the other facts themselves (grip_checks.h, PressHoldChecks).
 GripFacts Facts(bool holding, bool settled, bool spring = false,
                 bool other = false, bool direct = true, bool take = false) {
   GripFacts f;
@@ -2688,12 +2700,17 @@ GripFacts Facts(bool holding, bool settled, bool spring = false,
   f.other_held = other;
   f.take = take;
   f.mod_take = false;
+  f.game_holds = holding;
+  f.moving = false;
+  f.click = false;
+  f.press_hold = true;
   return f;
 }
 
 void GripStart(GripRun* run) {
   GripReset(&run->hold);
   run->frame = 0;
+  run->ms = 0;
   run->out = GripStepOut{false, false, false, 0, false, false};
 }
 
@@ -2703,7 +2720,8 @@ int GripFrames(GripRun* run, int frames, bool grip, const GripFacts& f) {
   int events = 0;
   for (int i = 0; i < frames; ++i) {
     ++run->frame;
-    run->out = GripStep(&run->hold, grip, f, run->frame);
+    run->ms += kGripTestFrameMs;
+    run->out = GripStep(&run->hold, grip, f, run->frame, run->ms);
     events |= run->out.events;
   }
   return events;
@@ -2747,7 +2765,7 @@ void GripChecks() {
         "the press is a click, and the step says to latch the throw now", 1,
         1);
   // A second step in the same frame sees the same grip.
-  run.out = GripStep(&run.hold, false, held, run.frame);
+  run.out = GripStep(&run.hold, false, held, run.frame, run.ms);
   Check(run.out.button && run.out.events == 0 && !run.out.opened,
         "a second step in one frame changes nothing", run.out.events, 0);
   e = GripFrames(&run, 1, false, held);
@@ -2768,20 +2786,19 @@ void GripChecks() {
   GripFrames(&run, 1, true, empty);
   Check(run.out.button, "the next close is a new press", 1, 1);
 
-  // The click needs no spring: it lets go after kGripSpringFrames.
+  // The click needs no spring: it lets go after kGripSpringMs.
   GripStart(&run);
   GripFrames(&run, 2, true, empty);
   GripFrames(&run, 2, true, held);
   e = GripFrames(&run, 1, false, held);
-  const uint64_t pressed = run.frame;
-  int down = 0;
-  while (run.out.button && run.frame < pressed + 40) {
-    ++down;
+  const uint64_t pressed = run.ms;
+  while (run.out.button && run.ms < pressed + 1000) {
     GripFrames(&run, 1, false, held);
   }
-  Check(down == static_cast<int>(kGripSpringFrames),
-        "with no spring the click lets go after kGripSpringFrames", down,
-        static_cast<double>(kGripSpringFrames));
+  Check(run.ms - pressed == kGripSpringMs,
+        "with no spring the click lets go after kGripSpringMs",
+        static_cast<double>(run.ms - pressed),
+        static_cast<double>(kGripSpringMs));
 
   // The press itself gives the object away (for example to the Creature):
   // the empty Hand does not keep the press.
@@ -2855,20 +2872,52 @@ void GripChecks() {
   Check((e & kGripCarried) != 0 && !run.out.button,
         "the tree is free: the grip carries it", 0, 0);
 
-  // The pick lock never clears: the carry starts after kGripSettleFrames.
+  // The pick lock never clears: the carry starts kGripSettleMs after the
+  // object came, and the button stays down until then.
   GripStart(&run);
   GripFrames(&run, 1, true, empty);
-  int frames = 0;
-  while (run.hold.phase == kGripPass && frames < 100) {
-    ++frames;
+  GripFrames(&run, 1, true, taking);
+  const uint64_t came = run.ms;
+  int up = 0;
+  while (run.hold.phase == kGripPass && run.ms < came + 5000) {
     GripFrames(&run, 1, true, taking);
+    if (run.hold.phase == kGripPass && !run.out.button) ++up;
   }
-  Check(frames == static_cast<int>(kGripSettleFrames) + 1,
-        "a lock that stays set: the carry starts after kGripSettleFrames",
-        frames, static_cast<double>(kGripSettleFrames) + 1);
+  Check(run.ms - came == kGripSettleMs,
+        "a lock that stays set: the carry starts after kGripSettleMs",
+        static_cast<double>(run.ms - came),
+        static_cast<double>(kGripSettleMs));
+  Check(up == 0, "and the button is down on each frame before the carry", up,
+        0);
+  // While a release is a click for the game, no time ends the press.
+  {
+    GripFacts click = taking;
+    click.click = true;
+    GripStart(&run);
+    GripFrames(&run, 1, true, empty);
+    e = GripFrames(&run, GripTestFrames(3 * kGripSettleMs), true, click);
+    Check(run.hold.phase == kGripPass && run.out.button && e == 0,
+          "a press that is still a click for the game stays down, 3 s later",
+          run.hold.phase, kGripPass);
+  }
+  // The pick lock is clear, and the game does not have the object in its
+  // Hand yet: the pick up is not over.
+  {
+    GripFacts early = Facts(true, true);
+    early.game_holds = false;
+    GripStart(&run);
+    GripFrames(&run, 1, true, empty);
+    e = GripFrames(&run, 20, true, early);
+    Check(run.hold.phase == kGripPass && run.out.button && e == 0,
+          "an open pick with no object in the Hand of the game is no carry",
+          run.hold.phase, kGripPass);
+    e = GripFrames(&run, 1, true, held);
+    Check((e & kGripCarried) != 0 && !run.out.button,
+          "the game has the object: the grip carries", e, kGripCarried);
+  }
 
   // The grip opens before the object comes. The take press ends at once. An
-  // object that comes within kGripLateFrames is let go with a fresh press.
+  // object that comes within kGripLateMs is let go with a fresh press.
   GripStart(&run);
   GripFrames(&run, 6, true, empty);
   GripFrames(&run, 1, false, empty);
@@ -2881,7 +2930,7 @@ void GripChecks() {
   GripStart(&run);
   GripFrames(&run, 6, true, empty);
   GripFrames(&run, 1, false, empty);
-  GripFrames(&run, static_cast<int>(kGripLateFrames) + 5, false, empty);
+  GripFrames(&run, GripTestFrames(kGripLateMs) + 5, false, empty);
   e = GripFrames(&run, 1, false, held);
   Check((e & kGripLate) == 0 && run.hold.phase == kGripOpenHeld &&
             !run.out.button,
@@ -2998,14 +3047,14 @@ void BulkTakeChecks() {
   // grip is the game's button.
   const GripFacts take = Facts(false, false, false, false, false);
 
-  // With the facts of a held object, the machine carries 15 frames after the
-  // Pot comes, and the button goes up. That would end the take.
+  // With the facts of a held object, the machine carries kGripSettleMs after
+  // the Pot comes, and the button goes up. That would end the take.
   GripStart(&run);
   GripFrames(&run, 1, true, empty);
-  int e = GripFrames(&run, 16, true, locked);
+  int e = GripFrames(&run, GripTestFrames(kGripSettleMs) + 1, true, locked);
   Check((e & kGripCarried) != 0 && !run.out.button,
-        "before the fix: the Pot in the Hand gave a carry and the button "
-        "went up", run.out.button, 0);
+        "with the facts of a held object the Pot in the Hand gives a carry, "
+        "and the button goes up", run.out.button, 0);
 
   // A close on a pile, the take for 200 frames, and an opening.
   GripStart(&run);

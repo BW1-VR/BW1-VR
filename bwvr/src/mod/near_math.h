@@ -109,16 +109,18 @@ inline bool JustLetGo(double since, double grace) {
 // that moves has the larger of that sum and the wide reach, and each object
 // that the Hand let go has the guard. 2: the reach of an object that moves is
 // the reach that it has at rest and the extra reach, and the guard is for a
-// throw only.
+// throw only. 3: as 2, and the guard of a throw ends when the grip is fully
+// open.
 const int kCatchOff = 0;
 const int kCatchPick = 1;
 const int kCatchRest = 2;
+const int kCatchOpen = 3;
 
 // The wide reach of an object that moves. At rest an object that the Hand can
-// hold has the wide reach (WidePick). With the rule 2 the extra reach of its
-// motion is on that reach too. A wide reach of 0 is off, and stays off.
+// hold has the wide reach (WidePick). With the rule 2 or 3 the extra reach of
+// its motion is on that reach too. A wide reach of 0 is off, and stays off.
 inline float WideMoving(float wide_reach, float extra, int rule) {
-  if (rule != kCatchRest || !(wide_reach > 0.0f) || !(extra > 0.0f)) {
+  if (rule < kCatchRest || !(wide_reach > 0.0f) || !(extra > 0.0f)) {
     return wide_reach;
   }
   return wide_reach + extra;
@@ -127,9 +129,18 @@ inline float WideMoving(float wide_reach, float extra, int rule) {
 // The guard of JustLetGo with the rule. fell: the object left a hand that
 // was still (the height rule of the release, docs/throw.md), so it is no
 // throw. It starts with no speed, and a player who closes the grip on it in
-// its fall wants it back. With the rule 2 it has no guard.
-inline bool GuardHolds(double since, double grace, bool fell, int rule) {
-  if (rule == kCatchRest && fell) return false;
+// its fall wants it back. With the rule 2 or 3 it has no guard.
+//
+// reopened: the grip was fully open at some time after the opening that let
+// the object go. The guard is for a grip that closes again by a dip of the
+// squeeze: a fast fall opens the grip at a value that is still high, and a
+// small rise closes it again. A grip that was fully open closes only when
+// the player closes the hand, and that is a catch. So with the rule 3 the
+// guard ends there, and before the end of the grace time.
+inline bool GuardHolds(double since, double grace, bool fell, int rule,
+                       bool reopened) {
+  if (rule >= kCatchRest && fell) return false;
+  if (rule >= kCatchOpen && reopened) return false;
   return JustLetGo(since, grace);
 }
 
@@ -722,13 +733,21 @@ inline float CmToUnits(float cm, float units_per_meter) {
   return cm * units_per_meter / 100.0f;
 }
 
-// THE WAIT OF A FAR TOUCH. A scroll that the aim ray selects takes one press
-// of the grip, with no pull. The press stays down for this many frames, so
-// one step of the interface reads it, and then the far grab lets it go.
-const int kTouchFrames = 8;
-// A FOREST gives a new tree after the game's wait of 225 ms and one game
-// turn. A fetch from a forest waits this many frames for an object in the
-// Hand, in place of the 40 frames of a plain fetch.
-const int kForestFetchFrames = 90;
+// THE WAITS OF A FETCH FROM A DISTANCE, in milliseconds of real time, so a
+// fetch does the same thing at each frame rate.
+//
+// A FAR TOUCH. A scroll that the aim ray selects takes one press of the grip,
+// with no pull. The press stays down for kTouchMs, and for two frames at the
+// least, so a step of the interface reads it. Then the far grab lets it go.
+const int kTouchMs = 130;
+inline bool TouchOver(double down_ms, unsigned long long frames) {
+  return down_ms >= kTouchMs && frames >= 2;
+}
+// A FETCH. The game has the object in the Hand of the picture one frame after
+// the press, so kFetchMs is long. A FOREST gives a new tree after the game's
+// wait of 225 ms and one game turn, and its fetch waits kForestFetchMs for an
+// object in the Hand.
+const int kFetchMs = 700;
+const int kForestFetchMs = 1500;
 
 }  // namespace near_math

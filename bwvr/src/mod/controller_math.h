@@ -474,7 +474,7 @@ inline float HandLandFloor(float land, float units_per_meter,
 //   LetGo    The grip opened while it carried. The machine clicks the button:
 //            down, then up when the game shows the throw spring (hand mode
 //            0x17) on a later frame, when the object left the Hand, or after
-//            kGripSpringFrames. The game then runs its release with the
+//            kGripSpringMs. The game then runs its release with the
 //            velocity of the opening.
 //
 // The click waits while the game holds the other button (a land drag),
@@ -494,8 +494,13 @@ inline float HandLandFloor(float land, float units_per_meter,
 //                        go, as for any object.
 //
 // Nothing collects after the grip opens. If the take still runs
-// kGripTakeEndFrames after the button went up, the step asks for the end of
+// kGripTakeEndMs after the button went up, the step asks for the end of
 // the take (end_take) on each frame until the take is over.
+//
+// THE TIMES OF THE GRIP are milliseconds of real time, so the grip does the
+// same thing at each frame rate. A count of frames is only the order of two
+// events: the game must read a release in one frame and a press in a later
+// frame.
 enum GripPhase { kGripPass = 0, kGripCarry, kGripOpenHeld, kGripLetGo };
 
 // What the step reports, as bits, for the log and the report.
@@ -509,23 +514,88 @@ enum GripEvent {
   kGripRegrip = 64,     // the grip closed again on the object
   kGripGone = 128,      // the object left the Hand another way
   kGripLost = 256,      // the controller does not place the Hand now
-  kGripWaits = 512      // the click waits for the other button
+  kGripWaits = 512,     // the click waits for the other button
+  kGripHeldOn = 1024,   // the grip opened, and the press of the game stays
+  kGripHeldOff = 2048   // that press is over
 };
 
-// The game's pick up runs for some frames after the object is in the Hand
-// (the pick lock). The carry starts when the lock is clear, or this many
-// frames after the object came. The desktop runs saw 5.
-const uint64_t kGripSettleFrames = 15;
+// THE PRESS OF THE GAME (grip_press_hold, docs/grab.md, "The grip holds").
+// The game has two ways to take an object.
+//
+// An object at rest is in the Hand of the game one or two game turns after
+// the press, and the pick lock (GInterface+0x38) is clear some frames later.
+//
+// An object that the physics of the game has (it falls, flies or rolls) is in
+// the Hand of the picture at once (fn_0046DC30 writes CHand+0x4904). The step
+// of the pick up action (fn_005D5250) then waits for a button that stays
+// down for 225 ms. Only then it sends the pick up (fn_005D2800, packet 0x13),
+// and the game has the object in its Hand one game turn later. The step of
+// the action after that (fn_005D4A90) then clears the pick lock, with the
+// button down or up. A button that goes up before the 225 ms is a click: the
+// Hand lets the object go (CHand::ThrowObject), and the game taps the object
+// (fn_005D3930). The tap of a rock splits it (Rock::InterfaceTap).
+//
+// So the button of the game stays down while the grip is closed, until the
+// pick up is over: the game has the object in its Hand (GripFacts::game_holds)
+// and the pick lock is clear. No time ends the press of a closed grip while a
+// release is a click for the game. A pick up that the game does not end in
+// kGripSettleMs is a carry from then on. With the button up there is no
+// press to end, so an object that is in the Hand with the grip open has that
+// state after kGripSettleOpenMs.
+//
+// A grip that opens before that, on an object that moves, keeps the button
+// down until the press is no click for the game (GripFacts::click), and for
+// kGripHoldMostMs at most. The game then takes the object, and the machine
+// lets it go with its click, as for each object that comes after the grip
+// opened. That click waits until the game has the object in its Hand: before
+// that it is a press on the object, and a new pick up. A short press on an
+// object at rest is a click, as in the plain game.
+//
+// grip_press_hold=0 gives a carry when the pick lock is clear, or
+// kGripSettleBeforeMs after the object came into the Hand of the picture,
+// and an open grip never keeps the button down. That time is 15 frames at 90
+// frames a second. It is less than the 225 ms of the game, so with this
+// value a grip on an object that moves is a click.
+const uint64_t kGripClickMs = 225;      // the game: a shorter press is a click
+const uint64_t kGripHoldMs = 240;       // the mod: the least age of that press
+const uint64_t kGripHoldMostMs = 1500;  // an open grip holds a press no longer
+const uint64_t kGripSettleMs = 1000;
+const uint64_t kGripSettleOpenMs = 150;
+const uint64_t kGripSettleBeforeMs = 167;
 // The click lets go of the button when the throw spring shows, or after
-// this many frames. The desktop runs saw the spring 2 frames after a press.
-const uint64_t kGripSpringFrames = 8;
-// An object that comes into the Hand this soon after the grip opened on a
+// this time. The desktop runs saw the spring 2 frames after a press.
+const uint64_t kGripSpringMs = 130;
+// An object that comes into the Hand this soon after the press ended on a
 // pick up is let go at once. The player has already opened the hand.
-const uint64_t kGripLateFrames = 20;
-// A bulk take that still runs this many frames after the button went up must
-// be ended by the mod. The game ends a take one game turn after the release,
-// which is 9 frames at 90 frames a second, so this is two game turns.
-const uint64_t kGripTakeEndFrames = 18;
+const uint64_t kGripLateMs = 350;
+// A bulk take that still runs this long after the button went up must be
+// ended by the mod. The game ends a take one game turn after the release,
+// and a game turn is 100 ms, so this is two game turns.
+const uint64_t kGripTakeEndMs = 200;
+
+// THE AGE OF A PRESS ON THE CLOCK OF THE GAME. The step of the pick up action
+// (fn_005D5250, 0x005D5254 to 0x005D5293) measures a press two ways and takes
+// the smaller number:
+//   the real time since the press: the clock that LH3DRender::StartFrame
+//     writes (0x00EA9EB0) less the clock at the press (GInterface+0x454),
+//   100 ms for each game turn since the press, and 100 more: the game turn
+//     now (GGame+0x205A40) and the game turn at the press (GInterface+0x458).
+// So a press is 225 ms old only when that real time is over and the second
+// game turn after the press has started. The numbers are unsigned, as in the
+// game.
+inline uint32_t GamePressAge(uint32_t clock_ms, uint32_t press_ms,
+                             uint32_t turn, uint32_t press_turn) {
+  const uint32_t real = clock_ms - press_ms;
+  const uint32_t by_turn = (turn + 1u - press_turn) * 100u;
+  return real < by_turn ? real : by_turn;
+}
+
+// True while a button that goes up now is a click for the game, with the
+// margin of the mod (kGripHoldMs and not kGripClickMs): the pump reads the
+// clock of the frame before, and the game compares with 225 two ways.
+inline bool GameClick(uint32_t press_age_ms) {
+  return press_age_ms < kGripHoldMs;
+}
 
 struct GripFacts {
   bool direct;      // the controller places the Hand and can act now
@@ -535,6 +605,13 @@ struct GripFacts {
   bool other_held;  // the game holds the other button, or its control is down
   bool take;        // the game's bulk take runs (GInterfaceStatus+0x3C)
   bool mod_take;    // the mod's own take from a forest runs (forest_take.cpp)
+  bool game_holds;  // the game has an object in its Hand
+                    // (GInterfaceStatus+0x90)
+  bool moving;      // the Hand of the picture has an object that the physics
+                    // of the game has
+  bool click;       // a button that goes up now is a click for the game
+                    // (GameClick of the age of the press)
+  bool press_hold;  // the key grip_press_hold
 };
 
 struct GripHold {
@@ -543,14 +620,17 @@ struct GripHold {
   bool wait_up;           // Pass: the grip must open before it presses
   bool button;            // the last output
   uint64_t button_frame;  // the frame the output last changed
+  uint64_t press_ms;      // the time the output last went down
   bool clicked;           // LetGo: the press of the click is out
   uint64_t click_frame;   // the frame of that press
+  uint64_t click_ms;      // and its time
   bool take_opened;       // Pass: a press ended, maybe before its pick up
-  uint64_t open_frame;    // the frame it ended
+  uint64_t open_ms;       // the time it ended
   bool holding_seen;      // the object is in the Hand
-  uint64_t holding_frame; // since this frame
+  uint64_t holding_ms;    // since this time
   bool take_up;           // a bulk take runs and the button is up
-  uint64_t take_up_frame; // since this frame
+  uint64_t take_up_ms;    // since this time
+  bool held_on;           // Pass: the grip is open, and the press stays down
 };
 
 inline void GripReset(GripHold* s) {
@@ -559,14 +639,17 @@ inline void GripReset(GripHold* s) {
   s->wait_up = false;
   s->button = false;
   s->button_frame = 0;
+  s->press_ms = 0;
   s->clicked = false;
   s->click_frame = 0;
+  s->click_ms = 0;
   s->take_opened = false;
-  s->open_frame = 0;
+  s->open_ms = 0;
   s->holding_seen = false;
-  s->holding_frame = 0;
+  s->holding_ms = 0;
   s->take_up = false;
-  s->take_up_frame = 0;
+  s->take_up_ms = 0;
+  s->held_on = false;
 }
 
 struct GripStepOut {
@@ -579,11 +662,24 @@ struct GripStepOut {
   bool take_opened;  // the grip opened on this step during a bulk take
 };
 
+// True when the pick up of the game is over, so the grip can carry. held_ms
+// is the time since the object came into the Hand of the picture, and button
+// is true while the button of the game is down.
+inline bool GripPickUpOver(const GripFacts& f, uint64_t held_ms,
+                           bool button) {
+  if (!f.holding) return false;
+  if (!f.press_hold) return f.settled || held_ms >= kGripSettleBeforeMs;
+  if (f.settled && f.game_holds) return true;
+  return !f.click &&
+         held_ms >= (button ? kGripSettleMs : kGripSettleOpenMs);
+}
+
 // One step, once for each pass of the pump. grip is the grip with its
-// hysteresis, and frame counts the controller frames. A second step in one
-// frame sees the same grip and changes nothing.
+// hysteresis. frame counts the controller frames, and now_ms is the real
+// time of that frame in milliseconds. A second step in one frame sees the
+// same grip and the same time, and changes nothing.
 inline GripStepOut GripStep(GripHold* s, bool grip, const GripFacts& f,
-                            uint64_t frame) {
+                            uint64_t frame, uint64_t now_ms) {
   GripStepOut out = {false, false, false, 0, false, false};
   const bool opened = s->grip && !grip;
   const bool closed = !s->grip && grip;
@@ -626,8 +722,8 @@ inline GripStepOut GripStep(GripHold* s, bool grip, const GripFacts& f,
       s->take_up = false;
     } else if (!s->take_up) {
       s->take_up = true;
-      s->take_up_frame = frame;
-    } else if (frame - s->take_up_frame >= kGripTakeEndFrames) {
+      s->take_up_ms = now_ms;
+    } else if (now_ms - s->take_up_ms >= kGripTakeEndMs) {
       // The button is up, and the game still collects. Nothing may collect
       // after the grip opens, so the mod must end the take.
       out.end_take = true;
@@ -637,31 +733,36 @@ inline GripStepOut GripStep(GripHold* s, bool grip, const GripFacts& f,
       s->holding_seen = false;
     } else if (!s->holding_seen) {
       s->holding_seen = true;
-      s->holding_frame = frame;
+      s->holding_ms = now_ms;
     }
     const bool done =
-        f.holding &&
-        (f.settled || frame - s->holding_frame >= kGripSettleFrames);
+        GripPickUpOver(f, now_ms - s->holding_ms, s->button);
     switch (s->phase) {
       case kGripPass:
         if (opened && s->button) {
           s->take_opened = true;
-          s->open_frame = frame;
+          s->open_ms = now_ms;
         }
         if (done) {
+          // A press ended a moment ago, and its object comes now.
+          const bool late =
+              s->take_opened && now_ms - s->open_ms <= kGripLateMs;
           if (grip) {
             s->phase = kGripCarry;
             out.events |= kGripCarried;
-          } else if (s->take_opened &&
-                     frame - s->open_frame <= kGripLateFrames) {
+            s->take_opened = false;
+          } else if (late && (f.game_holds || !f.press_hold)) {
             s->phase = kGripLetGo;
             s->clicked = false;
             out.events |= kGripLate;
-          } else {
+            s->take_opened = false;
+          } else if (!late) {
             s->phase = kGripOpenHeld;
             out.events |= kGripOpenedHeld;
+            s->take_opened = false;
           }
-          s->take_opened = false;
+          // Else the game does not have the object in its Hand yet. A click
+          // now is a press on the object, so the machine waits for the game.
         }
         break;
       case kGripCarry:
@@ -695,7 +796,7 @@ inline GripStepOut GripStep(GripHold* s, bool grip, const GripFacts& f,
             out.events |= kGripRegrip;
           }
         } else if ((f.spring && frame > s->click_frame) || !f.holding ||
-                   frame - s->click_frame >= kGripSpringFrames) {
+                   now_ms - s->click_ms >= kGripSpringMs) {
           // The spring shows, the time is up, or the object already left
           // the Hand: an empty Hand must not keep the press.
           s->clicked = false;
@@ -711,8 +812,22 @@ inline GripStepOut GripStep(GripHold* s, bool grip, const GripFacts& f,
   }
 
   bool button = false;
+  bool held_on = false;
   if (s->phase == kGripPass) {
     button = grip && !s->wait_up;
+    // THE PRESS ON AN OBJECT THAT MOVES. The grip is open, the button was
+    // down, and a button that goes up now is a click for the game: the Hand
+    // lets the object go, and a rock splits. So the button stays down until
+    // the press is no click. The press ends later than the grip opened, so
+    // the time of a late object counts from here.
+    if (!button && s->button && f.direct && !take && f.press_hold &&
+        f.moving && !f.settled && f.click &&
+        now_ms - s->press_ms < kGripHoldMostMs) {
+      button = true;
+      held_on = true;
+      s->take_opened = true;
+      s->open_ms = now_ms;
+    }
   } else if (s->phase == kGripLetGo) {
     out.click = true;
     if (s->clicked) {
@@ -725,12 +840,18 @@ inline GripStepOut GripStep(GripHold* s, bool grip, const GripFacts& f,
       button = true;
       s->clicked = true;
       s->click_frame = frame;
+      s->click_ms = now_ms;
       out.events |= kGripClickDown;
     }
+  }
+  if (held_on != s->held_on) {
+    s->held_on = held_on;
+    out.events |= held_on ? kGripHeldOn : kGripHeldOff;
   }
   if (button != s->button) {
     s->button = button;
     s->button_frame = frame;
+    if (button) s->press_ms = now_ms;
   }
   out.button = button;
   return out;

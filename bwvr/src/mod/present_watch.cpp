@@ -29,12 +29,15 @@
 #include <d3d.h>
 #include <intrin.h>
 #include <stdint.h>
+#include <string.h>
 
 #include "MinHook.h"
 #include "../common/bw_addresses.h"
 #include "frame_profile.h"
 
 extern void ModLog(const char* format, ...);
+// controllers.cpp: how many frames the controllers have seen.
+uint64_t ControllersFrameCount();
 
 namespace {
 
@@ -77,6 +80,47 @@ uint32_t g_widest_blt = 0;
 bool g_skip_present = false;
 uint64_t g_skipped = 0;
 
+// THE FRAME RATE OF A DESKTOP TEST (the test key test_frame_rate=N).
+//
+// A desktop run has no headset. Its frame is the two eye passes and the copy
+// to the monitor, and the copy is about 8 ms of it, so a run has 55 to 80
+// frames a second. A headset session has 90, and some code of the mod can
+// depend on the time of a frame. With the key, the mod does not copy the
+// picture to the monitor, and each frame then lasts 1/N s at the least: the
+// call of the copy waits for the rest of that time. So a desktop run has the
+// frame rate of a headset. The window of the game shows no new picture in
+// such a run. 0 is off. The key acts from frame kTestRateFrom of the
+// controllers, so the start of a run (the Main Menu of a test save, which a
+// test key closes at a frame) has the frames of each other run.
+int g_test_rate = 0;
+const uint64_t kTestRateFrom = 150;
+LARGE_INTEGER g_pace_last = {0};
+uint64_t g_paced = 0;       // frames that waited, this window
+uint64_t g_pace_late = 0;   // frames that were longer than 1/N s already
+
+// Waits until 1/N s after the copy of the frame before. The wait gives the
+// rest of each time slice away and does not sleep: a sleep can last as long
+// as a timer tick of Windows, which is longer than a frame.
+void PaceFrame() {
+  if (g_frequency.QuadPart == 0) QueryPerformanceFrequency(&g_frequency);
+  const LONGLONG period = g_frequency.QuadPart / g_test_rate;
+  LARGE_INTEGER now;
+  QueryPerformanceCounter(&now);
+  if (g_pace_last.QuadPart == 0 || now.QuadPart - g_pace_last.QuadPart >=
+                                       period) {
+    if (g_pace_last.QuadPart != 0) ++g_pace_late;
+    g_pace_last = now;
+    return;
+  }
+  const LONGLONG due = g_pace_last.QuadPart + period;
+  while (now.QuadPart < due) {
+    SwitchToThread();
+    QueryPerformanceCounter(&now);
+  }
+  g_pace_last.QuadPart = due;
+  ++g_paced;
+}
+
 // Which surface is the primary one. GetCaps is not free and Blt runs several
 // times a frame, so each surface is asked once and the answer is kept.
 //
@@ -114,6 +158,14 @@ HRESULT WINAPI h_Blt(IDirectDrawSurface7* self, LPRECT destination,
   // frame going to the monitor, and while the headset is on it is wasted.
   if (g_skip_present && IsPrimary(self)) {
     ++g_skipped;
+    return DD_OK;
+  }
+  // A desktop test at the frame rate of a headset: no copy, and the frame
+  // lasts 1/N s at the least.
+  if (g_test_rate > 0 && ControllersFrameCount() >= kTestRateFrom &&
+      IsPrimary(self)) {
+    ++g_skipped;
+    PaceFrame();
     return DD_OK;
   }
   LARGE_INTEGER before, after;
@@ -198,6 +250,28 @@ void PresentWatchInstall() {
   QueryPerformanceFrequency(&g_frequency);
   g_installed = hooked > 0;
   ModLog("present      : %d of 2 present paths hooked", hooked);
+  // The test key test_frame_rate, from bwvr.ini beside the game.
+  {
+    char path[MAX_PATH];
+    const DWORD length = GetModuleFileNameA(nullptr, path, MAX_PATH);
+    char* slash = length > 0 && length < MAX_PATH ? strrchr(path, '\\')
+                                                  : nullptr;
+    if (slash != nullptr && (slash - path) + 10 < MAX_PATH) {
+      slash[1] = 0;
+      strcat_s(path, "bwvr.ini");
+      g_test_rate = static_cast<int>(
+          GetPrivateProfileIntA("bwvr", "test_frame_rate", 0, path));
+    }
+    if (g_test_rate < 20 || g_test_rate > 240) g_test_rate = 0;
+    if (g_test_rate > 0) {
+      ModLog("present      : test_frame_rate=%d, a test key of the desktop "
+             "runs. The mod does not copy the picture to the monitor, and "
+             "each frame lasts %.2f ms at the least, from frame %llu of the "
+             "controllers. So the run has the frame rate of a headset. The "
+             "window of the game shows no new picture", g_test_rate,
+             1000.0 / g_test_rate, kTestRateFrom);
+    }
+  }
 }
 
 bool g_first_report = true;
@@ -229,6 +303,12 @@ void PresentWatchReport(uint64_t frames) {
   if (g_skipped > 0) {
     ModLog("present      : %llu desktop copies skipped", g_skipped);
     g_skipped = 0;
+  }
+  if (g_test_rate > 0) {
+    ModLog("present      : test_frame_rate=%d: %llu frames waited for their "
+           "time of %.2f ms, and %llu frames were longer than that",
+           g_test_rate, g_paced, 1000.0 / g_test_rate, g_pace_late);
+    g_paced = g_pace_late = 0;
   }
   g_blt_ticks = 0;
   g_blt_calls = 0;

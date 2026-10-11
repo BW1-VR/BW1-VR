@@ -60,16 +60,55 @@ inline void NearChecks() {
                     0.1f),
           "rule 2: past the wide reach and the extra reach is no target", 21.5,
           21.0);
+    Near("rule 3: the extra reach is on the wide reach, as in the rule 2",
+         WideMoving(15.0f, extra, kCatchOpen), 21.0, 1e-4);
     // THE GUARD. A throw has it in each rule. An object that fell from a hand
     // that was still has it in the rule 1 only.
-    Check(GuardHolds(0.3, 0.6, false, kCatchRest),
+    Check(GuardHolds(0.3, 0.6, false, kCatchRest, false),
           "rule 2: a throw of 0.3 s ago is guarded", 0.3, 0.6);
-    Check(!GuardHolds(0.3, 0.6, true, kCatchRest),
+    Check(!GuardHolds(0.3, 0.6, true, kCatchRest, false),
           "rule 2: an object that fell 0.3 s ago is not guarded", 0.3, 0.6);
-    Check(GuardHolds(0.3, 0.6, true, kCatchPick),
+    Check(GuardHolds(0.3, 0.6, true, kCatchPick, false),
           "rule 1: an object that fell 0.3 s ago is guarded", 0.3, 0.6);
-    Check(!GuardHolds(0.7, 0.6, false, kCatchRest),
+    Check(!GuardHolds(0.7, 0.6, false, kCatchRest, false),
           "rule 2: a throw of 0.7 s ago is not guarded", 0.7, 0.6);
+    // THE GUARD ENDS AT THE FULL OPENING (the rule 3). A grip that was fully
+    // open closes only when the player closes the hand, and that is a catch.
+    Check(GuardHolds(0.05, 0.6, false, kCatchOpen, false),
+          "rule 3: a throw of 0.05 s ago is guarded while the grip was not "
+          "fully open", 0.05, 0.6);
+    Check(!GuardHolds(0.05, 0.6, false, kCatchOpen, true),
+          "rule 3: the guard ends when the grip was fully open", 0.05, 0.6);
+    Check(GuardHolds(0.05, 0.6, false, kCatchRest, true),
+          "rule 2: a throw has the guard for the whole grace time, also "
+          "after the grip was fully open", 0.05, 0.6);
+    Check(GuardHolds(0.3, 0.6, true, kCatchPick, true),
+          "rule 1: the full opening does not end the guard", 0.3, 0.6);
+    Check(!GuardHolds(0.3, 0.6, true, kCatchOpen, false),
+          "rule 3: an object that fell is not guarded, as in the rule 2", 0.3,
+          0.6);
+    Check(!GuardHolds(0.7, 0.6, false, kCatchOpen, false),
+          "rule 3: the guard ends with the grace time when the grip stays "
+          "at a dip", 0.7, 0.6);
+    // A throw with a real hand: the fast fall opens the grip at 0.65, the
+    // value is below 0.35 two frames later, and the hand closes again 0.3 s
+    // after the release. The squeeze of a dip (0.65, then 0.80) never comes
+    // to 0.35.
+    {
+      const float open[4] = {1.0f, 0.65f, 0.40f, 0.10f};
+      const float dip[4] = {1.0f, 0.65f, 0.72f, 0.80f};
+      bool reopened_open = false, reopened_dip = false;
+      for (int i = 1; i < 4; ++i) {
+        if (!(open[i] > controller_math::kGripOpenBelow)) reopened_open = true;
+        if (!(dip[i] > controller_math::kGripOpenBelow)) reopened_dip = true;
+      }
+      Check(!GuardHolds(0.3, 0.6, false, kCatchOpen, reopened_open),
+            "rule 3: a hand that opened fully and closes 0.3 s after its "
+            "throw has the extra reach: a catch", 0.3, 0.6);
+      Check(GuardHolds(0.03, 0.6, false, kCatchOpen, reopened_dip),
+            "rule 3: a grip that closes again by a dip has no extra reach",
+            0.03, 0.6);
+    }
   }
 
   // THE BODY. A tree: its base at the origin, radius 1.5, height 8. All in
@@ -270,13 +309,31 @@ inline void NearChecks() {
   {
     // The game's pick up of a forest: 225 ms with the button down, on the
     // clock of the game turns (3 turns of 100 ms), and one turn more for the
-    // packet. At 90 frames a second that is 36 frames, and at 45 it is 18.
-    Check(kForestFetchFrames > 2 * 36,
+    // packet.
+    Check(kForestFetchMs > 2 * 400,
           "a fetch from a forest waits more than twice the game's 400 ms",
-          kForestFetchFrames, 72);
-    Check(kTouchFrames >= 2 && kTouchFrames < 18,
-          "the press of a far touch is down for some frames, less than 0.2 s",
-          kTouchFrames, 8);
+          kForestFetchMs, 800);
+    Check(kFetchMs > 400 && kFetchMs < kForestFetchMs,
+          "a plain fetch waits less than a fetch from a forest", kFetchMs,
+          kForestFetchMs);
+    Check(kTouchMs < 200, "the press of a far touch is down for less than "
+          "0.2 s", kTouchMs, 200);
+    // The same press of a far touch at 60, 72 and 90 frames a second: it is
+    // over at the first frame at or after kTouchMs.
+    const double rates[3] = {60.0, 72.0, 90.0};
+    for (int r = 0; r < 3; ++r) {
+      const double frame_ms = 1000.0 / rates[r];
+      unsigned long long frames = 0;
+      while (!TouchOver(frames * frame_ms, frames) && frames < 1000) ++frames;
+      const double ms = frames * frame_ms;
+      char what[120];
+      sprintf_s(what, "at %.0f frames a second the press of a far touch is "
+                "down for 130 ms, to one frame", rates[r]);
+      Check(ms >= kTouchMs && ms < kTouchMs + frame_ms, what, ms, kTouchMs);
+    }
+    Check(!TouchOver(500.0, 1) && TouchOver(500.0, 2),
+          "one long frame is not enough: the press is down for two frames",
+          1, 1);
   }
 }
 

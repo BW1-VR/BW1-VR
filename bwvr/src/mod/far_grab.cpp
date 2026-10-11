@@ -25,7 +25,7 @@
 // A SCROLL is a target too: the far touch. It needs no pull: the grip that
 // closes on it goes to the game as a press with the scroll in the pick
 // record, and the game taps the scroll, as it does for a press at the Hand's
-// point. After kTouchFrames frames the far grab lets the press go.
+// point. After near_math::kTouchMs the far grab lets the press go.
 //
 // THE PLAYER'S OWN CREATURE is a target of its own kind (docs/creature.md,
 // "The leash from a distance" and "The stay"). It needs no pull and it does
@@ -48,7 +48,7 @@
 // is held back from the grip machine (FarGrabPumpGrip). Pull: the pull was
 // seen, and the object is in the pick record for kPullFrames frames. Fetch:
 // the grip goes to the game as a press, and the mod waits for the Hand to hold
-// the object. A fetch that the game does not finish in kFetchFrames frames is
+// the object. A fetch that the game does not finish in near_math::kFetchMs is
 // cancelled. Take: the game takes from a far bulk source. The grip is not held
 // back: the grip machine makes it the game's button (GripStep), and the state
 // ends when the game ends the take. Hold: the grip is closed on the player's
@@ -103,10 +103,10 @@ enum State { kIdle, kAim, kLock, kPull, kFetch, kTake, kHold };
 const char* const kStateName[7] = {"idle",  "aim",  "lock", "pull",
                                    "fetch", "take", "hold"};
 
-// The frames the object stays in the record before the press goes out, and
-// the frames the game has to take it.
+// The frames the object stays in the record before the press goes out: the
+// interface of the game reads the record one time a frame. The time that the
+// game has to take the object is near_math::kFetchMs.
 const int kPullFrames = 2;
-const uint64_t kFetchFrames = 40;
 // The pull counts only after the lock has stood this long, so the motion that
 // closes the grip is not a pull.
 const double kLockSeconds = 0.06;
@@ -137,6 +137,7 @@ uint64_t g_lock_frame = 0;
 int g_pull_wait = 0;
 uint64_t g_pull_frame = 0;
 uint64_t g_fetch_frame = 0;
+double g_fetch_time = 0.0;  // the time of the press of a fetch, in seconds
 
 // The grip, as the pump saw it. A grip that is still closed when a lock ends
 // stays held back until it opens.
@@ -237,6 +238,7 @@ void EnterFetch() {
   }
   g_state = kFetch;
   g_fetch_frame = g_f.frame;
+  g_fetch_time = g_f.now;
   // A bulk source and a scroll do not come to the Hand, so they have no pull
   // and no glide.
   if (!g_pick.bulk && !g_pick.touch) {
@@ -461,22 +463,23 @@ void FarGrabFrame(const FarFrame& f) {
         EnterFetch();
       }
       break;
-    case kFetch:
+    case kFetch: {
       ++g_press_frames;
+      // The time since the press went out, in ms of real time.
+      const double fetch_ms = (f.now - g_fetch_time) * 1000.0;
       if (!f.usable) {
         Cancel("the controller does not place the Hand");
       } else if (g_pick.touch) {
         // THE FAR TOUCH: the press is out, and the game tapped the scroll on
         // its first step. The press goes up now, and the grip stays held back
         // until it opens.
-        if (f.frame - g_fetch_frame >=
-            static_cast<uint64_t>(near_math::kTouchFrames)) {
+        if (near_math::TouchOver(fetch_ms, f.frame - g_fetch_frame)) {
           ++g_far_touches;
           if (LogRoom()) {
             ModLog("far grab    : the press on the scroll %p was down for "
-                   "%llu frames, so the game had it. The far touch is over, "
-                   "frame %llu", g_pick.object, f.frame - g_fetch_frame,
-                   f.frame);
+                   "%.0f ms (%llu frames), so the game had it. The far touch "
+                   "is over, frame %llu", g_pick.object, fetch_ms,
+                   f.frame - g_fetch_frame, f.frame);
           }
           if (g_pump_grip) g_hold_open = true;
           g_state = kIdle;
@@ -493,7 +496,7 @@ void FarGrabFrame(const FarFrame& f) {
                    "closed, frame %llu", g_pick.object,
                    f.frame - g_fetch_frame, f.frame);
           }
-        } else if (f.frame - g_fetch_frame > kFetchFrames) {
+        } else if (fetch_ms > near_math::kFetchMs) {
           Cancel("the game did not start the take");
         }
       } else if (f.held == g_pick.object ||
@@ -517,15 +520,14 @@ void FarGrabFrame(const FarFrame& f) {
         }
         g_state = kIdle;
         g_have_pick = false;
-      } else if (f.frame - g_fetch_frame >
-                 (g_pick.forest
-                      ? static_cast<uint64_t>(near_math::kForestFetchFrames)
-                      : kFetchFrames)) {
+      } else if (fetch_ms > (g_pick.forest ? near_math::kForestFetchMs
+                                           : near_math::kFetchMs)) {
         g_glide.armed = false;
         Cancel(g_pick.forest ? "the forest gave no tree"
                              : "the game did not take the object");
       }
       break;
+    }
     case kTake:
       // The grip machine owns the grip now. The state only keeps the target
       // and the tether until the game ends the take.

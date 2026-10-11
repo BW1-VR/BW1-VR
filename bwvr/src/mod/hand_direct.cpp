@@ -207,6 +207,10 @@ void ControllersGesturePulse(float amplitude, float seconds);
 uint64_t ControllersTestFrame(uint64_t key_frame, uint64_t frame);
 // head_pose.cpp: the head center in the room, in units at the life size scale.
 bool HeadPoseHeadInRoom(float translation_out[3]);
+// The facts of the press of the game, for the grip and for the log of a rock
+// that splits.
+bool HandDirectGripPress(bool* game_holds, bool* moving,
+                         uint32_t* press_age_ms);
 
 namespace {
 
@@ -326,6 +330,19 @@ const int32_t kTakeEndAction = 6;
 // 0x0054CD45 and runs one game turn for a yes. [V]
 const uintptr_t kDoATurn = 0x0054C4A0;
 const int kGameFlags = 0x14;  // GGame: bit 4 is the pause
+// THE CLOCK OF A PRESS (docs/grab.md, "The grip holds"). fn_005D1740 keeps
+// the clock and the game turn of a press on an object in GInterface+0x454
+// and +0x458. The clock is the one that LH3DRender::StartFrame writes at
+// 0x0082F188, in ms. The game turn is GGame+0x205A40. The step of the pick up
+// action compares the two with 225 ms (controller_math::GamePressAge). [V]
+const uintptr_t kGameClock = 0x00EA9EB0;
+const int kGameTurn = 0x205A40;
+const int kFacePressClock = 0x454;
+const int kFacePressTurn = 0x458;
+// GInterfaceStatus: a byte, not 0 while the game has an object in its Hand.
+// fn_005D1330 reads it at 0x005D133B to tell the press of a release from a
+// press on an object. [V]
+const int kStatusHolding = 0x90;
 
 typedef void(__fastcall* SetDistanceFn)(void* self, void* unused,
                                         float distance);
@@ -800,6 +817,10 @@ double g_last_thrown_time = 0.0;  // NowSeconds() at the release
 // The object left a hand that was still: it fell by the height rule, or the
 // game set it down. It is no throw (near_math::GuardHolds).
 bool g_last_thrown_fell = false;
+// The grip was fully open at some time after the opening that let the last
+// object go (HandDirectGripFullyOpen). With catch_moving=3 the guard of a
+// throw ends there.
+bool g_grip_reopened = true;
 
 bool HandEmpty();
 void Inject();
@@ -887,9 +908,9 @@ int g_near_in_cm = near_math::kNearInCm;    // far_grab_near_cm
 int g_near_out_cm = near_math::kNearOutCm;  // far_grab_near_out_cm
 // AN OBJECT THAT MOVES (docs/grab.md, "A target that moves, floats or
 // dies"): the keys catch_moving, catch_lag_ms, catch_cap_cm, catch_grace_ms.
-// g_catch_on is the rule of catch_moving: near_math::kCatchOff, kCatchPick or
-// kCatchRest.
-int g_catch_on = near_math::kCatchRest;
+// g_catch_on is the rule of catch_moving: near_math::kCatchOff, kCatchPick,
+// kCatchRest or kCatchOpen.
+int g_catch_on = near_math::kCatchOpen;
 int g_catch_lag_ms = near_math::kCatchLagMs;
 int g_catch_cap_cm = near_math::kCatchCapCm;
 int g_catch_grace_ms = near_math::kCatchGraceMs;
@@ -1206,8 +1227,10 @@ bool g_take_no_keep = false;      // test key bulk_test_no_keep
 // The grip asked for the end of a take that still runs with the button up.
 int g_take_end_asks = 0;
 int g_take_end_stage = 0;         // 1 after the game's step, 2 after the handler
-uint64_t g_take_end_frame = 0;
-const uint64_t kTakeEndWait = 18;
+double g_take_end_time = 0.0;     // NowSeconds() at the last try
+// The time between two tries of the end of a take, in seconds of real time:
+// two game turns.
+const double kTakeEndWait = 0.2;
 uint64_t g_take_ends_forced = 0;
 uint64_t g_take_ends_direct = 0;
 // A GAME TURN NOW. The frames left in which the next ask of the game for a
@@ -1732,6 +1755,24 @@ bool CandidatePosition(void* object, float out[3]) {
     return true;
   }
   return false;
+}
+
+// THE PLACE OF THE THROWN OBJECT, for the test words "seek" and "aimfar"
+// (seek_thrown=1, far_test_thrown=1): where the draw of the last frame saw
+// the object, or the translation of its mesh now. The draw offers an object
+// to the pick only near the Hand or in the cone of the aim, and a rock that
+// rolls away from a still hand is in neither. The caller has tested that the
+// object lives. drawn says which of the two the place is.
+bool ThrownPosition(float out[3], bool* drawn) {
+  *drawn = CandidatePosition(g_last_thrown, out);
+  if (*drawn) return true;
+  uint8_t* const* link = reinterpret_cast<uint8_t* const*>(
+      static_cast<uint8_t*>(g_last_thrown) + kObjectMesh);
+  if (IsBadReadPtr(link, sizeof(void*)) || *link == nullptr) return false;
+  const float* at = reinterpret_cast<const float*>(*link + kMeshTranslation);
+  if (IsBadReadPtr(at, 3 * sizeof(float))) return false;
+  for (int k = 0; k < 3; ++k) out[k] = at[k];
+  return true;
 }
 
 void StartTrack(void* object) {
@@ -2585,6 +2626,13 @@ const int kCreatureLives = 0x2C;       // a vtable slot of the Creature
 const int kCreatureCanLeash = 0x1110;  // Creature: not 0 when a leash can go on
 const uintptr_t kLeashStatusOn = 0x004CF060;  // thiscall, no arguments
 
+// True for the Creature of the local player.
+bool IsOwnCreature(void* creature) {
+  const uint8_t* player = static_cast<const uint8_t*>(LocalPlayer());
+  return creature != nullptr && player != nullptr &&
+         *reinterpret_cast<void* const*>(player + kPlayerCreature) == creature;
+}
+
 int LeashKind(void* creature) {
   if (creature == nullptr || g_face == nullptr) return near_math::kLeashNone;
   const uint8_t* player = static_cast<const uint8_t*>(LocalPlayer());
@@ -3070,20 +3118,26 @@ void PollCatchKey() {
   DWORD process = 0;
   if (window != nullptr) GetWindowThreadProcessId(window, &process);
   if (process != GetCurrentProcessId()) return;
-  g_catch_on = g_catch_on == near_math::kCatchRest   ? near_math::kCatchPick
-               : g_catch_on == near_math::kCatchPick ? near_math::kCatchOff
-                                                     : near_math::kCatchRest;
+  g_catch_on = g_catch_on == near_math::kCatchOff ? near_math::kCatchOpen
+                                                  : g_catch_on - 1;
   g_catch_logged = nullptr;
   g_wide_catch_logged = nullptr;
-  ControllersGesturePulse(0.5f, g_catch_on == near_math::kCatchRest   ? 0.30f
+  ControllersGesturePulse(0.5f, g_catch_on == near_math::kCatchOpen   ? 0.45f
+                                : g_catch_on == near_math::kCatchRest ? 0.30f
                                 : g_catch_on == near_math::kCatchPick ? 0.15f
                                                                       : 0.08f);
   ModLog("hand pick    : Ctrl and Page Up: catch_moving is %d now, frame %llu. %s",
          g_catch_on, g_frame,
-         g_catch_on == near_math::kCatchRest
+         g_catch_on == near_math::kCatchOpen
              ? "An object that moves has the reach that it has at rest and "
                "the extra reach. An object that fell from a still hand has "
-               "no guard"
+               "no guard, and the guard of a throw ends when the grip is "
+               "fully open"
+         : g_catch_on == near_math::kCatchRest
+             ? "An object that moves has the reach that it has at rest and "
+               "the extra reach. An object that fell from a still hand has "
+               "no guard, and a throw has the guard for the whole of "
+               "catch_grace_ms"
          : g_catch_on == near_math::kCatchPick
              ? "An object that moves has the extra reach on the reach of the "
                "pick only, and each object that you let go has the guard"
@@ -3396,7 +3450,7 @@ bool KeepTakeSource(uint8_t* face) {
 // take without help. In action 4 the release bit did not come, so the step
 // gets it now: the return value true asks the caller to set the bit for this
 // one step. In another action the mod sets the pick lock and calls
-// FUN_005D49B0. If the take still runs kTakeEndWait frames later, the handler
+// FUN_005D49B0. If the take still runs kTakeEndWait (200 ms) later, the handler
 // of the end packet runs at once, and the mod clears the pick lock and resets
 // the action as action 6 does. The handler never runs in a multiplayer game.
 bool EndTakeNow(uint8_t* face) {
@@ -3410,9 +3464,10 @@ bool EndTakeNow(uint8_t* face) {
     g_take_end_stage = 0;
     return false;
   }
-  // One try of each kind, kTakeEndWait frames apart: the end packet needs a
-  // game turn.
-  if (g_take_end_stage != 0 && g_frame - g_take_end_frame < kTakeEndWait) {
+  // One try of each kind, kTakeEndWait apart: the end packet needs a game
+  // turn.
+  if (g_take_end_stage != 0 &&
+      NowSeconds() - g_take_end_time < kTakeEndWait) {
     return false;
   }
   // KeepTakeSource ran just before this, so the record holds the source
@@ -3449,7 +3504,7 @@ bool EndTakeNow(uint8_t* face) {
     return false;
   }
   g_take_end_stage = direct ? 2 : 1;
-  g_take_end_frame = g_frame;
+  g_take_end_time = NowSeconds();
   if (g_take_logs < kMaxTakeLogs) {
     ++g_take_logs;
     ModLog("hand bulk    : the take still runs with the grip open, so the mod "
@@ -4070,7 +4125,7 @@ float CatchExtra(const Candidate& c, int kind, float units) {
   if (c.object == g_last_thrown &&
       near_math::GuardHolds(NowSeconds() - g_last_thrown_time,
                             g_catch_grace_ms * 0.001, g_last_thrown_fell,
-                            g_catch_on)) {
+                            g_catch_on, g_grip_reopened)) {
     return 0.0f;
   }
   const float cmps = ObjectSpeedNow(c) / units * 100.0f;
@@ -4140,8 +4195,8 @@ void Choose() {
   float wide_position[3] = {0, 0, 0};
   near_math::Gap wide_gap = {1e30f, 1e30f};
   Measured wide_measured = {};
-  // The wide reach of that object: with catch_moving=2 the extra reach of an
-  // object that moves is on it (near_math::WideMoving).
+  // The wide reach of that object: with catch_moving=2 or 3 the extra reach
+  // of an object that moves is on it (near_math::WideMoving).
   float wide_own = wide_reach, wide_speed = 0.0f;
   // The nearest object that a press acts on, past the first cut too, for the
   // line of a press with no target.
@@ -4293,9 +4348,9 @@ void Choose() {
       ++g_catch_picks;
       ModLog("hand pick    : the %s %p moves at %.0f cm of the room a second, "
              "so its wide reach is %.1f cm of the room and not %d "
-             "(catch_moving=2), gap %.1f cm, frame %llu", ClassName(g_choice),
+             "(catch_moving=%d), gap %.1f cm, frame %llu", ClassName(g_choice),
              g_choice, wide_speed / units * 100.0f, g_choice_wide_cm,
-             g_wide_cm, g_choice_gap / units * 100.0f, g_frame);
+             g_wide_cm, g_catch_on, g_choice_gap / units * 100.0f, g_frame);
     }
   } else if (g_choice == nullptr) {
     g_wide_logged = nullptr;
@@ -4637,6 +4692,41 @@ float FarBodyHeight(void* object, float radius) {
   return far_choice_math::BodyHeight(height, radius);
 }
 
+// A CREATURE THAT IS NOT YOURS (docs/creature.md, "The leash from a
+// distance"). The leash click, the stay and each other grip from a distance
+// are for the Creature of the local player only: LeashKind compares the
+// Creature with GPlayer+0xA4C of the local player, as the handler of the
+// leash packet does. The Creature of a different god, and a Creature with no
+// player, is no far target. One line for each such Creature that comes into
+// the cone of the aim, so a log shows that the test ran.
+void* g_other_creature = nullptr;
+int g_other_creature_logs = 0;
+const int kMaxOtherCreatureLogs = 12;
+
+void LogOtherCreature(void* creature, float te) {
+  const uint8_t* local = static_cast<const uint8_t*>(LocalPlayer());
+  void* mine = local != nullptr
+                   ? *reinterpret_cast<void* const*>(local + kPlayerCreature)
+                   : nullptr;
+  // Your own Creature that the game would not leash now has its own lines
+  // (creature_stay.cpp, creature_command.cpp).
+  if (creature == mine || creature == g_other_creature ||
+      g_other_creature_logs >= kMaxOtherCreatureLogs) {
+    return;
+  }
+  g_other_creature = creature;
+  ++g_other_creature_logs;
+  const void* player = reinterpret_cast<GetPlayerFn>(
+      VTable(creature)[kCreatureGetPlayer / 4])(creature, nullptr);
+  ModLog("far grab    : the Creature %p is in the aim, %.1f degrees from the "
+         "ray. It is %s (its player is %p, the local player is %p, and your "
+         "Creature is %p). So it is no far target: no leash click, no stay "
+         "and no grip from a distance acts on it, frame %llu", creature, te,
+         player == nullptr ? "a Creature with no player"
+                           : "the Creature of a different player",
+         player, local, mine, g_frame);
+}
+
 // THE SELECTION OF A FAR GRAB. After the first eye pass, from the candidates
 // of the cone: a holdable object, a bulk source or a scroll that scores in
 // the cone, is not near the Hand, and is in the range of far_grab_max_m from
@@ -4723,7 +4813,10 @@ void FarSelect() {
     // takes the Creature out of the far targets.
     const bool creature = IsCreatureObject(c.object);
     const int leash = creature && g_far_leash ? LeashKind(c.object) : 0;
-    if (creature && leash == 0) continue;
+    if (creature && leash == 0) {
+      LogOtherCreature(c.object, rough.te);
+      continue;
+    }
     const bool bulk = !creature && TakeValid(c.object, status);
     // A scroll that is not active yet is a target too: the press is then a
     // click for the scripts of the game (ClickScroll).
@@ -5107,6 +5200,53 @@ bool ScrollClick(void* scroll) {
   return true;
 }
 
+// A ROCK THAT SPLITS (docs/grab.md, "The grip holds"). Rock::SplitInTwo
+// 0x006E7560, thiscall on the Rock, no arguments and a plain ret. It makes two
+// rocks of 0.79 times the size. The game calls it from the tap of a rock
+// (Rock::InterfaceTap, the call at 0x006E748A), from a hard impact
+// (Rock::ReactToPhysicsImpact, 0x006E79CF) and from three other places. [V]
+// The tap of a rock is the click of the Action button: a press that the game
+// measures as shorter than 225 ms. So each split goes to the log with its
+// cause and the age of the last press, and a test counts the lines.
+typedef void(__fastcall* RockSplitFn)(void* self, void* unused);
+const uintptr_t kRockSplit = 0x006E7560;
+const uintptr_t kRockSplitFromTap = 0x006E748F;
+const uintptr_t kRockSplitFromImpact = 0x006E79D4;
+RockSplitFn o_RockSplit = nullptr;
+int g_rock_split_logs = 0;
+const int kMaxRockSplitLogs = 60;
+uint64_t g_rock_taps = 0;    // splits by a tap, this window
+uint64_t g_rock_splits = 0;  // each other split, this window
+
+void __fastcall h_RockSplit(void* self, void* unused) {
+  const uintptr_t from = reinterpret_cast<uintptr_t>(_ReturnAddress());
+  const bool tap = from == kRockSplitFromTap;
+  if (tap) {
+    ++g_rock_taps;
+  } else {
+    ++g_rock_splits;
+  }
+  if (g_rock_split_logs < kMaxRockSplitLogs) {
+    ++g_rock_split_logs;
+    bool game_holds = false, moving = false;
+    uint32_t age = 0;
+    const bool have = HandDirectGripPress(&game_holds, &moving, &age);
+    char press[96] = "";
+    if (tap && have) {
+      sprintf_s(press, ". The last press on an object is %u ms old on the "
+                       "clock of the game", age);
+    }
+    ModLog("rock split   : the Rock %p splits in two: %s%s, frame %llu", self,
+           tap ? "the game taps it, which is the click of the Action button "
+                 "(Rock::InterfaceTap)"
+           : from == kRockSplitFromImpact
+                 ? "it hit hard (Rock::ReactToPhysicsImpact)"
+                 : "a different call of the game",
+           press, g_frame);
+  }
+  o_RockSplit(self, unused);
+}
+
 int __fastcall h_RightPress(void* self, void* unused) {
   if (self == nullptr || self != g_face || !g_owns || g_hand == nullptr) {
     return o_RightPress(self, unused);
@@ -5188,14 +5328,23 @@ int __fastcall h_RightPress(void* self, void* unused) {
                *reinterpret_cast<const int32_t*>(g_face + kFaceHandMode),
                g_frame);
       } else if (next != nullptr && next == g_choice && !g_choice_far) {
+        // An object that the physics of the game has: the game takes it only
+        // after the button was down for 225 ms (HandDirectGripPress).
+        const uint8_t* bytes = static_cast<const uint8_t*>(next);
+        const bool moves = (bytes[kObjectFlags] & 0x40) != 0 &&
+                           (bytes[kObjectOtherFlags] & 0x10) == 0;
         ModLog("hand press   : the grip pressed on the target %p (%s): %s%s. "
-               "Its body is %.1f cm of the room from the Hand's point. Hand "
+               "Its body is %.1f cm of the room from the Hand's point%s. Hand "
                "state %d, hand mode 0x%X, rule %d, frame %llu", next, name,
                KindName(g_choice_kind),
                g_one_target && !g_choice_acts
                    ? ", but the land under the Hand is outside your influence"
                    : "",
                units > 0.0f ? g_choice_gap / units * 100.0f : 0.0f,
+               moves ? ". The physics of the game has the object: it moves, "
+                       "and the game takes it when the button was down for "
+                       "225 ms"
+                     : "",
                State(g_hand),
                *reinterpret_cast<const int32_t*>(g_face + kFaceHandMode),
                g_rule, g_frame);
@@ -6141,10 +6290,24 @@ void InstallNear() {
            reinterpret_cast<void**>(&o_RightPress),
            "the right press (the target of each press)");
     }
+    // A rock that splits goes to the log. The hook changes nothing.
+    static const uint8_t kSplitBytes[10] = {0x83, 0xEC, 0x5C, 0x56, 0x57,
+                                            0x68, 0xFB, 0x00, 0x00, 0x00};
+    const void* split = reinterpret_cast<const void*>(kRockSplit);
+    if (IsBadReadPtr(split, sizeof(kSplitBytes)) ||
+        memcmp(split, kSplitBytes, sizeof(kSplitBytes)) != 0) {
+      ModLog("hooks        : Rock::SplitInTwo at 0x%08X does not have the "
+             "bytes of the disassembly, so the log does not name a rock that "
+             "splits", static_cast<unsigned>(kRockSplit));
+    } else {
+      Hook(kRockSplit, reinterpret_cast<void*>(&h_RockSplit),
+           reinterpret_cast<void**>(&o_RockSplit),
+           "Rock::SplitInTwo (the log of a rock that splits)");
+    }
   }
-  g_catch_on = IniKey("catch_moving", near_math::kCatchRest);
+  g_catch_on = IniKey("catch_moving", near_math::kCatchOpen);
   if (g_catch_on < near_math::kCatchOff) g_catch_on = near_math::kCatchOff;
-  if (g_catch_on > near_math::kCatchRest) g_catch_on = near_math::kCatchRest;
+  if (g_catch_on > near_math::kCatchOpen) g_catch_on = near_math::kCatchOpen;
   g_catch_lag_ms = IniKey("catch_lag_ms", near_math::kCatchLagMs);
   if (g_catch_lag_ms < 0) g_catch_lag_ms = 0;
   if (g_catch_lag_ms > 500) g_catch_lag_ms = 500;
@@ -6156,17 +6319,20 @@ void InstallNear() {
   if (g_catch_grace_ms > 3000) g_catch_grace_ms = 3000;
   ModLog("hand pick    : catch_moving=%d. The reach of the pick for an object "
          "that moves grows by its speed times %d ms, at most %d cm of the "
-         "room (catch_lag_ms, catch_cap_cm). %s for %d ms (catch_grace_ms). "
-         "Ctrl and the Page Up key go through the values 2, 1 and 0 of "
+         "room (catch_lag_ms, catch_cap_cm). %s for %d ms (catch_grace_ms)%s. "
+         "Ctrl and the Page Up key go through the values 3, 2, 1 and 0 of "
          "catch_moving (test_keys=1)", g_catch_on, g_catch_lag_ms,
          g_catch_cap_cm,
-         g_catch_on == near_math::kCatchRest
+         g_catch_on >= near_math::kCatchRest
              ? "The extra reach is on the reach that the object has at rest, "
                "the wide reach too. The object that you threw has the reach "
                "at rest"
              : "The extra reach is on the reach of the pick only. The object "
                "that you let go has the reach at rest",
-         g_catch_grace_ms);
+         g_catch_grace_ms,
+         g_catch_on >= near_math::kCatchOpen
+             ? ", or until the grip is fully open"
+             : "");
   g_wide_cm = IniKey("hand_wide_pick_cm", near_math::kWideCm);
   if (g_wide_cm < 0) g_wide_cm = 0;
   if (g_wide_cm > 30) g_wide_cm = 30;
@@ -7207,9 +7373,9 @@ bool HandDirectClaimFree(const char** why) {
 // THE BULK TAKE (docs/grab.md, "The bulk take"). While the game takes from a
 // pile, a field or a fish farm, the take runs only while the right button is
 // down, as a held mouse button. The Pot is in the Hand from the first turn,
-// so the machine saw a carry and let the button go up after 15 frames, which
-// ended the take with the first amount. So while a take runs, take is true
-// and the machine makes the grip the game's button, one to one (GripStep).
+// and a carry lets the button go up, which ends the take with the first
+// amount. So while a take runs, take is true and the machine makes the grip
+// the game's button, one to one (GripStep).
 // The opening of the grip ends the take, the Pot stays in the Hand, and the
 // machine then sees an object in the Hand with the grip open. The next close
 // carries it and the next opening lets go.
@@ -7237,6 +7403,53 @@ bool HandDirectGripFacts(bool* holding, bool* settled, bool* spring,
   return true;
 }
 
+// For the grip (GripStep, docs/grab.md, "The grip holds"): the facts of the
+// press of the game, read now, at the pump after the frame.
+//
+// game_holds: the game has an object in its Hand (GInterfaceStatus+0x90). A
+// press of the Action button is then the press of a release
+// (fn_005D1330 calls fn_005D1560), and not a press on an object.
+//
+// moving: the Hand of the picture has an object (CHand+0x4904) that the
+// physics of the game has. That is the test of the game itself: bit 0x40 of
+// Object+0x24 is set, and bit 0x10 of Object+0x0A is clear (fn_0046DC30, and
+// the step of the pick up action at 0x005D529F). The game takes such an
+// object only after the button was down for 225 ms.
+//
+// press_age_ms: the age of the last press on an object, on the clock of the
+// game (controller_math::GamePressAge). False when the controller did not
+// place the Hand on the last frame.
+bool HandDirectGripPress(bool* game_holds, bool* moving,
+                         uint32_t* press_age_ms) {
+  *game_holds = false;
+  *moving = false;
+  *press_age_ms = 0xFFFFFFFFu;
+  if (!g_installed || !g_owns || g_hand == nullptr || g_face == nullptr) {
+    return false;
+  }
+  const uint8_t* status =
+      *reinterpret_cast<uint8_t* const*>(g_face + kFaceStatus);
+  const uint8_t* game = *reinterpret_cast<uint8_t* const*>(kGame);
+  if (status == nullptr || game == nullptr) return false;
+  *game_holds = status[kStatusHolding] != 0;
+  const uint8_t* held = *reinterpret_cast<uint8_t* const*>(g_hand + kHandHeld);
+  *moving = held != nullptr && !IsBadReadPtr(held, kObjectFlags + 1) &&
+            (held[kObjectFlags] & 0x40) != 0 &&
+            (held[kObjectOtherFlags] & 0x10) == 0;
+  *press_age_ms = controller_math::GamePressAge(
+      *reinterpret_cast<const uint32_t*>(kGameClock),
+      *reinterpret_cast<const uint32_t*>(g_face + kFacePressClock),
+      *reinterpret_cast<const uint32_t*>(game + kGameTurn),
+      *reinterpret_cast<const uint32_t*>(g_face + kFacePressTurn));
+  return true;
+}
+
+// For the grip: the control of the game's right button is fully open now
+// (its value is at or below the level that opens a slow grip). The guard of
+// a throw ends here (near_math::GuardHolds, catch_moving=3): the next close
+// is a new press of the player, and no dip of the squeeze.
+void HandDirectGripFullyOpen() { g_grip_reopened = true; }
+
 // For the grip: the take of the mod from a forest runs (forest_take.cpp). The
 // closed grip collects with no button of the game, and the opening keeps the
 // bundle (GripFacts::mod_take).
@@ -7249,7 +7462,7 @@ bool HandDirectModTake() {
 bool HandDirectReleaseAtOnce() { return g_turn_on; }
 
 // For the grip: a bulk take still runs, and the button was up for
-// kGripTakeEndFrames (GripStepOut::end_take). The next interface step ends
+// kGripTakeEndMs (GripStepOut::end_take). The next interface step ends
 // the take (EndTakeNow). Once a frame while the machine asks.
 void HandDirectEndTake() {
   if (!g_installed || !g_owns) return;
@@ -7260,6 +7473,10 @@ void HandDirectEndTake() {
 // this moment for the release that follows (see ThrowLatch). The history's
 // newest sample is from this frame, as is the grip.
 void HandDirectGripOpened() {
+  // The grip opened by the rule of the grip machine. It is fully open only
+  // when the pump says so (HandDirectGripFullyOpen): a fast fall opens the
+  // grip at a value that is still high.
+  g_grip_reopened = false;
   if (!g_installed || !g_owns) return;
   g_latch.valid = true;
   g_latch.time = NowSeconds();
@@ -8309,16 +8526,23 @@ bool HandDirectSeekPoint(float out[3]) {
   // can close the grip on an object that flies or rolls.
   static const bool seek_thrown = TestKey("seek_thrown") != 0;
   if (seek_thrown && g_last_thrown != nullptr && !plan_hold) {
+    bool drawn = false;
     if (!ObjectLives(g_last_thrown, g_last_thrown_vtable) ||
-        !CandidatePosition(g_last_thrown, out)) {
-      ModLog("hand pick    : seek: the draw did not offer the thrown object "
-             "%p, frame %llu", g_last_thrown, g_frame);
+        !ThrownPosition(out, &drawn)) {
+      ModLog("hand pick    : seek: the thrown object %p is gone, frame %llu",
+             g_last_thrown, g_frame);
       return false;
     }
+    const float units = RoomUnits();
+    const float cm =
+        units > 0.0f ? Distance(out, g_target) / units * 100.0f : 0.0f;
     out[1] += 0.5f;
     ModLog("hand pick    : seek goes to the thrown object %p (%s) at %.1f %.1f "
-           "%.1f, frame %llu", g_last_thrown, ClassName(g_last_thrown), out[0],
-           out[1], out[2], g_frame);
+           "%.1f, %.0f cm of the room from the Hand's point. %s, frame %llu",
+           g_last_thrown, ClassName(g_last_thrown), out[0], out[1], out[2], cm,
+           drawn ? "The draw of the last frame saw it there"
+                 : "The draw did not offer it, so the place is from its mesh",
+           g_frame);
     return true;
   }
   void* status = *reinterpret_cast<void* const*>(g_face + kFaceStatus);
@@ -8537,11 +8761,16 @@ bool HandDirectSeekFarPoint(float out[3]) {
              g_last_thrown, g_frame);
       return false;
     }
-    if (!CandidatePosition(g_last_thrown, out)) {
-      ModLog("far grab    : aimfar: the draw did not offer the thrown object "
-             "%p among %d candidates, frame %llu", g_last_thrown,
-             g_candidate_count, g_frame);
+    bool drawn = false;
+    if (!ThrownPosition(out, &drawn)) {
+      ModLog("far grab    : aimfar: the thrown object %p has no mesh, frame "
+             "%llu", g_last_thrown, g_frame);
       return false;
+    }
+    if (!drawn) {
+      ModLog("far grab    : aimfar: the draw did not offer the thrown object "
+             "%p among %d candidates, so its place is from its mesh, frame "
+             "%llu", g_last_thrown, g_candidate_count, g_frame);
     }
     const int32_t coords[3] = {
         static_cast<int32_t>(ClampToMap(out[0]) * kMapScale),
@@ -8564,8 +8793,9 @@ bool HandDirectSeekFarPoint(float out[3]) {
   }
   // The test keys of the choice of a far target (docs/grab.md, "The cone and
   // the choice"). far_test_aim_class=1 aims at the nearest villager, 2 at the
-  // nearest living thing, 3 at the nearest rock, 4 at your Creature and 5 at
-  // the nearest tree, at the middle of its body. far_test_aim_toward=1 then
+  // nearest living thing, 3 at the nearest rock, 4 at your Creature, 5 at
+  // the nearest tree and 6 at the nearest Creature that is not your Creature,
+  // at the middle of its body. far_test_aim_toward=1 then
   // turns the aim toward the nearest tree, and 2 toward the nearest rock (20
   // units or less from it), by far_test_aim_blend_pct percent of the way from
   // the body to the base of that object. So a run can point a little off a
@@ -8608,7 +8838,8 @@ bool HandDirectSeekFarPoint(float out[3]) {
         continue;
       }
     } else if (aim_class != 0) {
-      if ((aim_class != 4 && !Holdable(c.object, status)) ||
+      if ((aim_class != 4 && aim_class != 6 &&
+           !Holdable(c.object, status)) ||
           IsForest(c.object)) {
         continue;
       }
@@ -8622,7 +8853,9 @@ bool HandDirectSeekFarPoint(float out[3]) {
           (aim_class == 3 && !rock) ||
           (aim_class == 4 && (!IsCreatureObject(c.object) ||
                               LeashKind(c.object) == near_math::kLeashNone)) ||
-          (aim_class == 5 && !IsTreeObject(c.object))) {
+          (aim_class == 5 && !IsTreeObject(c.object)) ||
+          (aim_class == 6 && (!IsCreatureObject(c.object) ||
+                              IsOwnCreature(c.object)))) {
         continue;
       }
     } else {

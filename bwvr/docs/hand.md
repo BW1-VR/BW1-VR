@@ -354,8 +354,15 @@ object and the grab radius are in [grab.md](grab.md).
 The pick up is a network packet even in single player. `GPacket::ProcessPacket`
 case `0x13` calls `GInterface::PlaceObjectInMagicHand(Object*)` `0x005DA6F0`.
 For the local player it calls `fn_0046E590(object)`, which gives the object
-to the CHand [I]. `fn_005DC330` then clears the gesture samples. The
-interface action that sends the packet is not traced.
+to the CHand [I]. `fn_005DC330` then clears the gesture samples.
+
+The right press on an object that the Hand can hold is `fn_005D1740`. It
+starts the interface action 13, and the step of that action (`fn_005D5250`)
+sends the packet with `fn_005D2800`. An object at rest gets the packet when
+its Tug is over. An object that the physics of the game has gets it only
+when the button was down for 225 ms, and a shorter press is a click that
+taps the object. The detail is in [grab.md](grab.md), "The press of the
+game".
 
 ### Hold [V]
 

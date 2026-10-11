@@ -88,6 +88,18 @@ $defs = @{
         Points = ''
         Seconds = 103
     }
+    # other: the aim at a Creature that is not the Creature of the player
+    # (far_test_aim_class=6). In the test save "pen" the Creatures of the pens
+    # have no player. A grip that stays closed for 1 s and a short grip come
+    # after the aim. The log names the Creature and says that it is no far
+    # target, and no leash click and no stay start (docs/creature.md, "The
+    # leash from a distance").
+    other = @{
+        Set = 'fake_controller_play_frame=2750;far_test_aim_class=6;far_test_least_cm=20'
+        Steps = 'point@2990+1 aimfar@3000+1 shot@3040+1 grip@3060+60 grip@3160+8 shot@3200+1'
+        Points = ''
+        Seconds = 70
+    }
     # move2: a throw of about 9.4 m/s toward the sea, then the lock and the
     # pull while the rock flies over the sea (88 to 106 frames after the
     # release).

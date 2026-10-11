@@ -37,23 +37,45 @@ is built, and no test has proven it.
 
 ### Faults in play
 
-- **B2. The grip does not take an object in the air or an object that is
-  not at rest.** In a headset the grip did not take a rock or a different
-  object in the air, and it did not take an object on the land before the
-  object was at rest. A grip on a rock in the air broke the rock in two: the
-  game splits a rock when the Action button goes up less than 225 ms after
-  it went down (`Rock::InterfaceTap` `0x006E7480`). In desktop runs the near
-  grip takes a rock in its fall, up to 23 cm from the Hand's point
-  (`catch_moving=2`, `grab.md`, "A target that moves, floats or dies"), and
-  the grab from a distance fetches a rock that flies. So the runs do not
-  show what a real hand does. Find first what differs: the press of a real
-  grip and what the game gets of it (its length, `grip_press_guard`), the
-  speed of a real hand and of the object against the frames of the pick,
-  and why a press on a rock in the air is a short click for the game. Still
-  open from the runs:
-  - Not shown: the grip on an object that rolls. The recipes `rollnear`,
-    `rollfar`, `droproll` and `treenear` do not reach that state on the
-    desktop (`bwvr/tools/desk/README.md`, "Known limits of the recipes").
+- **B2. The grip on an object that moves: not run, and not shown in a
+  headset.** The game takes an object that its physics has (it falls, flies
+  or rolls) only when the Action button stays down for 225 ms. A shorter
+  press is a click: the Hand lets the object go, and a rock splits. So the
+  button of the game stays down until the game has the object in its Hand,
+  and a grip that opens sooner on such an object is no click for the game
+  (`grip_press_hold=1`, `grab.md`, "The press of the game"). Each time of
+  the grip is real time, and not a count of frames. The math checks run the
+  rule of the game with the grip machine at 60, 72, 90 and 120 frames a
+  second. Not run:
+  - `verify_build.ps1` with this change.
+  - The desktop recipes of the change: a grip on a rock in its fall, on a
+    rock that the hand threw up, on a rock on the land 0.15 s after its
+    first contact, and a grip of 50 ms on a rock in its fall
+    (`throw_queue.ps1 -Runs dropnear,tossup,landgrip,dropshort` in
+    `bwvr/tools/desk`). Each one must end with the rock in the Hand and no
+    line `rock split`, and with `-More 'grip_press_hold=0'` the game must
+    take the press as a click. The same with `-Fps 90` gives 90 frames a
+    second. The recipes `tossup`, `landgrip` and `dropshort`, and the test
+    key `test_frame_rate`, have no run.
+
+  Check in a headset, with a real hand:
+  - a catch of a rock in its fall, and of a rock that you threw up,
+  - a grip on a rock or a ball that rolls on the land,
+  - that no grip on an object that moves breaks a rock,
+  - that the guard of a throw does not stop a catch (`catch_moving=3`: the
+    guard ends when the grip is fully open).
+
+  The test key (Shift and the plus key of the number pad) gives a click
+  after 167 ms for a comparison. Still open:
+  - Not shown: a grip on an object that rolls for more than 1 s. The recipes
+    `rollnear`, `rollfar`, `droproll` and `treenear` do not reach that state
+    on the desktop (`bwvr/tools/desk/README.md`, "Known limits of the
+    recipes").
+  - Not shown in a run: the guard of a throw. The scripted grip opens in one
+    frame, so it is fully open at once. The math checks have the rule.
+  - A press with no target when a ball rolls 23 to 32 cm from the Hand's
+    point: the object is past its reach of the pick, and the aim is not on
+    it, so the grip does nothing.
   - A tree that is let go comes to rest in about 1 s now
     (`throw_tree_settle`, `throw.md`, "The landing of a tree"). Not shown:
     a far target that hides and shows by itself (not seen in a desktop
@@ -173,27 +195,6 @@ is built, and no test has proven it.
   built: a hook on `StartFrame` for the scene walk, as the intro has for its
   call (`intro.md`). First find each reader that divides by the number: the
   game never has less than 1 there.
-- **B15. A rock that the grip takes in its fall can leave the Hand when the
-  pick up ends.** Seen in 1 of 6 desktop runs of `throw_queue.ps1 -Runs
-  dropfar` in `bwvr/tools/desk`. The grip closes on a rock that falls, 13 cm
-  of the room from the Hand's point, and the Hand of the picture has the
-  rock one frame later. 16 frames after the press the grip code says `the
-  pick up is over` and lets the button of the game go. At that frame the
-  pick is locked and the interface hand mode is 0x9, in each of the 6 runs.
-  In 5 runs the mode is 0x12 one or two frames later, and the rock stays in
-  the Hand until the grip opens. In 1 run the Hand is empty one frame later
-  (`grip : the object left the Hand another way (holding 0, pick open)`), and
-  the game takes the rock out of its physics 3 frames after that. The grip
-  stays closed on an empty Hand, and the rock is in no picture of the run
-  after it. That run had `throw_land_rest=0`. Two more runs with that value
-  and three runs with the default kept the rock, so no key is shown as the
-  cause. Not seen in the other takes of an object that moves (`-Runs
-  dropnear`, `dropfarroll`, `flyfar`, `treedrop`). First find where the rock
-  is after the loss, and what the plain game does with a button that goes up
-  between the press and the game turn that puts the object in the Hand
-  (`grab.md`, "An object that comes to rest while the Hand takes it"). A
-  correction to test: the grip code lets the button go only when the pick is
-  open.
 - **B16. The left eye shows pictures of frames before.** In a headset
   session the left eye started to show faint pictures that came late, and
   the right eye did not. A guess: in some effects the game draws a frame
@@ -210,7 +211,7 @@ is built, and no test has proven it.
   flat draw at a pixel does not have the depth of the sign), and give both
   the depth of the sign (`ui-layer.md`, `stereo-artifacts.md`).
 
-B1b, B2, B4, B11 and B15 are one package: a thing that is held, thrown, or
+B1b, B2, B4 and B11 are one package: a thing that is held, thrown, or
 that moves while the Hand takes it.
 
 ### Changes to the controls
@@ -235,9 +236,16 @@ that moves while the Hand takes it.
   - the hold time of 350 ms with a real grip (`creature_hold_stay_ms`),
   - where the Creature turns to, and how its head follows the real hand
     (`creature_stay_look`),
-  - whether the halo, the pulse and the card show well that the stay is on,
-  - that the stay acts on the Creature of the player only, and not on the
-    Creature of a different god.
+  - whether the halo, the pulse and the card show well that the stay is on.
+
+  The leash click, the stay and a command act on the Creature of the local
+  player only: the code compares each Creature with the Creature of that
+  player, and a Creature that is not the player's own is no far target
+  (`creature.md`, section 5.1, "Only your own Creature"). The math checks
+  have the rule. Not run: the aim and the grip at a Creature that is not
+  the player's (`aim_queue.ps1 -Runs other` in `bwvr/tools/desk`), and a
+  game with the Creature of a different god (a skirmish or a multiplayer
+  game).
 
   The test key (Shift and End) gives the leash click at the close of the
   grip for a comparison. Not run: a start that the game refuses, and a grip

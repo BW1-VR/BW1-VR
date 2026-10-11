@@ -145,6 +145,22 @@ inline void LeashChecks() {
         LeashClick(true, true, false, true, true), kLeashBack);
   Check(LeashClick(false, true, false, false, false) == kLeashNone,
         "the Creature of another player is no target of the leash", 0, 0);
+  // ONLY YOUR OWN CREATURE: a Creature that is not the Creature of the local
+  // player is no target in each state of the leash. So no leash click, no
+  // stay and no grip from a distance can act on the Creature of a different
+  // god (hand_direct.cpp, LeashKind and FarSelect).
+  {
+    int targets = 0;
+    for (int bits = 0; bits < 16; ++bits) {
+      if (LeashClick(false, (bits & 1) != 0, (bits & 2) != 0, (bits & 4) != 0,
+                     (bits & 8) != 0) != kLeashNone) {
+        ++targets;
+      }
+    }
+    Check(targets == 0,
+          "a Creature that is not yours is no target of the leash in each of "
+          "the 16 states of the leash", targets, 0);
+  }
   Check(LeashClick(true, false, false, false, false) == kLeashNone,
         "a Creature that can have no leash now is no target", 0, 0);
   Check(LeashClick(true, true, true, false, false) == kLeashNone,

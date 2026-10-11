@@ -799,6 +799,16 @@ sends frames to a headset. Nothing reads the primary surface back. With VR off,
 the copy stays. The key is `skip_desktop_present` (default 1). The monitor stops
 updating while it is active. This is intended.
 
+**A desktop run at the frame rate of a headset.** A desktop run has no
+headset, and the copy is about 8 ms of its frame, so a run has 55 to 80
+frames a second. A headset session has about 90. The test key
+`test_frame_rate=N` (20 to 240, 0 is off) gives a desktop run the frame rate
+N: from frame 150 of the controllers the mod does not copy the picture to the
+monitor, and the call of the copy waits until the frame is 1/N s long. The
+window of the game then shows no new picture. The log has one line for each
+report window: the frames that waited, and the frames that were longer than
+1/N s. `throw_queue.ps1 -Fps 90` in `bwvr/tools/desk` uses the key.
+
 Full screen is not an alternative. It would flip instead of copy, but it crashes
 the game (one fault at offset `0xdededede`, a freed pointer, and one inside the
 Virtual Desktop streaming library). Exclusive full screen and a VR compositor both
@@ -2159,7 +2169,7 @@ in front. The mod reads the keys and never takes them from the game.
 | Ctrl Numpad 1 | `test_keys=1` | The game camera stands over the land under the head or over the recenter place (`god-view.md`, section 7) |
 | Ctrl Numpad 0 | `test_keys=1` | The God view follows the game camera or not (`god-view.md`) |
 | Ctrl Delete | `test_keys=1` | The choice of a far target: by the body of the object, or by one point (`far_grab_choice`, `grab.md`) |
-| Ctrl Page Up | `test_keys=1` | The reach of the pick for an object that moves: the reach at rest and the extra reach (2), the extra reach on `hand_pick_cm` only (1), or the same reach as a still object (0). A long pulse, a pulse of middle length and a short pulse (`catch_moving`, `grab.md`) |
+| Ctrl Page Up | `test_keys=1` | The reach of the pick for an object that moves: the reach at rest and the extra reach, with a guard of a throw that ends when the grip is fully open (3), the same with a guard for the whole grace time (2), the extra reach on `hand_pick_cm` only (1), or the same reach as a still object (0). A pulse that is shorter for each lower value (`catch_moving`, `grab.md`) |
 | Ctrl Shift Page Up | `test_keys=1` | A holdable object up to 15 cm from the Hand's point is the target when nothing is nearer, or the pick reaches only `hand_pick_cm` (`hand_wide_pick_cm`, `grab.md`) |
 | Ctrl Insert | `test_keys=1` | The ring of the teleport: one size in the world, or one size in the room (`teleport_ring_mode`, `god-view.md`) |
 | Ctrl Shift Insert | `test_keys=1` | The stick of the God view zooms in steps, or while it is held (`god_zoom_smooth`, `god-view.md`, section 2) |
@@ -2177,6 +2187,7 @@ in front. The mod reads the keys and never takes them from the game.
 | Ctrl Page Down | `test_keys=1` | The card says what the opening of the grip does with a tree, or shows the text of the game (`tree_plant_hint`, `grab.md`) |
 | Ctrl Shift Page Down | `test_keys=1` | The roots pile of a tree from a distance stands at the roots, or on the way of the glide (`far_roots_at_tree`, `grab.md`) |
 | Ctrl Shift Home | `test_keys=1` | A dip of the squeeze in the first 300 ms of a press does not open the grip, or the fast fall opens it at any time (`grip_press_guard`, `grab.md`) |
+| Shift Numpad Plus | `test_keys=1` | The button of the game stays down until the game has the object in its Hand, and a press on an object that moves is no click for the game, or the button goes up 167 ms after the object came into the Hand of the picture: a grip on an object that moves is then a click, the Hand lets the object go, and a rock splits. A long pulse and a short pulse (`grip_press_hold`, `grab.md`, "The press of the game"). Ctrl must be up |
 | Ctrl Shift End | `test_keys=1` | A small object in the Hand is held in a pinch between the thumb and the index finger, or in the fist (`hand_pinch`, `hand-model.md`) |
 | Shift Home | `test_keys=1` | An advisor at a place of the world has the size for the eye that it has at its usual place, or the size of the game (`spirit_world_size`, `tabletop.md`) |
 | Shift End | `test_keys=1` | A grip that stays closed on the far Creature makes it stay and a short grip changes the leash when it opens, or each grip changes the leash when it closes (`creature_hold_stay`, `creature.md`, section 5.3). Ctrl must be up |
@@ -2268,6 +2279,7 @@ keys that the launcher sets.
 | `frame_time_real` | 1 | 1: after the two eye passes the game has the real time of the frame as its frame time. 0: it has the number from before the passes. See "The delta time after the passes" |
 | `frame_time_test_frame`, `frame_time_test_readers`, `frame_time_test_readers_frames` | 0, 0, 600 | Test keys of the desktop runs. See "The delta time after the passes" |
 | `skip_desktop_present` | 1 | See "The copy to the monitor" |
+| `test_frame_rate` | 0 | A test key of the desktop runs: the frame rate of a run with no copy to the monitor. See "The copy to the monitor" |
 | `anisotropy`, `force_mips` | 16, 1 | Texture filter. `force_mips` forces the mip filter |
 | `skip_snapshot` | 1 | |
 | `test_keys` | 0 | The test keys |

@@ -3,6 +3,14 @@
 #
 #   throw_queue.ps1 -Dll <dll> -Runs base,land -Tag 1
 #   throw_queue.ps1 -Dll <dll> -Runs land -NewGame
+#   throw_queue.ps1 -Dll <dll> -Runs dropnear,tossup,landgrip,dropshort -Fps 90
+#
+# -Fps N: the run has N frames a second, as a headset session has (the test
+# key test_frame_rate of the mod: no copy to the monitor, and each frame
+# lasts 1/N s at the least). The frames of a recipe fit 60 frames a second,
+# so each step from the play frame on gets N/60 times as many frames, and
+# keeps its time. After each run the script prints the frame rate of the run
+# and the lines of the grip from its log.
 #
 # THE START. Each run starts in the test save "pen" (README.md, "A fast
 # start"): the Creature pens of Land 1 after the first story. Each recipe
@@ -23,13 +31,48 @@ param(
     [int]$Minutes = 170,
     [string]$More = '',
     [string]$Save = 'pen',
-    [switch]$NewGame
+    [switch]$NewGame,
+    [int]$Fps = 0
 )
 $sp = Split-Path -Parent $MyInvocation.MyCommand.Path
 . (Join-Path $sp 'game.ps1')
 $start = ''
 if (-not $NewGame) { $start = Confirm-BwvrTestSave $Save $Dll $Minutes }
-$common = 'fake_controller_play_frame=2750;intro_skip_test_frame=5;throw_log=2'
+$play = 2750
+$common = "fake_controller_play_frame=$play;intro_skip_test_frame=5;throw_log=2"
+if ($Fps -gt 0) { $common = "$common;test_frame_rate=$Fps" }
+
+# The steps of a recipe at -Fps frames a second: a step from the play frame
+# on starts N/60 times as many frames after the play frame, and lasts N/60
+# times as many frames. A step of one frame stays one frame.
+function Convert-BwvrSteps([string]$Steps) {
+    if ($Fps -le 0 -or $Fps -eq 60) { return $Steps }
+    $k = $Fps / 60.0
+    return (@($Steps.Split(' ') | Where-Object { $_ -ne '' } | ForEach-Object {
+        if ($_ -match '^([a-z_0-9]+)@(\d+)\+(\d+)$') {
+            $at = [int]$Matches[2]; $frames = [int]$Matches[3]
+            if ($at -ge $play) { $at = $play + [int][Math]::Round(($at - $play) * $k) }
+            if ($frames -gt 1) { $frames = [int][Math]::Round($frames * $k) }
+            "$($Matches[1])@$at+$frames"
+        } else { $_ }
+    }) -join ' ')
+}
+
+# The frame rate of a run and the lines of the grip, from the log of the run.
+function Show-BwvrGripLines([string]$Name) {
+    $log = Join-Path $sp "desk-$Name\bwvr.log"
+    if (-not (Test-Path -LiteralPath $log)) { "no log at $log"; return }
+    $rates = @(Select-String -LiteralPath $log -Pattern '^stereo       : ([0-9.]+) fps' | ForEach-Object { [double]::Parse($_.Matches[0].Groups[1].Value, [cultureinfo]::InvariantCulture) })
+    if ($rates.Count -gt 0) {
+        $sorted = @($rates | Sort-Object)
+        "frame rate of ${Name}: median $($sorted[[int]($sorted.Count / 2)]) frames a second, $($sorted[0]) to $($sorted[-1]) over $($rates.Count) windows"
+    }
+    $taps = @(Select-String -LiteralPath $log -Pattern '^rock split   : .*the game taps it').Count
+    $splits = @(Select-String -LiteralPath $log -Pattern '^rock split   : ').Count
+    "rocks that split in ${Name}: $taps by a tap of the game (a click of the Action button), $($splits - $taps) by a different cause"
+    Select-String -LiteralPath $log -Pattern '^grip         : grip_press_hold=|^hand pick    : catch_moving=|^hand pick    : seek |^hand press   : the grip pressed|^grip         : (the pick up is over|the object left the Hand|the grip opened on an object|the press that the mod held|the button of the game goes up|the object came after|an object is in the Hand with)|^rock split   : |^hand throw   : (release at|first contact of|the flight of .* is over)|^far grab    : the Hand holds|^controllers  : the right button press started off' |
+        ForEach-Object { $t = $_.Line; if ($t.Length -gt 330) { $t = $t.Substring(0, 330) + ' ...' }; "  $t" }
+}
 # The first two points are the points of the start dialog. aim_run.ps1 puts
 # them in for the current render size. In a test save it puts the point of
 # "Continue Game" in their place.
@@ -71,7 +114,28 @@ $dropNear = "$dropBase seek@3217+1 grip@3221+60 shot@3300+1 shot@3500+1"
 $dropRoll = "$dropBase seek@3290+1 grip@3296+60 shot@3360+1 shot@3500+1"
 $dropFar = "$dropBase pull@3207+3 aimfar@3220+1 grip@3224+60 pull@3234+3 shot@3300+1 shot@3500+1"
 $dropFarRoll = "$dropBase pull@3207+3 aimfar@3290+1 grip@3294+60 pull@3304+3 shot@3360+1 shot@3500+1"
+# THE GRIP ON AN OBJECT THAT MOVES (docs/grab.md, "The grip holds",
+# grip_press_hold). Each recipe is for the new rule and, with
+# -More 'grip_press_hold=0', for the rule before.
+#
+# A short press on the rock in its fall: the grip is closed for 50 ms. With
+# the new rule the rock comes into the Hand and the Hand lets it go, and no
+# rock splits.
+$dropShort = "$dropBase seek@3217+1 grip@3221+3 shot@3300+1 shot@3500+1"
+# A grip on the rock on the land, 0.15 s after its first contact, while it
+# still moves. The head looks 25 degrees down, so the hand at the land is in
+# the view (the controller code drops a press that starts off view).
+$landGrip = "$dropBase seek@3246+1 grip@3250+60 shot@3330+1 shot@3500+1"
+# A catch of a rock that the hand threw up. The hand is 15 cm lower for the
+# fetch. Then it steps 15 cm up in one frame, and the grip opens: a throw
+# straight up. The hand goes to the rock 0.58 s later and the grip closes, a
+# new press after a full opening.
+$tossUp = 'point@2990+1 aimfar@3000+1 grip@3100+101 pull@3140+3 pull@3170+3 point@3200+1 seek@3236+1 grip@3240+60 shot@3320+1 shot@3500+1'
+$tossPoints = '0,0,100 0,0,100 -10,-25,60 -10,-10,60'
 $defs = @{
+    dropshort = @{ Set = 'throw_land=1;release_fall_cm=15;seek_thrown=1'; Steps = $dropShort; Seconds = 80; Points = $stillPoints }
+    landgrip = @{ Set = 'throw_land=1;release_fall_cm=15;seek_thrown=1;fake_head_pitch=-25'; Steps = $landGrip; Seconds = 80; Points = $stillPoints }
+    tossup = @{ Set = 'throw_land=1;release_fall_cm=15;seek_thrown=1'; Steps = $tossUp; Seconds = 80; Points = $tossPoints }
     treedrop = @{ Set = 'throw_land=1;release_fall_cm=15;far_test_thrown=1;far_test_no_trees=0;far_test_tree=1'; Steps = $dropFar; Seconds = 80; Points = $stillPoints }
     treedroproll = @{ Set = 'throw_land=1;release_fall_cm=15;far_test_thrown=1;far_test_no_trees=0;far_test_tree=1'; Steps = $dropFarRoll; Seconds = 80; Points = $stillPoints }
     treerest = @{ Set = 'throw_land=1;release_fall_cm=15;far_test_thrown=1;far_test_no_trees=0;far_test_tree=1'; Steps = "$dropBase aimfar@3290+1 shot@3600+1 shot@5000+1"; Seconds = 80; Points = $stillPoints }
@@ -140,8 +204,9 @@ foreach ($run in $Runs) {
         $from.Save = $start
     }
     "=== $name $(Get-Date -Format s), $(if ($start) { "the test save '$start'" } else { 'a new game' }), $seconds s"
-    $o = & (Join-Path $sp 'aim_run.ps1') -Name $name -Dll $Dll -Set $set -Steps $d.Steps -Points $(if ($d.Points) { $d.Points } else { $points }) -Seconds $seconds -Minutes $Minutes @from
+    $o = & (Join-Path $sp 'aim_run.ps1') -Name $name -Dll $Dll -Set $set -Steps (Convert-BwvrSteps $d.Steps) -Points $(if ($d.Points) { $d.Points } else { $points }) -Seconds $seconds -Minutes $Minutes @from
     $o
     if (-not (Test-BwvrVerdict $o 'RUN DONE')) { "QUEUE STOPPED at $name"; exit 2 }
+    Show-BwvrGripLines $name
 }
 "QUEUE DONE $(Get-Date -Format s)"

@@ -334,8 +334,11 @@ uses it (section 5.3).
 Hand. For the object of the next pick record it tests that slot `0x6CC` gives
 1, that `IsCannotBePickedUp` (slot `0x180`) gives 0, and that bit `0x10` of
 `Object+0x24` is clear. It also tests the player of a Creature (`0x005D13FB`
-to `0x005D1481`). Then `fn_005D1A00` stops when bit 8 of `GInterface+0x38` is
-set, and it has two ways:
+to `0x005D1481`): the press goes on only when the player of the Creature
+(slot `0x1C`) is the player of the interface, or a player that is allied
+with it (`GPlayer::IsAllied` `0x0064D5D0`). So a press does nothing to the
+Creature of an enemy god. Then `fn_005D1A00` stops when bit 8 of
+`GInterface+0x38` is set, and it has two ways:
 
 - The press has two jobs: the leash is on the Hand, or the leash is tied to
   this object, or a press taps the object (slot `0x740`). Then it sets the
@@ -1010,6 +1013,34 @@ Creature (section 1.6). Without the rule, the halo and the hint say "collect"
 for the Creature, and a grip from a distance starts the Creature state with
 the hand far from the body. The Creature is touched with the hand, and the
 trigger commands it.
+
+**Only your own Creature.** The leash click, the stay and a command act on
+the Creature of the local player and on no other Creature:
+
+- `LeashKind` compares the Creature in the aim with `GPlayer+0xA4C` of the
+  local player, as the handler of the leash packet does (section 1.4). For
+  each other Creature it gives 0 (`near_math::LeashClick` with `mine`
+  false), and `FarSelect` then leaves the Creature out. So the Creature of a
+  different god, and a Creature with no player (the Creatures of the pens),
+  is never a far target: it has no halo, and a grip from a distance does
+  nothing to it. This is a narrower rule than the press of the game, which
+  also acts on the Creature of an allied god (section 1.7).
+- The leash click is packet `0x5F`. Its handler takes the Creature of the
+  player that sent it, and no object of the packet.
+- `CreatureStayStart` refuses each Creature that is not the Creature of the
+  local player ("it is not your Creature"), before each test of the game.
+- A command needs the leash of the local player on its own Creature
+  (`Leashed` in `creature_command.cpp`). A Creature of a different god can
+  be the object of a command only when the tests of the game for a target
+  say yes (section 4.3): the Creature of the player then goes to it, as with
+  the mouse.
+
+The log has one line for each Creature in the cone of the aim that is not
+the Creature of the player: "the Creature P is in the aim ... So it is no
+far target". The math checks have the rule of `LeashClick` for a Creature
+that is not the player's, with each state of the leash. The test key
+`far_test_aim_class=6` aims the word `aimfar` at the nearest such Creature
+(`aim_queue.ps1 -Runs other` in `bwvr/tools/desk`).
 
 | Key | Default | Meaning |
 | --- | --- | --- |

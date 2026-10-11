@@ -466,10 +466,23 @@ hand_wide_pick_cm in bwvr.ini to change the distance (0 turns it off).
 
 An object that moves, for example a rock that falls, can be taken from
 farther: the faster it moves, the longer the reach, up to 8 cm more.
-An object that you threw does not have the longer reach for a short
-time, so a throw does not come back at once. Set catch_moving=0 in
-bwvr.ini to turn this off, and catch_cap_cm to change the most. With
-catch_moving=1 an object that moves is taken from 15 cm at most.
+An object that you threw does not have the longer reach until your
+hand is fully open, so a throw does not come back in the same grip.
+After that you can catch it with a new grip. Set catch_moving=0 in
+bwvr.ini to turn the longer reach off, and catch_cap_cm to change the
+most. With catch_moving=2 an object that you threw does not have the
+longer reach for 0.6 s. With catch_moving=1 an object that moves is
+taken from 15 cm at most.
+
+You can catch an object in the air, and you can take an object on the
+land that still rolls. Close the grip on it and keep the grip closed.
+The game takes an object that moves only when its button stays down
+for a quarter of a second, and it breaks a rock when the button comes
+up sooner. So the mod keeps the button of the game down for that
+time, also when you open the grip sooner: the object then comes into
+your Hand and falls out of the open Hand. A short grip on a rock that
+lies still breaks the rock, as a click does in the game. Set
+grip_press_hold=0 in bwvr.ini to turn this off.
 
 A tree that fell becomes a dead tree when it comes to rest. If you take
 the tree at that moment, it stays a tree and comes to your Hand. Set
@@ -810,9 +823,8 @@ before you start a quest. These faults are known:
   - In the Temple the picture of one eye can go dark for a moment,
     black frames can show in the guide of a room, and the view
     does not follow each move of your head.
-  - The grip does not take an object in the air, or an object on
-    the land that still moves. A grip on a rock in the air can
-    break the rock in two.
+  - A catch of an object in the air, and a grip on an object that
+    still rolls, are not tested in a headset.
   - A signpost is hard to read from near: its text is at a
     different place for each eye.
   - One eye can show faint pictures of the frames before.

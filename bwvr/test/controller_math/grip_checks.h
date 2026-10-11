@@ -1,7 +1,8 @@
-// THE BULK TAKE RULE, THE GRIP THAT OPENS AT ONCE AND THE RANGE OF A FAR GRAB
-// (docs/grab.md, "The bulk take" and "The grab from a
-// distance"). main.cpp includes this file after Check, Near, GripRun, Facts,
-// GripStart and GripFrames, just before main.
+// THE BULK TAKE RULE, THE GRIP THAT OPENS AT ONCE, THE PRESS OF THE GAME AND
+// THE RANGE OF A FAR GRAB (docs/grab.md, "The bulk take", "The grip holds"
+// and "The grab from a distance"). main.cpp includes this file after Check,
+// Near, GripRun, Facts, GripStart, GripFrames and GripTestFrames, just before
+// main.
 #pragma once
 
 namespace grip_checks {
@@ -50,10 +51,10 @@ inline void TakeRuleChecks() {
   Check(run.out.take_opened && !run.out.opened && !run.out.click && e == 0,
         "the opening of a take latches no throw and sends no click",
         run.out.take_opened, 1);
-  // The game ends the take one game turn later, 9 frames at most.
+  // The game ends the take one game turn later, 100 ms at most.
   ends = 0;
   down = 0;
-  for (int i = 0; i < 9; ++i) {
+  for (int i = 0; i < GripTestFrames(100) - 1; ++i) {
     GripFrames(&run, 1, false, take);
     if (run.out.end_take) ++ends;
     if (run.out.button) ++down;
@@ -88,25 +89,26 @@ inline void TakeRuleChecks() {
   GripFrames(&run, 1, true, empty);
   GripFrames(&run, 100, true, take);
   GripFrames(&run, 1, false, take);
-  const uint64_t opened = run.frame;
+  const uint64_t opened = run.ms;
   int first_end = -1;
   down = 0;
   for (int i = 1; i <= 60; ++i) {
     GripFrames(&run, 1, false, take);
     if (run.out.button) ++down;
     if (run.out.end_take && first_end < 0) {
-      first_end = static_cast<int>(run.frame - opened);
+      first_end = static_cast<int>(run.ms - opened);
     }
   }
-  Check(first_end == static_cast<int>(kGripTakeEndFrames),
-        "a take that still runs 18 frames after the opening: the step asks "
-        "for its end", first_end, static_cast<double>(kGripTakeEndFrames));
+  Check(first_end == static_cast<int>(kGripTakeEndMs),
+        "a take that still runs 200 ms after the opening: the step asks "
+        "for its end", first_end, static_cast<double>(kGripTakeEndMs));
   Check(run.out.end_take, "and it asks on each frame until the take is over",
         run.out.end_take, 1);
   Check(down == 0, "the button stays up for all of these frames", down, 0);
   // A second step in one frame changes nothing.
   {
-    const GripStepOut again = GripStep(&run.hold, false, take, run.frame);
+    const GripStepOut again =
+        GripStep(&run.hold, false, take, run.frame, run.ms);
     Check(again.end_take && !again.button && again.events == 0 &&
               !again.take_opened,
           "a second step in one frame gives the same answer", again.end_take,
@@ -131,21 +133,21 @@ inline void TakeRuleChecks() {
   GripFrames(&run, 40, true, take);
   Check(run.out.button && !run.out.end_take,
         "and a closed grip is never ended, 40 frames later", 1, 1);
-  GripFrames(&run, static_cast<int>(kGripTakeEndFrames), false, take);
-  Check(!run.out.end_take, "the count starts again at the next opening", 0, 0);
+  GripFrames(&run, GripTestFrames(kGripTakeEndMs), false, take);
+  Check(!run.out.end_take, "the time starts again at the next opening", 0, 0);
   GripFrames(&run, 1, false, take);
-  Check(run.out.end_take, "and ends the take 18 frames after it", 1, 1);
+  Check(run.out.end_take, "and ends the take 200 ms after it", 1, 1);
 
   // A short press: the grip opened before the game started the take. The
   // take then starts with the button up.
   GripStart(&run);
   GripFrames(&run, 3, true, empty);
   GripFrames(&run, 4, false, empty);
-  GripFrames(&run, static_cast<int>(kGripTakeEndFrames), false, take);
+  GripFrames(&run, GripTestFrames(kGripTakeEndMs), false, take);
   Check(!run.out.button && !run.out.end_take,
         "a take that starts after the grip opened: no button", 0, 0);
   GripFrames(&run, 1, false, take);
-  Check(run.out.end_take, "and the step asks for its end 18 frames later", 1,
+  Check(run.out.end_take, "and the step asks for its end 200 ms later", 1,
         1);
   e = GripFrames(&run, 16, false, locked);
   Check(run.hold.phase == kGripOpenHeld && (e & (kGripLate | kGripClickDown)) == 0,
@@ -158,7 +160,7 @@ inline void TakeRuleChecks() {
   GripFrames(&run, 1, true, empty);
   GripFrames(&run, 2, true, held);
   Check(run.hold.phase == kGripCarry, "a carry", run.hold.phase, kGripCarry);
-  GripFrames(&run, static_cast<int>(kGripTakeEndFrames) + 1, true, take);
+  GripFrames(&run, GripTestFrames(kGripTakeEndMs) + 1, true, take);
   Check(!run.out.button && run.out.end_take,
         "a take during a carry gets no button, and it is ended", 1, 1);
 
@@ -375,9 +377,320 @@ inline void RangeChecks() {
         "an object with no known distance is out", 0, 0);
 }
 
+// THE PRESS OF THE GAME (grip_press_hold). A model of what the game does with
+// a press on an object that its physics has (fn_005D1740, the step of the
+// pick up action fn_005D5250, and fn_005D2800), and the grip machine on top
+// of it.
+//
+// The model, one step a frame, after the step of the machine:
+//   A new press puts the object in the Hand of the picture, sets the pick
+//   lock and keeps the clock and the game turn.
+//   While the age of the press is less than 225 ms on the clock of the game
+//   (GamePressAge), a button that is up is a click: the Hand lets the object
+//   go, and the game taps it.
+//   From 225 ms on the game sends the pick up, and it has the object in its
+//   Hand at the start of the next game turn. The pick lock is clear from
+//   then on (the step of action 7, fn_005D4A90), with the button down or up.
+struct CatchGame {
+  bool pressed;     // the pick up action runs
+  bool sent;        // the pick up went out
+  bool picture;     // the Hand of the picture has the object
+  bool in_hand;     // the game has the object in its Hand
+  bool locked;
+  bool clicked;     // the game took the press as a click
+  bool button;      // the button at the last step
+  uint32_t press_ms;
+  uint32_t press_turn;
+  uint32_t sent_turn;
+  uint32_t age;     // the age of the press at the last step
+  double down_ms;   // how long the button was down for the game
+};
+
+inline void CatchGameStep(CatchGame* g, bool button, double now_ms,
+                          double turn_ms, double turn_phase_ms) {
+  using namespace controller_math;
+  const uint32_t clock = static_cast<uint32_t>(now_ms);
+  const uint32_t turn =
+      static_cast<uint32_t>((now_ms + turn_phase_ms) / turn_ms);
+  if (button && !g->button && !g->pressed && !g->in_hand && !g->clicked) {
+    g->pressed = true;
+    g->picture = true;
+    g->locked = true;
+    g->press_ms = clock;
+    g->press_turn = turn;
+    g->down_ms = now_ms;
+  }
+  if (g->pressed && !g->sent) {
+    g->age = GamePressAge(clock, g->press_ms, turn, g->press_turn);
+    if (g->age >= kGripClickMs) {
+      g->sent = true;
+      g->sent_turn = turn;
+    } else if (!button) {
+      g->clicked = true;
+      g->pressed = false;
+      g->picture = false;
+      g->locked = false;
+    }
+  } else if (g->pressed) {
+    g->age = GamePressAge(clock, g->press_ms, turn, g->press_turn);
+  }
+  if (g->sent && !g->in_hand && turn > g->sent_turn) g->in_hand = true;
+  if (g->sent && g->in_hand) g->locked = false;
+  if (!button && g->button && g->down_ms >= 0.0) {
+    g->down_ms = now_ms - g->down_ms;
+  }
+  g->button = button;
+}
+
+// What one press ends as.
+struct CatchResult {
+  bool clicked;     // the game took the press as a click: the object is lost
+  bool carried;     // the machine carries the object
+  bool let_go;      // the machine let the object go with its click
+  bool held_on;     // the mod kept the button down after the grip opened
+  double down_ms;   // how long the first press was for the game
+  int phase;
+};
+
+// One press on an object that the physics of the game has. The grip closes
+// at 100 ms and opens grip_ms later. frame_ms is the time of a frame, turn_ms
+// the time of a game turn, and turn_phase_ms the time from the start of a
+// game turn to the start of the run. moving is false for an object at rest
+// with the same press: the model of the game is the same (a tree in the
+// ground has the 225 ms too), and only the fact of the machine differs.
+inline CatchResult CatchRun(double frame_ms, double grip_ms, bool press_hold,
+                            double turn_ms, double turn_phase_ms,
+                            bool moving = true) {
+  using namespace controller_math;
+  CatchGame game = {};
+  game.down_ms = -1.0;
+  GripHold hold;
+  GripReset(&hold);
+  CatchResult result = {};
+  double first_down = -1.0;
+  bool first_up = false;
+  uint64_t frame = 0;
+  const double close_ms = 100.0;
+  for (double now = 0.0; now < 4000.0; now += frame_ms) {
+    ++frame;
+    // The pump reads the facts that the step of the frame before left.
+    GripFacts f = {};
+    f.direct = true;
+    f.holding = game.picture;
+    f.settled = !game.locked;
+    f.game_holds = game.in_hand;
+    f.moving = moving && game.picture && !game.in_hand;
+    f.click = game.pressed && GameClick(game.age);
+    f.press_hold = press_hold;
+    f.spring = false;
+    const bool grip = now >= close_ms && now < close_ms + grip_ms;
+    const GripStepOut out =
+        GripStep(&hold, grip, f, frame, static_cast<uint64_t>(now));
+    if ((out.events & kGripHeldOn) != 0) result.held_on = true;
+    if ((out.events & kGripCarried) != 0) result.carried = true;
+    if ((out.events & kGripClickDown) != 0) result.let_go = true;
+    if (out.button && !out.click && first_down < 0.0) first_down = now;
+    if (!out.button && first_down >= 0.0 && !first_up) {
+      first_up = true;
+      result.down_ms = now - first_down;
+    }
+    // The click of the machine is the press of a release: the model has no
+    // release, so it gets only the press of the take.
+    CatchGameStep(&game, out.button && !out.click, now, turn_ms,
+                  turn_phase_ms);
+  }
+  result.clicked = game.clicked;
+  result.phase = hold.phase;
+  return result;
+}
+
+inline void PressHoldChecks() {
+  using namespace controller_math;
+  printf("\nThe press of the game on an object that moves\n");
+
+  // THE AGE OF A PRESS, as the game counts it.
+  Check(GamePressAge(1000, 800, 12, 10) == 200,
+        "200 ms of real time and three game turns: the age is 200 ms",
+        GamePressAge(1000, 800, 12, 10), 200);
+  Check(GamePressAge(1300, 800, 11, 10) == 200,
+        "500 ms of real time in the turn after the press: the age is 200 ms",
+        GamePressAge(1300, 800, 11, 10), 200);
+  Check(GamePressAge(1300, 800, 10, 10) == 100,
+        "in the game turn of the press the age is 100 ms at most",
+        GamePressAge(1300, 800, 10, 10), 100);
+  Check(GamePressAge(1050, 800, 12, 10) == 250,
+        "250 ms of real time and two game turns: the age is 250 ms",
+        GamePressAge(1050, 800, 12, 10), 250);
+  Check(GamePressAge(5, 0xFFFFFFF0u, 12, 10) == 21,
+        "the clock of the game can wrap: the numbers are unsigned",
+        GamePressAge(5, 0xFFFFFFF0u, 12, 10), 21);
+  Check(GameClick(224) && GameClick(239) && !GameClick(240),
+        "the mod takes a press as a click for the game to 240 ms", 1, 1);
+  Check(kGripHoldMs > kGripClickMs && kGripSettleBeforeMs < kGripClickMs,
+        "240 ms is past the 225 ms of the game, and 167 ms is not",
+        static_cast<double>(kGripHoldMs), static_cast<double>(kGripClickMs));
+
+  // WHY THE FRAME RATE COUNTED. A carry 15 frames after the object came, and
+  // one frame for the object: the length of the press in ms.
+  {
+    const double at60 = 16.0 * 1000.0 / 60.0;
+    const double at72 = 16.0 * 1000.0 / 72.0;
+    const double at90 = 16.0 * 1000.0 / 90.0;
+    Check(at60 > 225.0, "16 frames are 267 ms at 60 frames a second: no click",
+          at60, 225.0);
+    Check(at72 < 225.0, "222 ms at 72 frames a second: a click", at72, 225.0);
+    Check(at90 < 225.0, "178 ms at 90 frames a second: a click", at90, 225.0);
+  }
+
+  // THE SAME PRESS AT 60, 72 AND 90 FRAMES A SECOND. The grip closes on an
+  // object that moves and stays closed for 1.5 s. At each frame rate, and at
+  // each time of the press in a game turn, the machine carries the object,
+  // and the game sees no click.
+  const double rates[4] = {60.0, 72.0, 90.0, 120.0};
+  for (int r = 0; r < 4; ++r) {
+    const double frame_ms = 1000.0 / rates[r];
+    int clicks = 0, carries = 0, old_clicks = 0, old_carries = 0;
+    double least = 1e9, most = 0.0;
+    for (int phase = 0; phase < 100; phase += 5) {
+      const CatchResult now = CatchRun(frame_ms, 1500.0, true, 100.0, phase);
+      if (now.clicked) ++clicks;
+      if (now.carried) ++carries;
+      if (now.down_ms < least) least = now.down_ms;
+      if (now.down_ms > most) most = now.down_ms;
+      const CatchResult old = CatchRun(frame_ms, 1500.0, false, 100.0, phase);
+      if (old.clicked) ++old_clicks;
+      if (old.carried && !old.clicked) ++old_carries;
+    }
+    char what[160];
+    sprintf_s(what, "at %.0f frames a second a closed grip on an object that "
+              "moves is no click, at 20 times in a game turn", rates[r]);
+    Check(clicks == 0, what, clicks, 0);
+    sprintf_s(what, "at %.0f frames a second the grip carries the object "
+              "each time", rates[r]);
+    Check(carries == 20, what, carries, 20);
+    sprintf_s(what, "at %.0f frames a second the button is down for 225 ms "
+              "or more, and for less than 500 ms", rates[r]);
+    Check(least >= 225.0 && most < 500.0, what, least, 225.0);
+    sprintf_s(what, "at %.0f frames a second grip_press_hold=0 is a click "
+              "each time: the button goes up after 167 ms", rates[r]);
+    Check(old_clicks == 20 && old_carries == 0, what, old_clicks, 20);
+  }
+
+  // A SHORT PRESS ON AN OBJECT THAT MOVES. The grip opens after 50 ms. The
+  // button stays down until the press is no click, the game takes the
+  // object, and the machine lets it go with its click.
+  for (int r = 0; r < 4; ++r) {
+    const double frame_ms = 1000.0 / rates[r];
+    int clicks = 0, held = 0, let_go = 0, old_clicks = 0;
+    double least = 1e9;
+    for (int phase = 0; phase < 100; phase += 5) {
+      const CatchResult now = CatchRun(frame_ms, 50.0, true, 100.0, phase);
+      if (now.clicked) ++clicks;
+      if (now.held_on) ++held;
+      if (now.let_go && !now.carried) ++let_go;
+      if (now.down_ms < least) least = now.down_ms;
+      if (CatchRun(frame_ms, 50.0, false, 100.0, phase).clicked) ++old_clicks;
+    }
+    char what[160];
+    sprintf_s(what, "at %.0f frames a second a press of 50 ms on an object "
+              "that moves is no click for the game", rates[r]);
+    Check(clicks == 0 && held == 20, what, clicks, 0);
+    sprintf_s(what, "at %.0f frames a second the button stays down for 225 "
+              "ms or more", rates[r]);
+    Check(least >= 225.0, what, least, 225.0);
+    sprintf_s(what, "at %.0f frames a second the object comes into the Hand "
+              "and the machine lets it go", rates[r]);
+    Check(let_go == 20, what, let_go, 20);
+    sprintf_s(what, "at %.0f frames a second grip_press_hold=0 makes the "
+              "press of 50 ms a click", rates[r]);
+    Check(old_clicks == 20, what, old_clicks, 20);
+  }
+
+  // SLOW GAME TURNS. With a game turn of 180 ms, 240 ms of real time are not
+  // enough: the game counts 100 ms for each game turn. The machine reads the
+  // age of the press from the game, so the press is still no click.
+  {
+    int clicks = 0, carries = 0;
+    double least = 1e9;
+    for (int phase = 0; phase < 180; phase += 9) {
+      const CatchResult now = CatchRun(1000.0 / 90.0, 50.0, true, 180.0, phase);
+      if (now.clicked) ++clicks;
+      if (now.down_ms < least) least = now.down_ms;
+      const CatchResult closed =
+          CatchRun(1000.0 / 90.0, 1500.0, true, 180.0, phase);
+      if (closed.clicked) ++clicks;
+      if (closed.carried) ++carries;
+    }
+    Check(clicks == 0 && carries == 20,
+          "with a game turn of 180 ms a press is no click, short or long",
+          clicks, 0);
+    Check(least >= 180.0, "and a short press stays down past the second "
+          "game turn after it", least, 180.0);
+  }
+
+  // AN OBJECT AT REST keeps the click of the plain game: the button goes up
+  // with the grip.
+  {
+    const CatchResult rest =
+        CatchRun(1000.0 / 90.0, 50.0, true, 100.0, 0.0, false);
+    Check(!rest.held_on && rest.down_ms < 80.0,
+          "a press of 50 ms on an object at rest is 50 ms for the game",
+          rest.down_ms, 50.0);
+  }
+
+  // THE HOLD ENDS. A game that never counts the press as old (its turns
+  // stand still) does not keep the button down for ever.
+  {
+    GripRun run;
+    GripFacts moving = Facts(true, false);
+    moving.game_holds = false;
+    moving.moving = true;
+    moving.click = true;
+    GripStart(&run);
+    GripFrames(&run, 2, false, Facts(false, true));
+    GripFrames(&run, 3, true, moving);
+    const uint64_t pressed = run.ms - 2 * kGripTestFrameMs;
+    int e = GripFrames(&run, 1, false, moving);
+    Check((e & kGripHeldOn) != 0 && run.out.button && !run.out.click,
+          "the grip opens while a release is a click: the button stays down",
+          e, kGripHeldOn);
+    Check(run.out.opened, "and the step still says that the grip opened",
+          run.out.opened, 1);
+    while (run.out.button && run.ms < pressed + 5000) {
+      GripFrames(&run, 1, false, moving);
+    }
+    Check(run.ms - pressed == kGripHoldMostMs,
+          "an open grip keeps the button down for kGripHoldMostMs at most",
+          static_cast<double>(run.ms - pressed),
+          static_cast<double>(kGripHoldMostMs));
+    // The mouse takes the Hand: the hold ends at once.
+    GripStart(&run);
+    GripFrames(&run, 3, true, moving);
+    GripFrames(&run, 1, false, moving);
+    GripFacts mouse = moving;
+    mouse.direct = false;
+    GripFrames(&run, 1, false, mouse);
+    Check(!run.out.button, "the mouse takes the Hand: the held press ends",
+          0, 0);
+    // The pick up of the game is over while the mod holds the press: the
+    // object is let go with the click of the machine.
+    GripStart(&run);
+    GripFrames(&run, 3, true, moving);
+    GripFrames(&run, 5, false, moving);
+    e = GripFrames(&run, 1, false, Facts(true, true));
+    Check((e & kGripLate) != 0 && (e & kGripHeldOff) != 0 && !run.out.button,
+          "the object is in the Hand of the game: the held press ends, and "
+          "the object is a late object", e, kGripLate | kGripHeldOff);
+    e = GripFrames(&run, 1, false, Facts(true, true));
+    Check((e & kGripClickDown) != 0 && run.out.button && run.out.click,
+          "and the click presses on the next frame", 1, 1);
+  }
+}
+
 inline void GripRuleChecks() {
   TakeRuleChecks();
   LevelChecks();
+  PressHoldChecks();
   RangeChecks();
 }
 
