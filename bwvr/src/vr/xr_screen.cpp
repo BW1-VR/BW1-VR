@@ -337,6 +337,7 @@ struct XrScreen::Impl {
     bool world;               // a projection layer, and not a screen
     bool with_card[kCards];
     bool with_subtitles;      // a screen with the subtitle card
+    LARGE_INTEGER waited_at;  // the end of xrWaitFrame of this frame
     LARGE_INTEGER before;     // the start of BuildFrame
     LARGE_INTEGER built;      // its end
     LARGE_INTEGER end_start;  // the start of xrEndFrame
@@ -369,6 +370,13 @@ struct XrScreen::Impl {
   uint64_t late_end_ticks = 0;
   uint64_t join_ticks = 0;
   uint64_t join_worst = 0;
+  // THE AGE OF A FRAME: from the end of xrWaitFrame to the end of
+  // xrEndFrame. The runtime shows a frame that it gets later at a later
+  // time, so this number says what a way of the frame end costs.
+  LARGE_INTEGER waited_at = {};
+  uint64_t age_ticks = 0;
+  uint64_t age_worst = 0;
+  uint64_t age_frames = 0;
 
   static DWORD WINAPI SendThreadMain(void* param);
   bool StartSendThread();
@@ -1156,9 +1164,13 @@ bool XrScreen::BeginFrame() {
   XrFrameWaitInfo wait_info = {XR_TYPE_FRAME_WAIT_INFO};
   s.frame_state = {XR_TYPE_FRAME_STATE};
   const XrResult waited = xrWaitFrame(s.session, &wait_info, &s.frame_state);
+  LARGE_INTEGER waited_at;
+  QueryPerformanceCounter(&waited_at);
   // xrWaitFrame can run while the second thread sends the frame before.
-  // xrBeginFrame cannot: the runtime must have that frame first.
+  // xrBeginFrame cannot: the runtime must have that frame first. Join reads
+  // the time of that frame, so the time of this frame is set after it.
   Join();
+  s.waited_at = waited_at;
   if (!s.Check(waited, "xrWaitFrame")) {
     s.ClearInput(hands_);
     return true;
@@ -1708,6 +1720,18 @@ void XrScreen::ReportUpload(uint64_t frames) {
           s.cards[kCardRing].layers);
     s.cards[kCardRing].layers = 0;
   }
+  if (s.age_frames > 0 && s.frequency.QuadPart != 0) {
+    const double to_ms = 1000.0 / static_cast<double>(s.frequency.QuadPart);
+    s.log("  frame age    : from the end of xrWaitFrame to the end of "
+          "xrEndFrame: a mean of %.2f ms, and %.2f ms at the most, in %llu "
+          "frames",
+          (static_cast<double>(s.age_ticks) /
+           static_cast<double>(s.age_frames)) * to_ms,
+          static_cast<double>(s.age_worst) * to_ms, s.age_frames);
+    s.age_ticks = 0;
+    s.age_worst = 0;
+    s.age_frames = 0;
+  }
   if (s.late_frames > 0 && s.frequency.QuadPart != 0) {
     const double to_ms = 1000.0 / static_cast<double>(s.frequency.QuadPart);
     const double count = static_cast<double>(s.late_frames);
@@ -1779,6 +1803,7 @@ bool XrScreen::BuildFrame() {
   if (s.frequency.QuadPart == 0) QueryPerformanceFrequency(&s.frequency);
   Impl::Built& b = s.built;
   QueryPerformanceCounter(&b.before);
+  b.waited_at = s.waited_at;
   s.frame_open = false;
   b.layer_count = 0;
   b.display_time = s.frame_state.predictedDisplayTime;
@@ -2098,6 +2123,13 @@ void XrScreen::FinishFrame() {
       static_cast<uint64_t>(b.built.QuadPart - b.before.QuadPart) +
       static_cast<uint64_t>(b.end_done.QuadPart - b.end_start.QuadPart);
   ++s.ends;
+  if (b.layer_count > 0 && b.waited_at.QuadPart != 0) {
+    const uint64_t age =
+        static_cast<uint64_t>(b.end_done.QuadPart - b.waited_at.QuadPart);
+    s.age_ticks += age;
+    if (age > s.age_worst) s.age_worst = age;
+    ++s.age_frames;
+  }
 }
 
 // A LATE FRAME. The layers come first, so the cards go to the runtime while

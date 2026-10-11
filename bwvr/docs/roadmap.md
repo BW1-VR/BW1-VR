@@ -352,8 +352,12 @@ that moves while the Hand takes it.
     say what these cost. They also say what a slow frame is made of when it
     is not a game turn. Set the key after the last save of the launcher.
   - **One wait for the GPU in a frame, and a second thread
-    (`frame_send`).** Built, and off by default: no session in a headset has
-    run with it. In a headset session at 90 Hz, the windows with 11 to 12 ms
+    (`frame_send`).** Built, and off by default. A headset session with
+    the value 2 had no refused frame, and the player saw no fault of the
+    picture. It showed no clear gain of the frame rate: the second thread
+    took 5 to 7 ms for a frame, so the frame thread waited for it before
+    the next frame, and a frame got to the runtime later. In a headset
+    session with the value 0 at 90 Hz, the windows with 11 to 12 ms
     of work on the frame thread had a mean of 2.7 ms in the two waits for
     the GPU, and a frame that is late takes two display frames. With
     `frame_send=1` the mod waits one time a frame. With `frame_send=2` a
@@ -361,14 +365,15 @@ that moves while the Hand takes it.
     (`backend.md`, "One wait a frame, and a second thread"). Check in a
     headset, with `test_keys=1` and Ctrl, Shift and the slash key of the
     number pad:
-    - the frame rate of each value in a scene that does not hold 90 (the
-      lines `stereo       :` and `frame send   :` of the log),
+    - the frame rate of each value in one scene that does not hold 90, and
+      the age of a frame (the lines `stereo       :`, `frame send   :` and
+      `frame age    :` of the log),
     - a picture with no tear, and no eye that shows a different frame,
     - that the runtime accepts the value 2: no line `xrEndFrame failed`.
 
-    Not known: whether Virtual Desktop gives `xrWaitFrame` back for each
-    display frame while a second thread ends the frame before, and what the
-    value does to the left eye faults B13 and B16.
+    Not known: why `xrEndFrame` takes 1.9 to 3.7 ms on the second thread and
+    0.4 to 0.7 ms on the frame thread, and what the value does to the left
+    eye faults B13 and B16. Not run: the value 1.
   - **The wait at the stop of a sound.** The mod skips the 20 ms that
     the audio DLL waits on the frame thread at the stop of a sound
     (`audio_stop_wait=0`, `audio.md`, 7.6). In a desktop run the worst frame

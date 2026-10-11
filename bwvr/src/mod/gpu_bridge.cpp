@@ -1032,29 +1032,22 @@ void GpuBridgeWaitBegin() {
 
 // Then the second thread waits for that end. The device takes a lock for
 // each call, and the frame thread can draw the next frame at the same time.
-// So this loop asks about 20,000 times a second and not without a stop, and
-// it does not send the queue again before 2 ms are over. It has a limit of
-// 100 ms: the frame then goes out as it is.
+// So this loop asks about 20,000 times a second and not without a stop. Each
+// call has D3DGETDATA_FLUSH, as the wait on the frame thread has. The loop
+// has a limit of 100 ms: the frame then goes out as it is.
 void GpuBridgeWaitOnThread() {
   IDirect3DQuery9* query = g_flush_query;
   if (query == nullptr || g_frequency.QuadPart == 0) return;
   const LONGLONG pause = g_frequency.QuadPart / 20000;
-  const LONGLONG flush_each = g_frequency.QuadPart / 500;
   const LONGLONG limit = g_frequency.QuadPart / 10;
   LARGE_INTEGER start, now;
   QueryPerformanceCounter(&start);
-  LONGLONG next_flush = flush_each;
   uint32_t polls = 0;
   bool gave_up = false;
   for (;;) {
     QueryPerformanceCounter(&now);
     const LONGLONG waited = now.QuadPart - start.QuadPart;
-    DWORD flags = 0;
-    if (waited >= next_flush) {
-      flags = D3DGETDATA_FLUSH;
-      next_flush += flush_each;
-    }
-    if (query->GetData(nullptr, 0, flags) != S_FALSE) break;
+    if (query->GetData(nullptr, 0, D3DGETDATA_FLUSH) != S_FALSE) break;
     ++polls;
     if (waited > limit) {
       gave_up = true;

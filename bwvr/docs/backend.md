@@ -421,7 +421,8 @@ the value 2 needs a Direct3D 9 device that permits calls from two threads
 `frame_send=2` or `test_keys=1` in the ini, the mod adds that flag when the
 backend does not ask for it. On a device for one thread the value 2 acts as 1.
 The second thread asks the query about 20,000 times a second, and not without
-a stop: the device takes a lock for each call. After 100 ms with no answer the
+a stop: the device takes a lock for each call. Each call sends the queue to
+the GPU, as the wait on the frame thread does. After 100 ms with no answer the
 frame goes out as it is.
 
 For each 450 frames the log has the line `frame send   :`. It gives the mean
@@ -431,11 +432,28 @@ line `gpu bridge   :` has one wait for two captures. The number `grab x2` of
 the line `stereo       :` is the time of the frame thread for the eye
 pictures, so it does not have a wait of the second thread.
 
-Not shown: no session in a headset has run with the values 1 and 2. Only a
-headset shows the frame rate of each value, and whether the runtime gives
-`xrWaitFrame` back while a second thread ends a frame. A desktop run sends no
-frame to a runtime. With `test_keys=1`, Ctrl, Shift and the slash key of the
-number pad step the value while the game runs.
+With each value the log also has the line `frame age    :`: the time from the
+end of `xrWaitFrame` to the end of `xrEndFrame`. The runtime shows a frame that
+it gets later at a later time. So compare the values by the frame rate and by
+this number.
+
+A session in a headset with the value 2 showed these points:
+
+- The runtime accepts each frame, and it gives `xrWaitFrame` back for each
+  display frame while the second thread ends the frame before.
+- The frame thread has 2 to 3 ms less work in a frame.
+- `xrEndFrame` takes 1.9 to 3.7 ms on the second thread. On the frame thread
+  it takes 0.4 to 0.7 ms.
+- The player saw no fault of the picture.
+
+Not shown: a gain of the frame rate. In that session the second thread took 5
+to 7 ms for a frame, and the frame thread waited 0.8 to 3.1 ms for it before
+the next frame. So the frame rate for a given cost of the scene walk was the
+same as with the value 0, or a little higher, and a frame got to the runtime
+later. Not known: why `xrEndFrame` is slow on the second thread. Not run: the
+value 1, and the three values in one scene. A desktop run sends no frame to a
+runtime. With `test_keys=1`, Ctrl, Shift and the slash key of the number pad
+step the value while the game runs.
 
 ### The self test
 
