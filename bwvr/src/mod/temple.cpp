@@ -22,6 +22,14 @@
 // move by itself: it does not turn to the pointer, a press on empty space
 // does not turn it, and it does not fly to its rest pose when the player
 // comes into a room (temple_math.h, "The flight of the camera of a room").
+// The head does not turn it either: the camera code of a room reads a
+// neutral pointer in the screen of the game camera (temple_camera_screen).
+//
+// THE VIEW. The camera of a room gives the place and the heading of the
+// player in the room. The head pose of the frame goes on it in full, in each
+// eye pass: its turn, its pitch, its roll, its lean and the place of the eye
+// (temple_view, head_camera.cpp). The fade of the Temple shows in both eyes
+// (temple_fade_eyes, pass_guard.cpp).
 //
 // This file reads the game, keeps the depth, writes the log and holds the
 // test keys. controllers.cpp asks it for the mode and the depth.
@@ -45,6 +53,10 @@ extern void ModLog(const char* format, ...);
 // head_camera.cpp
 bool HeadCameraGameCamera(float position[3], float focus[3]);
 bool HeadCameraOn();
+bool HeadCameraEnabled();
+void HeadCameraRoomView(int rule);
+void HeadCameraRoomGameView(bool on);
+bool HeadCameraFrameRecorded();
 // comfort_camera.cpp: a moment of black at a cut, when the player asked for
 // one.
 void ComfortCameraBlink();
@@ -134,6 +146,9 @@ int g_click = 1;          // temple_click
 int g_camera_drag = 0;    // temple_camera_drag
 int g_camera_follow = 0;  // temple_camera_follow
 int g_camera_flight = 0;  // temple_camera_flight
+int g_camera_screen = 1;  // temple_camera_screen
+int g_view = 1;           // temple_view
+int g_fade_eyes = 1;      // temple_fade_eyes
 int g_turn = 1;           // temple_turn
 int g_depth_cm = 300;     // temple_pointer_depth_cm
 bool g_test_keys = false;
@@ -150,6 +165,8 @@ bool g_test_door_on = false; // temple_test_door_on: the story flag of the door
 int g_test_enter_frame = 0;  // at this frame the Enter key goes to a dialog box
 int g_camera_trace = 0;      // temple_test_camera_trace
 int g_test_flight_frame = 0; // at this frame the key of the flight acts
+int g_test_view_frame = 0;   // at this frame the key of the view acts
+int g_test_fade_frame = 0;   // at this frame the key of the fade acts
 char g_targets[256] = "";    // temple_test_targets
 
 bool IniPath(char path[MAX_PATH]) {
@@ -176,6 +193,10 @@ void Load() {
   g_camera_drag = IniInt("temple_camera_drag", 0) != 0 ? 1 : 0;
   g_camera_follow = IniInt("temple_camera_follow", 0) != 0 ? 1 : 0;
   g_camera_flight = IniInt("temple_camera_flight", 0) != 0 ? 1 : 0;
+  g_camera_screen = IniInt("temple_camera_screen", 1) != 0 ? 1 : 0;
+  g_view = IniInt("temple_view", 1) != 0 ? 1 : 0;
+  g_fade_eyes = IniInt("temple_fade_eyes", 1) != 0 ? 1 : 0;
+  HeadCameraRoomView(g_view);
   g_turn = IniInt("temple_turn", 1) != 0 ? 1 : 0;
   g_depth_cm = IniInt("temple_pointer_depth_cm", 300);
   if (g_depth_cm < 50) g_depth_cm = 50;
@@ -192,6 +213,8 @@ void Load() {
   g_test_enter_frame = IniInt("temple_test_enter_frame", 0);
   g_camera_trace = IniInt("temple_test_camera_trace", 0) != 0 ? 1 : 0;
   g_test_flight_frame = IniInt("temple_test_flight_frame", 0);
+  g_test_view_frame = IniInt("temple_test_view_frame", 0);
+  g_test_fade_frame = IniInt("temple_test_fade_frame", 0);
   ModLog("temple       : temple_taps=%d. %s", g_taps,
          g_taps != 0
              ? "On the land the three leash posts at the Temple are "
@@ -244,6 +267,25 @@ void Load() {
              : "When you come into a room, the camera of the room is at its "
                "rest pose at once: the mod ends the flight of the game in "
                "one cut");
+  ModLog("temple       : temple_view=%d. %s", g_view,
+         g_view != 0
+             ? "In a room each eye pass draws from the head pose of the "
+               "frame: its turn, its roll and the place of the eye"
+             : "In a room each eye pass draws from the camera that the game "
+               "builds in the pass: the newest head pose, with no roll and "
+               "with one place for both eyes");
+  ModLog("temple       : temple_camera_screen=%d. %s", g_camera_screen,
+         g_camera_screen != 0
+             ? "The camera code of a room reads a neutral pointer in the "
+               "screen of the game camera, so the head does not turn the "
+               "camera of the room"
+             : "The camera code of a room reads a neutral pointer in the "
+               "view of the head: a head that looks down at the pool of the "
+               "hall turns the camera of the hall");
+  ModLog("temple       : temple_fade_eyes=%d. %s", g_fade_eyes,
+         g_fade_eyes != 0
+             ? "The fade of the Temple shows in both eyes"
+             : "The fade of the Temple shows in the left eye only");
 }
 
 // --- what the game says on this frame -----------------------------------------
@@ -757,6 +799,11 @@ bool CameraFollows() {
 bool g_press_latched = false;
 int g_press_pixel[2] = {0, 0};
 uint64_t g_neutral_frames = 0;
+// Updates of a room camera that ran with the camera of the game in the
+// engine (temple_camera_screen), and frames in the Temple for which the mod
+// made the main camera call (TempleBeforeScene), this window.
+uint64_t g_own_screen_updates = 0;
+uint64_t g_main_calls_made = 0;
 // For the trace of the camera: the calls since its last line, the seconds
 // that they gave, and the flags of the last call.
 uint64_t g_camera_updates = 0;
@@ -852,6 +899,38 @@ void FlightBefore(uint8_t* camera, Flight* flight) {
   *blend = end.blend;
 }
 
+// Gives the camera of a room to the engine, as the game does at the start
+// of an update of that camera and before it draws the room.
+void CameraPreDraw(uint8_t* camera) {
+  if (camera == nullptr || IsBadReadPtr(camera, 4)) return;
+  void** table = *reinterpret_cast<void** const*>(camera);
+  if (table != nullptr && !IsBadReadPtr(table, 8)) {
+    reinterpret_cast<PreDrawFn>(table[kCameraPreDraw])(camera, nullptr);
+  }
+}
+
+// The player is in the Temple by the word of the game.
+bool GameInTemple() {
+  uint8_t* game = Game();
+  return game != nullptr && !IsBadReadPtr(game + kGameInTemple, 4) &&
+         *reinterpret_cast<const int32_t*>(game + kGameInTemple) == 1;
+}
+
+// The middle of the view, as a pixel of the render. False when the engine
+// has no size yet.
+bool MiddlePixel(int out[2]) {
+  const bw::tech::InfoTransform* info =
+      reinterpret_cast<const bw::tech::InfoTransform*>(
+          bw::tech::kInfoTransform);
+  if (IsBadReadPtr(info, sizeof(*info)) || !(info->half_res_x > 0.0f) ||
+      !(info->half_res_y > 0.0f)) {
+    return false;
+  }
+  out[0] = static_cast<int>(info->half_res_x);
+  out[1] = static_cast<int>(info->half_res_y);
+  return true;
+}
+
 // THE SETTLE. Brings a camera in the state of the room to its rest pose, in
 // this update: the steps 3 to 5 of the cut. room and pixel are the arguments
 // of the update of the game. The pointer of these updates is at the middle
@@ -877,10 +956,7 @@ void SettleCamera(uint8_t* camera, void* room, const int* pixel) {
     set(zoomer, nullptr,
         *reinterpret_cast<const float*>(zoomer + kZoomerTarget), 0.0f, 0.0f);
   }
-  void** table = *reinterpret_cast<void** const*>(camera);
-  if (table != nullptr && !IsBadReadPtr(table, 8)) {
-    reinterpret_cast<PreDrawFn>(table[kCameraPreDraw])(camera, nullptr);
-  }
+  CameraPreDraw(camera);
   SpiritAnchorCameraCut();
   g_camera_cut = true;
 }
@@ -1005,6 +1081,8 @@ void __fastcall h_CameraUpdate(void* self, void* unused, void* room,
   static int said = 0;
   const int drag_now = drag & 0xFF;
   int given[2] = {0, 0};
+  // The mod gives this update the middle of the view as its pointer.
+  bool neutral = false;
   // While a guide plays the ray is off, and the room gives the camera no
   // button. The camera of the room can have the state of the room then, so
   // it gets the middle of the view as it does with the ray on.
@@ -1034,6 +1112,7 @@ void __fastcall h_CameraUpdate(void* self, void* unused, void* room,
         given[0] = static_cast<int>(info->half_res_x);
         given[1] = static_cast<int>(info->half_res_y);
         pixel = given;
+        neutral = true;
         ++g_neutral_frames;
       }
     }
@@ -1059,9 +1138,33 @@ void __fastcall h_CameraUpdate(void* self, void* unused, void* room,
   camera_before = camera;
   Flight flight;
   FlightBefore(camera, &flight);
+  // THE SCREEN OF THE CAMERA CODE (temple_math.h). The update reads its
+  // pointer as a pixel of the view that the engine has. For the middle of
+  // the view, and for the updates that bring a camera to its rest pose, that
+  // view is the camera of the game with no head. So the middle is the line
+  // of sight of the room camera, and not the place that the head looks at.
+  // An update that brings a camera to its rest pose gets the middle of the
+  // view as its pointer, as the updates of the settle do.
+  const bool rest =
+      flight.cut || (new_camera && g_camera_flight == 0 && HeadCameraOn());
+  const bool own_screen = temple_math::CameraOwnScreen(
+      g_camera_screen, HeadCameraEnabled() && GameInTemple(), neutral, rest);
+  int middle[2] = {0, 0};
+  if (own_screen) {
+    if (!neutral && pixel != nullptr && MiddlePixel(middle)) pixel = middle;
+    HeadCameraRoomGameView(true);
+  }
   o_CameraUpdate(self, unused, room, seconds, held, action, pixel, drag);
   FlightAfter(camera, flight, room, pixel);
   RoomChangeAfter(camera, new_camera, flight, room, pixel);
+  if (own_screen) {
+    // The engine has the camera of the game now. It gets the camera of the
+    // room again with the head on it. That call is the main camera call of
+    // the frame, and it has the pose of the camera after this update.
+    HeadCameraRoomGameView(false);
+    CameraPreDraw(camera);
+    ++g_own_screen_updates;
+  }
 }
 
 // --- the taps on the land -------------------------------------------------------
@@ -1555,6 +1658,83 @@ void FlightToggle(const char* cause) {
          g_frame);
 }
 
+// Shift and the slash key of the number pad: the view of a room goes through
+// its three ways. A long pulse, a pulse of middle length and a short pulse.
+//  1. Each eye pass draws from the head pose of the frame, and the camera
+//     code of a room reads the screen of the game camera (temple_view=1,
+//     temple_camera_screen=1).
+//  2. The same view, and the camera code reads the view of the head
+//     (temple_camera_screen=0).
+//  3. Each eye pass draws from the camera that the game builds in the pass
+//     (temple_view=0, temple_camera_screen=0).
+// Ctrl must be up.
+void ViewStep(const char* cause) {
+  int way = g_view == 0 ? 2 : (g_camera_screen != 0 ? 0 : 1);
+  way = (way + 1) % 3;
+  g_view = way == 2 ? 0 : 1;
+  g_camera_screen = way == 0 ? 1 : 0;
+  HeadCameraRoomView(g_view);
+  static const char* const kWays[3] = {
+      "each eye pass of a room draws from the head pose of the frame, with "
+      "its roll and the place of the eye, and the head does not turn the "
+      "camera of the room (temple_view=1, temple_camera_screen=1)",
+      "each eye pass of a room draws from the head pose of the frame, and "
+      "the camera code of the room reads the view of the head "
+      "(temple_view=1, temple_camera_screen=0)",
+      "each eye pass of a room draws from the camera that the game builds "
+      "in the pass: the newest head pose, no roll, and one place for both "
+      "eyes (temple_view=0, temple_camera_screen=0)"};
+  ControllersGrabPulse(1, 0.5f, 0.30f - 0.11f * way);
+  ModLog("temple       : %s: %s, frame %llu", cause, kWays[way], g_frame);
+}
+
+// Ctrl, Shift and the plus key of the number pad: the fade of the Temple
+// shows in both eyes, or in the left eye only (temple_fade_eyes). A long
+// pulse for both eyes and a short pulse for the left eye.
+void FadeToggle(const char* cause) {
+  g_fade_eyes = g_fade_eyes != 0 ? 0 : 1;
+  ControllersGrabPulse(1, 0.5f, g_fade_eyes != 0 ? 0.30f : 0.08f);
+  ModLog("temple       : %s: temple_fade_eyes is %d now. The fade of the "
+         "Temple shows in %s, frame %llu", cause, g_fade_eyes,
+         g_fade_eyes != 0 ? "both eyes" : "the left eye only", g_frame);
+}
+
+void PollViewKeys() {
+  // A test with no key press: a key acts at one frame of the game.
+  if (g_test_view_frame > 0 &&
+      g_frame == static_cast<uint64_t>(g_test_view_frame)) {
+    ViewStep("test key temple_test_view_frame");
+  }
+  if (g_test_fade_frame > 0 &&
+      g_frame == static_cast<uint64_t>(g_test_fade_frame)) {
+    FadeToggle("test key temple_test_fade_frame");
+  }
+  if (!g_test_keys) return;
+  static bool before[2] = {false, false};
+  const int keys[2] = {VK_DIVIDE, VK_ADD};
+  // The slash key needs Ctrl up, and the plus key needs Ctrl down: Shift and
+  // the plus key with Ctrl up is the key of grip_press_hold.
+  const bool shift = (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
+  const bool ctrl = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
+  const bool held_for[2] = {shift && !ctrl, shift && ctrl};
+  bool pressed[2];
+  for (int i = 0; i < 2; ++i) {
+    const bool down =
+        held_for[i] && (GetAsyncKeyState(keys[i]) & 0x8000) != 0;
+    pressed[i] = down && !before[i];
+    before[i] = down;
+  }
+  if (!pressed[0] && !pressed[1]) return;
+  HWND window = GetForegroundWindow();
+  DWORD process = 0;
+  if (window != nullptr) GetWindowThreadProcessId(window, &process);
+  if (process != GetCurrentProcessId()) return;
+  if (pressed[0]) ViewStep("Shift and the slash key of the number pad");
+  if (pressed[1]) {
+    FadeToggle("Ctrl, Shift and the plus key of the number pad");
+  }
+}
+
 void PollFlightKey() {
   // A test with no key press: the key acts at one frame of the game.
   if (g_test_flight_frame > 0 &&
@@ -1611,6 +1791,34 @@ uint64_t g_under_changes = 0;
 
 bool TempleInside() { return g_facts.inside; }
 
+bool TempleFadeBothEyes() {
+  Load();
+  return g_fade_eyes != 0;
+}
+
+float TempleFadeNow() { return *reinterpret_cast<const float*>(kFade); }
+
+// A FRAME IN THE TEMPLE WITH NO MAIN CAMERA CALL. The update of the room
+// camera is the main camera call of a frame in the Temple, and the mouse
+// path of the game makes it. A frame with no such update has no head pose of
+// the frame, and its eye passes then have the roll of an older frame. So the
+// mod gives the camera of the room to the engine here, before the scene walk
+// (temple_view=1).
+void TempleBeforeScene() {
+  if (!g_loaded || g_view == 0) return;
+  if (!HeadCameraEnabled() || HeadCameraFrameRecorded() || !GameInTemple()) {
+    return;
+  }
+  uint8_t* temple = *reinterpret_cast<uint8_t* const*>(Game() + kGameTemple);
+  if (temple == nullptr || IsBadReadPtr(temple, kTempleRoomNow + 4)) return;
+  uint8_t* room = *reinterpret_cast<uint8_t* const*>(temple + kTempleRoomNow);
+  if (room == nullptr || IsBadReadPtr(room + kRoomCamera, 4)) return;
+  uint8_t* camera = *reinterpret_cast<uint8_t* const*>(room + kRoomCamera);
+  if (camera == nullptr || IsBadReadPtr(camera, kCameraSize)) return;
+  CameraPreDraw(camera);
+  ++g_main_calls_made;
+}
+
 bool TempleRayOn() { return g_ray_on; }
 
 int TempleClick() {
@@ -1664,6 +1872,7 @@ void TempleFrame(unsigned long long frame) {
   g_frame = frame;
   PollTestKey();
   PollFlightKey();
+  PollViewKeys();
   ReadFacts(&g_facts);
   const Facts& f = g_facts;
 
@@ -1868,6 +2077,14 @@ void TempleReport() {
            g_flights_ended, g_room_settles);
     g_flights_ended = 0;
     g_room_settles = 0;
+  }
+  if (g_own_screen_updates != 0 || g_main_calls_made != 0) {
+    ModLog("temple       : %llu updates of a room camera read the screen of "
+           "the game camera this window (temple_camera_screen=%d), and the "
+           "mod made the main camera call of %llu frames that had none",
+           g_own_screen_updates, g_camera_screen, g_main_calls_made);
+    g_own_screen_updates = 0;
+    g_main_calls_made = 0;
   }
   if (g_ray_frames == 0 && g_messages == 0 && g_camera_moves == 0) {
     g_neutral_frames = 0;

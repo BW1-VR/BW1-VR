@@ -365,4 +365,147 @@ inline void MoveNet(const CameraMove& move, float* side, float* up,
   *went = Distance(move.last_position, move.position);
 }
 
+// THE VIEW OF A ROOM IN AN EYE PASS (temple_view). The game builds the
+// camera of a room two times in a frame: in the update of that camera, after
+// the scene walk of the frame before (InnerCamera::Update, 0x00796B60), and
+// again in the scene walk, before it draws the room (Temple::Draw,
+// 0x00794370, calls InnerCamera::PreDraw). The mod runs the scene walk one
+// time for each eye. So the second build comes in each eye pass, after the
+// mod gave that pass the camera of its eye, and it takes that camera away.
+//
+// The first build is the main camera call of the frame. It takes the head
+// pose that the frame declares to the headset, and the mod keeps the roll of
+// that pose for the two eye passes. With temple_view=1 the build in an eye
+// pass takes the same head pose, and the mod then gives the pass the camera
+// of its eye again: the roll, and the place of the eye. With temple_view=0
+// the build in the pass stays as it is: the newest head pose, no roll and no
+// eye, so both eyes get one picture from the middle of the head.
+//
+// room_call: the call comes from InnerCamera::PreDraw. in_pass: an eye pass
+// runs. have_frame_head: the main camera call of this frame kept its head.
+inline bool RoomPassView(int rule, bool room_call, bool in_pass,
+                         bool have_frame_head) {
+  return rule != 0 && room_call && in_pass && have_frame_head;
+}
+
+// A rotation is 9 floats: m[r * 3 + c] is row r and column c, and a column
+// is an axis of the view in the world: right, up and forward
+// (head_camera.cpp).
+inline void Multiply3(const float a[9], const float b[9], float out[9]) {
+  for (int r = 0; r < 3; ++r) {
+    for (int c = 0; c < 3; ++c) {
+      out[r * 3 + c] = a[r * 3 + 0] * b[0 * 3 + c] +
+                       a[r * 3 + 1] * b[1 * 3 + c] +
+                       a[r * 3 + 2] * b[2 * 3 + c];
+    }
+  }
+}
+
+// The angle between two rotations, in degrees: the one turn that brings the
+// first to the second.
+inline float RotationAngle(const float a[9], const float b[9]) {
+  float trace = 0.0f;
+  for (int i = 0; i < 9; ++i) trace += a[i] * b[i];
+  float c = (trace - 1.0f) * 0.5f;
+  if (c > 1.0f) c = 1.0f;
+  if (c < -1.0f) c = -1.0f;
+  return acosf(c) * 57.29578f;
+}
+
+// The roll of a view, in degrees: the turn about its line of sight from the
+// level view with the same line of sight. The engine builds that level view
+// from a place and a point to look at, so this is the part of a head pose
+// that the camera of the engine cannot carry. 0 for a view that looks
+// straight up or down.
+inline float RollOf(const float basis[9]) {
+  const float forward[3] = {basis[2], basis[5], basis[8]};
+  const float up[3] = {basis[1], basis[4], basis[7]};
+  // The level right: the world up crossed with the line of sight.
+  float right[3] = {forward[2], 0.0f, -forward[0]};
+  const float length = sqrtf(right[0] * right[0] + right[2] * right[2]);
+  if (!(length > 1e-4f)) return 0.0f;
+  right[0] /= length;
+  right[2] /= length;
+  const float level_up[3] = {forward[1] * right[2] - forward[2] * right[1],
+                             forward[2] * right[0] - forward[0] * right[2],
+                             forward[0] * right[1] - forward[1] * right[0]};
+  return atan2f(Dot(up, right), Dot(up, level_up)) * 57.29578f;
+}
+
+// The place of the eye of a world to camera matrix of the engine with no
+// scale: 4 rows of 3 floats, with p_camera = p_world * R + t (eye_camera.cpp).
+inline void EyeOfMatrix(const float m[12], float eye[3]) {
+  for (int i = 0; i < 3; ++i) {
+    eye[i] = -(m[9] * m[i * 3 + 0] + m[10] * m[i * 3 + 1] +
+               m[11] * m[i * 3 + 2]);
+  }
+}
+
+// THE SCREEN OF THE CAMERA CODE OF A ROOM (temple_camera_screen). The update
+// of a room camera reads a pointer: a pixel of the view that the engine has
+// at that moment (InnerCamera::RayCast, 0x00795980). The camera of the hall
+// turns down to the pool while that pixel is on the pool. With the head on
+// the camera, the view of the engine is the view of the head. So the middle
+// of the view is the place that the head looks at, and a head that looks
+// down turns the room camera.
+//
+// With temple_camera_screen=1 an update that gets the middle of the view as
+// its pointer runs with the camera of the game in the engine, with no head.
+// The middle of the view is then the line of sight of the room camera. The
+// updates that end a flight and bring a camera to its rest pose get the
+// middle of the view too. An update with a real pointer (the mouse, or a
+// press on empty space) keeps the view of the head: its pixel is a pixel of
+// that view.
+//
+// head_on: the head is on the camera now. neutral: the mod gives this update
+// the middle of the view. rest: this update ends a flight, or it is the
+// first update of a camera after a different camera and the mod brings the
+// camera to its rest pose.
+inline bool CameraOwnScreen(int rule, bool head_on, bool neutral, bool rest) {
+  return rule != 0 && head_on && (neutral || rest);
+}
+
+// THE FADE OF THE TEMPLE IN THE SECOND EYE PASS (temple_fade_eyes).
+// Temple::UpdateFade (0x00794280) does two things. It moves the fade to its
+// target by the frame time. Then it gives the fade to the end of the frame
+// as a color (0x00FA51D8), and LH3DRender::FinishFrame draws that color over
+// the picture and clears it (0x0086FEE0). Each eye pass has its own
+// FinishFrame. The mod skips the world steps in the second eye pass
+// (pass_guard.cpp), and this function is one of them.
+//
+// With temple_fade_eyes=1 the function also runs in the second eye pass,
+// with a frame time of 0. Then it moves nothing, and it gives the same fade
+// to the second eye. With temple_fade_eyes=0 the second eye pass skips the
+// function, and only the first eye, the left one, has the fade.
+struct Fade {
+  float value;     // 0x00C2A150: 1 and more is black
+  float target;    // 0x00E06020
+  unsigned color;  // 0x00E06024: the color of the fade, in its low 24 bits
+  int reached;     // 0x00E06028: how many times the fade came to a target
+};
+
+// One call of Temple::UpdateFade with a frame time in seconds. Returns the
+// color that it gives to the end of the frame: the alpha in the high byte.
+inline unsigned FadeStep(Fade* fade, float seconds) {
+  if (fade->value < fade->target) {
+    fade->value += seconds;
+    if (fade->value > fade->target) {
+      // A fade that goes up comes down again.
+      fade->value = fade->target;
+      fade->target = 0.0f;
+      ++fade->reached;
+    }
+  } else {
+    fade->value -= seconds;
+    if (fade->value < fade->target) {
+      fade->value = fade->target;
+      ++fade->reached;
+      if (!(fade->target > 0.0f)) fade->color = 0;
+    }
+  }
+  const unsigned alpha =
+      fade->value > 1.0f ? 255u : static_cast<unsigned>(fade->value * 255.0f);
+  return (alpha << 24) | (fade->color & 0x00FFFFFFu);
+}
+
 }  // namespace temple_math

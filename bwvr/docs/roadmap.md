@@ -158,23 +158,29 @@ is built, and no test has proven it.
   same with `-More 'catch_rest_guard=0'`). Check in a headset that a tree
   which fell comes to the hand each time. The test key (Ctrl, Shift and
   Scroll Lock) gives the rule of the game for a comparison.
-- **B13. The Temple in a headset: dark frames, and a view that lags.** A
-  headset session showed three faults in the Temple:
-  - At the start of the guide of a room, and at a change of the room, the
-    left eye is dark for a moment.
-  - In the guide of the first visit, single black frames show at random
-    times.
-  - When the player can look around in a room, the view does not follow a
-    roll of the head, and it moves in steps: it lags and stutters.
-
-  The head is on the camera of the room: its heading and its place, not its
-  pitch (`controllers.md`, 11.4). The camera of a room does not fly to its
-  rest pose: the mod ends the flight in one cut under the black fade of the
-  game, and it settles the camera in the same update
-  (`temple_camera_flight=0`). Not known: whether the cut, the settle or the
-  fade make the dark frames (the test key Ctrl and the star key of the
-  number pad gives the flight of the game), and what makes the steps of the
-  view.
+- **B13. The Temple in a headset: check the view, and find the black
+  frames of the guide.** In a room the head owns the view: each eye pass
+  draws from the head pose of the frame, with its roll and the place of its
+  eye (`temple_view=1`). The head does not turn the camera of the room
+  (`temple_camera_screen=1`), and the fade of the Temple shows in both eyes
+  (`temple_fade_eyes=1`). `controllers.md`, 11.4, has the three rules. The
+  math checks cover them. Still open:
+  - No desktop run has shown the three rules. The recipes are in
+    `controllers.md`, 11.9. Make those runs first.
+  - Check in a headset: the room stays still and level when the head turns,
+    tilts and leans, and it has depth. The left eye is not dark at the entry
+    of the Temple, at a change of the room and at the way out. A look down at
+    the pool of the hall does not move the player. The test keys (Shift and
+    the slash key of the number pad, Ctrl, Shift and the plus key) give the other
+    ways for a comparison.
+  - Single black frames showed at random times in the guide of the first
+    visit of the hall. The cause is not known. In that session the camera of
+    the hall was at its view of the pool for the whole guide, and the mod now
+    keeps it at its rest pose. If the black frames stay, a session with
+    `eye_test_luma=1` names each black frame of the render of the game in the
+    log (`backend.md`, "Testing without a headset").
+  - Not built: the depth of a guide in the cut scene window, and a ray of the
+    room that starts at the eye (`controllers.md`, 11.9).
 - **B14. In a pass the second eye does not have zero as its frame time.**
   After the two eye passes the game has the real time of the frame as its
   frame time (`frame_time_real=1`, `backend.md`, "Time, bars and the second

@@ -1728,7 +1728,8 @@ void PollTakeKey() {
 // (the real flight) to 10.0. With the Ctrl key down the same keys change the
 // rate of the land, from 1.0 (the game's own time) to 10.0: Plus is slower
 // there too. A short pulse of the hand and a log line answer
-// each press. The game and the mod use neither key. A flight that is in the
+// each press. The game uses neither key. Shift must be up: with Shift the
+// two keys are test keys of the Temple (temple.cpp). A flight that is in the
 // air keeps its factor. Read once a frame, and only while a window of the
 // game is in front.
 void PollSlowKeys() {
@@ -1744,9 +1745,10 @@ void PollSlowKeys() {
   if (window != nullptr) GetWindowThreadProcessId(window, &process);
   const bool focus = process == GetCurrentProcessId();
   const bool ctrl = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
+  const bool shift = (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
   for (int i = 0; i < 2; ++i) {
     const bool now = (GetAsyncKeyState(keys[i]) & 0x8000) != 0;
-    if (now && !down[i] && focus && ctrl) {
+    if (now && !down[i] && focus && ctrl && !shift) {
       float rate = g_land_rate + (i == 0 ? -0.25f : 0.25f);
       if (rate < 1.0f) rate = 1.0f;
       if (rate > 10.0f) rate = 10.0f;
@@ -1759,7 +1761,7 @@ void PollSlowKeys() {
              g_land_rate, i == 0 ? "Ctrl and Numpad Plus: slower"
                                  : "Ctrl and Numpad Divide: faster",
              g_land_rate);
-    } else if (now && !down[i] && focus) {
+    } else if (now && !down[i] && focus && !shift) {
       float k = g_slow + (i == 0 ? 0.25f : -0.25f);
       if (k < 1.0f) k = 1.0f;
       if (k > 10.0f) k = 10.0f;

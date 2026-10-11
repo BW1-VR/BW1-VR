@@ -300,7 +300,8 @@ gain of `throw_law=0`.
 - Numpad Plus makes k larger by 0.25 (slower), and Numpad Divide makes it
   smaller by 0.25 (faster), from 1.0 to 10.0. Each press gives a short pulse
   of the pointing hand (weaker at the end of the range) and a log line with
-  the new k.
+  the new k. Shift must be up: Shift with one of these keys is a test key of
+  the Temple (`controllers.md`, 11.6).
 
 ### The log
 

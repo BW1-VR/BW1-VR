@@ -1965,7 +1965,9 @@ but that zero lasts only to the call of `StartFrame` at the start of the pass.
 So a reader of the delta time in the scene walk counts in both passes. The hand
 states, `HelpSystem::Draw3D`, `Temple::Update`, `TempleRoom::Update` and the draw of
 a room of the Temple are such readers [R]. `Temple::UpdateFade` counts in the first
-pass only: the world steps run one time a frame (`pass_guard.cpp`). For one frame
+pass only: the world steps run one time a frame (`pass_guard.cpp`). In the second
+pass it runs with a frame time of 0, so it gives its fade to that eye and moves
+nothing (`temple_fade_eyes`, `controllers.md`, 11.4). For one frame
 the two numbers have the real time as their sum, and 1 ms more for each pass that
 got the limit. In desktop runs at 50 to 80 frames a second the first pass got 11 to
 15 ms and the second pass 2 to 6 ms as a mean, and their sum was 4 to 9 percent
@@ -2144,6 +2146,26 @@ Three traps:
 - **The scene must hold still.** The start dialog of a new game, before the
   tutorial, is a fixed camera and a good test scene.
 
+**The brightness of the two eye pictures** (`eye_test_luma=1`, `eye_luma.cpp`).
+A fade that only one eye pass draws, and a frame with no picture, do not show
+in a still picture of one moment. With the key, the mod reads the mean
+brightness of each eye picture after its pass, from 0 to 255, on a grid of 24
+by 24 points (`eye_luma_math.h`). The log then has:
+
+- one line for each run of frames in which one eye is much darker than the
+  other eye (a difference of more than 10, and of more than a quarter of the
+  brighter eye), with the two numbers at the frame with the largest
+  difference,
+- one line for each run of frames in which both eyes are black (below 4). A
+  run of 8 frames or less between two frames with a picture is a black flash,
+- one line for each window of 450 frames with the counts and the largest
+  difference between the eyes.
+
+Each line has the fade of the Temple at the start of the run and after it. The
+read locks the render target, so the key costs frame time: about 1 ms for each
+eye at 1440 lines, and more at the size of a headset. It works in a headset
+session too.
+
 The launcher removes the retired keys from `bwvr.ini` on every save (the list is
 `kRetiredKeys` in `launcher.cpp`), and it writes `stereo=1`. Set test keys such as
 `eye_separation_milli`, `freeze_time` and `stereo_headless` after the last save, or
@@ -2183,6 +2205,8 @@ in front. The mod reads the keys and never takes them from the game.
 | Ctrl Home | `test_keys=1` | The words of a target on the hint card: 3, 2, 1 or 0, with one short pulse for each unit of the value and one long pulse for 0. With 3 the prompt "Pull to fetch" stays from the end of the far target until the Hand holds the object, and a hint of the game that a prompt owned does not show for 0.25 s after the prompt went. With 2 only the prompt "Take" stays, from the close of the grip until the Hand holds the object. With 1 the hint of the game shows in those frames. With 0 the hint of the game takes the place of each prompt (`hint_words`, `controller-hints.md`) |
 | Ctrl Numpad 5 | `test_keys=1` | The rule of a Creature command: 3, 2 or 1 (`creature_command_rule`, `creature.md`) |
 | Ctrl Numpad Star | `test_keys=1` | In the Temple: the camera of a room is at its rest pose at once when the player comes into the room, or it flies there as in the plain game. A long pulse and a short pulse (`temple_camera_flight`, `controllers.md`, 11.4). Shift must be up. The star key alone is the key of the release at once (`throw.md`) |
+| Shift Numpad Slash | `test_keys=1` | In the Temple: three ways of the view of a room. Each eye pass draws from the head pose of the frame with its roll and its eye, and the head does not turn the camera of the room. Or the same view, and the head turns the camera of the hall when it looks at the pool. Or each eye pass draws from the camera that the game builds in the pass, with no roll and no depth. A long pulse, a pulse of middle length and a short pulse (`temple_view`, `temple_camera_screen`, `controllers.md`, 11.4). Ctrl must be up |
+| Ctrl Shift Numpad Plus | `test_keys=1` | The fade of the Temple shows in both eyes, or in the left eye only. A long pulse and a short pulse (`temple_fade_eyes`, `controllers.md`, 11.4). Ctrl must be up. The plus key and the slash key with no Shift are keys of the throw (`throw.md`) |
 | Ctrl Shift Numpad Star | `test_keys=1` | After the two eye passes the game has the real time of the frame as its frame time, or the number from before the passes. The cameras of the rooms of the Temple and the game camera of the land then move at a different speed. A long pulse and a short pulse (`frame_time_real`, "The delta time after the passes"). Press it with the mouse at rest |
 | Ctrl Page Down | `test_keys=1` | The card says what the opening of the grip does with a tree, or shows the text of the game (`tree_plant_hint`, `grab.md`) |
 | Ctrl Shift Page Down | `test_keys=1` | The roots pile of a tree from a distance stands at the roots, or on the way of the glide (`far_roots_at_tree`, `grab.md`) |
@@ -2285,6 +2309,7 @@ keys that the launcher sets.
 | `test_keys` | 0 | The test keys |
 | `profile` | 0 | A test key. 1 is the frame cost measure with a timer on each Direct3D draw call, 2 is the measure with no such timer. See "The frame cost measure" |
 | `draw_probe`, `capture_every_seconds` | 0 | Reports and eye pictures |
+| `eye_test_luma` | 0 | A test key. 1: the log names each run of frames with one dark eye and each run of black frames. See "Testing without a headset" |
 | `fake_head`, `fake_head_yaw`, `fake_head_pitch`, `fake_head_roll`, `fake_head_sweep`, `stereo_headless`, `fov_absolute_deg`, `head_fov_deg` | 0 | See "Testing without a headset" |
 
 ## Ready to hand out

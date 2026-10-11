@@ -229,6 +229,15 @@ bool EyeCameraCapture();
 void EyeCameraSetEye(float d);
 void EyeCameraRestore();
 
+// eye_luma.cpp: the mean brightness of each eye picture, a test.
+bool EyeLumaOn();
+void EyeLumaEye(int eye, const void* pixels, int pitch, uint32_t width,
+                uint32_t height);
+void EyeLumaFrame(uint64_t frame);
+void EyeLumaReport();
+// temple.cpp: before the scene walk of a frame in the Temple.
+void TempleBeforeScene();
+
 namespace {
 
 // GGame::Process3dEngine is __thiscall with no arguments, so the object
@@ -263,6 +272,8 @@ bool g_game_time_logged = false;
 // made, with the same values, so the pass is on its own camera again.
 enum EyePlacement { kEyeNotPlaced, kEyeSlid, kEyePosed };
 EyePlacement g_eye_placement = kEyeNotPlaced;
+// The eye of the pass that runs: 0 or 1, and -1 outside a pass.
+int g_pass_eye = -1;
 float g_eye_slide = 0.0f;  // for EyeCameraSetEye
 float g_eye_pose[9] = {1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f};
 float g_eye_move[3] = {0.0f, 0.0f, 0.0f};  // for EyeCameraSetPose
@@ -767,6 +778,9 @@ void __fastcall Process3dEngineBody(void* self, void* unused);
 void __fastcall h_Process3dEngine(void* self, void* unused) {
   FrameProfileHook(true);
   FrameTimeHook(true);
+  // A frame in the Temple with no main camera call gets one here, so its
+  // eye passes have the head of the frame (temple.cpp).
+  TempleBeforeScene();
   HeadCameraBeginScene();
   Process3dEngineBody(self, unused);
   HeadCameraEndScene();
@@ -1085,6 +1099,7 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
     const float d = (eye == 0 ? -0.5f : 0.5f) * g_frame_separation;
     bool placed = false;
     g_eye_placement = kEyeNotPlaced;
+    g_pass_eye = eye;
     const bool real_head = g_head_tracking && !flat && to_headset &&
                            g_screen->eye(eye).valid;
     const bool fake_head =
@@ -1164,6 +1179,7 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
     QueryPerformanceCounter(&t3);
     // This eye pass is over. Nothing after it may put its camera back.
     g_eye_placement = kEyeNotPlaced;
+    g_pass_eye = -1;
     scene += t3.QuadPart - t2.QuadPart;
     eye_scene[eye] = t3.QuadPart - t2.QuadPart;
     // The pass functions of the mod, before and after the walk of the game.
@@ -1226,13 +1242,18 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
         GpuBridgeSelfTestDone();
       }
     }
-    if ((to_headset && !sent) || g_headless_grab || want_capture) {
+    const bool luma = EyeLumaOn();
+    if ((to_headset && !sent) || g_headless_grab || want_capture || luma) {
       // The surface stays locked while the VR layer reads it, so the frame is
       // copied once instead of twice.
       int pitch = 0;
       const void* pixels = FrameSourceBegin(&pitch);
       if (pixels != nullptr) {
         if (to_headset && !sent) g_screen->SetEyeImage(eye, pixels, pitch);
+        if (luma) {
+          EyeLumaEye(eye, pixels, pitch, static_cast<uint32_t>(pitch / 4),
+                     g_height);
+        }
         if (want_capture) {
           EyeCaptureSave(g_frames + 1, eye, pixels, pitch,
                          static_cast<uint32_t>(pitch / 4), g_height);
@@ -1247,6 +1268,7 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
   PassGuardSetEye(-1);
   DrawProbeBeginPass(-1);
   g_in_pass = false;
+  if (EyeLumaOn()) EyeLumaFrame(ControllersFrameCount());
 
   // Put everything back, because the Hand, the interface and the next game
   // tick all read these. GGame::Loop wrote the time step and the two frame
@@ -1364,6 +1386,7 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
     PassGuardReport();
     FrameTimersReport(g_frames);
     FrameTimeReport();
+    EyeLumaReport();
     FovReport();
     // Step the invented head, and photograph the result straight away. A
     // capture on a timer lands on whatever phase the timer happens to hit:
@@ -1454,6 +1477,22 @@ void StereoReapplyEye() {
     EyeCameraSetEye(g_eye_slide);
   }
   if (seed != nullptr) *seed = saved_seed;
+}
+
+// The eye of the pass that runs: 0 or 1, and -1 outside a pass.
+int StereoPassEye() { return g_in_pass ? g_pass_eye : -1; }
+
+// THE CAMERA OF A ROOM OF THE TEMPLE IN AN EYE PASS. Temple::Draw gives the
+// camera of the room to the engine again inside each pass, and that takes
+// the camera of the eye away: the roll and the place of the eye. So
+// head_camera.cpp calls this after that build. The mod keeps the camera that
+// the engine built as the camera of the middle of the head, and then makes
+// the call that the eye loop made, with the same values. The camera that
+// goes back after the passes is then the one of the last build.
+void StereoRoomCamera() {
+  if (!g_in_pass || g_eye_placement == kEyeNotPlaced) return;
+  if (!EyeCameraCapture()) return;
+  StereoReapplyEye();
 }
 
 // Menus, loading screens and videos never reach Process3dEngine, so stereo

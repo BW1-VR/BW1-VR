@@ -39,7 +39,8 @@ void HandExactAfterPrepare(void* hand);
 // the game's physics turn. See docs/throw.md, "The throw physics".
 void ThrowPhysicsTurnBegin();
 void ThrowPhysicsTurnEnd();
-// head_camera.cpp
+// temple.cpp: temple_fade_eyes now.
+bool TempleFadeBothEyes();
 
 namespace {
 
@@ -144,6 +145,10 @@ uint64_t g_hand_skipped = 0;
 uint64_t g_physics_skipped = 0;
 uint64_t g_prepare_skipped = 0;
 uint64_t g_world_skipped = 0;
+uint64_t g_fade_second = 0;
+// The frame time of the game in ms (LH3DTech::g_delta_time). The game never
+// has less than 1 there, so the mod writes 0 for one call only.
+const uintptr_t kDeltaTime = 0x00C38134;
 
 bool InSecondPass() { return g_eye == 1; }
 
@@ -236,9 +241,27 @@ void __cdecl h_TemporaryShadowUpdateAll() {
   o_TemporaryShadowUpdateAll();
 }
 
+// THE FADE OF THE TEMPLE (temple_math.h, "The fade of the Temple in the
+// second eye pass"). The function moves the fade by the frame time, and it
+// gives the fade to LH3DRender::FinishFrame of this pass, which draws it.
+// The move is a world step: one time a frame. The draw is for each eye. So
+// in the second eye pass the function runs with a frame time of 0: it moves
+// nothing, and the second eye gets the same fade as the first eye. The frame
+// time goes back after the call.
 void __cdecl h_TempleUpdateFade() {
   if (g_skip_world && InSecondPass()) {
-    ++g_world_skipped;
+    uint32_t* delta = reinterpret_cast<uint32_t*>(kDeltaTime);
+    // A fixed address of the game, so one test is enough.
+    static const bool writable = !IsBadWritePtr(delta, sizeof(uint32_t));
+    if (!TempleFadeBothEyes() || !writable) {
+      ++g_world_skipped;
+      return;
+    }
+    const uint32_t saved = *delta;
+    *delta = 0;
+    o_TempleUpdateFade();
+    *delta = saved;
+    ++g_fade_second;
     return;
   }
   o_TempleUpdateFade();
@@ -360,6 +383,12 @@ void PassGuardReport() {
   ModLog("pass guard   : held object %llu, physics %llu, prepare %llu, world "
          "%llu skipped on second passes", g_hand_skipped, g_physics_skipped,
          g_prepare_skipped, g_world_skipped);
+  if (g_fade_second != 0) {
+    ModLog("pass guard   : the fade of the Temple went to the second eye "
+           "with no time step in %llu passes (temple_fade_eyes=1)",
+           g_fade_second);
+  }
+  g_fade_second = 0;
   g_world_skipped = 0;
   g_hand_skipped = 0;
   g_physics_skipped = 0;

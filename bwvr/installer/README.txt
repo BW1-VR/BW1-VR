@@ -362,6 +362,14 @@ place, and the mod ends the flight in one cut, because the flight
 turns the room about you. Set temple_camera_flight=1 in bwvr.ini for
 the flight of the game.
 
+Your head gives the view in a room, as on the land: turn it, tilt it
+and lean. The camera of the game gives only your place and your
+heading in the room, so a look down at the pool of the hall does not
+move you. When you go into the Temple or into a room, the room comes
+out of black in both eyes. Each of these three rules has a key in
+bwvr.ini, and the value 0 turns the rule off: temple_view,
+temple_camera_screen and temple_fade_eyes.
+
 To save in the Save Game Room, click an empty picture two times and
 then click OK. The save has no message, because the text line needs
 a keyboard. To load, click the picture of the save and then Yes.
@@ -787,6 +795,10 @@ does not need them.
   .         The rule "near objects win" and the pick of the Hand
             (far_grab_near_cm).
   *         The two ways of release (release_at_once).
+  Shift /   In the Temple: the three ways of the view of a room
+            (temple_view and temple_camera_screen).
+  Shift +   The fade of the Temple in both eyes, or in the left
+            eye only (temple_fade_eyes).
   8, 2      Turn the pointing line 1 degree up or down.
   4, 6      Turn the pointing line 1 degree to the left or right.
   5         Go to the next preset of the pointing line.
@@ -820,11 +832,11 @@ KNOWN ISSUES
 This is an alpha build for testers. Expect faults. Save the game
 before you start a quest. These faults are known:
 
-  - In the Temple the picture of one eye can go dark for a moment,
-    black frames can show in the guide of a room, and the view
-    does not follow each move of your head.
   - A catch of an object in the air, and a grip on an object that
     still rolls, are not tested in a headset.
+  - In the Temple, black frames can show in the guide of the hall.
+    In the hall the frame rate is low while the pool is in your
+    view.
   - A signpost is hard to read from near: its text is at a
     different place for each eye.
   - One eye can show faint pictures of the frames before.

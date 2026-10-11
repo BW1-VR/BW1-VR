@@ -11,6 +11,7 @@ add_library(bwvr_mod SHARED
     eye_camera.cpp
     texture_filter.cpp
     eye_capture.cpp
+    eye_luma.cpp
     draw_probe.cpp
     gdi_watch.cpp
     gpu_bridge.cpp

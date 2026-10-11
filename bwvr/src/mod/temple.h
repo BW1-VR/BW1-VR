@@ -42,6 +42,17 @@ int TempleCardRoom();
 // The report of a window, from ControllersReport.
 void TempleReport();
 
+// THE VIEW OF A ROOM (temple_view). Before the scene walk of a frame, from
+// stereo.cpp: a frame in the Temple with no main camera call gets one, so
+// its eye passes have the head pose of the frame.
+void TempleBeforeScene();
+
+// THE FADE OF THE TEMPLE (temple_fade_eyes). True when the fade shows in
+// both eyes: pass_guard.cpp then gives it to the second eye pass. The fade
+// now: 0 is clear, 1 and more is black.
+bool TempleFadeBothEyes();
+float TempleFadeNow();
+
 // THE TAPS ON THE LAND (docs/village.md, "The door of the Temple and the leash
 // posts"). For the cards of the hands: the lines while the Hand's point is at
 // the door of the Temple or at a leash post. The return value is the count of

@@ -66,8 +66,16 @@
 
 #include "MinHook.h"
 #include "../common/bw_addresses.h"
+#include "temple_math.h"
 
 extern void ModLog(const char* format, ...);
+// stereo.cpp: an eye pass runs, and which eye. The camera of the eye pass
+// again, after the game built a camera of a room of the Temple in it.
+bool StereoInPass();
+int StereoPassEye();
+void StereoRoomCamera();
+// head_pose.cpp: the world units in a meter of the room.
+float HeadPoseScale();
 // script_camera.cpp: the shot the story camera holds, in place of the pose
 // the caller asked for. True when there is one.
 bool ScriptCameraRenderPose(uintptr_t caller, const float* position,
@@ -215,6 +223,81 @@ bool RecordThisCall() {
   return true;
 }
 
+// THE CAMERA OF A ROOM OF THE TEMPLE (temple_math.h, "The view of a room in
+// an eye pass" and "The screen of the camera code of a room").
+//
+// InnerCamera::PreDraw (0x00796920) gives the camera of a room to the
+// engine, and this is the return address of its call. The game calls it in
+// the update of the room camera, which is the main camera call of a frame in
+// the Temple. It calls it again from Temple::Draw, in the scene walk: one
+// time in each eye pass.
+const uintptr_t kRoomPreDrawReturn = 0x007969D2;
+int g_room_view = 1;            // temple_view
+// The head pose of the main camera call of a frame: the rotation and the
+// lean. A room camera that the game builds in an eye pass takes it, so the
+// pass draws from the pose that the frame declares to the headset.
+float g_frame_head[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
+float g_frame_lean[3] = {0.0f, 0.0f, 0.0f};
+uint64_t g_frame_head_frame = 0xFFFFFFFFFFFFFFFFull;
+// While this is set, a camera of a room goes to the engine as the game made
+// it, with no head, and it records nothing. temple.cpp sets it around an
+// update of a room camera that must read the screen of the game camera.
+bool g_room_game_view = false;
+uint64_t g_room_game_calls = 0;
+// For the report: how far the view of a room was from the head pose of its
+// frame in the eye passes of a window, and how far apart the two eyes were.
+uint64_t g_room_passes = 0;
+uint64_t g_room_passes_no_head = 0;
+float g_room_off_most = 0.0f;       // degrees
+float g_room_roll_most = 0.0f;      // degrees, the roll of the head
+float g_room_eye[3] = {0.0f, 0.0f, 0.0f};  // the eye of pass 0, this frame
+uint64_t g_room_eye_frame = 0xFFFFFFFFFFFFFFFFull;
+uint64_t g_room_pairs = 0;
+float g_room_apart_least = 0.0f, g_room_apart_most = 0.0f;  // cm of the room
+
+// After the engine built the camera of a room in an eye pass. level is the
+// room of this call: the world up and the heading of the room camera.
+void RoomPassBuilt(bool with_eye, const float level[9]) {
+  // The roll and the place of the eye of this pass, on the camera that the
+  // engine built just now.
+  if (with_eye) StereoRoomCamera();
+
+  // What the pass draws the room from, read from the matrix of the engine,
+  // against the head pose of the frame.
+  ++g_room_passes;
+  if (g_frame_head_frame != g_frame) {
+    ++g_room_passes_no_head;
+    return;
+  }
+  const float* now = UnscaledRotation();
+  if (IsBadReadPtr(now, sizeof(float) * 12)) return;
+  float wanted[9];
+  temple_math::Multiply3(level, g_frame_head, wanted);
+  const float off = temple_math::RotationAngle(now, wanted);
+  if (off > g_room_off_most) g_room_off_most = off;
+  const float roll = fabsf(temple_math::RollOf(wanted));
+  if (roll > g_room_roll_most) g_room_roll_most = roll;
+  float eye[3];
+  temple_math::EyeOfMatrix(now, eye);
+  const int pass = StereoPassEye();
+  if (pass == 0) {
+    for (int i = 0; i < 3; ++i) g_room_eye[i] = eye[i];
+    g_room_eye_frame = g_frame;
+  } else if (pass == 1 && g_room_eye_frame == g_frame) {
+    const float scale = HeadPoseScale();
+    const float apart =
+        temple_math::Distance(eye, g_room_eye) / (scale > 0.0f ? scale : 1.0f) *
+        100.0f;
+    if (g_room_pairs == 0 || apart < g_room_apart_least) {
+      g_room_apart_least = apart;
+    }
+    if (g_room_pairs == 0 || apart > g_room_apart_most) {
+      g_room_apart_most = apart;
+    }
+    ++g_room_pairs;
+  }
+}
+
 // THE TABLE OF THIS FRAME. When tabletop.cpp takes the main call, the render
 // head and its focus are kept here, with the camera the table gave. The
 // stored camera then holds the render head until the end of
@@ -270,6 +353,16 @@ const float kMinHorizontal = 0.0087f;
 void PlaceCamera(const float* position, const float* focus, bool intro,
                  uintptr_t caller) {
   ++g_calls;
+  // THE CAMERA CODE OF A ROOM OF THE TEMPLE READS THE SCREEN OF THE GAME
+  // CAMERA. While temple.cpp asks for it, the camera of a room goes through
+  // as the game made it. The call records nothing: temple.cpp gives the
+  // camera to the engine again after the update, and that call has the head.
+  const bool room_call = !intro && caller == kRoomPreDrawReturn;
+  if (room_call && g_room_game_view) {
+    ++g_room_game_calls;
+    o_UpdateCamera(position, focus);
+    return;
+  }
   // THE STORY CAMERA HOLDS ITS SHOT HERE, BEFORE ANYTHING READS THE POSE.
   //
   // script_camera.cpp can put a held shot in place of the pose the caller
@@ -327,6 +420,19 @@ void PlaceCamera(const float* position, const float* focus, bool intro,
       IsBadReadPtr(focus, sizeof(float) * 3)) {
     o_UpdateCamera(position, focus);
     return;
+  }
+
+  // THE CAMERA OF A ROOM IN AN EYE PASS TAKES THE HEAD OF THE FRAME. The
+  // head pose changed after the main camera call: stereo.cpp took the pose
+  // of the next frame before the passes. The picture of this frame must
+  // come from the pose that the frame declares, which is the pose of the
+  // main call.
+  const bool in_pass = g_in_scene && StereoInPass();
+  const bool room_pass = temple_math::RoomPassView(
+      g_room_view, room_call, in_pass, g_frame_head_frame == g_frame);
+  if (room_pass) {
+    memcpy(h, g_frame_head, sizeof(h));
+    memcpy(lean, g_frame_lean, sizeof(lean));
   }
 
   // The camera the caller asked for, copied before the engine can overwrite
@@ -488,6 +594,9 @@ void PlaceCamera(const float* position, const float* focus, bool intro,
     ++g_main_serial;
     memcpy(g_stage_basis, basis_level, sizeof(g_stage_basis));
     g_have_stage = true;
+    memcpy(g_frame_head, h, sizeof(g_frame_head));
+    memcpy(g_frame_lean, lean, sizeof(g_frame_lean));
+    g_frame_head_frame = g_frame;
     memcpy(g_game_position, asked_position, sizeof(g_game_position));
     memcpy(g_game_focus, asked_focus, sizeof(g_game_focus));
     g_have_game_camera = true;
@@ -614,6 +723,10 @@ void PlaceCamera(const float* position, const float* focus, bool intro,
   // The far billboards face the camera the game asked for, or the table.
   BillboardTurn(table ? position : asked_position,
                 table ? focus : asked_focus);
+
+  // The game built the camera of a room in an eye pass, so the pass lost the
+  // camera of its eye.
+  if (room_call && in_pass) RoomPassBuilt(room_pass, basis_level);
 }
 
 void __fastcall h_UpdateCamera(const float* position, const float* focus) {
@@ -682,6 +795,18 @@ bool HeadCameraTableEye(float out[3]) {
 
 // The setting alone: the head goes on the camera in the full view.
 bool HeadCameraOn() { return g_installed && g_enabled; }
+
+// temple_view (temple.cpp reads the key and its test key).
+void HeadCameraRoomView(int rule) { g_room_view = rule; }
+
+// temple.cpp, around an update of a room camera that must read the screen
+// of the game camera: while it is on, a camera of a room goes to the engine
+// with no head, and it is not the main camera call of the frame.
+void HeadCameraRoomGameView(bool on) { g_room_game_view = on; }
+
+// The main camera call of this frame came, with the head or in a flat frame.
+// Asked before the scene walk.
+bool HeadCameraFrameRecorded() { return g_recorded_frame == g_frame; }
 
 
 void HeadCameraInstall() {
@@ -843,6 +968,27 @@ void HeadCameraReport() {
     ModLog("head camera  : %llu main calls went through with no head, for "
            "the cut scene window", g_flat_records);
   }
+  if (g_room_passes > 0 || g_room_game_calls > 0) {
+    // The check line of the view of a room. With temple_view=1 the first
+    // number must be 0, and the eyes must be the distance of the eyes apart.
+    ModLog("temple       : in %llu eye passes the game built the camera of a "
+           "room. The view of the pass was %.2f degrees at the most from the "
+           "head pose of its frame, and the roll of that pose was %.1f "
+           "degrees at the most. The cameras of the two eyes were %.2f to "
+           "%.2f cm of the room apart in %llu frames (temple_view=%d). %llu "
+           "passes had no head pose of the frame. %llu camera calls of a "
+           "room went through with no head, for the camera code of the room",
+           g_room_passes, g_room_off_most, g_room_roll_most,
+           g_room_apart_least, g_room_apart_most, g_room_pairs, g_room_view,
+           g_room_passes_no_head, g_room_game_calls);
+  }
+  g_room_passes = 0;
+  g_room_passes_no_head = 0;
+  g_room_game_calls = 0;
+  g_room_off_most = 0.0f;
+  g_room_roll_most = 0.0f;
+  g_room_pairs = 0;
+  g_room_apart_least = g_room_apart_most = 0.0f;
   g_flat_records = 0;
   g_table_records = 0;
   g_table_restores = 0;
