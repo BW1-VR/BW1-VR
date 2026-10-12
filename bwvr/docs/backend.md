@@ -50,6 +50,7 @@ Other docs: `software-tnl.md` (the CPU transform and the camera matrix),
 | `src/mod/spirit_anchor.cpp` | The advisors |
 | `src/mod/near_plane.cpp` | The near plane |
 | `src/mod/frame_timers.cpp`, `eye_capture.cpp`, `draw_probe.cpp` | Timing, eye pictures, draw probe |
+| `src/mod/scene_sample.cpp`, `scene_sample_math.h` | A test aid: samples of the code of the frame thread in the scene walks, by module (`profile_sample`) |
 | `src/common/exe_check.h`, `version.h` | The build check and the product name |
 
 ## How the game draws
@@ -1158,6 +1159,25 @@ Scenes 3 to 5 have one write in each scene walk, and its `Lock` takes
 0.005 ms. Scenes 1 and 2 have two writes in each scene walk, and the two
 calls of `Lock` then take 0.6 ms together. That is 1.2 to 1.5 ms of a frame.
 The cause is not known (`roadmap.md`, N1).
+
+### Where the time of the scene walk goes
+
+`profile_sample=N` (a test key, 0 is off, 100 to 5000) splits the scene
+walks by module (`scene_sample.cpp`). A thread of its own stops the frame
+thread for a moment each N microseconds while the frame thread is in a
+scene walk, reads the address of its next instruction, and lets it go on.
+It keeps only that address, so it takes no lock that the stopped thread can
+hold. Each 450 frames the log has two lines:
+
+```
+scene sample : 18000 samples in the scene walks of 450 frames, 40 in a frame. The samples held the frame thread 0.400 ms in a frame, and 0 stops gave no address. The scene walks were 9.60 ms in a frame. By module: runblack.exe ..% (.. ms), dxwrapper.dll ..% (.. ms), ...
+scene sample : the code with the most samples, in pieces of 64 bytes: runblack.exe+0x... ..%, ...
+```
+
+The ms of a module is its share of the time of the scene walks. Each sample
+holds the frame thread, so the walks of such a run are that much longer. An
+address in `ntdll.dll` or `win32u.dll` is mostly a call of the kernel: the
+driver in the kernel, or a wait. A save of the launcher removes the key.
 
 ### Draw calls with one state
 

@@ -67,6 +67,7 @@
 #include "bubble_card.h"
 #include "cutscene_window.h"
 #include "frame_profile.h"
+#include "scene_sample.h"
 #include "ui_panel.h"
 
 extern void ModLog(const char* format, ...);
@@ -1291,6 +1292,7 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
     if (raw_time != nullptr) *raw_time = (eye == 0) ? saved_raw_time : 0;
 
     QueryPerformanceCounter(&t2);
+    SceneSampleWalk(true);
     HandDirectPassBegin(eye);
     OverlayPassEye(eye);
     const uint64_t walk_start = profile ? FrameProfileTicks() : 0;
@@ -1322,6 +1324,7 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
     const uint64_t walk_end = profile ? FrameProfileTicks() : 0;
     OverlayPassEye(-1);
     HandDirectPassDone(eye);
+    SceneSampleWalk(false);
     QueryPerformanceCounter(&t3);
     // This eye pass is over. Nothing after it may put its camera back.
     g_eye_placement = kEyeNotPlaced;
@@ -1616,6 +1619,7 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
     }
     ModLog("rest of frame: %.2f ms outside the scene walk entirely",
            Ms(g_after_hook_ticks));
+    SceneSampleReport(g_timed_now, Ms(g_scene_ticks));
     PresentWatchReport(g_timed_now);
     {
       const float inverse_z = UiDepthWorldInverseZ();
