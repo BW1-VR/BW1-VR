@@ -616,6 +616,9 @@ bool GameHasFocus() {
 //               on (audio_stop_wait, audio_voices.cpp). Windows gives the key
 //               VK_CANCEL for Pause with Ctrl down, so the keys of Pause
 //               alone (throw_physics.cpp) do not see it
+//   Ctrl Shift Pause  the copy of the subtitle card is read in a later frame
+//               with no wait, or after the eye passes with a wait for the GPU
+//               (subtitle_read_ahead, ui_panel.cpp)
 //   Ctrl Shift Numpad Star  after the two eye passes the game has the real
 //               time of the frame, or the number from before the passes
 //               (frame_time_real, frame_time.cpp)
@@ -721,6 +724,11 @@ void PollHotkeys() {
     // An A/B of the wait at the stop of a sound (docs/audio.md, "7.6 The
     // wait of a stop").
     if (g_test_keys && now[7] && !down[7] && !shift) AudioStopWaitToggle();
+    // An A/B of the read ahead of the subtitle card (docs/ui-layer.md, "The
+    // subtitle card").
+    if (g_test_keys && now[7] && !down[7] && shift && ctrl) {
+      UiPanelSubtitleReadAheadToggle("Ctrl, Shift and Pause");
+    }
     // An A/B of the frame time of the game after the two eye passes
     // (docs/backend.md, "Time, bars and the second eye pass"). The star key
     // with Ctrl and no Shift is the key of the camera flight of the Temple

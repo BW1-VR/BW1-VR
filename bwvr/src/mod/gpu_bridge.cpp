@@ -96,6 +96,9 @@ IDirect3DTexture9* g_shared[kEyes] = {nullptr, nullptr};
 IDirect3DSurface9* g_shared_surface[kEyes] = {nullptr, nullptr};
 ID3D11Texture2D* g_opened[kEyes] = {nullptr, nullptr};
 IDirect3DQuery9* g_flush_query = nullptr;
+// g_flush_query was issued at least one time on this device, so its state
+// says if the GPU did the last frame end.
+bool g_flush_issued = false;
 // The device permits calls from two threads (D3DCREATE_MULTITHREADED).
 bool g_two_threads = false;
 // The mod asks the backend for such a device (GpuBridgeWantTwoThreads).
@@ -259,6 +262,41 @@ uint64_t g_half_reads = 0;
 uint64_t g_half_made = 0;
 uint64_t g_half_bytes = 0;
 uint64_t g_half_failures = 0;
+// THE READ AHEAD OF THE SUBTITLE CARD (subtitle_read_ahead=1). The GPU does
+// the calls of the device in the order of its queue. So GetRenderTargetData
+// waits until the GPU has done each call before it, and a read after the eye
+// passes waits for both eye passes. With frame_send 1 and 2 the frame thread
+// does not wait for the GPU at all, so that read was the only wait of the
+// frame thread. So the copy of a frame goes into a slot with an event query
+// after it (GpuBridgePanelQueueHalf). At the start of a later frame, the read
+// of the slot (GpuBridgePanelFetchHalf) is made only when its query and the
+// query of the last frame end are done: then the GPU has no work left, and
+// the read is only the copy itself. The card shows the help text of one or
+// two frames before.
+const int kAheadSlots = 3;
+const int kSlotFree = 0;
+const int kSlotQueued = 1;  // the copy and the query are in the queue
+const int kSlotRead = 2;    // the pixels are in system memory
+struct AheadSlot {
+  IDirect3DSurface9* target = nullptr;
+  IDirect3DSurface9* read = nullptr;  // system memory
+  IDirect3DQuery9* query = nullptr;
+  uint32_t width = 0;   // of the two surfaces
+  uint32_t height = 0;
+  uint32_t out_w = 0;   // of the copy in them
+  uint32_t out_h = 0;
+  int rect[4] = {0, 0, 0, 0};  // the rect of the panel that the copy holds
+  uint64_t frame = 0;          // the frame of the copy
+  uint64_t order = 0;          // the clock of the copy
+  int state = kSlotFree;
+};
+AheadSlot g_ahead[kAheadSlots];
+uint64_t g_ahead_clock = 0;
+uint64_t g_ahead_queued = 0;
+uint64_t g_ahead_reads = 0;
+uint64_t g_ahead_waits = 0;    // frame starts with a copy not done yet
+uint64_t g_ahead_dropped = 0;  // copies that were never read
+uint64_t g_ahead_failures = 0;
 
 // The state of the switch. g_bound is -1 when the game's target is bound.
 int g_bound = -1;
@@ -322,6 +360,7 @@ void ForgetPanel() {
   g_readback = nullptr;
   g_read_locked = false;
   for (int i = 0; i < kHalfTargets; ++i) g_half[i] = HalfTarget();
+  for (int i = 0; i < kAheadSlots; ++i) g_ahead[i] = AheadSlot();
   g_half_locked = nullptr;
   g_saved_target = nullptr;
   g_saved_depth = nullptr;
@@ -343,6 +382,7 @@ void ForgetDevice() {
   if (g_ready) g_resume_wanted = true;
   g_ready = false;
   g_flush_query = nullptr;
+  g_flush_issued = false;
   for (int eye = 0; eye < kEyes; ++eye) {
     g_shared_surface[eye] = nullptr;
     g_shared[eye] = nullptr;
@@ -836,6 +876,7 @@ bool GpuBridgeStart(void* d3d11_device, uint32_t width, uint32_t height,
     }
   }
 
+  g_flush_issued = false;
   if (FAILED(g_device_ex->CreateQuery(D3DQUERYTYPE_EVENT, &g_flush_query))) {
     ModLog("gpu bridge   : the device offers no event query, so the two "
            "devices cannot be kept in step. Staying on the CPU path.");
@@ -1000,6 +1041,7 @@ void WaitForGpu() {
   LARGE_INTEGER t1, t2;
   QueryPerformanceCounter(&t1);
   g_flush_query->Issue(D3DISSUE_END);
+  g_flush_issued = true;
   int spins = 0;
   while (g_flush_query->GetData(nullptr, 0, D3DGETDATA_FLUSH) == S_FALSE) {
     if (++spins > 2000000) break;
@@ -1071,6 +1113,7 @@ void GpuBridgeWaitHere() { WaitForGpu(); }
 void GpuBridgeWaitBegin() {
   if (g_flush_query == nullptr) return;
   g_flush_query->Issue(D3DISSUE_END);
+  g_flush_issued = true;
   g_flush_query->GetData(nullptr, 0, D3DGETDATA_FLUSH);
 }
 
@@ -1296,6 +1339,12 @@ void ReleasePanelTargets() {
     ReleaseOne(g_half[i].target);
     ReleaseOne(g_half[i].read);
     g_half[i] = HalfTarget();
+  }
+  for (int i = 0; i < kAheadSlots; ++i) {
+    ReleaseOne(g_ahead[i].target);
+    ReleaseOne(g_ahead[i].read);
+    ReleaseOne(g_ahead[i].query);
+    g_ahead[i] = AheadSlot();
   }
   g_half_locked = nullptr;
   g_panel_width = 0;
@@ -1609,14 +1658,14 @@ void GpuBridgePanelReadDone() {
 // and not of the whole panel. The pixels stay valid until
 // GpuBridgePanelReadDone. Null when the panel did not draw in this frame, or
 // when a step failed.
-const void* GpuBridgePanelReadHalf(const int rect[4], int* pitch,
-                                   uint32_t* width, uint32_t* height) {
-  DrawMergeFlush();
-  if (g_device == nullptr || g_read_locked || g_bound >= 0 ||
-      g_panel == nullptr || !g_panel_cleared) {
-    return nullptr;
-  }
-  // Even numbers, inside the panel.
+namespace {
+
+// The rect of the panel for a half size copy: even numbers, inside the
+// panel. out_w and out_h are the size of the copy, need_w and need_h the size
+// of its target, on the grid of kHalfGrid pixels. False when the rect is
+// empty.
+bool HalfRect(const int rect[4], RECT* from, uint32_t* out_w, uint32_t* out_h,
+              uint32_t* need_w, uint32_t* need_h) {
   int x0 = rect[0] & ~1, y0 = rect[1] & ~1;
   int x1 = (rect[0] + rect[2] + 1) & ~1, y1 = (rect[1] + rect[3] + 1) & ~1;
   if (x0 < 0) x0 = 0;
@@ -1627,15 +1676,48 @@ const void* GpuBridgePanelReadHalf(const int rect[4], int* pitch,
   if (y1 > static_cast<int>(g_panel_height & ~1u)) {
     y1 = static_cast<int>(g_panel_height & ~1u);
   }
-  if (x1 - x0 < 2 || y1 - y0 < 2) return nullptr;
-  const uint32_t out_w = static_cast<uint32_t>(x1 - x0) / 2;
-  const uint32_t out_h = static_cast<uint32_t>(y1 - y0) / 2;
+  if (x1 - x0 < 2 || y1 - y0 < 2) return false;
+  from->left = x0;
+  from->top = y0;
+  from->right = x1;
+  from->bottom = y1;
+  *out_w = static_cast<uint32_t>(x1 - x0) / 2;
+  *out_h = static_cast<uint32_t>(y1 - y0) / 2;
+  *need_w = (*out_w + kHalfGrid - 1) / kHalfGrid * kHalfGrid;
+  *need_h = (*out_h + kHalfGrid - 1) / kHalfGrid * kHalfGrid;
+  if (*need_w > g_panel_width / 2) *need_w = g_panel_width / 2;
+  if (*need_h > g_panel_height / 2) *need_h = g_panel_height / 2;
+  return true;
+}
+
+// The slot with the newest pixels in system memory, or null.
+AheadSlot* NewestRead() {
+  AheadSlot* newest = nullptr;
+  for (int i = 0; i < kAheadSlots; ++i) {
+    if (g_ahead[i].state == kSlotRead &&
+        (newest == nullptr || g_ahead[i].order > newest->order)) {
+      newest = &g_ahead[i];
+    }
+  }
+  return newest;
+}
+
+}  // namespace
+
+const void* GpuBridgePanelReadHalf(const int rect[4], int* pitch,
+                                   uint32_t* width, uint32_t* height) {
+  DrawMergeFlush();
+  if (g_device == nullptr || g_read_locked || g_bound >= 0 ||
+      g_panel == nullptr || !g_panel_cleared) {
+    return nullptr;
+  }
+  RECT from_rect;
+  uint32_t out_w = 0, out_h = 0, need_w = 0, need_h = 0;
+  if (!HalfRect(rect, &from_rect, &out_w, &out_h, &need_w, &need_h)) {
+    return nullptr;
+  }
 
   // The target for a part of this size.
-  uint32_t need_w = (out_w + kHalfGrid - 1) / kHalfGrid * kHalfGrid;
-  uint32_t need_h = (out_h + kHalfGrid - 1) / kHalfGrid * kHalfGrid;
-  if (need_w > g_panel_width / 2) need_w = g_panel_width / 2;
-  if (need_h > g_panel_height / 2) need_h = g_panel_height / 2;
   HalfTarget* half = nullptr;
   HalfTarget* oldest = &g_half[0];
   for (int i = 0; i < kHalfTargets; ++i) {
@@ -1671,7 +1753,7 @@ const void* GpuBridgePanelReadHalf(const int rect[4], int* pitch,
     }
   }
   half->used = ++g_half_clock;
-  const RECT from = {x0, y0, x1, y1};
+  const RECT from = from_rect;
   const RECT to = {0, 0, static_cast<LONG>(out_w), static_cast<LONG>(out_h)};
   if (FAILED(g_device->StretchRect(g_panel, &from, half->target, &to,
                                    D3DTEXF_LINEAR)) ||
@@ -1694,6 +1776,153 @@ const void* GpuBridgePanelReadHalf(const int rect[4], int* pitch,
   return locked.pBits;
 }
 
+// THE READ AHEAD, step 1, after the eye passes: the half size copy of rect
+// into a slot, and an event query after it. Nothing waits. The slot is never
+// the one with the newest pixels in system memory, because the card can
+// still need them.
+bool GpuBridgePanelQueueHalf(const int rect[4], uint64_t frame) {
+  DrawMergeFlush();
+  if (g_device == nullptr || g_read_locked || g_bound >= 0 ||
+      g_panel == nullptr || !g_panel_cleared) {
+    return false;
+  }
+  RECT from;
+  uint32_t out_w = 0, out_h = 0, need_w = 0, need_h = 0;
+  if (!HalfRect(rect, &from, &out_w, &out_h, &need_w, &need_h)) return false;
+  const AheadSlot* keep = NewestRead();
+  AheadSlot* slot = nullptr;
+  for (int i = 0; i < kAheadSlots; ++i) {
+    AheadSlot* s = &g_ahead[i];
+    if (s == keep) continue;
+    if (s->state == kSlotFree) {
+      slot = s;
+      break;
+    }
+    if (slot == nullptr || s->order < slot->order) slot = s;
+  }
+  if (slot == nullptr) return false;
+  if (slot->state == kSlotQueued) ++g_ahead_dropped;
+  slot->state = kSlotFree;
+  if (slot->target == nullptr || slot->width != need_w ||
+      slot->height != need_h) {
+    ReleaseOne(slot->target);
+    ReleaseOne(slot->read);
+    if (!MakeTarget(need_w, need_h, &slot->target) ||
+        FAILED(g_device->CreateOffscreenPlainSurface(
+            need_w, need_h, D3DFMT_A8R8G8B8, D3DPOOL_SYSTEMMEM, &slot->read,
+            nullptr)) ||
+        slot->read == nullptr) {
+      ReleaseOne(slot->target);
+      ReleaseOne(slot->read);
+      slot->width = slot->height = 0;
+      ++g_ahead_failures;
+      return false;
+    }
+    slot->width = need_w;
+    slot->height = need_h;
+    ++g_half_made;
+    if (g_half_made <= 12) {
+      ModLog("ui panel     : made a half size copy target for the read ahead "
+             "of the subtitle card, %ux%u", need_w, need_h);
+    }
+  }
+  if (slot->query == nullptr &&
+      (FAILED(g_device->CreateQuery(D3DQUERYTYPE_EVENT, &slot->query)) ||
+       slot->query == nullptr)) {
+    slot->query = nullptr;
+    ++g_ahead_failures;
+    return false;
+  }
+  const RECT to = {0, 0, static_cast<LONG>(out_w), static_cast<LONG>(out_h)};
+  if (FAILED(g_device->StretchRect(g_panel, &from, slot->target, &to,
+                                   D3DTEXF_LINEAR)) ||
+      FAILED(slot->query->Issue(D3DISSUE_END))) {
+    ++g_ahead_failures;
+    return false;
+  }
+  slot->out_w = out_w;
+  slot->out_h = out_h;
+  slot->rect[0] = static_cast<int>(from.left);
+  slot->rect[1] = static_cast<int>(from.top);
+  slot->rect[2] = static_cast<int>(from.right - from.left);
+  slot->rect[3] = static_cast<int>(from.bottom - from.top);
+  slot->frame = frame;
+  slot->order = ++g_ahead_clock;
+  slot->state = kSlotQueued;
+  ++g_ahead_queued;
+  return true;
+}
+
+// THE READ AHEAD, step 2, at the start of a frame, before the eye passes: the
+// read of the newest slot whose copy is done. GetData asks once and does not
+// wait. D3DGETDATA_FLUSH only sends the calls in the queue to the GPU, so a
+// query that no other flush sent does not stay open. The read is made only
+// when the query of the last frame end is done too: then the GPU has no work
+// left before it. Older slots are free again.
+void GpuBridgePanelFetchHalf() {
+  if (g_device == nullptr || g_read_locked || g_bound >= 0) return;
+  AheadSlot* done = nullptr;
+  bool waiting = false;
+  for (int i = 0; i < kAheadSlots; ++i) {
+    AheadSlot* s = &g_ahead[i];
+    if (s->state != kSlotQueued || s->query == nullptr) continue;
+    if (s->query->GetData(nullptr, 0, D3DGETDATA_FLUSH) == S_OK) {
+      if (done == nullptr || s->order > done->order) done = s;
+    } else {
+      waiting = true;
+    }
+  }
+  if (done == nullptr) {
+    if (waiting) ++g_ahead_waits;
+    return;
+  }
+  if (g_flush_query != nullptr && g_flush_issued &&
+      g_flush_query->GetData(nullptr, 0, D3DGETDATA_FLUSH) != S_OK) {
+    ++g_ahead_waits;
+    return;
+  }
+  if (FAILED(g_device->GetRenderTargetData(done->target, done->read))) {
+    done->state = kSlotFree;
+    ++g_ahead_failures;
+    return;
+  }
+  done->state = kSlotRead;
+  ++g_ahead_reads;
+  for (int i = 0; i < kAheadSlots; ++i) {
+    AheadSlot* s = &g_ahead[i];
+    if (s == done || s->state == kSlotFree || s->order > done->order) {
+      continue;
+    }
+    if (s->state == kSlotQueued) ++g_ahead_dropped;
+    s->state = kSlotFree;
+  }
+}
+
+// THE READ AHEAD, step 3, after the eye passes: the newest pixels in system
+// memory, of a copy from the frame `since` or later. rect gets the rect of
+// the panel that they hold. The pixels stay valid until
+// GpuBridgePanelReadDone. Null when there are none yet.
+const void* GpuBridgePanelReadyHalf(uint64_t since, int rect[4], int* pitch,
+                                    uint32_t* width, uint32_t* height) {
+  if (g_device == nullptr || g_read_locked) return nullptr;
+  AheadSlot* slot = NewestRead();
+  if (slot == nullptr || slot->frame < since) return nullptr;
+  const RECT area = {0, 0, static_cast<LONG>(slot->out_w),
+                     static_cast<LONG>(slot->out_h)};
+  D3DLOCKED_RECT locked;
+  if (FAILED(slot->read->LockRect(&locked, &area, D3DLOCK_READONLY))) {
+    ++g_ahead_failures;
+    return nullptr;
+  }
+  g_read_locked = true;
+  g_half_locked = slot->read;
+  for (int i = 0; i < 4; ++i) rect[i] = slot->rect[i];
+  *pitch = locked.Pitch;
+  *width = slot->out_w;
+  *height = slot->out_h;
+  return locked.pBits;
+}
+
 void GpuBridgePanelReport() {
   if (!g_panel_wanted) return;
   if (g_panel_binds == 0 && g_panel_bind_failures == 0) return;
@@ -1710,6 +1939,15 @@ void GpuBridgePanelReport() {
                         : 0.0,
            g_half_made, g_half_failures);
     g_half_reads = g_half_bytes = g_half_failures = 0;
+  }
+  if (g_ahead_queued + g_ahead_failures > 0) {
+    ModLog("ui panel     : the read ahead of the subtitle card: %llu copies in "
+           "the queue, %llu reads, %llu frame starts with a copy not done "
+           "yet, %llu copies never read, %llu failed",
+           g_ahead_queued, g_ahead_reads, g_ahead_waits, g_ahead_dropped,
+           g_ahead_failures);
+    g_ahead_queued = g_ahead_reads = g_ahead_waits = 0;
+    g_ahead_dropped = g_ahead_failures = 0;
   }
   g_panel_binds = 0;
   g_panel_rebinds = 0;
@@ -1827,6 +2065,7 @@ void GpuBridgeShutdown() {
     g_flush_query->Release();
     g_flush_query = nullptr;
   }
+  g_flush_issued = false;
   if (g_device != nullptr) {
     GpuBridgePanelReadDone();
     GpuBridgePanelUnbind();

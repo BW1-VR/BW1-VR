@@ -427,6 +427,13 @@ that moves while the Hand takes it.
     the right eye, moved by the disparity of its `rhw`. On the desktop the
     scene time of `verify_build.ps1` went down by 35 to 40 percent. Not shown:
     a session in a headset with a person in it, and its feel.
+  - **The read ahead of the subtitle card, and `frame_send=2`.** With
+    `frame_send` 1 and 2 the frame thread does not wait for the GPU, but the
+    read of the copy of the subtitle card did (`ui-layer.md`, 17.2). The
+    read ahead takes that wait away (`subtitle_read_ahead=1`). Not shown: a
+    headset session with `frame_send=2` and the card on, and its frame
+    rate against `frame_send=0`. The default 0 came from headset sessions
+    in which the card read had that wait.
   - **The merge of draw calls in a headset.** The mod gives a row of draw
     calls with one state to Direct3D as one draw call (`draw_merge=1`,
     `backend.md`, "One draw call for a row of draw calls"). Desktop runs of

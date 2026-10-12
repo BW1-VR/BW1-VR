@@ -52,6 +52,10 @@
 //   subtitle_card_down_deg        the angle below eye level, 17
 //   subtitle_card_width_cm        the width of the whole render, 100
 //   subtitle_fallback_cm          the fixed depth of the fallback, 75
+//   subtitle_read_ahead=1         the copy of the card is read in a later
+//                                 frame, so the frame thread does not wait
+//                                 for the GPU. 0: it is read after the eye
+//                                 passes of its frame
 //   subtitle_card_test=1          a test key: the route with no headset
 //   subtitle_selftest=1           a test key: two test lines of help text
 
@@ -71,6 +75,8 @@
 
 extern void ModLog(const char* format, ...);
 
+// controllers.cpp
+void ControllersGesturePulse(float amplitude, float seconds);
 // stereo.cpp
 bool StereoIdle();
 bool StereoCaptureIntervalDue();
@@ -371,6 +377,7 @@ struct SubtitleSettings {
   int fallback_cm = 75;   // subtitle_fallback_cm
   bool test = false;      // subtitle_card_test: the route with no headset
   bool selftest = false;  // subtitle_selftest
+  bool read_ahead = true;  // subtitle_read_ahead
 };
 
 // What the help text does in a frame.
@@ -412,6 +419,10 @@ struct SubtitleState {
   uint64_t frames_fallback = 0;
   uint64_t frames_lost = 0;
   uint64_t moves = 0;
+  // The read ahead: the frame from which the help text of now drew. A copy
+  // from before it holds other text.
+  bool had_content = false;
+  uint64_t content_since = 0;
   double read_ms = 0.0;
   double worst_ms = 0.0;
   uint64_t bytes = 0;
@@ -452,6 +463,7 @@ void SubtitleReadSettings() {
   s.fallback_cm = Clamp(SubtitleIniKey("subtitle_fallback_cm", 75), 30, 400);
   s.test = SubtitleIniKey("subtitle_card_test", 0) != 0;
   s.selftest = SubtitleIniKey("subtitle_selftest", 0) != 0;
+  s.read_ahead = SubtitleIniKey("subtitle_read_ahead", 1) != 0;
 }
 
 subtitle_math::Layout SubtitleLayout() {
@@ -541,25 +553,52 @@ void SubtitleBeginFrame(bool to_headset, bool projection, uint64_t frame,
     }
   }
   GpuBridgePanelNewFrame(false);
+  // The read ahead: a copy of a frame before, which the GPU has done, goes to
+  // system memory now, before the eye passes give the GPU new work.
+  if (s.set.read_ahead) GpuBridgePanelFetchHalf();
   UiPanelRouteFrame(kUiPanelSubtitles, mode == kSubtitlesCard, false);
 }
 
+// What SubtitleCopy gives.
+const int kCopyDone = 0;
+const int kCopyNotYet = 1;  // the read ahead has no pixels of this text yet
+const int kCopyFailed = 2;
+
 // The half size copy of `rect` of the panel target, into s.pixels, with the
-// color and the alpha multiplied by `fade`. False when the copy failed.
-bool SubtitleCopy(const int rect[4], uint32_t render_w, uint32_t render_h,
-                  float fade, uint32_t* w_out, uint32_t* h_out,
-                  double* ms_out) {
+// color and the alpha multiplied by `fade`. `used` gets the rect of the panel
+// that the pixels hold: `rect`, or with the read ahead the rect of the copy
+// of a frame before.
+int SubtitleCopy(const int rect[4], uint32_t render_w, uint32_t render_h,
+                 float fade, int used[4], uint32_t* w_out, uint32_t* h_out,
+                 double* ms_out) {
   SubtitleState& s = g_sub;
   LARGE_INTEGER t0, t1, frequency;
   QueryPerformanceFrequency(&frequency);
   QueryPerformanceCounter(&t0);
   int pitch = 0;
   uint32_t w = 0, h = 0;
-  const uint8_t* source = static_cast<const uint8_t*>(
-      GpuBridgePanelReadHalf(rect, &pitch, &w, &h));
+  const uint8_t* source = nullptr;
+  bool failed = false;
+  if (s.set.read_ahead) {
+    failed = !GpuBridgePanelQueueHalf(rect, g_frame);
+    source = static_cast<const uint8_t*>(
+        GpuBridgePanelReadyHalf(s.content_since, used, &pitch, &w, &h));
+  } else {
+    for (int i = 0; i < 4; ++i) used[i] = rect[i];
+    source = static_cast<const uint8_t*>(
+        GpuBridgePanelReadHalf(rect, &pitch, &w, &h));
+    failed = source == nullptr;
+  }
   const uint32_t texture_w = render_w / 2, texture_h = render_h / 2;
-  if (source == nullptr || w == 0 || h == 0 || w > texture_w ||
-      h > texture_h) {
+  if (source != nullptr &&
+      (w == 0 || h == 0 || w > texture_w || h > texture_h)) {
+    failed = true;
+  }
+  if (!failed && source == nullptr) {
+    GpuBridgePanelReadDone();
+    return kCopyNotYet;
+  }
+  if (failed) {
     GpuBridgePanelReadDone();
     ++s.frames_lost;
     s.showing = false;
@@ -569,7 +608,7 @@ bool SubtitleCopy(const int rect[4], uint32_t render_w, uint32_t render_h,
       ModLog("subtitles    : the copy of the help text failed 3 times, so the "
              "subtitles go back to the eye pictures, frame %llu", g_frame);
     }
-    return false;
+    return kCopyFailed;
   }
   s.read_failures = 0;
   if (s.pixels == nullptr || s.texture_w != texture_w ||
@@ -601,7 +640,7 @@ bool SubtitleCopy(const int rect[4], uint32_t render_w, uint32_t render_h,
   *w_out = w;
   *h_out = h;
   *ms_out = ms;
-  return true;
+  return kCopyDone;
 }
 
 // The card of a flat frame of the cut scene window: the part of the render
@@ -610,16 +649,20 @@ void SubtitleWindowCard(const int rect[4], uint32_t render_w,
                         uint32_t render_h) {
   SubtitleState& s = g_sub;
   bwvr::CardLayer layer = {};
-  if (!CutsceneWindowSubtitleQuad(render_w, render_h, rect, layer.position,
+  uint32_t w = 0, h = 0;
+  double ms = 0.0;
+  int used[4] = {0, 0, 0, 0};
+  if (SubtitleCopy(rect, render_w, render_h, 1.0f, used, &w, &h, &ms) !=
+      kCopyDone) {
+    return;
+  }
+  if (!CutsceneWindowSubtitleQuad(render_w, render_h, used, layer.position,
                                   layer.orientation, &layer.width,
                                   &layer.height)) {
     ++s.frames_lost;
     s.window_showing = false;
     return;
   }
-  uint32_t w = 0, h = 0;
-  double ms = 0.0;
-  if (!SubtitleCopy(rect, render_w, render_h, 1.0f, &w, &h, &ms)) return;
   layer.visible = true;
   layer.pixels = s.pixels;
   layer.texture_width = s.texture_w;
@@ -637,8 +680,8 @@ void SubtitleWindowCard(const int rect[4], uint32_t render_w,
     ModLog("subtitles    : frame %llu, the subtitle card under the cut scene "
            "window: the rect %d %d %d %d of the %u by %u render, %u by %u px "
            "on the card, at %.3f %.3f %.3f m, turn %.4f %.4f %.4f %.4f, %.2f "
-           "by %.2f m. The copy took %.2f ms", g_frame, rect[0], rect[1],
-           rect[2], rect[3], render_w, render_h, w, h, layer.position[0],
+           "by %.2f m. The copy took %.2f ms", g_frame, used[0], used[1],
+           used[2], used[3], render_w, render_h, w, h, layer.position[0],
            layer.position[1], layer.position[2], layer.orientation[0],
            layer.orientation[1], layer.orientation[2], layer.orientation[3],
            layer.width, layer.height, ms);
@@ -663,6 +706,7 @@ void SubtitleEndPasses() {
     s.showing = false;
     s.window_showing = false;
     s.shown.fade = 0.0f;
+    s.had_content = false;
     return;
   }
   ++s.frames_card;
@@ -671,6 +715,7 @@ void SubtitleEndPasses() {
     // this frame drew in the eye pictures.
     ++s.frames_lost;
     s.showing = false;
+    s.had_content = false;
     if (++s.read_failures >= 3 && !s.read_failed) {
       s.read_failed = true;
       ModLog("subtitles    : the target of the help text failed 3 times, so "
@@ -688,6 +733,10 @@ void SubtitleEndPasses() {
                  subtitle_math::CardRect(bounds, kSubtitlePad, kSubtitleGrid,
                                          static_cast<int>(render_w),
                                          static_cast<int>(render_h), rect);
+  // The read ahead shows only a copy from the frame in which the help text
+  // of now started, or later.
+  if (content && !s.had_content) s.content_since = g_frame;
+  s.had_content = content;
 
   // IN THE CUT SCENE WINDOW the card has the place of the screen. It has no
   // anchor of its own, and it does not fade.
@@ -750,16 +799,19 @@ void SubtitleEndPasses() {
   // THE PICTURE: the part that drew, at half the size.
   uint32_t w = 0, h = 0;
   double ms = 0.0;
-  if (!SubtitleCopy(rect, render_w, render_h, s.shown.fade, &w, &h, &ms)) {
+  int used[4] = {0, 0, 0, 0};
+  if (SubtitleCopy(rect, render_w, render_h, s.shown.fade, used, &w, &h,
+                   &ms) != kCopyDone) {
     return;
   }
   const uint32_t texture_w = s.texture_w, texture_h = s.texture_h;
 
-  // THE QUAD: the rect on the screen that hangs from the anchor.
-  const float rect_f[4] = {static_cast<float>(rect[0]),
-                           static_cast<float>(rect[1]),
-                           static_cast<float>(rect[2]),
-                           static_cast<float>(rect[3])};
+  // THE QUAD: the rect on the screen that hangs from the anchor. It is the
+  // rect of the pixels, so each pixel keeps its place in the room.
+  const float rect_f[4] = {static_cast<float>(used[0]),
+                           static_cast<float>(used[1]),
+                           static_cast<float>(used[2]),
+                           static_cast<float>(used[3])};
   subtitle_math::Quad quad;
   subtitle_math::RectQuad(s.shown.head, s.shown.yaw, SubtitleLayout(),
                           static_cast<float>(render_w),
@@ -796,7 +848,7 @@ void SubtitleEndPasses() {
            "%.3f m, turn %.4f %.4f %.4f %.4f, %.2f by %.2f m, %.2f m from "
            "the head and %.0f degrees below eye level. The head has a yaw of "
            "%.0f degrees and the card of %.0f. Fade %.2f, the copy took %.2f "
-           "ms", g_frame, rect[0], rect[1], rect[2], rect[3], render_w,
+           "ms", g_frame, used[0], used[1], used[2], used[3], render_w,
            render_h, w, h, quad.position[0], quad.position[1],
            quad.position[2], quad.orientation[0], quad.orientation[1],
            quad.orientation[2], quad.orientation[3], quad.width, quad.height,
@@ -891,6 +943,15 @@ void UiPanelSetOptions(const UiPanelSettings& settings) {
            sub.distance_cm, sub.down_deg, sub.width_cm, sub.fallback_cm,
            sub.test ? ". subtitle_card_test=1: the route runs with no headset"
                     : "");
+    if (sub.on) {
+      ModLog("subtitles    : subtitle_read_ahead=%d. %s", sub.read_ahead ? 1 : 0,
+             sub.read_ahead
+                 ? "The copy of the card goes to system memory at the start "
+                   "of a later frame, when the GPU has done it, and the frame "
+                   "thread does not wait"
+                 : "The copy of the card goes to system memory after the eye "
+                   "passes, and the frame thread waits for the GPU");
+    }
     return;
   }
   GpuBridgePanelWant(true, g_settings.mode == kUiPanelLayer);
@@ -940,6 +1001,24 @@ void UiPanelToggle() {
   }
   g_mode = (g_mode == kUiPanelOff) ? g_settings.mode : kUiPanelOff;
   ModLog("test key     : %s", ModeName(g_mode));
+}
+
+// Ctrl Shift Pause with test_keys=1: the read ahead of the subtitle card goes
+// off and on, for a live A/B. A copy from before the key does not show. A
+// long pulse says that the read ahead is on, a short pulse that it is off.
+void UiPanelSubtitleReadAheadToggle(const char* keys) {
+  SubtitleState& s = g_sub;
+  if (!s.set.on) return;
+  s.set.read_ahead = !s.set.read_ahead;
+  s.content_since = g_frame + 1;
+  ControllersGesturePulse(0.5f, s.set.read_ahead ? 0.30f : 0.08f);
+  ModLog("test key     : %s, subtitle_read_ahead is %d now: %s", keys,
+         s.set.read_ahead ? 1 : 0,
+         s.set.read_ahead
+             ? "the frame thread does not wait for the copy of the subtitle "
+               "card"
+             : "the frame thread waits for the GPU at the copy of the subtitle "
+               "card");
 }
 
 void UiPanelBeginFrame(bool to_headset, bool projection, uint64_t frame,

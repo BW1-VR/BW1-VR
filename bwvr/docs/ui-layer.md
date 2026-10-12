@@ -1036,14 +1036,27 @@ text of the HelpText scope draws in an eye picture. This runs with
    the hint card.
 3. After both eye passes (`UiDepthSetEye(-1)`), `SubtitleEndPasses` takes the
    bounds of what drew, with 8 pixels of room, on a grid of 16 pixels
-   (`CardRect`). `GpuBridgePanelReadHalf` copies that rect at half the size
-   with one `StretchRect` (linear, so each pixel is the mean of four) and one
-   `GetRenderTargetData`. That call copies a whole surface, so the copy goes
-   through a target that is only as large as the rect, on a grid of 128 pixels.
-   Six sizes are kept. A subtitle costs a copy of about 1 MB. Both eye captures
-   are done at that time, so the GPU has no work left and the copy does not
-   wait.
-4. `XrScreen::StageCard(kCardSubtitles)` gives the pixels and the pose to
+   (`CardRect`). The copy of that rect at half the size is one `StretchRect`
+   (linear, so each pixel is the mean of four) into a target that is only as
+   large as the rect, on a grid of 128 pixels, and one `GetRenderTargetData`
+   to system memory. A subtitle costs a copy of about 1 MB.
+4. **The read ahead** (`subtitle_read_ahead=1`, the default). The GPU does the
+   calls of the device in the order of its queue, so `GetRenderTargetData`
+   waits until the GPU has done each call before it. After the eye passes that
+   is both eye passes. With `frame_send` 1 and 2 the frame thread does not
+   wait for the GPU at all, so that read would be a wait of the frame thread.
+   So the copy goes into one of three slots, with an event query after it
+   (`GpuBridgePanelQueueHalf`). At the start of a later frame, before the eye
+   passes, `GpuBridgePanelFetchHalf` reads the newest slot whose query is done,
+   when the query of the last frame end is done too. Then the GPU has no work
+   left, and the read is only the copy. `GpuBridgePanelReadyHalf` gives those
+   pixels and the rect that they hold, and the quad has that rect. So the card
+   shows the help text of one or two frames before. A copy from before the
+   frame in which the help text of now started does not show, so old text
+   never comes back.
+   With `subtitle_read_ahead=0`, `GpuBridgePanelReadHalf` reads the copy of
+   the frame at once, and the frame thread waits for the GPU.
+5. `XrScreen::StageCard(kCardSubtitles)` gives the pixels and the pose to
    `EndFrame`. That makes a swapchain of half the render size at the first
    subtitle, writes the rect with `UpdateSubresource`, and adds ONE quad layer
    in the LOCAL space. This is the path of the hint card.
@@ -1118,12 +1131,14 @@ window the help text stays in the picture of the window.
 | `subtitle_card_down_deg` | 17 | The angle of the subtitles below eye level, -20 to 60 |
 | `subtitle_card_width_cm` | 100 | The width of the whole render on the card, 30 to 300. It sets the size of the letters |
 | `subtitle_fallback_cm` | 75 | The fixed depth of the fallback, 30 to 400 |
+| `subtitle_read_ahead` | 1 | 1 reads the copy of the card at the start of a later frame, when the GPU has done it, so the frame thread does not wait (17.2, step 4). 0 reads it after the eye passes of its frame, and the frame thread waits for the GPU |
 
 Test keys: `subtitle_card_test=1` runs the route with no headset, for the desktop
 rig. `subtitle_selftest=1` draws two lines of help text in the HelpText scope
 with the game's own text code (`SubtitleSelfTest`), because a desktop run shows
 no subtitle. With `test_keys=1` and `ui_panel=0`, Ctrl Shift F11 switches
-between the cards and the eye pictures, for a live comparison.
+between the cards and the eye pictures, for a live comparison. With
+`test_keys=1`, Ctrl Shift Pause turns `subtitle_read_ahead` off and on.
 
 ### 17.6 The log
 
@@ -1145,15 +1160,19 @@ The tag `subtitles`:
 - Each report window: the frames with the route, the frames with a card, the
   moves, the time and the size of the copy, the frames with help text and no
   card, and the batches of the fallback. `ui panel` gives the batches that went
-  to the target and the half size copies. `XrScreen` counts the quad layers of
-  the card.
+  to the target and the half size copies. With the read ahead it gives the
+  copies in the queue, the reads, the frame starts with a copy that the GPU
+  had not done, and the copies that were never read. The time of the copy is
+  then the time of the lock and of the copy in the CPU, with no wait for the
+  GPU. `XrScreen` counts the quad layers of the card.
 
 ### 17.7 Cost
 
 | Item | Cost |
 | --- | --- |
 | Memory | The panel target and its depth at the render size (66 MiB at 2880 by 2880), the copy targets (1 to 2 MiB each for a subtitle), a buffer and a swapchain of half the render size (8 MiB, and 24 MiB for 3 images) [I] |
-| A frame with a subtitle | One clear of the panel, one bind for each span, one `StretchRect`, one `GetRenderTargetData`, one copy and one `UpdateSubresource` of the rect. The log gives the time of the copy. |
+| A frame with a subtitle | One clear of the panel, one bind for each span, one `StretchRect`, one event query, one `GetRenderTargetData`, one copy and one `UpdateSubresource` of the rect. The log gives the time of the copy. |
+| The wait for the GPU at the copy | With `subtitle_read_ahead=1`: none. With 0 and `frame_send` 1 or 2: the frame thread waits until the GPU has done both eye passes. Headset sessions with `frame_send=2`, `one_walk=1` and the card in each frame had 4 to 8 ms in each frame that no part of the frame report had, and 45 fps in views that held 90 fps with no card. With `frame_send=0` the frame thread waits for the GPU after the eye passes anyway |
 | The copy, with no game [M] | The same Direct3D 9 calls on an RTX 3090: a subtitle strip of 2112 by 304 pixels takes 0.41 ms, the Creature panel 0.32 ms, and a rect that holds both 2.2 ms |
 | A frame with no help text | Nothing: no clear, no copy, no layer |
 | `subtitle_card=0` | Nothing |
