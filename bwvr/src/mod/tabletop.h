@@ -156,6 +156,12 @@ bool TabletopGodTurn(int direction, float degrees);
 bool TabletopGodGameCamera(float position[3], float focus[3],
                            uint64_t* version);
 
+// True when the view only turned with snap turns since the game camera and
+// the view were last kept as a pair, and turned gives by how much (radians,
+// to the right above 0). GodAfter then turns the game camera about its own
+// focus (god_turn_keeps_focus).
+bool TabletopGodTurnedOnly(float* turned);
+
 // THE GAME PUT ITS OWN CAMERA AT A NEW PLACE (docs/god-view.md, "The place at
 // a camera of the game"). comfort_camera.cpp calls this when the game camera is at rest after a move
 // that the player did not make. The God view goes to that place at its next

@@ -408,6 +408,9 @@ bool g_god_story = false;
 // Goes up each time the player moves the God view: a step or a grab. The game
 // camera is written once for each value (TabletopGodGameCamera).
 uint64_t g_god_version = 0;
+// The last value of g_god_version that was not a snap turn alone. A turn
+// alone keeps the focus of the game camera (TabletopGodTurnedOnly).
+uint64_t g_god_nonturn_version = 0;
 uint64_t g_god_steps = 0;
 uint64_t g_god_refused = 0;
 // THE TELEPORT request (TabletopGodTeleport, TabletopTableTeleport): the
@@ -1288,6 +1291,7 @@ void MousePan(bool drag) {
   ++g_serial;
   g_pan.serial = g_serial;
   ++g_god_version;
+  g_god_nonturn_version = g_god_version;
   ++g_pan_moves;
   ++g_pan.moved;
 }
@@ -1440,6 +1444,7 @@ void ApplyGodSteps() {
   TablePose pose = Pose();
   TablePose next = pose;
   bool moved = false;
+  bool placed = false;  // a step that is not a snap turn
 
   if (turn != 0) {
     GodTurn(pose, room, head, turn * g_god_turn_degrees / 57.29578f, &next);
@@ -1508,6 +1513,7 @@ void ApplyGodSteps() {
       for (int i = 0; i < 3; ++i) g_zoom_probe.pivot[i] = point.pivot[i];
       pose = next;
       moved = true;
+      placed = true;
       Help(kHelpZoom, kInputWheel);
     } else {
       ++g_god_refused;
@@ -1537,6 +1543,7 @@ void ApplyGodSteps() {
     } else {
       pose = next;
       moved = true;
+      placed = true;
       if (GodLog()) {
         ModLog("god view     : the ground went %s %d cm. The land under your "
                "head is %.2f m below it.", rise > 0.0f ? "up" : "down",
@@ -1559,6 +1566,7 @@ void ApplyGodSteps() {
                 kGroundFarthest, &to);
     pose = to;
     moved = true;
+    placed = true;
   }
 
   if (!moved) return;
@@ -1571,6 +1579,7 @@ void ApplyGodSteps() {
   ++g_serial;
   ++g_god_steps;
   ++g_god_version;
+  if (placed) g_god_nonturn_version = g_god_version;
   ComfortCameraBlink();
   if (teleport) {
     float head_after[3];
@@ -1624,7 +1633,10 @@ void StopZoomHold(const char* cause, bool view_stays) {
   g_hold_seconds += g_hold.seconds;
   // A hold that changed nothing was at a limit of the scale.
   if (g_hold.moved == 0) ++g_god_refused;
-  if (g_hold.moved != 0 && view_stays) ++g_god_version;
+  if (g_hold.moved != 0 && view_stays) {
+    ++g_god_version;
+    g_god_nonturn_version = g_god_version;
+  }
   const bool at_limit = g_hold.direction > 0 ? g_hold.scale <= GodLowest()
                                              : g_hold.scale >= GodHighest();
   float eye[3] = {0.0f, 0.0f, 0.0f};
@@ -1804,7 +1816,10 @@ void ApplyGodZoomHold(double frame_seconds) {
   g_scale = next.scale;
   Derive();
   ++g_serial;
-  if (g_hold.moved == 0 || g_hold.kept) ++g_god_version;
+  if (g_hold.moved == 0 || g_hold.kept) {
+    ++g_god_version;
+    g_god_nonturn_version = g_god_version;
+  }
   ++g_hold.moved;
   g_hold.scale = g_scale;
   PoseWorld(Pose(), room, head, under);
@@ -2475,7 +2490,10 @@ void TabletopMove(const TablePose& pose) {
   g_scale = pose.scale;
   Derive();
   ++g_moves;
-  if (g_settings.god) ++g_god_version;
+  if (g_settings.god) {
+    ++g_god_version;
+    g_god_nonturn_version = g_god_version;
+  }
   MoveHelp(before, kInputButton);
 }
 
@@ -2849,6 +2867,19 @@ void TabletopGodCameraWritten(const float position[3], const float focus[3]) {
   g_pair.version = g_god_version;
 }
 
+// THE TURN THAT KEEPS THE GAME'S FOCUS (GodAfter in comfort_camera.cpp,
+// god_turn_keeps_focus). True when the view only turned with snap turns since
+// the pair of the game camera and the view was kept, and turned then gives by
+// how much, in radians, to the right above 0. The game camera can then turn
+// about its own focus, as the game's turn does, also when a script put that
+// focus there.
+bool TabletopGodTurnedOnly(float* turned) {
+  if (!TabletopGodOwnsView() || !g_pair.have) return false;
+  if (g_god_nonturn_version > g_pair.version) return false;
+  *turned = Wrap(g_heading - g_pair.pose.heading);
+  return true;
+}
+
 // THE TEST KEY of god_spawn (Ctrl and Numpad 0, with test_keys=1). The rule
 // changes between 1 and 0. Then the view goes to the game camera of now by
 // the rule that it has, so the two places can be compared at one camera.
@@ -2875,6 +2906,7 @@ void TabletopGodCameraAtToggle() {
          g_settings.god_camera_at != 0 ? "the land point under your head"
                                        : "the recenter place");
   ++g_god_version;
+  g_god_nonturn_version = g_god_version;
 }
 
 // A step from the sticks or the wheel. It is kept until the next main camera

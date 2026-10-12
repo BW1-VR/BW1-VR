@@ -576,6 +576,46 @@ inline void GameCameraOver(const float ground[3], float heading,
   position[2] = ground[2] - cosf(heading) * flat;
 }
 
+// A TURN THAT KEEPS THE GAME'S FOCUS (docs/god-view.md, "7. The game
+// camera", god_turn_keeps_focus): the game camera turns about its focus by
+// angle radians, to the right for an angle above 0, as the view turned
+// (GodTurn). The focus, the height and the distance stay. The game's own turn
+// does the same, and the step of the tutorial that teaches it tests that the
+// focus stays at its place.
+inline void TurnAboutFocus(const float focus[3], float angle,
+                           float position[3]) {
+  const float c = cosf(angle);
+  const float s = sinf(angle);
+  const float dx = position[0] - focus[0];
+  const float dz = position[2] - focus[2];
+  position[0] = focus[0] + dx * c + dz * s;
+  position[2] = focus[2] - dx * s + dz * c;
+}
+
+// THE TURN EVENTS OF A SNAP TURN (turn_help_degrees). The game counts at most
+// one turn event in a game turn (CameraHelpAccumulator::Trigger, cleared by
+// HelpProfile::Process), and its own turn sends one in each frame while it
+// runs. So a snap turn of degrees counts as many events as its angle takes at
+// degrees_per_event. 0 or less gives one event, as one press of a turn key.
+inline int SnapTurnEvents(float degrees, float degrees_per_event) {
+  if (!(degrees_per_event > 0.0f) || !(degrees > 0.0f)) return 1;
+  const int events =
+      static_cast<int>(ceilf(degrees / degrees_per_event - 1e-4f));
+  return events < 1 ? 1 : events;
+}
+
+// THE TILT OF THE HEAD (tilt_help_degrees). The view does not tilt, the head
+// looks up and down. The degrees of pitch from one update to the next that
+// count as the game's tilt: all of them when the head pitches at speed_deg
+// degrees a second or faster, none when it is slower, so a still head and
+// the noise of the tracking count nothing.
+inline float CountedPitch(float before_deg, float after_deg, float seconds,
+                          float speed_deg) {
+  const float moved = fabsf(after_deg - before_deg);
+  if (!(seconds > 0.0f) || moved < speed_deg * seconds) return 0.0f;
+  return moved;
+}
+
 // THE THROW FROM INSIDE THE INFLUENCE (docs/tabletop.md, "The throw from
 // inside the influence").
 // The game lets go of an object only when the land point of the release is

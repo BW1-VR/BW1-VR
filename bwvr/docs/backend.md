@@ -1862,7 +1862,10 @@ moves it.
   at their values with `Zoomer::SetPosition` (`0x00441AC0`). The copies of the mode
   at `+0xC`, `+0x18` and `+0x1D4`, and its heading at `+0x50`, follow, so the next
   zoom does not swing back. `CameraHelp::CameraHelpCallback` is called with `0x300`
-  and a direction, so the tutorial counts the turn. `blink` (default 0) can add a blink of 100 ms or 200 ms.
+  and a direction, so the tutorial counts the turn, and with `turn_help_degrees` (5)
+  as many more events as the game's own turn makes for that angle, one in each
+  later game turn (`god-view.md`, "The turn lesson"). `blink` (default 0) can add a
+  blink of 100 ms or 200 ms.
 - **No other smooth turn or tilt.** Bits 1 and 2 of `CameraHelp::EnabledFeatures`
   (`0x009CDD6C`) are cleared for the length of the update of the mode and put back
   after. Scripts write that word, but never during the call. A turn also needs the
@@ -2582,6 +2585,7 @@ keys that the launcher sets.
 | `menu_skip_test_frame` | 0 | A test key of the desktop runs: the frame at which the mod closes the Main Menu that the game opens over a saved game that it loads at its start, as the button "Continue Game" does. 0 is off. The launcher removes the key from `bwvr.ini` on each save. See "A test save" |
 | `window_width`, `window_height` | 0 | A forced window size |
 | `snap_turn`, `blink`, `instant_jumps`, `camera_glide` | 2, 0, 1, 0 | See "Moving around" |
+| `turn_help_degrees`, `god_turn_keeps_focus`, `tilt_help_degrees` | 5, 1, 3 | See `god-view.md`, "The turn lesson" |
 | `zoom_step` | 2 | See "Zoom in steps" |
 | `drag_smoothing_ms` | 35 | See "Smoother drags far out" |
 | `script_camera` and its keys | 2 | See "The story camera" |
