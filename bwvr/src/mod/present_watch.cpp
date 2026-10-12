@@ -33,6 +33,7 @@
 
 #include "MinHook.h"
 #include "../common/bw_addresses.h"
+#include "blt_copy_math.h"
 #include "frame_profile.h"
 
 extern void ModLog(const char* format, ...);
@@ -154,10 +155,218 @@ bool IsPrimary(IDirectDrawSurface7* surface) {
   return false;
 }
 
+// THE COPY BETWEEN TWO TEXTURES (blt_texture_copy). For a Blt to or from a
+// texture, m_IDirectDrawSurfaceX::CopySurface of dxwrapper calls
+// D3DXLoadSurfaceFromSurface. The game makes such a copy when it makes the
+// two pictures of a save (0x007923D0, the second Blt at 0x0079260C, the rect
+// 0 128 128 192), between two DXT textures of 256 by 256 pixels in system
+// memory. On some PCs D3DX then writes to memory that is not there,
+// and the game stops with an access violation in msvcrt.dll. The first save
+// of a new game is such a save. The cause in dxwrapper is not known.
+//
+// So the mod makes the copy itself: it locks the two surfaces with the Lock
+// of the game's own texture writes and copies the pixels, also between two
+// RGB formats, or the blocks of 4 by 4 pixels of two textures with one
+// DXT format (blt_copy_math.h). It does this for a copy with no stretch and
+// no effect, when one of the two surfaces is a texture and none is the
+// primary surface. Each other copy goes to dxwrapper.
+bool g_texture_copy = true;
+uint64_t g_texture_copies = 0;
+uint64_t g_texture_copy_fails = 0;
+// The log has the first two copies of each caller, for up to 24 callers.
+const int kCallerMax = 24;
+void* g_callers[kCallerMax] = {nullptr};
+int g_caller_lines[kCallerMax] = {0};
+int g_caller_count = 0;
+
+bool CallerMayLog(void* caller) {
+  for (int i = 0; i < g_caller_count; ++i) {
+    if (g_callers[i] == caller) return g_caller_lines[i]++ < 2;
+  }
+  if (g_caller_count >= kCallerMax) return false;
+  g_callers[g_caller_count] = caller;
+  g_caller_lines[g_caller_count] = 1;
+  ++g_caller_count;
+  return true;
+}
+
+bool DescOf(IDirectDrawSurface7* surface, DDSURFACEDESC2* desc) {
+  ZeroMemory(desc, sizeof(*desc));
+  desc->dwSize = sizeof(*desc);
+  if (surface == nullptr || FAILED(surface->GetSurfaceDesc(desc))) {
+    return false;
+  }
+  const DWORD need = DDSD_WIDTH | DDSD_HEIGHT | DDSD_CAPS | DDSD_PIXELFORMAT;
+  return (desc->dwFlags & need) == need;
+}
+
+blt_copy::Format FormatOf(const DDPIXELFORMAT& pf) {
+  blt_copy::Format f = {0, 0, 0, 0, 0};
+  if ((pf.dwFlags & DDPF_RGB) == 0 || (pf.dwFlags & DDPF_FOURCC) != 0 ||
+      (pf.dwFlags & DDPF_PALETTEINDEXED8) != 0) {
+    return f;
+  }
+  f.red = pf.dwRBitMask;
+  f.green = pf.dwGBitMask;
+  f.blue = pf.dwBBitMask;
+  f.alpha = (pf.dwFlags & DDPF_ALPHAPIXELS) != 0 ? pf.dwRGBAlphaBitMask : 0;
+  f.bytes = static_cast<int>(pf.dwRGBBitCount / 8);
+  return f;
+}
+
+// The rect of a Blt, or the whole surface for no rect. False when the rect is
+// empty, turned or outside the surface.
+bool RectIn(const RECT* rect, const DDSURFACEDESC2& desc, RECT* out) {
+  if (rect == nullptr) {
+    out->left = 0;
+    out->top = 0;
+    out->right = static_cast<LONG>(desc.dwWidth);
+    out->bottom = static_cast<LONG>(desc.dwHeight);
+  } else {
+    *out = *rect;
+  }
+  return out->left >= 0 && out->top >= 0 && out->left < out->right &&
+         out->top < out->bottom &&
+         out->right <= static_cast<LONG>(desc.dwWidth) &&
+         out->bottom <= static_cast<LONG>(desc.dwHeight);
+}
+
+void LogCopy(const char* what, const DDSURFACEDESC2& to, const RECT& d,
+             const DDSURFACEDESC2& from, const RECT& s, void* caller) {
+  const DDPIXELFORMAT& a = to.ddpfPixelFormat;
+  const DDPIXELFORMAT& b = from.ddpfPixelFormat;
+  ModLog("present      : %s. Destination %lu x %lu, caps 0x%08lX, format "
+         "0x%lX %.4s %lu bit %08lX %08lX %08lX %08lX, rect %ld %ld %ld %ld. "
+         "Source %lu x %lu, caps 0x%08lX, format 0x%lX %.4s %lu bit %08lX "
+         "%08lX %08lX %08lX, rect %ld %ld %ld %ld. The call is from 0x%08X",
+         what, to.dwWidth, to.dwHeight, to.ddsCaps.dwCaps, a.dwFlags,
+         reinterpret_cast<const char*>(&a.dwFourCC), a.dwRGBBitCount,
+         a.dwRBitMask, a.dwGBitMask, a.dwBBitMask,
+         a.dwRGBAlphaBitMask, d.left, d.top, d.right, d.bottom,
+         from.dwWidth, from.dwHeight, from.ddsCaps.dwCaps, b.dwFlags,
+         reinterpret_cast<const char*>(&b.dwFourCC), b.dwRGBBitCount,
+         b.dwRBitMask, b.dwGBitMask, b.dwBBitMask,
+         b.dwRGBAlphaBitMask, s.left, s.top, s.right, s.bottom,
+         static_cast<unsigned>(reinterpret_cast<uintptr_t>(caller)));
+}
+
+// True when the mod made the copy, with its result in *result.
+bool TextureCopy(IDirectDrawSurface7* self, const RECT* destination,
+                 IDirectDrawSurface7* source, const RECT* source_rect,
+                 DWORD flags, LPDDBLTFX fx, void* caller, HRESULT* result) {
+  if (source == nullptr || source == self) return false;
+  DDSURFACEDESC2 to, from;
+  if (!DescOf(self, &to) || !DescOf(source, &from)) return false;
+  if (((to.ddsCaps.dwCaps | from.ddsCaps.dwCaps) & DDSCAPS_TEXTURE) == 0 ||
+      ((to.ddsCaps.dwCaps | from.ddsCaps.dwCaps) & DDSCAPS_PRIMARYSURFACE) !=
+          0) {
+    return false;
+  }
+  RECT d = {0, 0, 0, 0};
+  RECT s = {0, 0, 0, 0};
+  const bool fits_to = RectIn(destination, to, &d);
+  const bool fits_from = RectIn(source_rect, from, &s);
+  const blt_copy::Format format_to = FormatOf(to.ddpfPixelFormat);
+  const blt_copy::Format format_from = FormatOf(from.ddpfPixelFormat);
+  const bool plain =
+      fx == nullptr &&
+      (flags & ~(DDBLT_WAIT | DDBLT_ASYNC | DDBLT_DONOTWAIT)) == 0;
+  const bool rgb =
+      blt_copy::Usable(format_to) && blt_copy::Usable(format_from);
+  // Two compressed textures with one FourCC code: the copy is of blocks.
+  const DDPIXELFORMAT& pf_to = to.ddpfPixelFormat;
+  const DDPIXELFORMAT& pf_from = from.ddpfPixelFormat;
+  const int block_bytes =
+      (pf_to.dwFlags & pf_from.dwFlags & DDPF_FOURCC) != 0 &&
+              pf_to.dwFourCC == pf_from.dwFourCC
+          ? blt_copy::BlockBytes(pf_to.dwFourCC)
+          : 0;
+  const bool blocks =
+      block_bytes > 0 &&
+      blt_copy::OnBlocks(d.left, d.top, d.right, d.bottom,
+                         static_cast<int>(to.dwWidth),
+                         static_cast<int>(to.dwHeight)) &&
+      blt_copy::OnBlocks(s.left, s.top, s.right, s.bottom,
+                         static_cast<int>(from.dwWidth),
+                         static_cast<int>(from.dwHeight));
+  const bool log = CallerMayLog(caller);
+  if (!plain || !fits_to || !fits_from || !(rgb || blocks) ||
+      d.right - d.left != s.right - s.left ||
+      d.bottom - d.top != s.bottom - s.top) {
+    if (log) {
+      LogCopy(plain ? "a copy with a texture goes to dxwrapper"
+                    : "a copy with a texture and an effect goes to dxwrapper",
+              to, d, from, s, caller);
+    }
+    return false;
+  }
+  if (log) LogCopy("the mod copies with a texture", to, d, from, s, caller);
+
+  DDSURFACEDESC2 locked_from, locked_to;
+  ZeroMemory(&locked_from, sizeof(locked_from));
+  locked_from.dwSize = sizeof(locked_from);
+  ZeroMemory(&locked_to, sizeof(locked_to));
+  locked_to.dwSize = sizeof(locked_to);
+  HRESULT hr = source->Lock(nullptr, &locked_from,
+                            DDLOCK_WAIT | DDLOCK_READONLY, nullptr);
+  if (FAILED(hr)) {
+    if (log) ModLog("present      : the lock of the source failed, 0x%08lX", hr);
+    ++g_texture_copy_fails;
+    *result = hr;
+    return true;
+  }
+  hr = self->Lock(nullptr, &locked_to, DDLOCK_WAIT | DDLOCK_WRITEONLY,
+                  nullptr);
+  if (FAILED(hr)) {
+    if (log) {
+      ModLog("present      : the lock of the destination failed, 0x%08lX",
+             hr);
+    }
+    source->Unlock(nullptr);
+    ++g_texture_copy_fails;
+    *result = hr;
+    return true;
+  }
+  const bool done =
+      blocks
+          ? blt_copy::CopyBlocks(
+                static_cast<const uint8_t*>(locked_from.lpSurface),
+                blt_copy::BlockPitch(static_cast<int>(locked_from.lPitch),
+                                     static_cast<int>(from.dwWidth),
+                                     block_bytes),
+                s.left, s.top, static_cast<uint8_t*>(locked_to.lpSurface),
+                blt_copy::BlockPitch(static_cast<int>(locked_to.lPitch),
+                                     static_cast<int>(to.dwWidth),
+                                     block_bytes),
+                d.left, d.top, d.right - d.left, d.bottom - d.top,
+                block_bytes)
+          : blt_copy::CopyBlock(
+                static_cast<const uint8_t*>(locked_from.lpSurface),
+                static_cast<int>(locked_from.lPitch), s.left, s.top,
+                format_from, static_cast<uint8_t*>(locked_to.lpSurface),
+                static_cast<int>(locked_to.lPitch), d.left, d.top, format_to,
+                d.right - d.left, d.bottom - d.top);
+  self->Unlock(nullptr);
+  source->Unlock(nullptr);
+  if (done) {
+    ++g_texture_copies;
+    *result = DD_OK;
+  } else {
+    ++g_texture_copy_fails;
+    *result = DDERR_GENERIC;
+  }
+  return true;
+}
+
 HRESULT WINAPI h_Blt(IDirectDrawSurface7* self, LPRECT destination,
                      IDirectDrawSurface7* source, LPRECT source_rect,
                      DWORD flags, LPDDBLTFX fx) {
   DrawMergeFlush();
+  HRESULT copied = DD_OK;
+  if (g_texture_copy && TextureCopy(self, destination, source, source_rect,
+                                    flags, fx, _ReturnAddress(), &copied)) {
+    return copied;
+  }
   // self is the destination surface. A copy onto the primary surface is the
   // frame going to the monitor, and while the headset is on it is wasted.
   if (g_skip_present && IsPrimary(self)) {
@@ -255,7 +464,8 @@ void PresentWatchInstall() {
   QueryPerformanceFrequency(&g_frequency);
   g_installed = hooked > 0;
   ModLog("present      : %d of 2 present paths hooked", hooked);
-  // The test key test_frame_rate, from bwvr.ini beside the game.
+  // The keys blt_texture_copy and test_frame_rate, from bwvr.ini beside the
+  // game.
   {
     char path[MAX_PATH];
     const DWORD length = GetModuleFileNameA(nullptr, path, MAX_PATH);
@@ -266,7 +476,14 @@ void PresentWatchInstall() {
       strcat_s(path, "bwvr.ini");
       g_test_rate = static_cast<int>(
           GetPrivateProfileIntA("bwvr", "test_frame_rate", 0, path));
+      g_texture_copy =
+          GetPrivateProfileIntA("bwvr", "blt_texture_copy", 1, path) != 0;
     }
+    ModLog("present      : blt_texture_copy=%d. %s", g_texture_copy ? 1 : 0,
+           g_texture_copy
+               ? "The mod makes a copy with a texture and no stretch itself, "
+                 "and not dxwrapper"
+               : "Each copy between surfaces goes to dxwrapper");
     if (g_test_rate < 20 || g_test_rate > 240) g_test_rate = 0;
     if (g_test_rate > 0) {
       ModLog("present      : test_frame_rate=%d, a test key of the desktop "
@@ -308,6 +525,12 @@ void PresentWatchReport(uint64_t frames) {
   if (g_skipped > 0) {
     ModLog("present      : %llu desktop copies skipped", g_skipped);
     g_skipped = 0;
+  }
+  if (g_texture_copies + g_texture_copy_fails > 0) {
+    ModLog("present      : the mod made %llu copies between two textures, "
+           "and %llu failed", g_texture_copies, g_texture_copy_fails);
+    g_texture_copies = 0;
+    g_texture_copy_fails = 0;
   }
   if (g_test_rate > 0) {
     ModLog("present      : test_frame_rate=%d: %llu frames waited for their "

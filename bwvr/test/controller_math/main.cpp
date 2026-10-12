@@ -3554,6 +3554,7 @@ void CreatureChecks() {
 #include "catch_checks.h"
 #include "one_walk_checks.h"
 #include "walk_checks.h"
+#include "blt_copy_checks.h"
 
 int main() {
   const float eye[3] = {120.0f, 45.0f, -300.0f};
@@ -3952,6 +3953,7 @@ int main() {
   catch_checks::CatchChecks();
   one_walk_checks::OneWalkChecks();
   walk_checks::WalkChecks();
+  blt_copy_checks::BltCopyChecks();
 
   printf("\n%d checks, %d failed\n", g_checks, g_failures);
   return g_failures == 0 ? 0 : 1;
