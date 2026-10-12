@@ -876,7 +876,12 @@ gold of the activate look is easy to tell from the gold of the take look.
   (`StartMultiPutdown`).
 - **The Hand.** During a take the Holding state asks slot `0x6A0`
   (`IsLockedInInteract`) of the source (`0x005B3EB3`) and holds the Hand over
-  it. The direct hand moves the Hand to the controller, as for any held object.
+  it: at the height of the land under the Hand plus slot `0x64C` of the source
+  (`GetHeightForHandAboveInteractObject`, the call at `0x005B3F49`). For a
+  pile and a field that slot is `Object::GetHeight` `0x00638120` (the height
+  of the box of the mesh times the scale), and for a `FishFarm` it is 5 units
+  (`0x0052C840`). The direct hand moves the Hand to the controller, as for any
+  held object.
 - **The forest.** A `Tree` gives no take. A press on it starts the Tug. A
   `BigForest` puts one new tree in the Hand
   (`BigForest::InterfaceSetInMagicHand` `0x004393C0`). The game has no bulk take
@@ -949,7 +954,11 @@ the class `ER_MultiPickup` with `EmitRate` 8 (pieces a second) and `RaiseTime`
 On each draw of the 3D engine, `PSysGlobal::DrawLoop` `0x0068F5E0` (from
 `GGame::Process3dEngine`) calls `fn_006714F0`. That function gives the
 particle system the place of the Hand of the picture (`CHand+0x78`) as its
-gesture position, and then processes and draws it. The rule
+gesture position, and then processes and draws it. The time step of the
+process is `LH3DTech::g_game_time_inc`, and 1 ms at the least (`0x006715AB`).
+So the rule runs one time in each walk of the scene: one time a frame with
+one walk for both eyes, and two times with two walks, where the second walk
+has a time step of 1 ms. The rule
 `ER_MultiPickup::ModifyAtomCollection` `0x006A77C0` (thiscall on the rule, the
 `AtomCollection`, `ret 4`) does all the work for the pieces, in world units:
 
@@ -974,6 +983,16 @@ stream comes out of the land under the Hand, and not out of the pile, also in
 the plain game: there the game holds the Hand over the pile.
 `PSysGlobal::StopMultiPickup` `0x0068FA50` deletes the particle system, with
 its pieces.
+
+The tumble rule of the piece of wood reads the velocity
+(`AppearanceRuleTumble::ModifyAtomCore` `0x006A6200`, with `TumbleSpeed` 0.849
+and `MaxTumbleSpeed` 6.2 in the file). The speed times `TumbleSpeed` is the
+rate of the turn in radians a second, 6.2 at the most, and the larger one of
+the x and the z of the velocity gives the axis. The grain is a sprite, and no
+rule of it reads the velocity.
+
+In a take at a distance the mod puts the pieces on a curve from the source to
+the Hand. See "The stream of a take at a distance".
 
 **The loop.** `PileResource::ProcessInInteract` calls `fn_0068F930(status,
 kind, t)` on each game turn of the take (`0x0066E5F9`). For the interface of
@@ -1397,9 +1416,86 @@ frame after the take, reads the bundle as an object that came after the
 opening, and lets it go with its click while the real grip is still closed.
 The same rule applies when a test key turns `far_grab` off during a take.
 
-The stream of pieces of a take comes out of the land under the Hand ("The
-stream and the loop of a take"). At a distance the Hand is not over the pile,
-so the stream does not come from the pile.
+### The stream of a take at a distance
+
+The plain game makes each piece of the stream at the land under the Hand
+("The stream and the loop of a take"). In a take at a distance the Hand is
+not over the source. So the mod puts the pieces on a curve from the top of
+the source to the Hand (`take_stream=1`). A piece goes straight up out of the
+source, then over to the Hand, and it comes down into the Hand at the end of
+its life. The game makes and deletes the pieces as before: 8 pieces a second,
+and each one lives 1 s. A take with the Hand at the source has the line of
+the game. With `take_stream=0` each take has the line of the game, from the
+land under the Hand.
+
+**The hook** (`take_stream.cpp`) is on the rule
+`ER_MultiPickup::ModifyAtomCollection`. After the rule of the game it writes
+the place (`AtomCore+0x80`) and the velocity (`+0x34`) of each piece again,
+from the age of the piece (`AtomCore::GetAtomAge`) over `RaiseTime`.
+`FarGrabTakeSource` says that the far grab has the source of a take: from the
+press on a bulk target to the end of the take. The game starts the stream in
+the game turn of the press, before the far grab reads the take.
+
+**The curve** (`take_stream_math.h`) is a cubic Bezier curve in world units:
+
+| Point | Where |
+| --- | --- |
+| P0 | The top of the source |
+| P1 | Straight over P0, at the top level |
+| P2 | Half of the way to the Hand along the floor, at the top level |
+| P3 | The Hand: the gesture position of the particle system (`PSysManager::GetCurrentGesturePosn` `0x00673600`), which is the Hand of the picture |
+
+The top level is 0.25 of the distance along the floor over the higher one of
+the two ends. Each measure is a share of the way, so the shape is the same
+for a short way and for a long way. With the two ends at one height, the top
+of the curve is 0.19 of the way over them. No point of the curve is lower
+than the lower end, so the pieces do not go through flat land between the
+source and the Hand. With the Hand straight over the source the curve is the
+straight line up.
+
+**The top of a source** is the point of its mesh plus the height at which
+the game holds the Hand over the source in a take (slot `0x64C`, see "What
+the game does"). The point is the translation of the mesh of the source (the
+`LH3DObject` at `Object+0x40`, `+0x38`), and it is the base of the mesh. The
+hook reads the point and the height on each frame.
+
+| Source | Its top |
+| --- | --- |
+| `PileWood`, `PileFood` (also the pile of a miracle) | The point plus `Object::GetHeight`. The game draws a pile that is not full lower in the land (`PileWood::Draw` `0x0051BC40` adds the field `+0x84` to the height of the land) |
+| `Field` | The point plus `Object::GetHeight` |
+| `FishFarm` | The point plus 5 units |
+| A store | It has no take. Its piles are the sources |
+| A tree, a forest | No take and no stream ("A forest gives a tree") |
+
+The hook reads the source only while it lives (its first word is the table
+of its class, as at the selection). For a source that the game deleted it
+keeps the last point and the last height.
+
+**The velocity** that the mod writes is the velocity of the curve: the change
+of the place in a second. The tumble rule of the piece of wood reads it. On a
+way of some tens of units the speed is past the maximum of that rule, so the
+piece turns 6.2 radians a second, in the direction of its way.
+
+**Once a frame.** The rule runs one time in each walk of the scene. The hook
+latches the top of the source and the Hand in its first call of a frame, and
+each call of that frame uses the same curve. The place of a piece then
+depends only on its age. In the second walk of a frame with two walks a piece
+is 1 ms older, which is 0.001 of the way. One frame of a take has one more
+call of the rule.
+
+**The life of a piece** is 1 s for each length of the way (`RaiseTime`, the
+rule, `+0x2C`), and 8 pieces start in a second (`EmitRate`, `+0x30`). So
+about 8 pieces are on the way at one time, and they go faster on a long way:
+a way of 0.6 m of the room has a mean speed of 0.6 m/s, and a way of 2.5 m
+has 2.5 m/s. The mod does not change the two values.
+
+**The log.** Tag `take stream`: one line when the stream of a take at a
+distance starts, with the source, its point and its top, the Hand, the length
+of the way in units and in meters of the room, and the life of a piece. One
+line at its end, with the count of the pieces that the mod placed, the calls
+of the rule, how many of them were a second call in a frame, and the top of
+the source at the start and at the end. With `take_stream=0` the two lines
+say that the pieces are on the line of the game.
 
 ### A forest gives a tree
 
@@ -1822,6 +1918,7 @@ not jump.
 | `far_touch` | 1 | 1 makes a scroll in the aim a far target that the grip activates |
 | `far_leash` | 1 | The leash click on the player's own Creature at a distance (see [creature.md](creature.md)) |
 | `far_take_carry` | 1 | 1: when the source of a take at a distance goes away while the grip is closed, the grip machine keeps the grip and the grip carries the bundle. 0: the far grab holds the grip back until it opens, and the machine lets the bundle go at once (see "A bulk source at a distance"). Test key: Shift and Backspace |
+| `take_stream` | 1 | 1: the pieces of the stream of a take at a distance go on a curve from the top of the source to the Hand. 0: the line of the game, from the land under the Hand (see "The stream of a take at a distance"). Test key: Ctrl, Shift and the minus key |
 | `creature_hold_stay`, `creature_hold_stay_ms`, `creature_stay_look` | 1, 350, 1 | A grip that stays closed on the far Creature makes it stay (see [creature.md](creature.md), section 5.3). Test key: Shift and End |
 | `far_roots_at_tree` | 1 | 1 puts the roots pile of a tree that comes from a distance at the roots, on the land where the tree stood. 0 leaves it where the game puts it, on the way of the glide. Test key: Ctrl, Shift and Page Down |
 | `tree_plant_hint` | 1 | 1 makes the card say what the opening of the grip does with a tree in the Hand. 0 shows the text of the game ("Plant") each time. Test key: Ctrl and Page Down |
@@ -1833,7 +1930,9 @@ gives one short pulse for each unit of the value and one long pulse for 0, and
 the log has a line. Ctrl with the Backspace key changes `far_grab_stay` between
 1 and 0, with a long pulse for 1 and a short pulse for 0. Shift must be up for
 both keys. Shift with the Backspace key, with Ctrl up, changes `far_take_carry`
-between 1 and 0, with the same pulses.
+between 1 and 0, with the same pulses. Ctrl and Shift with the minus key of
+the row of digits change `take_stream` between 1 and 0, with the same pulses.
+The change applies from the next frame, also in a take that runs.
 
 Test keys for the desktop runs only:
 
@@ -1893,7 +1992,9 @@ the object moved while the lock held, a locked target that goes in or out of the
 influence, a target that the game deleted ("the target is gone", with what the
 far grab does with a closed grip then), and how often
 the locked target went to the pick. "the grip closed on the scroll", "the far
-touch is over", "the forest P gave the new object Q". Tag `hand throw`: the
+touch is over", "the forest P gave the new object Q". Tag `take stream`: the
+start and the end of the stream of a take at a distance ("The stream of a take
+at a distance"). Tag `hand throw`: the
 speed sent and the landing of the real throw. Tag `hand glow` and tag `overlay`:
 the first draw of a halo, with its pixels.
 
@@ -1957,6 +2058,32 @@ The math test (`far_checks.h`, `RangeChecks` in `grip_checks.h`):
   villager with the default. A villager walks, so the last steps of a run can
   have a different villager. No quest character of that save stands 20 units
   or less from a tree.
+- The stream of a take at a distance (`take_stream_checks.h`). The start of
+  the curve is the top of the source, and its end is the Hand. A piece starts
+  straight up, and it comes down into the Hand from the side of the source.
+  With the two ends at one height, no point is lower than the ends, and the
+  top is 0.19 of the way over them, for a way of 13, 60 and 200 units. A way
+  that is 10 times as long has 10 times each offset. With the Hand lower than
+  the source the piece goes up first. With the Hand straight over the source
+  the way is the straight line up. No piece goes back along the floor. The
+  velocity is the change of the place in a second. A height of the source
+  that is no sane number gives the point of the source. `take_stream=0` and
+  a take with the Hand at the source keep the line of the game.
+- The stream in a desktop run (`village_run.ps1 -Kind fartake`, the test save
+  `temple`, 44.4 units a meter, a take of 9 s that the grip ends). The source
+  is a `PileWood` of the Village Store. Its point is at a height of 28.1 and
+  the game gives a height of 2.98, so its top is at 31.1. The Hand is 24
+  units higher and 12 units to the side. The way is 30.6 units long (0.69 m
+  of the room) against 24.5 units straight, and its top is 1.4 units over
+  the Hand. The eye pictures show 6 or 7 pieces at one time: they go straight
+  up out of the pile that the tether points at, bend at the height of the
+  Hand, and end at the Hand's point. The two eyes show the same chain of
+  pieces. The mod placed 73 pieces in 400 frames, and the rule ran 401
+  times. The top of the pile did not change while the Hand took 3846 of
+  30000 units of wood. With `take_stream=0` the pictures show the pieces on
+  a straight line up to the Hand from the land under it, which is under the
+  roof of the store, and no piece at the pile. With `one_walk=0` the rule
+  ran 611 times in 305 frames, and the two eyes show the same chain.
 - The pull: 0.9 m/s toward the head fires. 0.9 m/s across, a head step with a
   still hand, 0.7 m/s with 5 cm, and an angle of 57.8 degrees do not fire. A
   move of 12 cm fires and 11 cm does not. A flick up fires, and one away from
@@ -2005,7 +2132,9 @@ gets the Hand (`fake_controller_play_frame=2750`, `aim_queue.ps1` and
 influence, a villager in the sea, the tether and the halo during a take at a
 distance, a take at a distance from a pile that the game deletes (the runs
 make that case with the test key and a pile of the store), a `Field` and a
-`FishFarm` as a far target, a take with the Hand over
+`FishFarm` as a far target, the stream of a take at a distance from a source
+that is not a `PileWood`, on a way that is long along the floor, with a pile
+that goes down, and with a hand that moves, a take with the Hand over
 land outside the influence, a multiplayer game, a fetch of a villager, a
 Creature or a building, the haptics on a real controller, and the look of the
 halo against open land (the pen is a slope).
@@ -2014,7 +2143,9 @@ halo against open land (the pen is a slope).
 degrees feels right with the real aim pose. Whether the pull at 0.8 m/s or 12 cm
 is easy to do and does not fire by accident. Whether the glide time reads well.
 Whether a take at a distance reads well: the halo, the tether and the count at
-the Hand. Whether the halo alone shows the target well against the land. Whether
+the Hand. Whether the curve of the stream of that take reads well in depth, how
+it looks with a hand that moves, and whether a life of 1 s and 8 pieces a
+second read well on a way of 2 m. Whether the halo alone shows the target well against the land. Whether
 a ball on the sea gets the halo, the lock and the fetch.
 
 ## Many trees from a forest

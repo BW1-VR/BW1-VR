@@ -130,6 +130,17 @@ bool FarGrabLocked();
 bool FarGrabTaking();
 // The object of the target now, or null.
 void* FarGrabTargetObject();
+// The source of a take at a distance, for take_stream.cpp: from the press on
+// a bulk target to the end of the take. False in each other state.
+struct FarTakeSource {
+  void* object;
+  void* vtable;           // the first word of the object at the selection,
+                          // for the test that the object still lives
+  const char* name;       // the class, for the log
+  float position[3];      // the mesh translation from the last draw
+  float units_per_meter;  // world units in a meter of the room
+};
+bool FarGrabTakeSource(FarTakeSource* out);
 // The target now with the facts of its selection, for the test that the
 // object still lives. False with no target.
 bool FarGrabTargetFacts(void** object, void** vtable, const void** model);

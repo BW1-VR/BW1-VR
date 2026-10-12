@@ -28,6 +28,7 @@
 #include "frame_profile.h"
 #include "tabletop.h"
 #include "far_grab.h"
+#include "take_stream.h"
 #include "throw_physics.h"
 #include "teleport.h"
 #include "ui_panel.h"
@@ -422,6 +423,9 @@ TeleportSettings g_teleport;
 // The grab from a distance (far_grab.cpp), and the square root law of the
 // throw. See docs/grab.md, "The grab from a distance".
 FarGrabSettings g_far_grab;
+// take_stream: the stream of a take at a distance goes on a curve from the
+// source to the Hand (take_stream.cpp).
+int g_take_stream = 1;
 // The law of a throw and its log (throw_physics.cpp).
 int g_throw_law = 2;
 int g_throw_slow_x10 = 20;
@@ -1165,6 +1169,11 @@ void ReadSettings() {
     // machine lets the bundle go (docs/grab.md, "A bulk source at a
     // distance").
     g_far_grab.take_carry = number("far_take_carry", 1);
+    // take_stream: 1 puts the pieces of the stream of a take at a distance on
+    // a curve from the top of the source to the Hand. 0 leaves the line of
+    // the game, from the land under the Hand (docs/grab.md, "The stream of a
+    // take at a distance").
+    g_take_stream = number("take_stream", 1);
 
     // Moving around by grabbing the world. See docs/god-view.md, "Moving
     // around: the grab and the mouse".
@@ -1408,6 +1417,8 @@ void StartVrOnce() {
         ThrowPhysicsSetDraw(g_throw_draw);
         ThrowPhysicsInstallEarly();
         FarGrabInstall();
+        TakeStreamSetOptions(g_take_stream, g_test_keys);
+        TakeStreamInstall();
         ThrowPhysicsInstall();
         HandGlowSetEnabled(g_hand_glow);
       }

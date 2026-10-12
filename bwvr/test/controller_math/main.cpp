@@ -3543,6 +3543,7 @@ void CreatureChecks() {
 #include "feel_checks.h"
 #include "pinch_checks.h"
 #include "temple_checks.h"
+#include "take_stream_checks.h"
 #include "eye_luma_checks.h"
 #include "land_light_checks.h"
 #include "tree_plant_checks.h"
@@ -3954,6 +3955,7 @@ int main() {
   one_walk_checks::OneWalkChecks();
   walk_checks::WalkChecks();
   blt_copy_checks::BltCopyChecks();
+  take_stream_checks::TakeStreamChecks();
 
   printf("\n%d checks, %d failed\n", g_checks, g_failures);
   return g_failures == 0 ? 0 : 1;

@@ -369,32 +369,23 @@ that moves while the Hand takes it.
   Not run: a small push of the stick, a hill at the new place of the head,
   the edge of the map, a push with the switch for the drag off, an Index
   controller, and a controller with no face buttons.
-- **P14. The stream of wood or grain of a far grab.** While the Hand takes
-  wood or grain, the game shows pieces that go up into the Hand. They come
-  out of the land under the Hand, so with a far grab they do not come from
-  the pile. Wanted: a stream that goes from the pile along a curve into the
-  Hand.
-
-  Known (`grab.md`, "The stream and the loop of a take"): the stream is one
-  particle system with one rule, `ER_MultiPickup::ModifyAtomCollection`
-  `0x006A77C0`. On each frame the rule writes the place of each piece: a
-  point on the straight line from the start of the piece to the Hand, by its
-  age over 1 s. About 8 pieces live at one time, and no piece has a path of
-  its own.
-
-  The way: a hook on that rule. After the rule, while a take at a distance
-  runs, the mod writes the place and the velocity of each piece again from
-  its age: a point on a curve from the top of the source to the Hand. The
-  far grab has the source and its place. The curve is a pure header with
-  checks, and an ini key keeps the line of the game as its other value. The
-  cost in frame time is small: 8 pieces, with some multiplications for each.
-
-  Open: the fields of a piece come from one listing (the next piece at
-  `AtomCore+0x18`, the velocity at `+0x34`, the place at `+0x80`) and need a
-  run with a picture. What reads the velocity of a piece. The top of each
-  kind of source. Whether 1 s is the right time for a long way. Whether the
-  particle system is processed one time a frame or one time for each eye
-  pass. Only a headset can show whether the curve reads well.
+- **P14. The stream of a take at a distance: check it in a headset.** In a
+  take at a distance the pieces of wood or grain go on a curve from the top
+  of the source to the Hand (`take_stream`, `grab.md`, "The stream of a take
+  at a distance"). Desktop runs show the curve from a pile of wood of the
+  Village Store, with the Hand 0.27 m to the side of the pile and 0.5 m over
+  it. Open:
+  - Only a headset can show whether the curve reads well in depth, and how
+    it looks with a hand that moves. The test key is Ctrl, Shift and the
+    minus key.
+  - A piece lives 1 s for each length of the way, and 8 pieces start in a
+    second. So on a way of 2 m the pieces are 25 cm apart, and they go 2 m
+    in a second. If that does not read well, the rule has both values
+    (`RaiseTime` at `+0x2C`, `EmitRate` at `+0x30`), and the hook can change
+    them for a take at a distance.
+  - No run has shown the stream from a pile of food, a field, a fish farm or
+    the pile of a miracle, a way that is long along the floor, and a pile
+    that goes down in the take.
 - **P15. A glow on the object itself.** The glow that shows the target of
   the Hand is a flat picture. The land cuts it, and it is not always at the
   place of the object. Wanted: a glow on the mesh of the object, as light

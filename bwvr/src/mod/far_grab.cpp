@@ -129,6 +129,9 @@ bool g_hooked = false;
 int g_state = kIdle;
 FarPick g_pick = {};
 bool g_have_pick = false;
+// The class of the target. The caller writes a new name to its own buffer at
+// each selection, so the far grab keeps its copy.
+char g_pick_name[48] = "";
 FarFrame g_f = {};
 bool g_have_frame = false;
 
@@ -652,6 +655,8 @@ void FarGrabSelect(const FarPick& pick) {
   const bool changed = !g_have_pick || pick.object != g_pick.object;
   const bool was_inside = g_have_pick && g_pick.inside;
   g_pick = pick;
+  strcpy_s(g_pick_name, pick.name != nullptr ? pick.name : "unknown");
+  g_pick.name = g_pick_name;
   g_have_pick = true;
   g_state = kAim;
   if (changed) {
@@ -694,6 +699,19 @@ bool FarGrabLocked() {
 bool FarGrabTaking() { return g_state == kTake; }
 
 void* FarGrabTargetObject() { return g_have_pick ? g_pick.object : nullptr; }
+
+bool FarGrabTakeSource(FarTakeSource* out) {
+  if (!g_set.on || !g_have_frame || !g_have_pick || !g_pick.bulk) return false;
+  // The press goes to the game in Pull and Fetch, and the game starts the
+  // stream in the game turn of the press, before FarGrabFrame reads the take.
+  if (g_state != kPull && g_state != kFetch && g_state != kTake) return false;
+  out->object = g_pick.object;
+  out->vtable = g_pick.vtable;
+  out->name = g_pick.name;
+  for (int i = 0; i < 3; ++i) out->position[i] = g_pick.position[i];
+  out->units_per_meter = g_f.units_per_meter;
+  return true;
+}
 
 bool FarGrabTargetFacts(void** object, void** vtable, const void** model) {
   if (!g_have_pick) return false;

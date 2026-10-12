@@ -207,6 +207,14 @@ if ($Kind -eq 'totem') {
     # the frame of that file. Take the file out of the game folder after the
     # run.
     #
+    # The stream of the take: the lines "take stream" have its start (the
+    # source, its top, the Hand, the length of the way) and its end (the
+    # count of the pieces that the mod placed), or with -Set "take_stream=0"
+    # that the pieces are on the line of the game. Eye pictures of a take
+    # that the grip ends, with pictures while it runs:
+    #   -Set "far_test_take_gone=0" -Steps "<the steps below with
+    #   grip@1080+400 and shot@1140+1 shot@1180+1 shot@1220+1 shot@1300+1>"
+    #
     # far_grab_choice=0 and far_touch=0: a villager or a scroll near the line
     # of the aim does not take the halo from the pile.
     if ($Plan -eq '') { $Plan = 'gostore' }
@@ -290,7 +298,7 @@ if ($Kind -eq 'fartake') {
     $pattern = '^far grab    : (far_take_carry|test|target|the grip closed|the grip goes|the game takes|the take|the target \S+ is gone|the \w+ ends|\d+ targets were deleted)|' +
                '^hand bulk    : (the game|the bulk take ends|the amount in the Hand is \d+ after (10|20|30|50|100) game|test key|the take|the test key)|' +
                '^hand pick    : (seek plan|the Hand holds)|^hand press   : the grip pressed|^grip         : (?!\d)|^hand throw   : (release|the object left)|' +
-               '^audio play   : .* in game (44|98),|^audio chan   : .* in game (44|98) |^audio take   :'
+               '^audio play   : .* in game (44|98),|^audio chan   : .* in game (44|98) |^audio take   :|^take stream  :'
 }
 $cards = @{}
 Get-Content $log | Where-Object { $_ -match $pattern -or $_ -match '^hint card    : frame \d+, the card of the right hand: (.*?)\. \d' } | ForEach-Object {

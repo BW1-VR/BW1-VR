@@ -131,6 +131,7 @@
 #include "creature_stay.h"
 #include "far_choice_math.h"
 #include "far_grab.h"
+#include "take_stream.h"
 #include "forest_take.h"
 #include "haptics.h"
 #include "miracle.h"
@@ -7290,6 +7291,7 @@ void HandDirectFrame() {
   PollChoiceKey();
   PollStayKey();
   PollTakeCarryKey();
+  TakeStreamFrame(g_frame);
   PollCatchKey();
   PollWideKey();
   LogRelease();

@@ -56,6 +56,7 @@ add_library(bwvr_mod SHARED
     hand_model_file.cpp
     hand_feel.cpp
     far_grab.cpp
+    take_stream.cpp
     forest_take.cpp
     creature_command.cpp
     creature_stay.cpp

@@ -615,6 +615,10 @@ grip is closed, the grip carries the bundle, and the next opening of
 the grip puts it down. With far_take_carry=0 in bwvr.ini the Hand
 lets the bundle go when such a pile is used up.
 
+While you collect from a distance, the pieces of food or wood go up
+out of the pile and along a curve into your Hand. With take_stream=0
+in bwvr.ini they come out of the land under your Hand.
+
 A forest is a far target too. Point at it, close the grip and pull:
 one tree comes to your Hand. You can also put your Hand in the forest
 and keep the grip closed. The game gives one tree for each press.
