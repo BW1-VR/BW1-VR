@@ -27,6 +27,11 @@ struct FarGrabSettings {
                            // halo past its cone. 0 has the margin of the
                            // scores only
   float stay_deg = 3.0f;   // far_grab_stay_deg: how far past its cone
+  int take_carry = 1;      // far_take_carry: 1 leaves the grip with the grip
+                           // machine when the source of a far take goes
+                           // away, so the grip carries the bundle. 0 holds
+                           // the grip back until it opens, and the machine
+                           // lets the bundle go
 };
 
 void FarGrabSetOptions(const FarGrabSettings& settings);
@@ -56,6 +61,10 @@ int FarGrabStay();
 void FarGrabSetStay(int stay);
 float FarGrabStayDeg();
 const char* FarGrabStayWords(int stay);
+// far_take_carry: 1 or 0. The test key changes it while the game runs.
+int FarGrabTakeCarry();
+void FarGrabSetTakeCarry(int carry);
+const char* FarGrabTakeCarryWords(int carry);
 
 // What hand_direct.cpp gives once a frame, after the history of the hand.
 struct FarFrame {
@@ -117,6 +126,8 @@ void FarGrabNoTarget();
 // The target is locked, pulled or fetched, or the game takes from it, so the
 // selection does not change.
 bool FarGrabLocked();
+// The game takes from the target at a distance (the Take state).
+bool FarGrabTaking();
 // The object of the target now, or null.
 void* FarGrabTargetObject();
 // The target now with the facts of its selection, for the test that the

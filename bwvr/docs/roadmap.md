@@ -243,14 +243,19 @@ is built, and no test has proven it.
     color over the picture at the end of a frame", has the two full screen
     draws of the end of a frame. The listing shows both in each eye pass on
     the land.
-- **B19. A far grab of wood or grain drops its load.** With a far grab of
-  a pile of wood or of a field of grain, the load falls out of the Hand some
-  seconds after the grip opens. A grab with the Hand at the pile keeps the
-  load. The cause is not known.
-- **B20. No sound while the Hand takes wood or grain.** In a headset session
-  the take had no sound. Not known: whether the plain game plays a sound
-  there. "Play, no VR" in the launcher starts the plain game for a
-  comparison.
+- **B19. A take at a distance from a pile of a miracle.** When the Hand
+  takes all of such a pile at a distance, the game deletes the pile, and the
+  grip must carry the load (`far_take_carry`, `grab.md`, "A bulk source at a
+  distance"). The desktop runs make the case with a test key and a pile of
+  the store. Open: a headset session with the pile of a wood or a food
+  miracle.
+- **B20. The loop of a bulk take.** In the God view the ears decide the
+  start of the loop that the game plays while the Hand takes wood or grain
+  (`audio_take_loop`, `audio.md`, 6.4), and a desktop run has the loop in the
+  stream. Open: only a person can hear the loop and say how loud it is
+  beside the other sounds. Each other sound that the game asks for at the
+  Hand with no object keeps the test of the game camera (`audio.md`,
+  section 12).
 - **B21. A failed start of the headset session can stop the game.** With no
   headset, each try to start a session ends in `XrScreen::Stop`. One time,
   in a full screen game, the frame thread did not come back from the first
@@ -365,12 +370,31 @@ that moves while the Hand takes it.
   the edge of the map, a push with the switch for the drag off, an Index
   controller, and a controller with no face buttons.
 - **P14. The stream of wood or grain of a far grab.** While the Hand takes
-  wood or grain, the game shows the load as it goes up from the pile, and
-  in the plain game the Hand is above the pile. With a far grab the Hand is
-  at a different place, and the stream still goes straight up from the
-  pile. Wanted: a stream that goes from the pile along a curve into the
-  Hand. Not known: how the game draws the stream, and whether the mod can
-  give it a path.
+  wood or grain, the game shows pieces that go up into the Hand. They come
+  out of the land under the Hand, so with a far grab they do not come from
+  the pile. Wanted: a stream that goes from the pile along a curve into the
+  Hand.
+
+  Known (`grab.md`, "The stream and the loop of a take"): the stream is one
+  particle system with one rule, `ER_MultiPickup::ModifyAtomCollection`
+  `0x006A77C0`. On each frame the rule writes the place of each piece: a
+  point on the straight line from the start of the piece to the Hand, by its
+  age over 1 s. About 8 pieces live at one time, and no piece has a path of
+  its own.
+
+  The way: a hook on that rule. After the rule, while a take at a distance
+  runs, the mod writes the place and the velocity of each piece again from
+  its age: a point on a curve from the top of the source to the Hand. The
+  far grab has the source and its place. The curve is a pure header with
+  checks, and an ini key keeps the line of the game as its other value. The
+  cost in frame time is small: 8 pieces, with some multiplications for each.
+
+  Open: the fields of a piece come from one listing (the next piece at
+  `AtomCore+0x18`, the velocity at `+0x34`, the place at `+0x80`) and need a
+  run with a picture. What reads the velocity of a piece. The top of each
+  kind of source. Whether 1 s is the right time for a long way. Whether the
+  particle system is processed one time a frame or one time for each eye
+  pass. Only a headset can show whether the curve reads well.
 - **P15. A glow on the object itself.** The glow that shows the target of
   the Hand is a flat picture. The land cuts it, and it is not always at the
   place of the object. Wanted: a glow on the mesh of the object, as light

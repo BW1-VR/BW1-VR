@@ -852,14 +852,16 @@ gold of the activate look is easy to tell from the gold of the take look.
   and bit `0x10` of `Object+0x24`, and asks for the take (`FUN_005D1A00`). The
   start packet runs `FUN_005DA950`. There slot `0x6D0`
   (`NetworkFriendlyStartLockedSelect`, `0x0066E710` for a pile) takes the first
-  amount into a new `Pot`, puts the Pot in the Hand, and starts the effect and
-  the sound (`PSysGlobal::StartMultiPickup` `0x0068F8C0`). Then `FUN_005DC110`
-  writes the source to `GInterfaceStatus+0x3C` and 0 to `+0x40`.
+  amount into a new `Pot`, puts the Pot in the Hand, and starts the stream of
+  pieces (`PSysGlobal::StartMultiPickup` `0x0068F8C0`, see "The stream and the
+  loop of a take"). Then `FUN_005DC110` writes the source to
+  `GInterfaceStatus+0x3C` and 0 to `+0x40`.
 - **Each game turn.** `GInterfaceStatus::Process` `0x005DC4E0` adds 1 to `+0x40`
   and calls slot `0x808` (`ProcessInInteract`, `0x0066E520` for a pile). The
   amount of a turn grows with the turns (`fn_0066CD30` and
-  `GPotInfo::GetTicksToChangeOver`). The call plays a tick (`fn_0068F930`,
-  `GAudio::PlaySoundEffect`), moves the amount from the pile to the Pot, and
+  `GPotInfo::GetTicksToChangeOver`). The call asks for the loop of the take
+  and sets its pitch (`fn_0068F930`), moves the amount from the pile to the
+  Pot, and
   shows the count with `ToolTips::ForceToolTips(0xEEA, Pot+0x70)`. Text 3818
   is "Amount: %3.0f". The game shows no count when the help options of the
   profile are "No ToolTips" (see [ui-layer.md](ui-layer.md)). For a source that
@@ -868,7 +870,7 @@ gold of the activate look is easy to tell from the gold of the take look.
   over land outside the influence (`0x005DC540`).
 - **The end.** The release of the right button (`GInterface+0x39` bit `0x40`)
   runs `FUN_005D4830`, and `FUN_005D2210` sends packet `0x1C`. `FUN_005DAA10`
-  then calls slot `0x6EC` (`StopMultiPickup` stops the effect and the sound) and
+  then calls slot `0x6EC` (`StopMultiPickup` stops the stream and the loop) and
   writes 0 to `+0x3C`. The Pot stays in the Hand, in the Holding state. A click
   drops it as any object, and `Pot::InitialisePhysicsFromHand` pours it out
   (`StartMultiPutdown`).
@@ -913,6 +915,82 @@ nothing. With no object in the record, `FUN_005D4830` calls `fn_005D1260` and
 then reads through the null pointer at `0x005D4854` [V for the code, never seen
 in a run].
 
+**A source that is used up.** When a turn of the take leaves the source with
+the deleted flag (bit 0 of the byte at `+0xA`, the flag that
+`GameThing::IsAvailable` `0x00401810` reads), `ProcessInInteract` stops the
+stream and the loop at once (`0x0066E6A1`). In the next game turn
+`GInterfaceStatus::Process` finds that the source is not available, writes 0 to
+`+0x3C` and resets the interface (`0x005DC522` to `0x005DC5A5`). The button is
+still down then. The game deletes the pile of a miracle (`MagicWood`,
+`MagicFood`) in this way when the Hand took all of it: the log of a headset
+session has the deleted source in the frame in which the take ended.
+
+### The stream and the loop of a take [V]
+
+**The stream of pieces.** `PSysGlobal::StartMultiPickup(status, place, kind)`
+acts only for the interface of the player. It starts the force feedback
+effect 11 (food) or 12 (wood) of the game (`GInterface::StartImmersion`), and
+`fn_006715F0` makes one particle system (`GJPSysInterface::Create` `0x0068F2F0`) and keeps it
+in the object at `0x00D4E0E8`, field `+0x28`. The kind gives the type:
+
+| Kind | Type | File of the game |
+| --- | --- | --- |
+| 0, food | `0x6B` | `Data\Spells\ZSpellFiles\SF_MultiPickUpFood.txt` |
+| 1, poisoned food (from the name of the file) | `0x6C` | `SF_MultiPickUpFoodPoisoned.txt` |
+| 3, fish (from the name of the file) | `0x6D` | `SF_MultiPickUpFoodFish.txt` |
+| 2, wood | `0x6E` | `SF_MultiPickUpWood.txt` |
+
+The call does not use the place of the pile. Each file has one emit rule of
+the class `ER_MultiPickup` with `EmitRate` 8 (pieces a second) and `RaiseTime`
+1 (second), and one maker of a piece: the mesh `MSH_I_OFFERING_WOOD` at scale
+0.35 with a tumble rule, or a grain sprite of `S_SpriteSheet1.raw` at scale
+0.5.
+
+On each draw of the 3D engine, `PSysGlobal::DrawLoop` `0x0068F5E0` (from
+`GGame::Process3dEngine`) calls `fn_006714F0`. That function gives the
+particle system the place of the Hand of the picture (`CHand+0x78`) as its
+gesture position, and then processes and draws it. The rule
+`ER_MultiPickup::ModifyAtomCollection` `0x006A77C0` (thiscall on the rule, the
+`AtomCollection`, `ret 4`) does all the work for the pieces, in world units:
+
+1. It reads the gesture position (`PSysManager::GetCurrentGesturePosn`
+   `0x00673600`).
+2. It makes new pieces at the emit rate (`AtomCore::Create` `0x006737F0`). The
+   start of a piece is the gesture position of that frame with the height of
+   the land there (`LH3DIsland::GetAltitude`). The rule keeps the start in its
+   own data of the piece.
+3. For each piece of the collection (the first one at `AtomCollection+0x40`,
+   the next one at `AtomCore+0x18`) it takes the age (`AtomCore::GetAtomAge`
+   `0x00673CC0`). A piece older than `RaiseTime` (the rule, `+0x2C`) is
+   deleted. For each other piece, `t` is the age divided by `RaiseTime`, and
+   the place is `start + (gesture position now - start) * t`. The rule writes
+   the place to `AtomCore+0x80` and the velocity (the change of the place
+   divided by the frame time) to `AtomCore+0x34`.
+
+So a piece has no path of its own. It is on the straight line from the land
+under the place where the Hand was at its start to the Hand of this frame, and
+the rule writes its place on each frame. About 8 pieces live at one time. The
+stream comes out of the land under the Hand, and not out of the pile, also in
+the plain game: there the game holds the Hand over the pile.
+`PSysGlobal::StopMultiPickup` `0x0068FA50` deletes the particle system, with
+its pieces.
+
+**The loop.** `PileResource::ProcessInInteract` calls `fn_0068F930(status,
+kind, t)` on each game turn of the take (`0x0066E5F9`). For the interface of
+the player it asks `GAudio::PlaySoundEffect` (the call at `0x0068F9E8`) for a
+positional sound with no object and with no update of its place, at the Hand's
+own position (`GInterfaceStatus+0xC8`): sample 44 of the in game bank for food
+(`G_PickUpFood.wav`), and sample 98 for wood (`G_PickUpWood.wav`). The bank
+gives both a loop with no end, play mode 2 (one copy at a time) and a range of
+60 to 180 units. So the first ask starts the loop, and each later ask finds it.
+Then `LHSampleSetPitch` sets the pitch in percent: `60 + 180 * t * t`, with
+`t` the turns of the take divided by `GPotInfo::GetTicksToChangeOver`, 1 at
+the most (`fn_0066CDE0`). The loop becomes higher while the take becomes
+faster. `StopMultiPickup` stops both samples (`GAudio::StopPlayingSoundEffect`
+`0x0042A210`). The start test of the game measures from the game camera
+(`0x00429F16`): when the game camera is more than 180 units from the Hand, the
+take has no sound. See [audio.md](audio.md), 6.4, for the God view.
+
 ### What the mod does
 
 1. **The grip is the button during a take.** `HandDirectGripFacts` says that a
@@ -944,6 +1022,10 @@ in a run].
 5. **The take ends at once.** After the step that reads the release, the mod
    asks for a game turn at once, so the end packet runs on the next frame and
    not up to 100 ms later.
+6. **The loop of the take sounds in the God view.** The game camera of the God
+   view is 400 units from the player's place, so the start test of the game
+   refuses the loop on each game turn. The ears decide that start
+   (`audio_take_loop=1`, [audio.md](audio.md), 6.4).
 
 For the player:
 
@@ -994,12 +1076,14 @@ Test keys of `bwvr.ini`, for the desktop runs only:
 - `bulk_test_no_keep=1`: the source does not go back in the record, and the mod
   ends no take. This shows the take that does not end.
 
-**Not tested:** the sound of the tick, a field and a fish farm, a store inside
-the real influence, and a take with the hand pulled away from the store.
+**Not tested:** a field and a fish farm, a store inside the real influence,
+and a take with the hand pulled away from the store. A desktop run has the
+loop of a take of wood ([audio.md](audio.md), section 11).
 
-**Needs the headset.** Whether the count reads at the hand, the tick and the
-effect. Whether the Hand stays at the controller during a take. A short squeeze
-on a pile must stop when the grip opens.
+**Needs the headset.** Whether the count reads at the hand. Whether the loop
+of the take sounds, and how loud it is beside the other sounds. Whether the
+stream of pieces reads well. Whether the Hand stays at the controller during a
+take. A short squeeze on a pile must stop when the grip opens.
 
 ## The grab from a distance
 
@@ -1298,6 +1382,24 @@ keep the bundle, close and open it again to drop.
 On each game turn the game ends a take when the Hand's own position is over land
 outside the influence. So the halo of a bulk source is gold only when the land
 under the Hand is inside the influence too.
+
+**A source that goes away while the grip is closed** (`far_take_carry=1`). The
+game ends a take by itself when the source is used up, and it deletes the pile
+of a miracle in that game turn ("How a take ends in the game"). The test that
+the target lives (`FarTargetLives`) then tells the far grab that its source is
+gone, before the far grab reads that the take is over. In the Take state the
+grip machine has the grip, so the far grab does not hold the grip back then
+(`controller_math::FarHoldsBack`). The machine sees the closed grip, and the
+grip carries the bundle, as after a take with the Hand at the pile. The next
+opening of the grip lets the bundle go. With `far_take_carry=0` the far grab
+holds the grip back until it opens. The machine then sees an open grip in the
+frame after the take, reads the bundle as an object that came after the
+opening, and lets it go with its click while the real grip is still closed.
+The same rule applies when a test key turns `far_grab` off during a take.
+
+The stream of pieces of a take comes out of the land under the Hand ("The
+stream and the loop of a take"). At a distance the Hand is not over the pile,
+so the stream does not come from the pile.
 
 ### A forest gives a tree
 
@@ -1719,6 +1821,7 @@ not jump.
 | `far_grab_near_cm`, `far_grab_near_out_cm` | 10, 15 | See "Near objects win" |
 | `far_touch` | 1 | 1 makes a scroll in the aim a far target that the grip activates |
 | `far_leash` | 1 | The leash click on the player's own Creature at a distance (see [creature.md](creature.md)) |
+| `far_take_carry` | 1 | 1: when the source of a take at a distance goes away while the grip is closed, the grip machine keeps the grip and the grip carries the bundle. 0: the far grab holds the grip back until it opens, and the machine lets the bundle go at once (see "A bulk source at a distance"). Test key: Shift and Backspace |
 | `creature_hold_stay`, `creature_hold_stay_ms`, `creature_stay_look` | 1, 350, 1 | A grip that stays closed on the far Creature makes it stay (see [creature.md](creature.md), section 5.3). Test key: Shift and End |
 | `far_roots_at_tree` | 1 | 1 puts the roots pile of a tree that comes from a distance at the roots, on the land where the tree stood. 0 leaves it where the game puts it, on the way of the glide. Test key: Ctrl, Shift and Page Down |
 | `tree_plant_hint` | 1 | 1 makes the card say what the opening of the grip does with a tree in the Hand. 0 shows the text of the game ("Plant") each time. Test key: Ctrl and Page Down |
@@ -1729,7 +1832,8 @@ With `test_keys=1`, Ctrl with the Delete key steps `far_grab_choice` from 2 to
 gives one short pulse for each unit of the value and one long pulse for 0, and
 the log has a line. Ctrl with the Backspace key changes `far_grab_stay` between
 1 and 0, with a long pulse for 1 and a short pulse for 0. Shift must be up for
-both keys.
+both keys. Shift with the Backspace key, with Ctrl up, changes `far_take_carry`
+between 1 and 0, with the same pulses.
 
 Test keys for the desktop runs only:
 
@@ -1762,6 +1866,12 @@ Test keys for the desktop runs only:
 - `far_test_quest=1`: the class test of `far_grab_choice=1` answers no for
   each villager, as it does for a quest character. A run then shows value 1
   with a living thing that its bias does not know.
+- `far_test_take_gone=N`: at game turn N of a take at a distance, the test
+  asks for the end of the take on each frame, as the grip machine does for a
+  take that still runs with the button up. The grip stays closed. In the
+  frame in which the take is over, the far grab gets the answer that its
+  source is gone. A run then shows who has the grip after a take whose source
+  the game deletes (`village_run.ps1 -Kind fartake`).
 
 The fake controller has two words. `aimfar@F+n` turns the aim of the right hand
 to the nearest far target: a holdable object that is no tree, more than 0.5 m of
@@ -1780,7 +1890,8 @@ lock, the pull (the speed along `p` and the move in cm), the press, "the Hand
 holds" with the frames after the press, each frame of the glide, each end of a
 lock or a fetch with the reason, and one line each report window. Also: how far
 the object moved while the lock held, a locked target that goes in or out of the
-influence, a target that the game deleted ("the target is gone"), and how often
+influence, a target that the game deleted ("the target is gone", with what the
+far grab does with a closed grip then), and how often
 the locked target went to the pick. "the grip closed on the scroll", "the far
 touch is over", "the forest P gave the new object Q". Tag `hand throw`: the
 speed sent and the landing of the real throw. Tag `hand glow` and tag `overlay`:
@@ -1862,12 +1973,28 @@ The math test (`far_checks.h`, `RangeChecks` in `grip_checks.h`):
   does.
 - The aim of the fake hand: the angles of `FakeAimAngles` aim the hand along the
   wanted direction.
+- A take at a distance whose source goes away (`FarTakeChecks` in
+  `grip_checks.h`): `FarHoldsBack` holds a closed grip back after a lock, a
+  pull and a fetch with each value of the key, and after the Take state only
+  with `far_take_carry=0`. With the closed grip in the frame after the take,
+  the machine carries the bundle for 15 s with no button and no click, and the
+  opening lets it go. With an open grip in that frame, the machine reads a late
+  object and clicks to let it go.
 
 Desktop runs have shown the fetch of an object at rest, a fetch of an object in
 flight (the lock follows it), the same for a rock that flies over the sea, a
 fetch of a rock from the sea 1.8 s after its first contact with the water
 (its point is then 0.5 units under the sea plane), and the end of a lock when
-the game deletes the object. Desktop runs (God view, `fake_controller=2`,
+the game deletes the object. They have shown a take at a distance from a pile
+of wood of the Village Store, 0.61 m of the room from the Hand
+(`village_run.ps1 -Kind fartake`, the test save `temple`). The test key
+`far_test_take_gone=30` ends that take at its game turn 31 with the grip
+closed and tells the far grab that the source is gone. With `far_take_carry=1`
+the grip then carries the bundle of 437 for the 28 s until the grip of the
+script opens. With 0 the machine reads a late object, clicks, and the bundle
+is out of the Hand 9 frames after the take, with the grip still closed. When
+the grip ends the take, the bundle stays in the Hand with the grip open for
+the 26 s to the end of the run, with each value of the key. Desktop runs (God view, `fake_controller=2`,
 Land 1) start at the pen, in the test save `pen`. With `-NewGame` they start
 in a new game, with the dialog recipe of [god-view.md](god-view.md), section
 12, and the first story. The steps count from the frame at which the player
@@ -1876,7 +2003,9 @@ gets the Hand (`fake_controller_play_frame=2750`, `aim_queue.ps1` and
 
 **Not shown in a run:** a villager beside a tree (the start of Land 1 has no villager in view, so the runs use a rock and a tree), a locked target that drifts out of the
 influence, a villager in the sea, the tether and the halo during a take at a
-distance, a `Field` and a `FishFarm` as a far target, a take with the Hand over
+distance, a take at a distance from a pile that the game deletes (the runs
+make that case with the test key and a pile of the store), a `Field` and a
+`FishFarm` as a far target, a take with the Hand over
 land outside the influence, a multiplayer game, a fetch of a villager, a
 Creature or a building, the haptics on a real controller, and the look of the
 halo against open land (the pen is a slope).

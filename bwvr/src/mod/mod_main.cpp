@@ -1159,6 +1159,12 @@ void ReadSettings() {
       g_far_grab.stay = number("far_grab_stay", 1);
       g_far_grab.stay_deg = degrees("far_grab_stay_deg", g_far_grab.stay_deg);
     }
+    // far_take_carry: 1 leaves the grip with the grip machine when the source
+    // of a take at a distance goes away while the grip is closed, so the grip
+    // carries the bundle. 0 holds the grip back until it opens, and the
+    // machine lets the bundle go (docs/grab.md, "A bulk source at a
+    // distance").
+    g_far_grab.take_carry = number("far_take_carry", 1);
 
     // Moving around by grabbing the world. See docs/god-view.md, "Moving
     // around: the grab and the mouse".

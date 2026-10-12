@@ -211,6 +211,12 @@ The advisors and the speech of a story sound as the game made them.
 Set audio_mixer=0 in bwvr.ini to let the sound system of the game
 (QMixer) pan each sound, with no mixing by the mod.
 
+While your Hand collects food or wood, the game plays a sound that
+becomes higher as the take becomes faster. The mod starts that sound
+by the distance from your head. Set audio_take_loop=0 in bwvr.ini to
+let the camera of the game decide: in the God view the take then has
+no sound.
+
 When a sound stops, the sound system of the game holds the picture
 for 20 ms. The mod skips that wait for each sound that it plays, so
 the picture does not stop. Set audio_stop_wait=1 in bwvr.ini to keep
@@ -604,7 +610,10 @@ distance. The value 0 gives no limit.
 
 A pile of food or wood of a store, a field and a fish farm are far
 targets too. Point at one and keep the grip closed to collect from a
-distance. Open the grip to stop.
+distance. Open the grip to stop. When the pile is used up while the
+grip is closed, the grip carries the bundle, and the next opening of
+the grip puts it down. With far_take_carry=0 in bwvr.ini the Hand
+lets the bundle go when such a pile is used up.
 
 A forest is a far target too. Point at it, close the grip and pull:
 one tree comes to your Hand. You can also put your Hand in the forest

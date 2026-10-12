@@ -102,6 +102,28 @@ inline bool RangeStops(float distance, float max_distance) {
   return !(distance < max_distance);
 }
 
+// THE LOOP OF A BULK TAKE (docs/audio.md, "6.4 The ears decide what plays").
+// While the Hand takes from a pile or a field, the game asks for a loop on
+// each game turn: a positional sound with no object, at the place of the
+// Hand. The game tests the start with the distance from its camera to that
+// place. In the God view the game camera is 400 units from the player's
+// place, and the loop has a maximum of 180 units, so the game refuses it on
+// each turn. The ears decide the start, as for a sound with an object: head
+// is the distance from the ears in world units, and k is the room factor.
+//
+// What decides the start of the loop on this ask.
+enum TakeLoopRule {
+  kTakeLoopGame = 0,   // the test of the game, with its camera
+  kTakeLoopStart = 1,  // in range of the ears: the test of the game passes
+  kTakeLoopRefuse = 2  // out of range of the ears: no start
+};
+inline int TakeLoopStart(bool on, bool by_ears, float head, float k,
+                         float max_distance) {
+  if (!on || !by_ears || !(k > 0.0f) || head < 0.0f) return kTakeLoopGame;
+  return RangeStarts(head / k, max_distance) ? kTakeLoopStart
+                                             : kTakeLoopRefuse;
+}
+
 // A LOOP OUT OF RANGE keeps its sample slot while the DLL has spare slots,
 // because the game does not start each loop again. QMixer makes it silent.
 // The reserve is half of the slots, and 4 at least: the DLL of the game has

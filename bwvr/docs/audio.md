@@ -353,6 +353,7 @@ point from the interface), `HelpDude` (`0x005C20E0`), and the `Base` default
 | Villagers, animals, buildings, the Creature, particle systems, tree and rock effects | `GAudio::PlaySoundEffect` with an object and the 3D flag from the caller | Yes when the caller sets the flag. The object callback moves it. |
 | Effects of animations, physics and particle systems | `GAudio::SamplePlayAnimEffect` (`0x0042A4B0`) | Yes, with a distance from the caller |
 | The Hand | `PlaySoundEffect` from the Hand code | Not checked |
+| The loop of a bulk take | `PlaySoundEffect` on each game turn of the take (`fn_0068F930`, the call at `0x0068F9E8`), with no object and with the Hand's own position (`GInterfaceStatus+0xC8`) | Yes. It stays at the place of its start: the update flag is 0. See [grab.md](grab.md), "The stream and the loop of a take" |
 | Atmosphere, single sounds (birds, waves) | `LHAtmosProcess`, 3D with `options+0x14` | Relative to the listener, at a random direction |
 | Atmosphere, the bed | `LHAtmosProcess`, flat | One stereo wave in each atmosphere bank |
 | Chant music, creature dance music | `LHMusicSet3DPosition` from `0x00427959`, `0x0042814C`, `0x00429658` | Distance volume only. (I) |
@@ -366,10 +367,26 @@ prepared by `GAudio::ProcessAtmosBanks` (`0x00428FE0`) and play through
 The object callback gives the game camera for a source with object 0 at
 `0x004272F9`.
 
-Two sounds with a known start: sample 43 of the in game bank starts at each
+Sounds with a known start: sample 43 of the in game bank starts at each
 zoom step of the game (`0x0045FC64`) with no object and the default mapping.
 Sample 52 of the in game bank starts at the Hand when the Hand comes over an
-object (`0x005E621E`).
+object (`0x005E621E`). Samples 44 and 98 of the in game bank are the loops of
+a bulk take, of food and of wood.
+
+The in game bank is `Audio\SFX\Game\InGame.sad`. Its sample table (the
+segment `LHAudioBankSampleTable`, one record of `0x280` bytes for each sample)
+has the same fields as the bank sample in memory. For the two loops of a
+take: the flag word `0x7E0`, the loop count -1, the numbers 50 (food) and 110
+(wood) in the low word of `+0x25C`, the range 60 to 180, the rolloff 4 and
+the play mode 2. In `LHSamplePlay`, a bit of the flag word that the options
+of the caller do not have copies one field of the bank into the options (DLL
+`0x100119D4` to `0x10011B84`): bit `0x20` the low word of `+0x25C` to
+`options+0x28` (the volume, I), `0x40` the loop count to `+0x4C`, `0x80` and
+`0x100` the range to `+0x54` and `+0x58`, `0x200` the rolloff to `+0x5C`, and
+`0x400` the play mode of `+0x274` to `+0x50`. `LHSampleSetPitch(bank, object,
+sample, percent)` (DLL `0x10013520`) finds the sample that plays by its bank,
+its object and its number, and calls `QSWaveMixSetFrequency` with the rate of
+the sample times the percent.
 
 ### How the advisors speak (V)
 
@@ -649,6 +666,18 @@ the game's tests apply. The loop rule is the one exception. All of them need
   distance and the object has a place.
 - **A sound with no object** is at the game camera, and section 6.3 puts it at
   the ears. It keeps the game's tests.
+- **The loop of a bulk take** (`audio_take_loop=1`). It has no object, but the
+  game asks for it at the Hand, on each game turn of the take, and its
+  maximum is 180 units. The game camera of the God view is 400 units from the
+  player's place, so the test of the game refuses each ask, and the take has
+  no sound. The hook on `GAudio::PlaySoundEffect` knows the ask by its return
+  address (`0x0068F9ED`). It makes the test with the distance from the ears
+  divided by `k` (`audio_math::TakeLoopStart`), and in range it makes the
+  test of the game pass, as for a sound with an object. The loop then stays at
+  the place of the Hand at its start, and the game stops it at the end of the
+  take. When the ears do not decide (a story, the ears on the game camera,
+  `audio_room=0`), and with `audio_take_loop=0`, the test of the game
+  applies.
 
 So a sound tag starts and stops its sound with the range of the head, at each
 zoom.
@@ -972,6 +1001,7 @@ behavior is in the last column.
 | `audio_zoom_pct` | 50 | The power of the scale in the distance factor | 100: the same distances at each zoom |
 | `audio_range` | 1 | The head and the room distances decide which positional sounds start and stop (6.4) | 0: the game camera decides |
 | `audio_loops_keep` | 1 | A loop out of range keeps its sample slot and is silent, while half of the slots are free | 0: it stops, as in the game |
+| `audio_take_loop` | 1 | The ears decide the start of the loop of a bulk take (6.4). Test key: Ctrl, Shift and the equals key | 0: the game camera decides, and in the God view the take has no sound |
 | `audio_mixer` | 1 | The mixer of the mod plays each sound with a place, and the bed | 0: QMixer pans each sound |
 | `audio_height` | 1 | The mixer gives a source its height | 0: each source is at the level of the ears |
 | `audio_height_pct` | 100 | The strength of the height band, 0 to 200. Use 60 if the sounds of the land are too dull, 150 if the height is not clear | |
@@ -1012,6 +1042,12 @@ Hand while the mouse moves.
    every steered sound goes back to the DLL's polar position.
 
 Ctrl and Pause (with `test_keys=1`) change `audio_stop_wait` (7.6).
+
+Ctrl and Shift with the equals key of the row of digits (with `test_keys=1`)
+change `audio_take_loop` (6.4). The pointing controller gives a long pulse for 1 and a
+short pulse for 0. The new value acts on the next ask of the game, so it acts
+in a take that runs: with 1 the loop starts, and with 0 a loop that plays goes
+on to the end of the take.
 
 ## 10. Latency
 
@@ -1100,6 +1136,38 @@ audio range  : loop ... stops: its object has no position now. ...
 audio range  : the head decided N starts: N started that the game camera refuses, ...
 ```
 
+The loop of a bulk take has the tag `audio take`: the value of the key at the
+start, one line when the loop starts, one line when the game or the head
+refuses it, and one line when it stops. The lines of a start and of a refusal
+give the bank and the sample, the place that the game asked for, the distance
+from the head, the range in the room, and the distance from the game camera.
+The line of the stop gives the time since the start, the number of asks of the
+game, and the time since the last ask:
+
+```
+audio take   : audio_take_loop=1. The ears decide the start of the loop of a bulk take, as for a sound with an object
+audio take   : the loop of the take starts: in game 98, at X Y Z. That place is N m from the head (N units), and the range of the sample is N m (180 units times k). The game camera is N units from it. The head decided. The game camera is past the maximum of the sample, so the game refuses this loop (audio_take_loop=1)
+audio take   : the game refuses the loop of the take: in game 98, at X Y Z. ... The game camera is N units from it, past the maximum of the sample. The take has no sound (audio_take_loop=0)
+audio take   : the loop of the take stopped, N ms after its start. The game asked for it N times, and its last ask was N ms before the stop
+```
+
+With `audio_capture=1` each of these lines ends with the frame of the capture
+file, so `audio_measure.py` can measure the stream in the time of the take.
+With `audio_trace=1` the line `audio play` of the sample has the channel, and
+the volume, the place and the distance mapping that the DLL sent to QMixer.
+The line `audio chan` of that channel comes one time a second while the loop
+plays.
+
+A desktop run in the God view at 44.4 units a meter has shown the loop
+(`village_run.ps1 -Kind fartake`, a take of wood at a distance from a pile of
+the Village Store). The game asks for sample 98 at the Hand, 0.41 m from the
+head, and the game camera is 394 units from that place. With
+`audio_take_loop=1` the loop starts on the first ask, with the mapping 60 to
+180 of the bank, and it stops with the take, 3.1 s later. With 0 the game
+refuses each ask. In the 3.1 s of the take the stream has 3 dB more level with
+the loop than without it (-13.9 dB and -16.9 dB of full level, the mean of
+both ears), and the 3 s before the take have the same level in both runs.
+
 The last line comes each 30 s, when a number changed. With `audio_range=0`, or
 with the test key on step 4, the same lines show what the game camera
 decides: "is refused: the game camera is out of range" and "stops: the game
@@ -1167,6 +1235,15 @@ the game window in front), and the level balance by ear.
 - The stop of a sound that QMixer plays holds the frame thread for 20 ms
   (7.6). A desktop run of 110 s has 2 such stops. Which sounds they are is
   not known.
+- A sound with no object that the game asks for at a place of its own keeps
+  the test of the game, with the game camera 400 units away in the God view.
+  Only the loop of a bulk take has the test of the ears (6.4). Sample 52 of
+  the in game bank (the Hand over an object) starts at the Hand, and its
+  maximum in the bank is 300 units, so it is probably such a sound. Which
+  sounds of this kind are missing in the God view is not known.
+- The loop of a bulk take: only a person can say how it sounds in the
+  headset and how loud it is beside the other sounds. No run has the loop of
+  food (sample 44), a field or a fish farm.
 
 **Open questions.**
 
@@ -1178,7 +1255,9 @@ the game window in front), and the level balance by ear.
    polar position? The mod uses the polar call, so it does not need the answer.
 3. Is the sign of the azimuth right? A positive azimuth must be the right
    ear. Only a person can check it.
-4. Does the Hand play through `PlaySoundEffect` with a position?
+4. Does the Hand play through `PlaySoundEffect` with a position? The loop of
+   a bulk take does (section 4). The other sounds of the Hand are not
+   checked.
 5. How many QMixer channels does the game open, and what happens when all are
    busy? A tracked voice could be stolen. The tracker checks the key each
    frame, so it is safe, but the advisor voice may get cut.
