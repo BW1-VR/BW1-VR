@@ -905,6 +905,8 @@ The words that act on the first frame of the word only:
 | `exit` | The mod asks the game to end by itself, on its usual exit path, as `exit_test_frame` does. From that frame the mod drops each write of the game to the registry. See `backend.md`, "The test of the end" |
 | `layoutkey` | The test key of `button_layout` acts (5.1) |
 | `movekey` | The test key of `move_stick` acts (`god-view.md`, section 5.7) |
+| `teleportkey` | The test key of `teleport_switch` acts (`god-view.md`, section 14.6) |
+| `promptkey` | The test key of `prompt_moves` acts (`controller-hints.md`, 9.5) |
 
 The placement of the hand is in cm from the head center. Each pose word sets
 the position of the right hand until the next one.
@@ -1034,6 +1036,7 @@ default. Each control has one job, and one button opens the game menu.
 | `gesture_button` | 1 | The gesture draw button: 0 off, 1 the second face button of the pointing hand, 2 the stick click |
 | `gesture_size_cm` | 30 | This much hand motion is a third of the view height to the game |
 | `teleport` | 1 | 1: A makes the teleport. 0: A makes a jump |
+| `teleport_switch` | 1 | The switch of the game that the press of A keeps to. 1: the drag of the land, as the walk with the stick. 0: the double click jump (`god-view.md`, section 14.1). Not in the launcher |
 | `button_layout` | 1 | The layout of the buttons of the hand that does not point (5.1). 1: the menu button of the left controller opens the game menu, the second face button opens the ring, the first face button has no job, and the stick does not drive the ring. 0: the second face button opens the game menu, the first face button opens the ring, and the stick can drive the ring. The test key Ctrl and the Menu key goes between the two (`test_keys=1`). Not in the launcher |
 | `move_stick`, `move_stick_speed_cm` | 1, 150 | The walk with the stick of the hand that does not point, in the God view: 0 off, 1 along the direction of the head, 2 along the direction of the controller, and the speed of a full push in cm of the room for each second (`god-view.md`, section 5.7). The launcher row "Move with the left stick" |
 | `miracle_cancel_ms` | 400 | The longest press of the second face button that takes a miracle out of the Hand |

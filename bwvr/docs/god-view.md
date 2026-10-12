@@ -66,9 +66,11 @@ sets the flags of each mode.
   and the middle mouse turn.
 - **The menu.** The menu button of the left controller sends Esc, and a
   dialog box takes the pointing hand as a pointer (section 10).
-- **The tutorial.** The zoom, the pan and the turn keep to the game's camera
-  switches, and they send the game's camera events. So a tutorial step that
-  waits for a zoom or a drag can end.
+- **The tutorial.** The zoom, the pan, the walk, the teleport and the turn
+  keep to the game's camera switches, and they send the game's camera
+  events. So a tutorial step that waits for a zoom or a drag can end. The
+  pan, the walk and the teleport have one switch, so the player has all
+  three from the first step of the tutorial.
 - **A load** builds the view again at the camera of the loaded game.
 - **The game moves its camera.** When the game puts its own camera at a new
   place (a new game, the end of a story, its jump to the Temple), the player
@@ -661,9 +663,12 @@ event.
   grab. The version of the view goes up on each frame that moves, so the game
   camera follows the player (section 7).
 - **The game's switch.** The walk needs the switch for the drag of the land
-  (bit 8), as the grab does. A push with the switch off does nothing, is
-  counted one time and must come back. Each frame that moves sends event
-  0x308 with the input bit 2, as a move of the grab does.
+  (bit 8), as the grab and the teleport do. A push with the switch off does
+  nothing, is counted one time and must come back. Each frame that moves
+  sends event 0x308 with the input bit 2, as a move of the grab does.
+- **The hint.** While a push of the stick moves the player, the card of the
+  hand with that stick has the line "Stick Move" in the prompt of the land
+  (`prompt_moves`, `controller-hints.md`, 9.4).
 - **When the stick does not move the player.** While a grip holds the world.
   In a dialog box and in the game menu. While the God view does not own the
   view: a story, a cut scene, the Temple. While the camera is not the
@@ -808,12 +813,54 @@ God view keeps to the same bits:
 
 - A zoom step and the smooth zoom need bit 4 (`TabletopGodStep`,
   `TabletopGodZoomHold`).
-- The mouse pan, the grab and the walk with the stick need bit 8 (`MousePan`,
-  `TabletopMove`, `TabletopGodWalk`).
+- The mouse pan, the grab, the walk with the stick and the teleport need bit
+  8 (`MousePan`, `TabletopMove`, `TabletopGodWalk`, `TabletopMoveAllowed`).
+  Each of them moves the player over the land, so one switch holds for all
+  of them. With `teleport_switch=0` the teleport needs bit 0x10 (section
+  14.1).
 - A two hand grab turns only with bit 2 and zooms only with bit 4
   (`TabletopGrabAllows`, called by `world_grab.cpp`).
 - A snap turn needs bit 2 (`MayTurn` in `comfort_camera.cpp`).
-- The teleport needs bit 0x10 (section 14).
+- The mouse double click needs bit 0x10, because it is the jump of the game.
+
+**The interface levels** [V: the disassembly and
+`Scripts\Quests\challenge.chl`]. A script sets all the bits at one time with
+the script word "set interface interaction"
+(`GScript::SetInterfaceInteraction` `0x0070B220`, function 63 of the script
+machine). The word takes one of 16 levels (the jump table at `0x0070B7A8`),
+and it calls `CameraHelp::EnableCameraFeatures` `0x00447430` with the bits of
+the level and a mask of all bits. The table has each level that a script
+uses:
+
+| Level | Bits | The camera controls | The scripts |
+| --- | --- | --- | --- |
+| 0 | 0x1BF | All | Each script below, at its end |
+| 1 | 8 | The drag | `FollowUs`, the walk to the village. `MoveAroundMountain`, at its start |
+| 4 | 0x18 | The drag and the jump | `FollowUs`, the way from the village to the Temple |
+| 8, 12 | 0 | None | `TheMissionaries`, `LearnGestures`, `PhysicalShieldChallenge`, `FireBallChallenge` |
+| 10 | 0xA | The turn and the drag | `MoveAroundMountain` |
+| 11 | 1 | The tilt | `MoveUpAndDownMountain` |
+| 13 | 0x1A | The turn, the drag and the jump | `FollowUs`, the turn lesson |
+| 14 | 0x1B | The tilt, the turn, the drag and the jump | `FollowUs`, the tilt lesson |
+| 15 | 0x3F | The six low bits | `FollowUs`, the zoom lesson |
+
+The levels 2 (bit 8), 3 and 6 (bit 2), 5 (0x24) and 7 (0x26) are in the code
+of the game, and no script uses them. Level 9 is an error. The levels 1, 2
+and 10 also call `fn_004473F0` `0x004473F0`, which turns on bit 0x40 and
+writes `CameraHelp::AutoPitchParam1` and `AutoPitchParam2`: the automatic
+pitch of the game camera. So the log has 0x48 for level 1.
+
+**The walk to the village** [V: `challenge.chl`, the script `FollowUs`, source
+file `followus.txt`]. At the start of a new game the first story ends with
+level 1, and the villagers ask the player to follow them. Each game turn the
+script measures the distance on the map from "camera position" to the end of
+the path (`EndMarker`) and to the father. The step ends when the first
+distance is less than 50 units. The script counts no event of the help for
+this step. A distance from "camera position" is the distance from the player
+(section 16), so the player comes there with the grab, with the walk with the
+stick or with the teleport. The next step has level 4 and the script
+`TunnelOfUltimateDoom`: it ends when the player is less than 75 units from
+the Temple.
 
 The tutorial counts the events of `CameraHelp::CameraHelpCallback`
 `0x00449140`. Only the 0x300 events reach `HelpProfile::Trigger`. The 0x100
@@ -1347,6 +1394,17 @@ and the camera events (0x304 for a wheel click and 0x308 for a land drag).
   the edge of the map, a push with the switch for the drag off, a controller
   that points straight up or down, or the test key with a real key. These
   have the math test or no test.
+- **The tutorial** (section 7, "The interface levels"). A desktop run shows
+  the first step: the walk to the village with the teleport and with the
+  stick (section 14.9). On that walk and on the way to the Temple the game
+  has the turn and the zoom off, so the snap turn and the zoom do nothing
+  there, and the player turns the head or the body. No run has the later
+  steps: the way to the Temple (level 4), the three lessons of the camera
+  (levels 13 to 15), the walk around the mountain (levels 1 and 10), the look
+  up and down at the mountain (level 11: the game has each move off, and a
+  look of the head gives the tilt events), and the lessons in which the game
+  has each camera control off (levels 8 and 12). A headset session must show
+  that a player comes through each step.
 - **Needs the headset:** the ground height of 60 cm, the zoom step of 1.5
   times, the start scale of 100, the Hand at the life size scale near the
   eyes with the near plane of 5 cm, the look of the land and the clouds at
@@ -1390,13 +1448,25 @@ A press of A is refused, with one buzz of 30 ms and no arc, when:
 - a dialog box is up (`SetupBox::GetCurrentActiveBox` `0x00407ED0` reads
   `0x00C4CD20`),
 - the camera input is off (`mode+0x2EC`), or there is a fight (`mode+0x44`),
-- the game's jump switch is off: bit `0x10` of `CameraHelp::EnabledFeatures`
-  (section 7). The tutorial turns it on at its own step,
+- the game's switch for the drag of the land is off: bit 8 of
+  `CameraHelp::EnabledFeatures` (section 7),
 - the hand cannot act (a menu, or the game is not in front), or the aim pose
   is not tracked.
 
 The log gives the reason. A reason that starts while the player aims cancels
 the aim, with two ticks.
+
+**The switch of the game** (`teleport_switch`, 1). The teleport moves the
+player over the land, as the walk with the stick does (section 5.7). So the
+two have one rule: the press of A and the push of the stick keep to the same
+switch of the game, bit 8. When a script turns that bit off, the game holds
+the player in place, and it refuses both. The first step of the tutorial has
+bit 8 only (section 7, "The walk to the village"), and there the player goes
+to the village with the teleport or with the stick. With `teleport_switch=0`
+the press of A keeps to the switch of the double click jump, bit 0x10, which
+the tutorial turns on after the village. `TeleportPossible` says whether a
+press of A can move the player now, and the hint card shows the line of A
+only then (`controller-hints.md`, 9.4).
 
 ### 14.2 The arc
 
@@ -1480,7 +1550,8 @@ can end.
 **The mouse.** In the God view, `h_ModeUpdate` calls
 `TeleportMouseDoubleClick` before the game's update. It acts when the latch
 `0x00E85350` has the double click bit `0x10`, the mouse owns the pointer, and
-the game would allow its own jump (the same switches as the press of A). The
+the game would allow its own jump: the reasons of the game for the press of
+A, with the jump switch (bit 0x10) for each value of `teleport_switch`. The
 mouse ray from the head finds the land (`RayLand`). The bit is cleared, so the
 game does not fly its camera. Then the God view goes there as for A. The mouse
 teleport works with `teleport=0` too, because the game's jump moves only a
@@ -1539,10 +1610,13 @@ All in `[bwvr]`. They are ini only. The launcher has no row for them.
 | `teleport_ring_min_cm` | 4 | The smallest outer radius in the room for mode 1, 1 or more |
 | `teleport_ring_max_cm` | 40 | The largest outer radius in the room for mode 1 |
 | `teleport_ring_cm` | 11 | The outer radius of the ring for mode 0, 5 to 60 |
+| `teleport_switch` | 1 | The switch of the game that the press of A keeps to (section 14.1). 1: the drag of the land (bit 8), as the walk with the stick. 0: the double click jump (bit 0x10) |
 
 With `test_keys=1`, Ctrl with Insert changes `teleport_ring_mode` between 1
 and 0. The pointing controller gives a long pulse for 1 and a short pulse for
-0.
+0. Ctrl and Shift with the comma key change `teleport_switch` between 1 and
+0, with the same pulses. The word `teleportkey` of the scripted controller
+does the same in a desktop run.
 
 ### 14.7 The log
 
@@ -1550,6 +1624,9 @@ The tag is `teleport`. The lines are:
 
 ```
 teleport     : on. Hold A to aim an arc with a reach of 10 m, ...
+teleport     : teleport_switch=1 (start). The press of A keeps to the game's switch for the drag of the land (bit 8), as the walk with the stick does
+teleport     : A does not teleport now: a story owns the camera (teleport_switch=1), frame N
+teleport     : the view and the game let A teleport now (teleport_switch=1), frame N
 teleport     : frame N, God view, aim from x y z m in the room, 28.0 degrees up, 31 arc points, 100.0 units a meter
 teleport     : hit land at x y z, the target is land. Valid (cyan), 56 land lookups this frame
 teleport     : no hit: the aim is the sky, so there is no arc
@@ -1566,7 +1643,9 @@ teleport     : N land lookups, at most N in one frame. The arc was drawn in N ey
 
 The ring line goes out once for each aim.
 The aim line goes out on the first frame, on a change of the hit or of the
-reason, and every 90 frames, 90 lines at most.
+reason, and every 90 frames, 90 lines at most. The lines "A does not teleport
+now" and "let A teleport now" go out on each change of what the view and the
+game say to a press of A, with no reason of the hand, 40 lines at most.
 
 ### 14.8 Tests
 
@@ -1600,9 +1679,8 @@ The math test (`TeleportChecks`) covers:
 ### 14.9 The run on the desktop
 
 Use the rig of section 12, with `fake_head_pitch=0`. The Creature select story
-holds the view until the pen. If camera switch `0x10` is off at the pen, the
-press of A is refused and the log says so. Then use a game start that turns it
-on.
+holds the view until the pen. A press of A in a story is refused, and the log
+says so.
 
 `aim_queue.ps1 -Runs ring1,ring0 -NewGame` in `bwvr/tools/desk` makes three
 teleports at the pen: at 100 units a meter, after two zoom steps in (44.4) and
@@ -1615,8 +1693,29 @@ each scale. In the test save `pen` the runs show the same ring sizes and two
 teleports: the third aim is on the sea (`tools/desk/README.md`, "Known limits
 of the recipes").
 
-1. A at the pen: `a@3000+10`. With the switch off, the log shows "A is
-   refused: the game's jump switch is off (camera switch 0x10)".
+1. The switch of the game, at the start of the tutorial. `spawn_run.ps1
+   -Choice normal` starts a new game with the row "Start the game normally":
+   the whole first story, and then the walk to the village. Four texts of the
+   story wait for a click, so the script has a press of the trigger at the
+   frames 6750 and 7350, and then each 220 frames from 7950. The story ends
+   at about frame 9700, and the log says "the camera controls of the game are
+   0x48": the drag is on, and the jump is off. The run starts with
+   `teleport_switch=0`, and the word `teleportkey` changes the switch.
+   `fake_controller_turns=0,-40,0` and `aimturn@700+1` turn the aim to the
+   land near the head. The log shows:
+   - With `teleport_switch=0`, a press of A gives "A is refused: the game's
+     jump switch is off (camera switch 0x10)".
+   - After `teleportkey`, "the view and the game let A teleport now
+     (teleport_switch=1)", and a press of A gives the aim, the hit and "A is
+     up, so go to". The walk with the stick starts in the same state of the
+     game.
+   - The cards of the land (`prompts=2`): "[A] Teleport" at the right hand,
+     and "[Grip] Move the land, [Stick] Move, [Y] Ring menu, [Menu] Game
+     menu" at the left hand. With `far_grab=0` no far target takes the place
+     of these cards.
+   - One teleport of 140 units and four frames of the walk bring the player
+     to the village: the story of the village plays, and then the log says
+     "the camera controls of the game are 0x18".
 2. With the switch on, two aims and a release: `a@N+90 pose2@N+30+1`. The
    log shows the aim, the hit, the reason, and "A is up, so go to". Then the
    line "the God view moved": the head is over the target within 0.01 units,
@@ -1644,6 +1743,11 @@ of the recipes").
   of the arc, or whether the arc must start at the index finger.
 - The immersive move and the table ray have no desktop run. Ctrl F11 gives
   the immersive view.
+- `teleport_switch`: no run has the key Ctrl, Shift and comma with a real
+  key, a switch that goes off while the player aims, or the teleport on the
+  walk around the mountain, where the game has the drag on and the jump off
+  too. Only a headset session can show whether a player finds the way to the
+  village with the teleport and the stick, with no snap turn there.
 
 ## 15. The place at a camera of the game
 

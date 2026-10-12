@@ -294,13 +294,15 @@ is built, and no test has proven it.
   head turned, the edges of the video do not lie on each other in the two
   eyes. Wanted: the video plays on the screen of the cut scene window,
   about 2 m in front of the player.
-- **B26. The start of the tutorial: the teleport and the hints.** When the
-  tutorial asks the player to follow the villagers into the village, the
-  hint of the right hand says that A is the teleport, and the teleport does
-  nothing there. Wanted: the teleport works there. The left hand has no
-  hint for the walk with the stick, which works there: add it. The aim: a
-  player can play the whole tutorial in VR, also where the words of the
-  game do not fit the controllers.
+- **B26. The tutorial after its first step.** The aim: a player can play the
+  whole tutorial in VR, also where the words of the game do not fit the
+  controllers. The first step is shown in a desktop run: the walk to the
+  village with the teleport and with the stick (`god-view.md`, section 14.9).
+  No run and no headset session has the later steps: the way to the Temple,
+  the three lessons of the camera, the guide at the mountain. `god-view.md`,
+  section 7, "The interface levels", has the camera controls that the game
+  allows in each step. Wanted: a headset session through the whole tutorial,
+  and a correction for each step that stops the player.
 - **B27. The walk with the stick is not smooth over some parts of the
   land.** In a headset session the motion was jagged and it jittered over
   some parts of the map. The cause is not known. A guess: the height of the

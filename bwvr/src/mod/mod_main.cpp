@@ -1089,6 +1089,10 @@ void ReadSettings() {
     g_teleport.ring_units = number("teleport_ring_units", 11);
     g_teleport.ring_min_cm = number("teleport_ring_min_cm", 4);
     g_teleport.ring_max_cm = number("teleport_ring_max_cm", 40);
+    // The switch of the game that the press of A keeps to: 1 the drag of the
+    // land, as the walk with the stick, 0 the double click jump. With
+    // test_keys=1, Ctrl and Shift with the comma key change it.
+    g_teleport.move_switch = number("teleport_switch", 1);
     g_teleport.test_keys = number("test_keys", 0) != 0;
     // The grab from a distance: point at an object that is out of reach,
     // close the grip and pull toward the head. throw_law=1 sends sqrt(s) v in

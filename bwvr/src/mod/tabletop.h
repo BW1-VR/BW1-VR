@@ -160,6 +160,12 @@ void TabletopGodZoomAboutCycle();
 int TabletopGodMoveStick();
 bool TabletopGodWalk(const float push[2], const float* aim);
 
+// THE SWITCH OF A MOVE OVER THE LAND. True while the game's switch for the
+// drag of the land is on (bit 8 of CameraHelp::EnabledFeatures). The grab,
+// the walk with the stick and the teleport keep to it, and so do the lines of
+// the hint card for the walk and the teleport.
+bool TabletopMoveAllowed();
+
 // The test key of move_stick (Shift and the Menu key, with test_keys=1): the
 // rule goes from 1 to 2 to 0 and back to 1.
 void TabletopGodMoveStickCycle();

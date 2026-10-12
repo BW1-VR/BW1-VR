@@ -195,7 +195,11 @@ With the mouse:
 
 The tutorial of the game turns on the camera controls one at a time.
 Until the tutorial turns on a control, that control does nothing in
-the God view.
+the God view. The grip on the land, the walk with the left stick and
+the teleport go together. They work from the first step of the
+tutorial, when the villagers ask you to follow them. Set
+teleport_switch=0 in bwvr.ini to keep the teleport off until the
+tutorial turns on the double click jump of the game.
 
 Ctrl F11 turns the God view off and on. Off gives the immersive
 view, which is for tests only.
@@ -264,6 +268,12 @@ still:
   Shift Menu key      Change the walk with the left stick: where your
                       head faces, where the controller points, or off
                       (move_stick).
+  Ctrl Shift Comma    Change the switch of the game that the teleport
+                      keeps to: the drag of the land, or the double
+                      click jump (teleport_switch).
+  Ctrl Shift Period   Change the lines "Stick Move" and "A Teleport"
+                      of the hint cards: only while they can move
+                      you, or as before (prompt_moves).
   Number pad keys     Switch between two ways of one behavior, while
                       you play. See TEST KEYS OF THE NUMBER PAD.
 
@@ -465,8 +475,8 @@ give this hint the rule of the other trigger hints.
 
 Each controller has its own card. A line for a button of the other
 controller shows beside the wrist of that hand: "Grip Move the land",
-"Y Ring menu" and "Menu Game menu" show at your left hand. The two
-cards can show at the same time.
+"Stick Move", "Y Ring menu" and "Menu Game menu" show at your left
+hand. The two cards can show at the same time.
 
 The cards also show prompts: what a button does now. Examples are "Grip
 Take" over an object, "Grip Pull to fetch" for a far object, "Grip Hold
@@ -476,6 +486,12 @@ the land. A prompt for the thing that your hand or your aim is on shows
 at once and stays while you are on it. The other prompts show for a few
 seconds, and only the first times. Set prompts=2 in bwvr.ini to show
 those always, or prompts=0 for none. Set hint_card_size_pct=150 for larger cards.
+
+"Stick Move" shows only while the left stick can move you, and "A
+Teleport" shows only while the A button can. For example, they do not
+show while a step of the tutorial holds you in your place. Set
+prompt_moves=0 in bwvr.ini for no line of the stick and a line of A
+in each case.
 
 With a tree in your Hand, the card says "Grip Plant" only when opening
 the grip plants the tree. If your Hand is more than 15 cm over the land,

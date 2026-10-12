@@ -3343,6 +3343,8 @@ int TabletopGodMoveStick() {
   return walk_math::Rule(g_settings.move_stick);
 }
 
+bool TabletopMoveAllowed() { return (CameraFeatures() & kFeatureDrag) != 0; }
+
 bool TabletopGodWalk(const float push[2], const float* aim) {
   if (TabletopGodMoveStick() == walk_math::kRuleOff || !TabletopGodOwnsView()) {
     return false;

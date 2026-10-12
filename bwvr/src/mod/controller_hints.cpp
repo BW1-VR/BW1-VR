@@ -43,6 +43,7 @@ struct Words {
   const wchar_t* menu;        // the button that opens the game menu
   const wchar_t* world;       // the grip of the other hand: it moves the land
   const wchar_t* ring;        // the control of the other hand: it opens the ring
+  const wchar_t* walk;        // the stick of the other hand: it moves the player
   const wchar_t* noun;        // "stick" or "pad", for a sentence
   const wchar_t* verb;        // "Push" or "Press"
   bool swap;
@@ -124,6 +125,9 @@ Words BuildWords(const ControllerHintState& state, const char* profile) {
     if (f == kIndex) w.ring = new_layout ? L"B" : L"A";
   }
   if (state.ring != 0 && w.ring == nullptr) w.ring = w.stick;
+  // The walk (controllers.cpp, PumpWalk): the stick of the hand that does not
+  // point, while that stick has the job of the walk.
+  if (state.walk) w.walk = w.stick;
   return w;
 }
 
@@ -137,7 +141,8 @@ uint32_t SignatureOf(const Words& w, const ControllerHintState& s) {
          (s.swap_buttons ? 0x20u : 0u) | (s.world_grab ? 0x100u : 0u) |
          (static_cast<uint32_t>(s.gesture_button & 3) << 6) |
          (static_cast<uint32_t>(s.ring & 3) << 9) |
-         (s.layout != 0 ? 0x800u : 0u) | (w.menu_on_pointing ? 0x1000u : 0u);
+         (s.layout != 0 ? 0x800u : 0u) | (w.menu_on_pointing ? 0x1000u : 0u) |
+         (s.walk ? 0x2000u : 0u);
 }
 
 // --- the census -------------------------------------------------------------
@@ -803,6 +808,8 @@ const wchar_t* ControllerHintWord(int word) {
       return g_words.world;
     case kWordRing:
       return g_words.ring;
+    case kWordWalk:
+      return g_words.walk;
     default:
       return nullptr;
   }
