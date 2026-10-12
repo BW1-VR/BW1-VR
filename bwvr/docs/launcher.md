@@ -16,7 +16,13 @@ result looks like a bug in the mod.
 The window has these buttons: "Play in VR", "Play, new game" (starts the game
 with `-NEWGAME`, on the first island, with no menu), "Play, no VR" (see "The
 game without VR"), "Save" (writes the settings and does not start the game)
-and "Support".
+and "Support". The buttons are a block below the table. "Play in VR" and
+"Play, new game" are in the first row, "Save" and "Play, no VR" in the second
+row, and "Support" has the third row to itself.
+
+The launcher asks Windows for version 6 of the common controls (a manifest
+line at the top of `launcher.cpp`). The controls then have the visual styles
+of Windows, and a button can show a picture beside its text.
 
 ## The table
 
@@ -32,8 +38,14 @@ There is no layout to keep in step and no separate load and save code.
 
 The window sizes itself around the table and starts a new column when one gets
 tall. A heading stays with at least three of its settings. A column has 22
-rows at most. The table of now has 22 rows, so the window has one column, and
-it is as wide as its five buttons. One more row starts a second column.
+rows at most. The table of now has 22 rows, so the window has one column. One
+more row starts a second column.
+
+A field is 160 units wide, which is enough for the longest choice ("Grip of
+the other hand"). The block of the buttons is below the last column and as
+wide as its fields. When a column before the last is taller, the block is at
+the bottom of the window. The status line is below the table and the buttons,
+over the whole window, and has room for two lines of text.
 
 There are six kinds of row:
 
@@ -243,3 +255,26 @@ or `.\dev.ps1 build`. The output is `Black & White VR Mod.exe`.
 
 It opens https://ko-fi.com/buckzor in the browser of the player. The mod is
 free, and the button is the only place where the mod asks for anything.
+
+The button is as wide as the two buttons above it together, and it shows a
+red heart to the left of its text. The launcher draws the heart itself, at
+the size of the text for the scale of the screen (`MakeHeartIcon`), so the
+art folder has no file for it.
+
+## A picture of the window for a test
+
+`-shot <file>` at the end of the command line makes the launcher write its
+window to a BMP file and end. A person who uses the PC does not see the
+window: it is outside the screen, it has no button on the taskbar, and it
+does not take the focus. The launcher reads the settings for the picture and
+writes nothing but the file. With no game folder it does not stop: the
+picture then shows the default of each row.
+
+`-rows <n>` before `-shot` sets the most rows of a column. This gives the
+picture of a table that has more columns.
+
+`bwvr/tools/desk/launcher_shot.ps1 -Name <name>` runs the launcher of the
+build folder in this way and makes a PNG in `local\launcher-shot`. Look at
+the picture after each change of the table or of the layout: a text that is
+cut off and two controls that overlap show there. The picture is the client
+area only. It does not show the frame of the window or a tooltip.

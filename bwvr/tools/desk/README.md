@@ -90,6 +90,7 @@ calls it. It keeps these rules, and a new script must keep them too:
 | `dialog.ps1` | Measures the start dialog for a render size, and gives the dialog points. Gives the way through the Main Menu of a run in a test save |
 | `verify_build.ps1` | The three runs before a merge |
 | `exit_run.ps1` | A run in which the game ends by itself, and the check of its end |
+| `launcher_shot.ps1` | A picture of the window of the launcher, for a change of its table or its layout. It does not start the game, and it puts no window on the screen, so it needs no idle PC. `-Rows <n>` gives the picture of a table with more columns. See `launcher.md`, "A picture of the window for a test" |
 | `aim_run.ps1`, `aim_queue.ps1` | The far fetch, the aim presets, the teleport |
 | `throw_queue.ps1` | Throws and landings |
 | `spawn_run.ps1` | A start with "Keep your old Creature": no story, the player at the Temple |
