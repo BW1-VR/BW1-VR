@@ -265,7 +265,7 @@ float g_ui_shift = 8.0f;
 bool g_freeze_time = true;
 // One walk of the scene for both eyes (one_walk.cpp). 0 walks the scene one
 // time for each eye.
-bool g_one_walk = false;
+bool g_one_walk = true;
 bool g_one_walk_check = false;
 bool g_move_camera_point = false;
 // After the two eye passes the game has the real time of the frame as its
@@ -475,7 +475,7 @@ int g_eye_clean = 1;
 int g_eye_clean_test = 0;
 int g_eye_clean_test_frame = 0;
 // The way of the eye pictures to the headset (frame_send.cpp).
-int g_frame_send = 2;
+int g_frame_send = 0;
 // The merge of draw calls with one state (draw_merge.cpp), and its test keys
 // for desktop runs.
 int g_draw_merge = 1;
@@ -560,7 +560,7 @@ void ReadSettings() {
       GetPrivateProfileIntA("bwvr", "frame_time_test_readers", 0, path));
   g_frame_time_test_readers_frames = static_cast<int>(GetPrivateProfileIntA(
       "bwvr", "frame_time_test_readers_frames", 600, path));
-  g_one_walk = GetPrivateProfileIntA("bwvr", "one_walk", 0, path) != 0;
+  g_one_walk = GetPrivateProfileIntA("bwvr", "one_walk", 1, path) != 0;
   g_one_walk_check =
       GetPrivateProfileIntA("bwvr", "one_walk_check", 0, path) != 0;
   g_draw_probe = GetPrivateProfileIntA("bwvr", "draw_probe", 0, path) != 0;
@@ -1215,7 +1215,7 @@ void ReadSettings() {
   g_eye_clean_test_frame = static_cast<int>(
       GetPrivateProfileIntA("bwvr", "eye_clean_test_frame", 0, path));
   g_frame_send =
-      static_cast<int>(GetPrivateProfileIntA("bwvr", "frame_send", 2, path));
+      static_cast<int>(GetPrivateProfileIntA("bwvr", "frame_send", 0, path));
   g_draw_merge =
       GetPrivateProfileIntA("bwvr", "draw_merge", 1, path) != 0 ? 1 : 0;
   g_draw_merge_test = static_cast<int>(
@@ -1817,10 +1817,10 @@ void EarlyHooks() {
     ModLog("gpu bridge   : MinHook would not start, staying on the CPU path");
     return;
   }
-  // With frame_send=2, the default, a second thread makes calls on the
-  // device of the backend. The test key can choose that value in a session.
+  // With frame_send=2 a second thread makes calls on the device of the
+  // backend. The test key can choose that value in a session.
   GpuBridgeWantTwoThreads(
-      GetPrivateProfileIntA("bwvr", "frame_send", 2, path) == 2 ||
+      GetPrivateProfileIntA("bwvr", "frame_send", 0, path) == 2 ||
       GetPrivateProfileIntA("bwvr", "test_keys", 0, path) != 0);
   GpuBridgeSetEnabled(true);
   GpuBridgeInstall();

@@ -421,8 +421,8 @@ that moves while the Hand takes it.
     `Lock` of dxwrapper does for a surface that a copy used in the same
     frame. Then name the thing that the second write is for (the list at
     `0x00FAA7E0` of `LH3DIsland::Draw`).
-  - **One walk of the scene for both eyes.** Built as a prototype, off by
-    default (`one_walk`, `backend.md`, "One walk for both eyes"). The batches
+  - **One walk of the scene for both eyes.** It is on by default
+    (`one_walk`, `backend.md`, "One walk for both eyes"). The batches
     of eye pass 0 go to a wide target, and a hook draws each one again for
     the right eye, moved by the disparity of its `rhw`. On the desktop the
     scene time of `verify_build.ps1` went down by 35 to 40 percent. Not shown:

@@ -71,7 +71,7 @@ const Setting kSettings[] = {
     // Before the resolution: a save writes the rows in order, and the size of
     // the render reads this key.
     {kBool, "one_walk", "One scene walk for both eyes (prototype)", nullptr,
-     0,
+     1,
      "The game draws the scene one time, for the left eye, and the mod makes "
      "the right eye from the same drawing. This takes about 40 percent off "
      "the time of the scene. The render is a quarter wider, so that the "
@@ -405,7 +405,7 @@ void ScaleToPixels(int percent, int* width, int* height) {
   // own right edge. A wider render gives the game a wider horizontal angle at
   // the same pixels per degree (stereo.cpp, PrepareHeadView), so that edge is
   // outside what the right eye shows.
-  if (ReadIni("one_walk", 0) != 0) {
+  if (ReadIni("one_walk", 1) != 0) {
     int guard = ReadIni("one_walk_guard_pct", 25);
     if (guard < 0) guard = 0;
     if (guard > 60) guard = 60;

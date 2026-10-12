@@ -122,7 +122,7 @@ does not delete them, so a value that a person writes in `bwvr.ini` is kept.
 
 | Setting | Default | What it does |
 | --- | --- | --- |
-| One scene walk for both eyes (prototype) | Off | Key `one_walk`. On also makes the render a quarter wider (`one_walk_guard_pct`, 25), see `backend.md`, "One walk for both eyes". It is before the resolution in the table, because a save writes the rows in order and the size reads it |
+| One scene walk for both eyes (prototype) | On | Key `one_walk`. On also makes the render a quarter wider (`one_walk_guard_pct`, 25), see `backend.md`, "One walk for both eyes". It is before the resolution in the table, because a save writes the rows in order and the size reads it |
 | Resolution scale | 100% | A slider from 50 to 200 in steps of 5. Key `resolution_pct`. See "The resolution comes from the headset". |
 | Anisotropic filtering | 16x | A list: off, 2x, 4x, 8x, 16x. Key `anisotropy` (1, 2, 4, 8, 16). The launcher also writes the level to `AnisotropicFiltering` in `dxwrapper\dxwrapper.ini`, because dxwrapper applies its own level to the Direct3D 9 device. A fixed 16 there would make "off" do nothing. dxwrapper reads 0 as "leave it to the game". |
 | Enable texture mipmaps | on | Uses smaller copies of each texture in the distance. Key `force_mips`. |
