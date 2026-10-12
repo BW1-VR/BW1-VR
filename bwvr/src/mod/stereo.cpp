@@ -624,7 +624,7 @@ bool GameHasFocus() {
 //               on (audio_stop_wait, audio_voices.cpp). Windows gives the key
 //               VK_CANCEL for Pause with Ctrl down, so the keys of Pause
 //               alone (throw_physics.cpp) do not see it
-//   Ctrl Shift Right bracket  the copy of the subtitle card is read in a
+//   Ctrl Shift Semicolon  the copy of the subtitle card is read in a
 //               later frame with no wait, or after the eye passes with a wait
 //               for the GPU (subtitle_read_ahead, ui_panel.cpp)
 //   Ctrl Shift Numpad Star  after the two eye passes the game has the real
@@ -767,14 +767,15 @@ void PollHotkeys() {
   for (int i = 0; i < kKeys; ++i) down[i] = now[i];
   // An A/B of the read ahead of the subtitle card (docs/ui-layer.md, "The
   // subtitle card"). Ctrl Shift Pause is the key of throw_land_rest
-  // (throw_physics.cpp), so this key is the right square bracket.
-  static bool bracket_down = false;
-  const bool bracket_now = (GetAsyncKeyState(VK_OEM_6) & 0x8000) != 0;
-  if (g_test_keys && bracket_now && !bracket_down && ctrl && shift &&
+  // (throw_physics.cpp), and the right square bracket is the key of
+  // one_walk_marks, so this key is the semicolon.
+  static bool semicolon_down = false;
+  const bool semicolon_now = (GetAsyncKeyState(VK_OEM_1) & 0x8000) != 0;
+  if (g_test_keys && semicolon_now && !semicolon_down && ctrl && shift &&
       GameHasFocus()) {
-    UiPanelSubtitleReadAheadToggle("Ctrl, Shift and the right square bracket");
+    UiPanelSubtitleReadAheadToggle("Ctrl, Shift and the semicolon key");
   }
-  bracket_down = bracket_now;
+  semicolon_down = semicolon_now;
   // An A/B of one walk (docs/backend.md, "One walk for both eyes"). The
   // menu key (VK_APPS) has no action in the game and no other test key.
   static bool menu_down = false;
@@ -783,6 +784,17 @@ void PollHotkeys() {
     OneWalkToggle();
   }
   menu_down = menu_now;
+  // An A/B of the cards and the marks of the mod in one walk (docs/backend.md,
+  // "One walk for both eyes"). The right square bracket key (VK_OEM_6) has no
+  // other test key. With the left one, Ctrl and Shift change the mark of a
+  // target (target_glow.cpp).
+  static bool marks_down = false;
+  const bool marks_now = (GetAsyncKeyState(VK_OEM_6) & 0x8000) != 0 && ctrl &&
+                         shift;
+  if (g_test_keys && marks_now && !marks_down && GameHasFocus()) {
+    OneWalkMarksToggle("Ctrl, Shift and the right square bracket key");
+  }
+  marks_down = marks_now;
 }
 
 // THE HEAD TRACKING SETUP, once. The render has to cover what the headset asks for,

@@ -1138,7 +1138,7 @@ rig. `subtitle_selftest=1` draws two lines of help text in the HelpText scope
 with the game's own text code (`SubtitleSelfTest`), because a desktop run shows
 no subtitle. With `test_keys=1` and `ui_panel=0`, Ctrl Shift F11 switches
 between the cards and the eye pictures, for a live comparison. With
-`test_keys=1`, Ctrl Shift Right bracket turns `subtitle_read_ahead` off and
+`test_keys=1`, Ctrl Shift Semicolon turns `subtitle_read_ahead` off and
 on.
 `subtitle_read_ahead_test_seconds=N` (5 to 600) does the same each N seconds
 while the card is in use, with the same pulses, for a comparison in the
@@ -1327,6 +1327,15 @@ The bubble is one flat card at the depth of the sign (`bubble_card.cpp`,
 - **The text at its pixels.** `DrawInterface` draws each flat batch of a
   bubble as the game made it: the text, the arrows and the icon. Such a
   batch gets no interface depth and no interface size.
+- **One walk for both eyes.** With `one_walk=1` the game places and draws
+  the bubble one time, for the left eye, and no batch of the bubble has the
+  depth of the sign in it. So the mod draws each batch of the card for the
+  left eye only, and then for the right eye only, moved by the eye difference
+  of the sign (`BubbleCardWalkMove`, `one_walk_marks=1`). The depth of the
+  sign is the one that the place function wrote in this frame. The card of
+  the right eye is then the card that the place function makes in a pass of
+  the right eye. `backend.md`, "The cards and the marks of the mod", has the
+  rule and the key.
 
 With `bubble_card=0` the mod changes nothing of the bubble.
 
@@ -1350,6 +1359,12 @@ view. It has these numbers:
 - the box of the game, the box as drawn and the flat parts as drawn, each
   with how far apart the two eyes have it
 
+In one walk the line has the depth of the sign, its pixel in the left
+picture, the eye difference of that depth, the value of `one_walk_marks`, and
+the box and the flat parts as drawn in each eye. On a frame of
+`one_walk_check=1` (`backend.md`) one more line has the box and the flat
+parts of the right eye in its own walk beside those that one walk drew.
+
 Each report has the counts.
 
 ### 18.5 Tests
@@ -1363,24 +1378,43 @@ a bubble 34 units deep, the game draws the box 97.9 pixels to the side in
 each eye picture. `CornerToItsPixel` puts each corner back within 0.01
 pixels, also for a camera of an eye with its own turn and a roll.
 
-No desktop run has shown the change in the game. A run needs a tap on a
-signpost. `bwvr/tools/desk/hand_run.ps1 -Kind fixed -Save temple` can make
-one, with these test keys in `-Set`:
+A desktop run shows the card. It needs a tap on a signpost.
+`bwvr/tools/desk/hand_run.ps1 -Kind fixed -Save temple` makes one, with
+`-Steps "seek@4640+1 seek@4700+1 shot@4730+1 grip@4760+10 shot@4840+1
+shot@4900+1 shot@4990+1 shot@5050+1"` and these test keys in `-Set`:
 
-- `seek_plan=go,scrolls` and `seek_go=<x>,<z>`. The first word `seek` of
-  `-Steps` puts the head over that place of the land. The second one writes
-  each scroll in view to the log and puts the Hand's point on the nearest
-  one. The log names a signpost a silver scroll. A `grip` after that taps
-  it.
-- `fake_head_pitch=-50`, so the land near the head is in the pictures.
+- `seek_plan=go,scrolls` and `seek_go=1977.94,2338.25`. The first word
+  `seek` puts the head over that place of the land, where the test save has
+  a signpost. The second one writes each scroll in view to the log and puts
+  the Hand's point on the one nearest to the eye. The log names a signpost a
+  silver scroll (type 1). A scroll of a challenge is a gold scroll (type 2):
+  a tap on it makes no bubble. The `grip` after that taps the signpost.
+- `fake_head_pitch=-60`, so the land under the head is in the pictures.
 - `bubble_card_test=1`, and `bubble_card_test_frame=<frame>` for the old
   value in the same run. Each line `bubble card` of the log then has the
   pixel of the sign in each eye, and how far apart the two eyes have the
   box and the text. With 1 the three numbers must be the same. A word
   `shot` after each line saves the two eye pictures.
+- `one_walk=0` for two walks. For one walk: `one_walk=1`, `one_walk_check=1`
+  and `one_walk_marks_test_frame=4930`, which gives the last two pictures
+  `one_walk_marks=0`. A desktop run takes `one_walk` from the installed
+  `bwvr.ini` when the run does not set it.
 
-No run has made this recipe yet: the place of a signpost in the test save
-is not known.
+What such a run shows, with a render of 3600 by 2880 and the sign 49.6 units
+deep:
+
+| | Sign | Box | Text |
+| --- | --- | --- | --- |
+| Two walks: how far apart the two eyes have it | 169.9 px | 170.0 px | 169.9 px |
+| One walk, `one_walk_marks=1`: how far apart | 169.9 px | 169.9 px | 169.9 px |
+| One walk, `one_walk_marks=1`: the right eye, from its place in its own walk | | 0.1 px | 0.0 px |
+| One walk, `one_walk_marks=0`: how far apart | | 302.2 px | 0.0 px |
+| One walk, `one_walk_marks=0`: the right eye, from its place in its own walk | | 132.2 px | 169.9 px |
+
+The game makes the corners of the box whole pixels in each pass, which is
+the 0.1 px. With `one_walk_marks=0` the text of the right eye is beside the
+box, not in it. In the pictures of the right eye, the card of one walk with
+`one_walk_marks=1` is the card of its own walk.
 
 ### 18.6 Limits
 
@@ -1398,3 +1432,11 @@ is not known.
 - `Draw3DWorldTriangle` clips the box at the edge of the picture before the
   corners go to their pixels. So a box at the edge of an eye picture can
   lose a strip, as wide as the move of its corners.
+- In one walk the game clips the box and the text at the right edge of the
+  picture of the left eye. So a card at the right edge of the picture of the
+  right eye can lose a strip there, as wide as the eye difference of the
+  sign (`backend.md`, "The edge of the right eye").
+- In one walk with `bubble_card=0`, the text has the pixels of the left eye
+  in both eyes, with the interface depth. It has no eye difference of the
+  sign. The text of the name of a villager is the same. No run has shown
+  either.

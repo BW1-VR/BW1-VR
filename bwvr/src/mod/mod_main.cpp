@@ -273,6 +273,12 @@ bool g_freeze_time = true;
 // time for each eye.
 bool g_one_walk = true;
 bool g_one_walk_check = false;
+// In one walk a speech bubble as a card, the glow at the Hand's point and a
+// halo are drawn for each eye by itself. 0 gives them to the right eye as
+// each other batch. The test key one_walk_marks_test_frame changes the value
+// at one frame.
+bool g_one_walk_marks = true;
+int g_one_walk_marks_test_frame = 0;
 bool g_move_camera_point = false;
 // After the two eye passes the game has the real time of the frame as its
 // frame time. 0 gives the number from before the passes. The three test keys
@@ -415,8 +421,9 @@ char g_hint_profile[64] = {0};
 bool g_controller_haptics = true;
 FakeControllerSettings g_fake_controller;
 DirectHandSettings g_direct_hand;
-// A glow marks the point the Hand interacts from (hand_glow.cpp).
-bool g_hand_glow = true;
+// A glow marks the point the Hand interacts from (hand_glow.cpp). Off by
+// default: the mesh of a target glows (target_glow.cpp).
+bool g_hand_glow = false;
 // The mesh of a target of the Hand glows (target_glow.cpp).
 TargetGlowSettings g_target_glow;
 // The mod draws its own test hand at each controller (overlay.cpp).
@@ -581,6 +588,10 @@ void ReadSettings() {
   g_one_walk = GetPrivateProfileIntA("bwvr", "one_walk", 1, path) != 0;
   g_one_walk_check =
       GetPrivateProfileIntA("bwvr", "one_walk_check", 0, path) != 0;
+  g_one_walk_marks =
+      GetPrivateProfileIntA("bwvr", "one_walk_marks", 1, path) != 0;
+  g_one_walk_marks_test_frame = static_cast<int>(
+      GetPrivateProfileIntA("bwvr", "one_walk_marks_test_frame", 0, path));
   g_draw_probe = GetPrivateProfileIntA("bwvr", "draw_probe", 0, path) != 0;
   g_ui_accounting =
       GetPrivateProfileIntA("bwvr", "ui_accounting", 0, path) != 0;
@@ -691,6 +702,9 @@ void ReadSettings() {
     t.god_zoom_smooth = number("god_zoom_smooth", 0);
     t.god_zoom_smooth_ms = number("god_zoom_smooth_ms", 500);
     t.god_zoom_test_toggle = number("god_zoom_test_toggle", 0);
+    // The direction of the stick: 0 zooms out with the stick forward and in
+    // with the stick back. 1 zooms in with the stick forward.
+    t.god_zoom_forward_in = number("god_zoom_forward_in", 0);
     // The point that a zoom keeps in the room: 1 is the land point that the
     // head looks at, at most god_zoom_about_far_cm from the head. 0 is the
     // land point under the head, and 2 is the Hand's point. With test_keys=1,
@@ -1058,7 +1072,7 @@ void ReadSettings() {
     d.creature_touch_cm = number("creature_touch_cm", 5);
     d.creature_slap_wait = number("creature_slap_wait", 0) != 0;
     // A glow at the point the Hand interacts from. See docs/hand-model.md, "The glow at the Hand's point".
-    g_hand_glow = number("hand_glow", 1) != 0;
+    g_hand_glow = number("hand_glow", 0) != 0;
     // The glow on the mesh of a target of the Hand. See docs/hand-model.md,
     // "The glow on the mesh of a target". target_glow=0 gives the halo.
     g_target_glow.mode = number("target_glow", 1);
@@ -1075,6 +1089,10 @@ void ReadSettings() {
     g_teleport.ring_units = number("teleport_ring_units", 11);
     g_teleport.ring_min_cm = number("teleport_ring_min_cm", 4);
     g_teleport.ring_max_cm = number("teleport_ring_max_cm", 40);
+    // The switch of the game that the press of A keeps to: 1 the drag of the
+    // land, as the walk with the stick, 0 the double click jump. With
+    // test_keys=1, Ctrl and Shift with the comma key change it.
+    g_teleport.move_switch = number("teleport_switch", 1);
     g_teleport.test_keys = number("test_keys", 0) != 0;
     // The grab from a distance: point at an object that is out of reach,
     // close the grip and pull toward the head. throw_law=1 sends sqrt(s) v in
@@ -1486,6 +1504,7 @@ void StartVrOnce() {
                         g_frame_time_test_readers,
                         g_frame_time_test_readers_frames);
     OneWalkSetCheck(g_one_walk_check);
+    OneWalkSetMarks(g_one_walk_marks, g_one_walk_marks_test_frame);
     if (g_one_walk) OneWalkSetWanted(true);
     StereoSetHeadless(g_stereo_headless);
     StereoSetProfile(g_profile);

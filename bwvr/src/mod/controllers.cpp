@@ -164,11 +164,18 @@ bool TabletopGodOwnsView();
 bool TabletopGodStep(int zoom, int ground);
 bool TabletopGodZoomSmooth();
 bool TabletopGodZoomHold(float push);
+bool TabletopGodZoomForwardIn();
 // tabletop.cpp: the walk with the stick of the hand that does not point. Its
-// rule, its request for the next frame, and its test key.
+// rule, its request for the next frame, and its test key. And the game's
+// switch for the drag of the land, which the walk keeps to.
 int TabletopGodMoveStick();
 bool TabletopGodWalk(const float push[2], const float* aim);
 void TabletopGodMoveStickCycle();
+bool TabletopMoveAllowed();
+// teleport.cpp and hint_card.cpp: the test keys of teleport_switch and of
+// prompt_moves, for the words "teleportkey" and "promptkey" of the script.
+void TeleportSwitchToggle(const char* by);
+void HintCardMovesToggle(const char* by);
 
 void ControllersPump();
 bool ControllersFarAllowed(const char** why);
@@ -267,6 +274,10 @@ enum FakeInput {
   // of the word.
   kLayoutKey,
   kMoveKey,
+  // The test keys of teleport_switch (teleport.cpp) and of prompt_moves
+  // (hint_card.cpp) act on the first frame of the word.
+  kTeleportKey,
+  kPromptKey,
   kInputCount
 };
 
@@ -280,7 +291,7 @@ const char* const kInputName[kInputCount] = {
     "nofocus",    "deactivate",
     "lstick_left", "lstick_right", "lstick_up", "lstick_down", "ltrigger",
     "aimtemple",  "gripdip",    "exit",       "bench",
-    "lmenu",      "layoutkey",  "movekey"};
+    "lmenu",      "layoutkey",  "movekey",    "teleportkey", "promptkey"};
 
 // The fake hand positions for the word "point", in cm from the head center.
 const int kMaxPoints = 16;
@@ -1054,6 +1065,12 @@ void UpdateScript() {
     }
     if (step.input == kMoveKey && t == step.start) {
       TabletopGodMoveStickCycle();
+    }
+    if (step.input == kTeleportKey && t == step.start) {
+      TeleportSwitchToggle("The word teleportkey");
+    }
+    if (step.input == kPromptKey && t == step.start) {
+      HintCardMovesToggle("The word promptkey");
     }
     if ((step.input == kNudge || step.input == kSlap) &&
         t == step.start) {
@@ -2986,12 +3003,16 @@ void PumpStick(ULONGLONG now) {
     ++g_turns_asked;
     ComfortCameraRequestTurn(hand.stick[0] > 0.0f ? 1 : -1);
   }
+  // THE DIRECTION OF THE ZOOM (god_zoom_forward_in). With 0 the stick forward
+  // zooms out, so the world gets smaller, and the stick back zooms in. With
+  // 1 the stick forward zooms in.
+  const bool zoom_in = (hand.stick[1] > 0.0f) == TabletopGodZoomForwardIn();
   if (smooth) {
-    // Forward zooms in, so the world gets larger. The rate follows the push.
+    // The rate follows the push.
     if (pushed && (was_holding || g_god_zoom_armed)) {
       g_god_zoom_armed = false;
       const float share = zoom_math::StickShare(ay, kStickBack, kStickFull);
-      const bool in = hand.stick[1] > 0.0f;
+      const bool in = zoom_in;
       g_god_zoom_holding = TabletopGodZoomHold(in ? share : -share);
       if (g_god_zoom_holding && !was_holding) {
         ++g_god_holds;
@@ -3007,16 +3028,15 @@ void PumpStick(ULONGLONG now) {
     return;
   }
   if (god) {
-    // Forward zooms in, so the world gets larger.
     if (pushed && g_god_zoom_armed) {
       g_god_zoom_armed = false;
-      if (TabletopGodStep(hand.stick[1] > 0.0f ? 1 : -1, 0)) {
+      if (TabletopGodStep(zoom_in ? 1 : -1, 0)) {
         ++g_god_zooms;
         Pulse(PointingIndex());
         if (g_event_logs < kMaxEventLogs) {
           ++g_event_logs;
           ModLog("controllers  : the stick asks the God view to zoom %s, frame "
-                 "%llu", hand.stick[1] > 0.0f ? "in" : "out", g_frame);
+                 "%llu", zoom_in ? "in" : "out", g_frame);
         }
       }
     }
@@ -3066,6 +3086,25 @@ uint64_t g_walk_refused = 0;
 int g_walk_logs = 0;
 const int kMaxWalkLogs = 40;
 
+// The stick of the hand that does not point has the job of the walk: the
+// walk is on, and the stick does not belong to the ring.
+bool StickWalks() {
+  return TabletopGodMoveStick() != walk_math::kRuleOff &&
+         !RadialMenuStickDrives();
+}
+
+// The first reason that a push of the stick does not move the player now, or
+// null. The game's switch for the drag of the land is not in this list:
+// TabletopGodWalk tests it.
+const char* WalkRefusal() {
+  if (!Usable()) return "the controllers cannot act now";
+  if (MenuUp()) return "a dialog box is up";
+  if (GrabHeld()) return "a grip holds the world";
+  if (!TabletopGodOwnsView()) return "the God view does not own the view now";
+  if (!WorldGrabCameraReady()) return "the camera is not the player's now";
+  return nullptr;
+}
+
 void PumpWalk() {
   const int other = OtherIndex();
   const bwvr::HandInput& hand = g_hands[other];
@@ -3079,24 +3118,12 @@ void PumpWalk() {
     return;
   }
   // The walk is off, or the stick belongs to the ring.
-  if (TabletopGodMoveStick() == walk_math::kRuleOff ||
-      RadialMenuStickDrives()) {
+  if (!StickWalks()) {
     g_walk_blocked = true;
     return;
   }
   if (g_walk_blocked) return;
-  const char* why = nullptr;
-  if (!Usable()) {
-    why = "the controllers cannot act now";
-  } else if (MenuUp()) {
-    why = "a dialog box is up";
-  } else if (GrabHeld()) {
-    why = "a grip holds the world";
-  } else if (!TabletopGodOwnsView()) {
-    why = "the God view does not own the view now";
-  } else if (!WorldGrabCameraReady()) {
-    why = "the camera is not the player's now";
-  }
+  const char* why = WalkRefusal();
   if (why == nullptr) {
     // The direction in which the controller of the stick points, flat on the
     // land, in the room.
@@ -3818,11 +3845,17 @@ void ControllersHintState(ControllerHintState* out) {
   out->world_grab = g_grab.on && g_grab.hand >= 1;
   out->ring = RadialMenuHintMode();
   out->layout = ButtonLayout();
+  out->walk = StickWalks();
   if (g_fake.mode != 0) {
     strcpy_s(out->profile, "fake");
   } else if (g_screen != nullptr) {
     strcpy_s(out->profile, g_screen->HandProfile(PointingIndex()));
   }
+}
+
+bool ControllersWalkPossible() {
+  return StickWalks() && g_hands[OtherIndex()].active &&
+         WalkRefusal() == nullptr && TabletopMoveAllowed();
 }
 
 // For hint_card.cpp (docs/controller-hints.md, "9. The hint card"): the grip

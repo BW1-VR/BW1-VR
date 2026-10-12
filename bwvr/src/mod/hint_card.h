@@ -34,5 +34,10 @@ void HintCardEndFrame();
 // the eye pictures.
 void HintCardToggle();
 
+// The test key of prompt_moves (Ctrl, Shift and the period key, with
+// test_keys=1), and the word "promptkey" of the scripted controller: the key
+// changes between 1 and 0. `by` names the cause in the log.
+void HintCardMovesToggle(const char* by);
+
 // Once a report window.
 void HintCardReport();

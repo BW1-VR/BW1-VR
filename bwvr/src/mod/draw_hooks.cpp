@@ -1889,6 +1889,23 @@ void ShiftOut(void* verts, uint32_t count) {
   }
 }
 
+// Moves each x of a batch by `move` pixels, with none of the tests of the
+// interface depth. True when ShiftOut must put the batch back after the draw.
+bool MoveIn(void* verts, uint32_t fvf, uint32_t count, float move) {
+  if (move == 0.0f || fvf != kExpectedFvf || verts == nullptr || count == 0 ||
+      count > kMaxShiftVertices) {
+    return false;
+  }
+  uint8_t* vertex = static_cast<uint8_t*>(verts);
+  for (uint32_t i = 0; i < count; ++i) {
+    float* x = reinterpret_cast<float*>(vertex);
+    g_saved_x[i] = *x;
+    *x += move;
+    vertex += kVertexStride;
+  }
+  return true;
+}
+
 // THE INTERFACE ON ITS OWN SURFACE (docs/ui-layer.md, "Which batches go to the
 // panel").
 //
@@ -2160,11 +2177,17 @@ void DrawInterfaceEye(DrawAndClipFn original, D3DPRIMITIVETYPE type,
   // A SPEECH BUBBLE AS ONE CARD (bubble_card.cpp, docs/ui-layer.md, "A
   // speech bubble as one card"). The flat batches of a bubble (its text, its
   // arrows, its icon) have the pixels of its box. The box has the depth of
-  // its sign, so they get none of the steps below and stay on it.
+  // its sign, so they get none of the steps below and stay on it. In one walk
+  // the copy for the right eye moves with the card, by the eye difference of
+  // the sign (one_walk_marks=1).
   if (BubbleCardInBubble() && BubbleCardOn()) {
     PanelRelease();
-    BubbleCardFlat(verts, fvf, count);
+    float move = 0.0f;
+    const bool moved = g_replay_right && BubbleCardWalkMove(&move) &&
+                       MoveIn(verts, fvf, count, move);
+    BubbleCardFlat(verts, fvf, count, g_replay_right);
     original(type, fvf, verts, count, idx, n);
+    if (moved) ShiftOut(verts, count);
     return;
   }
   // A menu gets only the interface depth. See h_SetupFinish. The flags are
@@ -2216,7 +2239,9 @@ void DrawInterfaceEye(DrawAndClipFn original, D3DPRIMITIVETYPE type,
   const bool flattened = FlattenIn(verts, fvf, count);
   // With bubble_card=0 a flat batch of a bubble comes here. Its pixels go to
   // the log of the bubble.
-  if (BubbleCardInBubble()) BubbleCardFlat(verts, fvf, count);
+  if (BubbleCardInBubble()) {
+    BubbleCardFlat(verts, fvf, count, g_replay_right);
+  }
   original(type, fvf, verts, count, idx, n);
   if (flattened) FlattenOut(verts, count);
   if (shifted) ShiftOut(verts, count);
@@ -2229,11 +2254,16 @@ void DrawInterfaceEye(DrawAndClipFn original, D3DPRIMITIVETYPE type,
 // In one walk a batch of the interface goes to the left half with the chain
 // of the left eye, and then to the right half with the chain of the right eye.
 // A batch of another caller is world geometry that the engine clipped.
-// one_walk.cpp gives it to the right eye with the disparity of its rhw.
+// one_walk.cpp gives it to the right eye with the disparity of its rhw. A
+// batch of a speech bubble as a card is a batch of the interface for each
+// caller: the card has the place of its sign, and no batch of it has an rhw
+// of that place (one_walk_marks=1).
 void DrawInterface(DrawAndClipFn original, D3DPRIMITIVETYPE type,
                    uint32_t fvf, void* verts, uint32_t count, uint16_t* idx,
                    uint32_t n) {
-  if (!OneWalkActive() || g_eye != 0 || !IsUiCaller(g_caller)) {
+  const bool card =
+      BubbleCardInBubble() && BubbleCardOn() && OneWalkMarks();
+  if (!OneWalkActive() || g_eye != 0 || (!IsUiCaller(g_caller) && !card)) {
     DrawInterfaceEye(original, type, fvf, verts, count, idx, n);
     return;
   }
@@ -2319,6 +2349,13 @@ void __fastcall h_DrawTriangle(void* verts, uint32_t count, uint16_t* idx,
   // pixel (bubble_card.cpp).
   const bool box = BubbleCardInBubble() &&
                    BubbleCardBoxIn(verts, count, g_caller);
+  // ONE WALK (one_walk_marks=1): the box for the left eye only, and after it
+  // the box for the right eye only, moved by the eye difference of the sign.
+  // The rhw of a corner is the depth of the bubble, not the depth of the
+  // sign, so the copy that one walk makes of a batch is not that box.
+  float box_move = 0.0f;
+  const bool box_eyes = box && BubbleCardWalkMove(&box_move);
+  if (box_eyes) OneWalkSetMode(kOneWalkLeftOnly);
   if (g_time_submit) {
     LARGE_INTEGER a, b;
     QueryPerformanceCounter(&a);
@@ -2328,6 +2365,12 @@ void __fastcall h_DrawTriangle(void* verts, uint32_t count, uint16_t* idx,
     ++g_submit_calls;
   } else {
     o_DrawTriangle(verts, count, idx, n);
+  }
+  if (box_eyes) {
+    BubbleCardBoxRight(verts, count, box_move);
+    OneWalkSetMode(kOneWalkRightOnly);
+    o_DrawTriangle(verts, count, idx, n);
+    OneWalkSetMode(kOneWalkBoth);
   }
   if (box) BubbleCardBoxOut(verts, count);
   g_caller = outer;

@@ -151,9 +151,15 @@ struct ControllerHintState {
   bool world_grab;      // the grip of the other hand grabs the world
   int ring;             // 0 no ring, 1 a button opens it, 2 only the stick
   int layout;           // button_layout: 1 the menu button and Y, 0 Y and X
+  bool walk;            // the stick of the other hand moves the player
   char profile[64];     // of the pointing hand, "fake" for the fake controller
 };
 void ControllersHintState(ControllerHintState* out);
+// For the hint card: a push of the stick of the hand that does not point
+// moves the player now (move_stick). That stick has the job of the walk, no
+// reason refuses a push, and the game's switch for the drag of the land is
+// on.
+bool ControllersWalkPossible();
 
 // THE LAYOUT OF THE BUTTONS of the hand that does not point (button_layout,
 // docs/controllers.md, "The layout of the other hand"). 1: the menu button of

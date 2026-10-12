@@ -737,8 +737,26 @@ once a frame, and the first match counts, in this order:
 | An object to take | hand mode 9 | Grip: "Take" |
 | A pile, a field or a fish farm | hand mode `0xD` | Grip: "Hold to collect" |
 | The Hand touches the Creature | hand mode `0x13` | Grip: "Stroke or slap" |
-| The land, with the leash on | hand mode 3 with the leash | Trigger: "Send the Creature", A: "Teleport" |
-| The land | hand mode 3 | On the card of the other hand: the world word "Move the land" (the grip of the other hand, in the God view and on the table), the ring word "Ring menu", and the first time the menu word "Game menu". On the card of the pointing hand: A "Teleport" (or "Jump" with `teleport=0`). In the old immersive view the trigger moves the land, so Trigger: "Move the land" shows on the card of the pointing hand. |
+| The land, with the leash on | hand mode 3 with the leash | Trigger: "Send the Creature", A: "Teleport" while a press of A can move the player |
+| The land | hand mode 3 | On the card of the other hand: the world word "Move the land" (the grip of the other hand, in the God view and on the table), the walk word "Move" (the stick of the other hand) while a push of the stick moves the player, the ring word "Ring menu", and the first time the menu word "Game menu". On the card of the pointing hand: A "Teleport" (or "Jump" with `teleport=0`) while a press of A can move the player. In the old immersive view the trigger moves the land, so Trigger: "Move the land" shows on the card of the pointing hand. |
+
+**The lines of the moves** (`prompt_moves`, 1). A line says what a control
+does now, so the lines of the walk and of A show only while the control can
+move the player:
+
+- The walk word is the word of the stick ("Stick", or "Pad click" on a wand).
+  It shows while the stick of the other hand has the job of the walk
+  (`move_stick` 1 or 2, and the stick does not drive the ring), that hand is
+  active, the God view owns the view, no grip holds the world, no dialog box
+  is up, the camera is the player's, and the game's switch for the drag of
+  the land is on (`ControllersWalkPossible`). These are the reasons for which
+  `PumpWalk` refuses a push.
+- The line of A shows while `TeleportPossible` is true: the last frame of
+  the teleport found no reason to refuse a press (`god-view.md`, 14.1). With
+  `teleport=0` it shows while the game's jump switch is on.
+
+With `prompt_moves=0` the card has no line for the walk, and the line of A
+shows in each case.
 
 The words come from `ControllerHintWord`, the same table as the key caps
 (8.3), so they follow the profile, the left hand and `controller_swap_buttons`.
@@ -904,6 +922,7 @@ the help options of the game, so a player with "No ToolTips" sees them too.
 | `prompt_timing` | 1 | 1 the prompt of a target shows at once, stays while the target is there and shows each time. 0 the dwell, hold and count for all prompts (9.4) |
 | `hint_words` | 3 | 1 the prompt of a target owns its button and a hint of the game with no words does not show. 2 is 1, and the prompt of a take also keeps the grip from the close of the grip until the Hand holds the object. 3 is 2, and the prompt of a fetch keeps the grip from the end of the far target until the Hand holds the object, and a hint of the game that a prompt owned does not show for 0.25 s after the prompt went. 0 the hint of the game takes the place of the prompt, as it comes (9.4) |
 | `text_click` | 1 | 1 shows the prompt of a text that waits for a click in each view, and makes the trigger that click. 0 gives that prompt the rule of each other hint of the left button (section 10) |
+| `prompt_moves` | 1 | 1 the prompt of the land has the line of the walk with the stick while a push moves the player, and the line of A shows only while a press of A can move the player. 0 no line for the walk, and the line of A shows in each case (9.4) |
 
 `hint_card.cpp` reads the keys itself, at the first frame. With `test_keys=1`
 and `ui_panel=0`, Ctrl Shift F11 switches between the card and the hints in the
@@ -912,10 +931,14 @@ eye pictures, for a live comparison. With `test_keys=1`, Ctrl End switches
 short pulse). Ctrl Home changes `hint_words` from 3 to 2 to 1 to 0 and back.
 The pointing controller gives one short pulse for each unit of the value:
 three pulses for 3, two for 2 and one for 1. It gives one long pulse for 0.
+Ctrl and Shift with the period key switch `prompt_moves` between 1 (a long
+pulse) and 0 (a short pulse). The word `promptkey` of the scripted controller
+does the same in a desktop run.
 
 ### 9.6 The log
 
-- `hint card : hint_card=1, ... prompts=1, ...` once, with the settings.
+- `hint card : hint_card=1, ... prompts=1, ...` once, with the settings, and
+  one line each for `prompt_timing`, `hint_words` and `prompt_moves`.
 - `hint card : frame N, the card of the right hand: [Grip] Take. 6.0 by 2.2 cm,
   241 by 86 px, at x y z m, 7.4 cm to the right of the wrist in the view and
   55 cm from the head. The prompt is for an object to take`: each time the words
@@ -1019,6 +1042,9 @@ sharp at 40 pixels a cm.
   0.25 s of `kOwnedSeconds`). The desktop runs have 60 to 90 frames a second.
 - Whether the left card is easy to see while the right hand works, and whether
   the land prompt at the left wrist teaches the grip.
+- The lines of the moves (`prompt_moves`): whether the left card with four
+  lines is easy to read, and whether "Stick Move" and "A Teleport" teach the
+  two ways to move at the start of the tutorial.
 
 ### 9.9 Two cards and true hints
 
@@ -1054,10 +1080,12 @@ it shows at the hand that holds that controller.
 - The card of the hand that points: each hint of the game, and each prompt for
   the trigger, the grip, the stick and the face buttons of that hand.
 - The card of the other hand: the prompts for the grip that moves the land
-  (`kWordWorld`, only while `grab_world` is on), for the button of the game
-  menu (`kWordMenu`: the menu button of the left controller, or Y with
-  `button_layout=0`), and for the control of the ring (`kWordRing`: Y, or X
-  with `button_layout=0`, or the stick when only the stick opens the ring).
+  (`kWordWorld`, only while `grab_world` is on), for the stick that moves the
+  player (`kWordWalk`, only while that stick has the job of the walk), for
+  the button of the game menu (`kWordMenu`: the menu button of the left
+  controller, or Y with `button_layout=0`), and for the control of the ring
+  (`kWordRing`: Y, or X with `button_layout=0`, or the stick when only the
+  stick opens the ring).
   For a left handed player the menu button is on the controller of the
   pointing hand, and its prompt is on that card. The card of the other hand
   does not show while the ring is open.

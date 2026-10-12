@@ -215,11 +215,11 @@ is built, and no test has proven it.
 - **B17. The name of a villager, and the size of a speech bubble.** The
   speech bubble of a signpost is one flat card at the depth of the sign
   (`bubble_card=1`, `ui-layer.md`, section 18), and a headset session read
-  it well. No desktop run has shown the card: a run with a tap on the silver
-  scroll at the Temple made no bubble (section 18.5 has the recipe). Still
+  it well. A desktop run shows the card (section 18.5 has the recipe). Still
   open:
   - The name of a villager draws its own box, and the mod does not change
-    it (`ui-layer.md`, 18.6).
+    it (`ui-layer.md`, 18.6). By the code, its text has no eye difference of
+    the villager in one walk. No run has shown that.
   - The size of a bubble comes from the depth of the sign in units, with no
     change for the scale of the God view.
 - **B18. A flash of lightning in the left eye only: check it in a
@@ -264,6 +264,59 @@ is built, and no test has proven it.
   repeated it. A full screen game makes no try (`vr_full_screen=0`), and a
   game with `vr=0` makes none. A game in a window with no headset makes a
   try each 3 seconds for 2 minutes.
+- **B22. The glow at the Hand's point with one walk: check it in a
+  headset.** In one walk the mod draws the glow for each eye by itself, and
+  the right eye has it at the eye difference of the Hand's point
+  (`one_walk_marks=1`, `backend.md`, "The cards and the marks of the mod").
+  A desktop run shows the glow of the right eye at its place in each pose of
+  a hand that turns. The glow is off by default (`hand_glow=0`). Still open:
+  - Check in a headset that the glow stays at one place on the hand when the
+    hand turns. Ctrl, Shift and the right square bracket key (`test_keys=1`)
+    give the right eye the glow by the rhw of its disc for a comparison.
+- **B23. The card of a signpost with one walk: check it in a headset.** In
+  one walk the mod draws the card of a speech bubble for each eye by itself,
+  and the right eye has the box and the text at the eye difference of the
+  sign (`one_walk_marks=1`, `ui-layer.md`, section 18). A desktop run shows
+  the card of the right eye at its place in its own walk. The hint cards and
+  the subtitle card are quad layers, and one walk does not draw them. Still
+  open:
+  - Check in a headset that the text of a signpost is in its box and easy to
+    read with one walk. Ctrl, Shift and the right square bracket key
+    (`test_keys=1`) give the right eye the card by the rule of each other
+    batch for a comparison.
+- **B24. After a cut scene the controllers do nothing until a press.** In a
+  headset session the controllers were not active at the end of a cut
+  scene. A press of a grip or of a trigger made them active again. The
+  cause is not known.
+- **B25. The video after the drowning boy is not one picture for the two
+  eyes.** At the start of a new game the game plays a video (the birth of
+  the god). It looks right while the head looks straight at it. With the
+  head turned, the edges of the video do not lie on each other in the two
+  eyes. Wanted: the video plays on the screen of the cut scene window,
+  about 2 m in front of the player.
+- **B26. The tutorial after its first step.** The aim: a player can play the
+  whole tutorial in VR, also where the words of the game do not fit the
+  controllers. The first step is shown in a desktop run: the walk to the
+  village with the teleport and with the stick (`god-view.md`, section 14.9).
+  No run and no headset session has the later steps: the way to the Temple,
+  the three lessons of the camera, the guide at the mountain. `god-view.md`,
+  section 7, "The interface levels", has the camera controls that the game
+  allows in each step. Wanted: a headset session through the whole tutorial,
+  and a correction for each step that stops the player.
+- **B27. The walk with the stick is not smooth over some parts of the
+  land.** In a headset session the motion was jagged and it jittered over
+  some parts of the map. The cause is not known. A guess: the height of the
+  land under the head changes in steps.
+- **B28. Light shows between a bar and the cut scene window.** The black
+  bars over and under the cut scene window are a little too narrow: a
+  column of light pixels shows between the bar at the left and the window.
+  A guess: the bar and the window have different depths, so their edges do
+  not meet in each eye.
+- **B29. The advisors and the cut scene window.** In a cut scene the mod
+  draws the advisors over the window and outside it at times, and their
+  depth is the depth of the inside of the window. Wanted: the cut scene
+  plays inside the window, and the advisors have a depth between the
+  player and the window.
 
 B1b, B2, B4 and B11 are one package: a thing that is held, thrown, or
 that moves while the Hand takes it.
@@ -421,6 +474,18 @@ that moves while the Hand takes it.
   - The interface in the eye pictures (the Creature panel, a tooltip): with a
     margin it is larger and farther from the middle. Not known: whether that
     needs a correction.
+- **P17. A cut scene with no window.** An option for a player who is at
+  ease with a camera that moves: a cut scene plays around the player, with
+  the camera of the game at its place and with all its motion, and with no
+  cut scene window. The cut scene window stays the default
+  (`cutscene-window.md`).
+- **P18. The left hand option of the game.** The game has an option for a
+  left hand. Wanted: the mod reads that option, and with it the left
+  controller is the Hand: the player points, takes and throws with the left
+  hand, and each job of the right controller and of the left controller
+  changes sides (the sticks, the buttons, the hints). Not known: where the
+  game keeps the option, and what the mod does with it now. The mod has the
+  key `controller_hand` for the hand that points.
 - **P5. Hand tracking.** The player plays with the hands and no
   controllers: the Hand follows the real hand and its fingers, one to one,
   as it follows a controller. First find what the headset gives to the
@@ -514,12 +579,25 @@ that moves while the Hand takes it.
     Not run: a headset session, and the check of the triangles in the Temple,
     in a story, in a fight of Creatures and with the effect of a miracle
     (`draw_merge_test=1` in the ini for one session).
-  - **A render thread for the Direct3D calls.** The Direct3D draw calls are
-    3.3 to 4.8 ms of a frame in scenes 1 to 5, and the game makes 3200 to 5400
-    state calls in a frame. A thread that gets a record of these calls and
-    gives them to Direct3D takes that time off the frame thread. With two
-    scene walks this is the largest gain that is left. Not built, and not
-    planned in detail. The hard parts: a texture that the game writes in the
+  - **The cost of the lock of the Direct3D 9 device.** With `test_keys=1` or
+    `frame_send=2` the mod asks for a device for two threads, and such a
+    device takes a lock on each call. A sampling profile of the frame thread
+    had 3.8 percent of its samples in critical sections (`backend.md`, "The
+    clock of the game and the hooks of dxwrapper"). To do: `bench_run.ps1`
+    with `test_keys` 1 and 0. If the lock costs time, ask for that device
+    only for `frame_send=2`.
+  - **State calls that change nothing.** The game makes 3200 to 5400 state
+    calls in a frame. To do: count how many of them set the value that the
+    state has. If the share is large, the mod drops them before dxwrapper
+    gets them.
+  - **A render thread for the Direct3D calls.** To do. The Direct3D draw
+    calls are 3.3 to 4.8 ms of a frame in scenes 1 to 5, and the game makes
+    3200 to 5400 state calls in a frame. In the sampling profile with one
+    walk, the driver, `d3d9.dll` and the calls into the kernel under them
+    were about 45 percent of the frame thread, and the code of the game 23
+    percent. A thread that gets a record of these calls and gives them to
+    Direct3D takes that time off the frame thread. This is the largest gain
+    that is left. Not built, and not planned in detail. The hard parts: a texture that the game writes in the
     middle of a scene walk, a state that the game reads back, the draws of
     the mod itself, and the order of each call. With the merge of draw calls
     the thread has less work.

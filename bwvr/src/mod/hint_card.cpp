@@ -77,6 +77,12 @@
 //                        test_keys=1
 //   text_click=1         0 gives the prompt "Continue" the rule of each other
 //                        hint of the left button (text_click.cpp)
+//   prompt_moves=1       1 the prompt of the land has the line of the walk
+//                        with the stick while a push moves the player, and
+//                        the line of A shows only while a press of A can move
+//                        the player. 0 no line for the walk, and the line of A
+//                        shows in each case. Ctrl, Shift and the period key
+//                        change it, with test_keys=1
 //
 // With no headset (the desktop test) the route runs too. A capture frame
 // saves each card as bwvr-hintcard-right-NNNNN.bmp or
@@ -118,6 +124,8 @@ void ControllersGesturePulse(float amplitude, float seconds);
 // controllers.cpp: the grip of the pointing hand is closed, as the pump last
 // saw it.
 bool ControllersGripClosed();
+// controllers.cpp: a push of the stick of the other hand moves the player now.
+bool ControllersWalkPossible();
 // hand_direct.cpp: the Hand's point and what a press does there.
 bool HandDirectGlowFacts(float point[3], float* length, int32_t* mode,
                          bool* holding, int* eye, uint64_t* frame);
@@ -148,6 +156,7 @@ bool g_toggled_off = false;  // the test key
 bool g_test_keys = false;    // test_keys
 int g_timing = 1;            // prompt_timing, and its test key
 int g_words = 3;             // hint_words, and its test key
+int g_moves = 1;             // prompt_moves, and its test key
 // A hint of the game that a prompt owned does not show for this long after
 // the prompt went (hint_words=3, hint_card_math.h, OwnedStale).
 const double kOwnedSeconds = 0.25;
@@ -174,6 +183,7 @@ void ReadSettings() {
   g_timing = IniKey("prompt_timing", 1) != 0 ? 1 : 0;
   g_words = IniKey("hint_words", 3);
   if (g_words < 0 || g_words > 3) g_words = 3;
+  g_moves = IniKey("prompt_moves", 1) != 0 ? 1 : 0;
   g_size_pct = IniKey("hint_card_size_pct", 100);
   if (g_size_pct < 50) g_size_pct = 50;
   if (g_size_pct > 200) g_size_pct = 200;
@@ -210,6 +220,12 @@ void ReadSettings() {
                         "of the grip until the Hand holds the object"
                       : "",
          owned);
+  ModLog("hint card    : prompt_moves=%d, %s", g_moves,
+         g_moves != 0 ? "the prompt of the land has the line of the walk with "
+                        "the stick while a push moves the player, and the line "
+                        "of A shows only while a press of A can move the player"
+                      : "the prompt of the land has no line for the walk with "
+                        "the stick, and the line of A shows in each case");
 }
 
 // --- the words -----------------------------------------------------------------
@@ -497,12 +513,13 @@ int ContextNow() {
 }
 
 // The card of a control: the button of the game menu, the grip that moves the
-// land and the control of the ring are on the controller of the other hand.
-// The menu button of the left controller is on the pointing hand of a left
-// handed player.
+// land, the stick of the walk and the control of the ring are on the
+// controller of the other hand. The menu button of the left controller is on
+// the pointing hand of a left handed player.
 int WordHand(int word) {
   if (word == kWordMenu && ControllerHintMenuOnPointing()) return kPointing;
-  return word == kWordMenu || word == kWordWorld || word == kWordRing
+  return word == kWordMenu || word == kWordWorld || word == kWordRing ||
+                 word == kWordWalk
              ? kOther
              : kPointing;
 }
@@ -520,6 +537,15 @@ void AddPrompt(Content cards[kHands], int word, const wchar_t* text,
     if (wcscmp(out->line[i].button, button) == 0) return;
   }
   SetLine(&out->line[out->count++], button, text, tone, 0);
+}
+
+// The line of A on the land: the teleport, or the old jump of the game with
+// teleport=0. With prompt_moves=1 it shows only while a press of A can move
+// the player (TeleportPossible).
+void AddJumpPrompt(Content cards[kHands]) {
+  if (g_moves != 0 && !TeleportPossible()) return;
+  AddPrompt(cards, kWordJump, TeleportOwnsA() ? L"Teleport" : L"Jump",
+            kToneOther);
 }
 
 // A line for two presses of a button, one soon after the other: the word of
@@ -666,9 +692,12 @@ void AddPrompts(Content cards[kHands], int context, bool first_show) {
       } else {
         AddPrompt(cards, kWordWorld, L"Move the land", kToneGrab);
       }
-      // With teleport=0 the A button is the old jump of the game.
-      AddPrompt(cards, kWordJump, TeleportOwnsA() ? L"Teleport" : L"Jump",
-                kToneOther);
+      // The walk with the stick of the other hand (move_stick), while a push
+      // of the stick moves the player.
+      if (g_moves != 0 && ControllersWalkPossible()) {
+        AddPrompt(cards, kWordWalk, L"Move", kToneOther);
+      }
+      AddJumpPrompt(cards);
       // The two menus of the other hand: the ring (the Temple, the Creature,
       // the leashes and more) and the menu of the game.
       AddPrompt(cards, kWordRing, L"Ring menu", kToneOther);
@@ -716,8 +745,7 @@ void AddPrompts(Content cards[kHands], int context, bool first_show) {
     case kCtxLeashedLand:
       // A tap sends the Creature to the aim, and a hold shows the arc.
       AddPrompt(cards, kWordAction, L"Send the Creature", kToneAction);
-      AddPrompt(cards, kWordJump, TeleportOwnsA() ? L"Teleport" : L"Jump",
-                kToneOther);
+      AddJumpPrompt(cards);
       break;
     default:
       break;
@@ -1356,6 +1384,7 @@ void HintCardLatchContext(int eye) {
 static void PollTimingKey();
 static void PollWordsKey();
 static void PollTreeKey();
+static void PollMovesKey();
 
 void HintCardEndFrame() {
   CardsStart();
@@ -1395,6 +1424,7 @@ void HintCardEndFrame() {
   PollTimingKey();
   PollWordsKey();
   PollTreeKey();
+  PollMovesKey();
 
   // The prompt of the context.
   int shown = kCtxNone;
@@ -1884,6 +1914,38 @@ static void PollTreeKey() {
   } else {
     HandDirectTreeHintToggle();
   }
+}
+
+// THE A/B KEY (test_keys=1): Ctrl and Shift with the period key switch
+// prompt_moves between 1 and 0. The pointing controller gives a long pulse
+// for 1 and a short pulse for 0. Read once a frame, and only while a window
+// of the game is in front.
+static void PollMovesKey() {
+  static bool was = false;
+  if (!g_test_keys) return;
+  const bool down = (GetAsyncKeyState(VK_OEM_PERIOD) & 0x8000) != 0 &&
+                    (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0 &&
+                    (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
+  const bool pressed = down && !was;
+  was = down;
+  if (!pressed) return;
+  DWORD process = 0;
+  const HWND window = GetForegroundWindow();
+  if (window != nullptr) GetWindowThreadProcessId(window, &process);
+  if (process != GetCurrentProcessId()) return;
+  HintCardMovesToggle("Ctrl, Shift and the period key");
+}
+
+void HintCardMovesToggle(const char* by) {
+  ReadSettings();
+  if (!g_test_keys) return;
+  g_moves = g_moves != 0 ? 0 : 1;
+  ControllersGesturePulse(0.5f, g_moves != 0 ? 0.30f : 0.08f);
+  ModLog("test key     : %s: prompt_moves is %d now (%s)", by, g_moves,
+         g_moves != 0 ? "the lines of the walk and of A show only while they "
+                        "can move the player"
+                      : "no line for the walk, and the line of A shows in each "
+                        "case");
 }
 
 void HintCardToggle() {

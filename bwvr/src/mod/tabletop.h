@@ -33,6 +33,9 @@ struct TabletopSettings {
   int god_zoom_smooth = 0;       // god_zoom_smooth: 0 the steps, 1 smooth
   int god_zoom_smooth_ms = 500;  // god_zoom_smooth_ms: one step, a full push
   int god_zoom_test_toggle = 0;  // god_zoom_test_toggle: a test, see below
+  // The direction of the stick: 0 zooms out with the stick forward and in
+  // with the stick back, and 1 zooms in with the stick forward.
+  int god_zoom_forward_in = 0;   // god_zoom_forward_in: 0 out, 1 in
   // The point that a zoom keeps in the room (docs/god-view.md, "The zoom"):
   // 0 is the land point under the head, 1 is the land point that the head
   // looks at, and 2 is the Hand's point. With 1, the point is at most
@@ -124,6 +127,9 @@ bool TabletopGodStep(int zoom, int ground);
 // back before it asks again.
 bool TabletopGodZoomSmooth();
 bool TabletopGodZoomHold(float push);
+// The direction of the stick (god_zoom_forward_in): true when the stick
+// forward zooms in, false when it zooms out.
+bool TabletopGodZoomForwardIn();
 
 // The test key of god_zoom_smooth (Ctrl, Shift and Insert, with
 // test_keys=1): the zoom of the stick changes between the steps and the
@@ -153,6 +159,12 @@ void TabletopGodZoomAboutCycle();
 // of the land is off. The push must then come back before it asks again.
 int TabletopGodMoveStick();
 bool TabletopGodWalk(const float push[2], const float* aim);
+
+// THE SWITCH OF A MOVE OVER THE LAND. True while the game's switch for the
+// drag of the land is on (bit 8 of CameraHelp::EnabledFeatures). The grab,
+// the walk with the stick and the teleport keep to it, and so do the lines of
+// the hint card for the walk and the teleport.
+bool TabletopMoveAllowed();
 
 // The test key of move_stick (Shift and the Menu key, with test_keys=1): the
 // rule goes from 1 to 2 to 0 and back to 1.

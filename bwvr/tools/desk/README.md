@@ -90,6 +90,7 @@ calls it. It keeps these rules, and a new script must keep them too:
 | `dialog.ps1` | Measures the start dialog for a render size, and gives the dialog points. Gives the way through the Main Menu of a run in a test save |
 | `verify_build.ps1` | The three runs before a merge |
 | `exit_run.ps1` | A run in which the game ends by itself, and the check of its end |
+| `launcher_shot.ps1` | A picture of the window of the launcher, for a change of its table or its layout. It does not start the game, and it puts no window on the screen, so it needs no idle PC. `-Rows <n>` gives the picture of a table with more columns. See `launcher.md`, "A picture of the window for a test" |
 | `aim_run.ps1`, `aim_queue.ps1` | The far fetch, the aim presets, the teleport |
 | `throw_queue.ps1` | Throws and landings |
 | `spawn_run.ps1` | A start with "Keep your old Creature": no story, the player at the Temple |
@@ -310,6 +311,7 @@ each number for its own start and the load of the land.
 | --- | --- | --- | --- |
 | A new game, the row `select` | The start dialog, then the first story: the doors and the walk to the Creature pens | At the frame at which the player gets the Hand (frame 3430 to 3750) | 63 |
 | A new game, the row `keep` | The start dialog, then the game camera goes to the door of the Temple | At frame 800 | 22 |
+| A new game, the row `normal` | The start dialog, then the whole first story of the tutorial. See "The start of the tutorial" | At the frame at which the story ends (about frame 9720) | 237 |
 | A test save, `-Save <name>` | The Main Menu over the loaded game, which the mod closes at frame 70 (a test key) | At the frame at which the controller places the Hand (frame 70) | 11 |
 
 ### The logos
@@ -338,6 +340,35 @@ the stereo frame of the logo. Each picture is 14 MB at a render of 2208 by
 `intro`: the camera for each second of the effect clock, and for each pair of
 pictures the pixels of some orbs. `-Set` gives other keys, for example the
 test keys `intro_motion_test_seconds` and `intro_push_test_px`.
+
+### The start of the tutorial
+
+`spawn_run.ps1 -Choice normal` starts a new game with the row "Start the game
+normally": the whole first story, and then the first step of the tutorial, in
+which the villagers ask the player to follow them. No test save has this
+state, so a run that tests the tutorial plays the story.
+
+Four texts of the story wait for a click of the left button, and the story
+stops at each one until the click comes. With `text_click=1` a press of the
+trigger is that click. The game takes a click only 1 s or more after the
+text came. The recipe below has a press at the frames 6750 and 7350, and
+then each 220 frames:
+
+```powershell
+$w = @('aimturn@700+1', 'trigger@6750+6', 'trigger@7350+6')
+for ($k = 0; $k -lt 9; $k++) { $w += "trigger@$(7950 + 220 * $k)+6" }
+.\bwvr\tools\desk\spawn_run.ps1 -Name tut1 -Dll <build>\src\mod\Release\ddraw.dll -Choice normal `
+    -Steps (($w + '<your steps from frame 10000>') -join ' ') -Set "fake_controller_turns=0,-40,0" -Seconds 300
+```
+
+The story ends at about frame 9720, 237 s after the start of the game
+process. The log then has "the cinema bars are down, and the player's camera
+owns the view" and "the camera controls of the game are 0x48": the game lets
+the player drag the land, and each other camera control is off
+(`docs/god-view.md`, section 7, "The interface levels"). `aimturn` with
+`fake_controller_turns=0,-40,0` turns the aim to the land near the head, for
+a teleport. A teleport of 140 units from the place of the start, straight
+ahead, comes to the village, and the story of the village then plays.
 
 ### A test save
 

@@ -175,6 +175,84 @@ inline void OneWalkChecks() {
         VertexCount(5, 10), 12);
   Check(ShiftPerRhw(scale, separation, half, 0.0f) == 0.0f,
         "no near plane gives no move", 0, 0);
+
+  // THE CARDS AND THE MARKS OF THE MOD (one_walk_marks). The God view at 100
+  // units for each meter: the eyes 6.4 units apart, and a head roll.
+  const float wide = 6.4f;
+  const float wide_per_rhw = ShiftPerRhw(scale, wide, half, near_plane);
+  const float c = cosf(0.35f), s = sinf(0.35f);
+  const float h[9] = {c, s, 0.0f, -s, c, 0.0f, 0.0f, 0.0f, 1.0f};
+  float left[12], right_eye[12];
+  EyeMatrix(unscaled, h, -0.5f * wide, scale, scale, left);
+  EyeMatrix(unscaled, h, 0.5f * wide, scale, scale, right_eye);
+
+  // A speech bubble has the place of its sign. The sign is 60 units from the
+  // eye, on the forward axis and a little to the side.
+  const float sign[3] = {eye_at[0] + 60.0f * forward[0] + 4.0f * right[0],
+                         eye_at[1] + 60.0f * forward[1] + 4.0f * right[1],
+                         eye_at[2] + 60.0f * forward[2] + 4.0f * right[2]};
+  const Projected sign_left = Project(left, sign, half, half, near_plane);
+  const Projected sign_right = Project(right_eye, sign, half, half, near_plane);
+  const float sign_depth = near_plane / sign_left.rhw;
+  const float sign_move = ShiftAtDepth(wide_per_rhw, near_plane, sign_depth);
+  Near("the sign is 60 units deep", sign_depth, 60.0, 1e-3);
+  Near("a card moves to the right eye by the eye difference of its sign",
+       sign_left.x + sign_move, sign_right.x, 1e-2);
+  // The corners of the box have the rhw of the depth of the bubble: 5 units
+  // nearer than the sign, and with the head 50 degrees down 0.69 times that.
+  const float bubble_depth = (sign_depth - 5.0f) * 0.691f;
+  const float by_rhw = wide_per_rhw * near_plane / bubble_depth;
+  Check(sign_move - by_rhw > 40.0f,
+        "the rhw of a corner of the box puts the box more than 40 px from "
+        "the card of the right eye",
+        sign_move - by_rhw, 40.0);
+  Check(-sign_move > 70.0f,
+        "a flat batch with no move is more than 70 px from that card",
+        -sign_move, 70.0);
+
+  // The glow at the Hand's point. The disc is at the point, and its rhw is
+  // that of a point half a Hand's length nearer to the eye.
+  const float hand[3] = {eye_at[0] + 45.0f * forward[0] - 6.0f * right[0],
+                         eye_at[1] + 45.0f * forward[1] - 6.0f * right[1],
+                         eye_at[2] + 45.0f * forward[2] - 6.0f * right[2]};
+  controller_math::GlowDisc glow_left = {}, glow_right = {};
+  const bool glow_ok =
+      controller_math::GlowProject(left, half, half, near_plane, hand, 1.5f,
+                                   10.0f, &glow_left) &&
+      controller_math::GlowProject(right_eye, half, half, near_plane, hand,
+                                   1.5f, 10.0f, &glow_right);
+  Check(glow_ok, "the glow is in the view of both eyes", glow_ok, 1);
+  const float glow_move =
+      ShiftAtDepth(wide_per_rhw, near_plane, glow_left.depth);
+  Near("the glow moves to the right eye by the eye difference of its depth",
+       glow_left.x + glow_move, glow_right.x, 1e-2);
+  Near("the glow has one size and one height in both eyes",
+       fabs(glow_left.rx - glow_right.rx) + fabs(glow_left.y - glow_right.y),
+       0.0, 1e-3);
+  Check(fabs(glow_left.x + wide_per_rhw * glow_left.rhw - glow_right.x) > 20.0,
+        "the rhw of the disc puts the glow more than 20 px from its place in "
+        "the right eye",
+        fabs(glow_left.x + wide_per_rhw * glow_left.rhw - glow_right.x), 20.0);
+  // A halo has the rhw of a point one body radius behind its middle.
+  controller_math::GlowDisc halo_left = {}, halo_right = {};
+  const bool halo_ok =
+      controller_math::GlowProject(left, half, half, near_plane, hand, 4.0f,
+                                   -3.0f, &halo_left) &&
+      controller_math::GlowProject(right_eye, half, half, near_plane, hand,
+                                   4.0f, -3.0f, &halo_right);
+  Check(halo_ok, "the halo is in the view of both eyes", halo_ok, 1);
+  Near("a halo moves to the right eye by the eye difference of its depth",
+       halo_left.x + ShiftAtDepth(wide_per_rhw, near_plane, halo_left.depth),
+       halo_right.x, 1e-2);
+  Check(fabs(halo_left.x + wide_per_rhw * halo_left.rhw - halo_right.x) > 5.0,
+        "the rhw of the disc puts the halo more than 5 px from its place in "
+        "the right eye",
+        fabs(halo_left.x + wide_per_rhw * halo_left.rhw - halo_right.x), 5.0);
+
+  Check(ShiftAtDepth(wide_per_rhw, near_plane, 0.0f) == 0.0f,
+        "a depth of 0 gives no move", 0, 0);
+  Check(ShiftAtDepth(wide_per_rhw, 0.0f, 60.0f) == 0.0f,
+        "no near plane gives no move at a depth", 0, 0);
 }
 
 }  // namespace one_walk_checks
