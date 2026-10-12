@@ -91,9 +91,6 @@ Creature select" in the start dialog.
 
 ### The right controller
 
-The right hand is the Hand. It is where your hand is, at the size of your
-hand.
-
 | Control | What it does |
 | --- | --- |
 | Grip | Close it on a thing to take it. Open it to let go. Swing and open it to throw |
