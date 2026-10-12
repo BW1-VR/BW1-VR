@@ -113,6 +113,8 @@ The full list is in "Black & White VR Mod readme.txt" in your game folder.
 
 - F11 makes the direction of your head straight ahead. Press it when you sit
   down, or when the world is not where you expect it.
+- A thing that your Hand can act on glows gold. A red glow means that the
+  thing is outside your influence.
 - Save the game before you start a quest. Quick save is in the ring menu,
   under "More".
 - If the frame rate is low, lower "Resolution scale" in the launcher.
