@@ -123,6 +123,8 @@ void PassGuardSetOptions(bool skip_hand, bool skip_physics);
 void PassGuardSetSkipPrepare(bool on);
 void PassGuardInstall();
 void FrameTimersInstall();
+// tick_direct.cpp: the clock of the game with no check of busy waiting.
+void TickDirectInstall(bool on);
 void FovInstall();
 void InputWatchInstall();
 void HeadCameraInstall();
@@ -272,6 +274,7 @@ bool g_move_camera_point = false;
 // frame time. 0 gives the number from before the passes. The three test keys
 // are for desktop runs. See frame_time.cpp.
 int g_frame_time_real = 1;
+bool g_tick_direct = true;
 int g_frame_time_test_frame = 0;
 int g_frame_time_test_readers = 0;
 int g_frame_time_test_readers_frames = 600;
@@ -554,6 +557,8 @@ void ReadSettings() {
   g_freeze_time = GetPrivateProfileIntA("bwvr", "freeze_time", 1, path) != 0;
   g_frame_time_real =
       GetPrivateProfileIntA("bwvr", "frame_time_real", 1, path) != 0 ? 1 : 0;
+  g_tick_direct =
+      GetPrivateProfileIntA("bwvr", "tick_direct", 1, path) != 0;
   g_frame_time_test_frame = static_cast<int>(
       GetPrivateProfileIntA("bwvr", "frame_time_test_frame", 0, path));
   g_frame_time_test_readers = static_cast<int>(
@@ -1298,6 +1303,7 @@ void StartVrOnce() {
     PassGuardSetOptions(g_skip_hand_pass2, g_skip_physics_pass2);
     PassGuardInstall();
     FrameTimersInstall();
+    TickDirectInstall(g_tick_direct);
     FovInstall();
     InputWatchInstall();
     PointerMapInstall();

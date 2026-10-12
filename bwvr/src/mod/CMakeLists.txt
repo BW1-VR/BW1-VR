@@ -25,6 +25,7 @@ add_library(bwvr_mod SHARED
     pass_guard.cpp
     land_light.cpp
     frame_timers.cpp
+    tick_direct.cpp
     frame_profile.cpp
     frame_time.cpp
     fov.cpp
