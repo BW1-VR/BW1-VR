@@ -215,11 +215,11 @@ is built, and no test has proven it.
 - **B17. The name of a villager, and the size of a speech bubble.** The
   speech bubble of a signpost is one flat card at the depth of the sign
   (`bubble_card=1`, `ui-layer.md`, section 18), and a headset session read
-  it well. No desktop run has shown the card: a run with a tap on the silver
-  scroll at the Temple made no bubble (section 18.5 has the recipe). Still
+  it well. A desktop run shows the card (section 18.5 has the recipe). Still
   open:
   - The name of a villager draws its own box, and the mod does not change
-    it (`ui-layer.md`, 18.6).
+    it (`ui-layer.md`, 18.6). By the code, its text has no eye difference of
+    the villager in one walk. No run has shown that.
   - The size of a bubble comes from the depth of the sign in units, with no
     change for the scale of the God view.
 - **B18. A flash of lightning in the left eye only: check it in a
@@ -264,20 +264,26 @@ is built, and no test has proven it.
   repeated it. A full screen game makes no try (`vr_full_screen=0`), and a
   game with `vr=0` makes none. A game in a window with no headset makes a
   try each 3 seconds for 2 minutes.
-- **B22. The glow at the Hand's point is not at one place on the hand.** In
-  a headset session with one walk the glow moved around the hand when the
-  hand turned. Not known: whether one walk is the cause. `hand_glow.cpp`
-  makes the point of the right eye from the point of the left eye when one
-  walk is on. The Menu key (`test_keys=1`) turns one walk off for a
-  comparison. With the glow on the mesh of a target the glow at the Hand's
-  point says little, so it is off by default (`hand_glow=0`). The fault
-  is there for a player who turns it on.
-- **B23. The card of a signpost is at a different place in each eye.** In a
-  headset session with one walk the text of a signpost was at a different
-  place in each eye and hard to read (`bubble_card=1`). In a session with a
-  scene walk for each eye the card was right. Not known: whether one walk
-  is the cause, and whether the other cards of the mod (the hints, the
-  subtitles) have the same fault.
+- **B22. The glow at the Hand's point with one walk: check it in a
+  headset.** In one walk the mod draws the glow for each eye by itself, and
+  the right eye has it at the eye difference of the Hand's point
+  (`one_walk_marks=1`, `backend.md`, "The cards and the marks of the mod").
+  A desktop run shows the glow of the right eye at its place in each pose of
+  a hand that turns. The glow is off by default (`hand_glow=0`). Still open:
+  - Check in a headset that the glow stays at one place on the hand when the
+    hand turns. Ctrl, Shift and the right square bracket key (`test_keys=1`)
+    give the right eye the glow by the rhw of its disc for a comparison.
+- **B23. The card of a signpost with one walk: check it in a headset.** In
+  one walk the mod draws the card of a speech bubble for each eye by itself,
+  and the right eye has the box and the text at the eye difference of the
+  sign (`one_walk_marks=1`, `ui-layer.md`, section 18). A desktop run shows
+  the card of the right eye at its place in its own walk. The hint cards and
+  the subtitle card are quad layers, and one walk does not draw them. Still
+  open:
+  - Check in a headset that the text of a signpost is in its box and easy to
+    read with one walk. Ctrl, Shift and the right square bracket key
+    (`test_keys=1`) give the right eye the card by the rule of each other
+    batch for a comparison.
 - **B24. After a cut scene the controllers do nothing until a press.** In a
   headset session the controllers were not active at the end of a cut
   scene. A press of a grip or of a trigger made them active again. The

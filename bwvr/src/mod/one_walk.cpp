@@ -49,6 +49,10 @@
 #include "one_walk_math.h"
 
 extern void ModLog(const char* format, ...);
+// controllers.cpp
+void ControllersGesturePulse(float amplitude, float seconds);
+uint64_t ControllersFrameCount();
+uint64_t ControllersTestFrame(uint64_t key_frame, uint64_t frame);
 // draw_merge.cpp: the batch of the merge goes to Direct3D now.
 void DrawMergeFlush();
 // gpu_bridge.cpp
@@ -95,6 +99,8 @@ DrawIndexedPrimitiveUPFn o_DrawIndexedPrimitiveUP = nullptr;
 
 bool g_wanted = false;     // one_walk in bwvr.ini, or the test key
 bool g_check = false;      // one_walk_check in bwvr.ini
+bool g_marks = true;       // one_walk_marks in bwvr.ini, or the test key
+int g_marks_test_frame = 0;  // one_walk_marks_test_frame
 bool g_hooked = false;
 bool g_hook_failed = false;
 bool g_make_failed = false;
@@ -567,8 +573,48 @@ bool OneWalkWanted() { return g_wanted && !g_hook_failed && !g_make_failed; }
 
 void OneWalkToggle() { OneWalkSetWanted(!g_wanted); }
 
+namespace {
+
+const char* MarksText(bool on) {
+  return on ? "in one walk a speech bubble as a card, the glow at the Hand's "
+              "point and a halo are drawn for each eye, and the right eye has "
+              "them at the place of its own walk"
+            : "in one walk the right eye gets a speech bubble as a card, the "
+              "glow at the Hand's point and a halo from the rhw of their "
+              "batches, as each other batch";
+}
+
+}  // namespace
+
+void OneWalkSetMarks(bool on, int test_frame) {
+  g_marks = on;
+  g_marks_test_frame = test_frame;
+  ModLog("one walk     : one_walk_marks=%d, %s", on ? 1 : 0, MarksText(on));
+}
+
+bool OneWalkMarks() { return g_marks; }
+
+// A long pulse for 1 and a short pulse for 0.
+void OneWalkMarksToggle(const char* cause) {
+  g_marks = !g_marks;
+  ControllersGesturePulse(0.5f, g_marks ? 0.30f : 0.08f);
+  ModLog("one walk     : %s: one_walk_marks is %d now (%s), frame %llu", cause,
+         g_marks ? 1 : 0, MarksText(g_marks), ControllersFrameCount());
+}
+
 bool OneWalkBeginPass(float separation) {
   if (g_active) return true;
+  // A test with no key press: the test key of one_walk_marks acts at one
+  // frame.
+  if (g_marks_test_frame > 0) {
+    const uint64_t frame = ControllersFrameCount();
+    const uint64_t at = static_cast<uint64_t>(g_marks_test_frame);
+    static uint64_t done_frame = 0;
+    if (frame != done_frame && ControllersTestFrame(at, frame) == at) {
+      done_frame = frame;
+      OneWalkMarksToggle("test key one_walk_marks_test_frame");
+    }
+  }
   IDirect3DDevice9* device =
       static_cast<IDirect3DDevice9*>(GpuBridgeDeviceObject());
   if (device == nullptr || !Install(device)) return false;

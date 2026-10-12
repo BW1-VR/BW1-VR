@@ -770,6 +770,17 @@ void PollHotkeys() {
     OneWalkToggle();
   }
   menu_down = menu_now;
+  // An A/B of the cards and the marks of the mod in one walk (docs/backend.md,
+  // "One walk for both eyes"). The right square bracket key (VK_OEM_6) has no
+  // other test key. With the left one, Ctrl and Shift change the mark of a
+  // target (target_glow.cpp).
+  static bool marks_down = false;
+  const bool marks_now = (GetAsyncKeyState(VK_OEM_6) & 0x8000) != 0 && ctrl &&
+                         shift;
+  if (g_test_keys && marks_now && !marks_down && GameHasFocus()) {
+    OneWalkMarksToggle("Ctrl, Shift and the right square bracket key");
+  }
+  marks_down = marks_now;
 }
 
 // THE HEAD TRACKING SETUP, once. The render has to cover what the headset asks for,

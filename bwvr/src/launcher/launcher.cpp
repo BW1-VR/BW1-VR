@@ -653,7 +653,7 @@ const char* const kRetiredKeys[] = {
     "far_test_no_trees", "far_test_scroll", "far_test_thrown",
     "far_test_tree", "far_test_aim_blends", "far_test_aim_pair",
     "far_test_quest", "far_test_take_gone", "bubble_card_test",
-    "bubble_card_test_frame",
+    "bubble_card_test_frame", "one_walk_marks_test_frame",
     "eye_clean_test", "eye_clean_test_frame",
     "frame_time_test_frame", "frame_time_test_readers",
     "frame_time_test_readers_frames", "god_zoom_about_test",

@@ -1372,6 +1372,7 @@ against a true right eye camera at three rolls.
 | A clear | The same clear in the right half |
 | A batch with no depth | Every rhw exactly 1 (screen space) or every z 1 (the sky): the copy moves by the eye width only |
 | The interface | `draw_hooks.cpp` runs its chain a second time with the right eye, and the batch goes to the right half only. A tooltip at the Hand has an anchor for each eye. `hand_glow.cpp` gives the right eye its Hand's point by the same rule |
+| A card or a mark of the mod | Its batch goes to the left half only, and then to the right half only, moved by the eye difference of its place. See "The cards and the marks of the mod" |
 | The pass ends | The game's target is bound again. The two halves go to the shared textures: with `frame_send=0` the first copy has no wait and the second has the wait for the GPU, and with `frame_send` 1 and 2 both are copies alone, and `frame_send.cpp` waits one time as for two eye passes |
 
 Direct3D 9 takes XYZRHW vertices as pixels of the whole target and clips them
@@ -1380,6 +1381,47 @@ other. A change of the viewport costs much less than a change of the render
 target. dxwrapper binds the game's target again when its own record changes,
 and the interface panel puts back the target it found. The hook on
 `SetRenderTarget` turns the game's target into the wide one in the pass.
+
+### The cards and the marks of the mod
+
+The rule of a batch is right only when each vertex has the rhw of its place.
+Three things that the mod draws in an eye pass do not have it:
+
+| Thing | The rhw in its vertices | Its place |
+| --- | --- | --- |
+| A speech bubble as one card (`bubble_card.cpp`, `ui-layer.md`, section 18) | A corner of the box has the depth of the bubble: the depth of the sign less 5 units, and less again while the camera looks down. The text and the other flat batches have no depth | The pixels that the place function of the game makes from the pixel of the sign |
+| The glow at the Hand's point (`hand_glow.cpp`) | The point of the depth test: half a Hand's length nearer to the eye | The Hand's point |
+| A halo (`hand_glow.cpp`) | The point of the depth test: one radius of the body behind its middle | The middle of the body |
+
+With `one_walk_marks=1`, the default, each of these draws its batch for the
+left eye only (`kOneWalkLeftOnly`), and then for the right eye only, moved
+across by the eye difference of the depth of its place:
+
+    x(right) = x(left) + ShiftPerRhw * near / depth
+
+`one_walk_math.h` has it as `ShiftAtDepth`. For the card the depth is the
+depth of the sign, which the place function of the game gives. So the box
+and the text of the right eye are the box and the text of the left eye, moved
+by the eye difference of the sign, as the place function makes them in a pass
+of the right eye. For a disc the depth is that of its middle. The Z value and
+the rhw of each vertex stay, so the depth test is the same in both eyes.
+`LH3DRender::DrawTriangle` changes the vertices that it gets, so the draw of
+the box for the right eye starts from a copy that the mod made before the
+first draw.
+
+With `one_walk_marks=0` the right eye gets these batches as each other
+batch. The text of a card is then at the same pixel in both eyes, and its box
+has the eye difference of a nearer depth than the sign. The glow is half a
+Hand's length nearer to the eye than the Hand's point, so it is not at one
+place on the hand when the hand turns.
+
+With `test_keys=1`, Ctrl, Shift and the right square bracket key change
+`one_walk_marks` in play. The pointing hand gets a long pulse for 1 and a
+short pulse for 0. `one_walk_marks_test_frame=<frame>` is a test key of the
+desktop runs: the value changes at that frame, as the test key does.
+
+The math test has the three cases against a camera of the right eye, with the
+eyes 6.4 units apart and a head roll.
 
 ### The edge of the right eye
 
@@ -1457,7 +1499,10 @@ The scene time of one walk holds the copies for the right eye, 0.29 to
 
 `one_walk_check=1`: on a frame that saves pictures, the right eye also gets
 its own walk, and its picture is saved as `walk2` beside the right eye of one
-walk.
+walk. On such a frame the log has one line for a speech bubble in view
+(`bubble card`) and one for the glow at the Hand's point (`hand glow`). Each
+line has the place of the thing in the right eye of its own walk and in the
+right eye of one walk.
 
 ## The world around you
 
@@ -2724,6 +2769,7 @@ in front. The mod reads the keys and never takes them from the game.
 | Ctrl Shift Left bracket | `test_keys=1` | What marks a target of the Hand steps from 1 to 0 to 2 and back: the glow on the mesh with a halo only for a target whose mesh does not glow, the halo, or the glow and the halo. A long pulse for 1, a short pulse for 0 and a longer pulse for 2 (`target_glow`, `hand-model.md`, "The glow on the mesh of a target"). The left square bracket key is right of the P key on a US keyboard |
 | Ctrl Shift Numpad Slash | `test_keys=1` | The mod waits for the GPU after each eye pass, one time a frame, or one time a frame on a second thread that also gives the frame to the runtime. A long pulse, a pulse of middle length and a short pulse (`frame_send`, "One wait a frame, and a second thread"). The slash key with Shift and no Ctrl is a key of the Temple, and with no Shift it is a key of the throw |
 | Menu key | `test_keys=1` | One walk for both eyes on and off (see "One walk for both eyes"). The key beside the right Ctrl key that opens a context menu. Ctrl and Shift must be up |
+| Ctrl Shift Right bracket | `test_keys=1` | In one walk: a speech bubble as a card, the glow at the Hand's point and a halo are drawn for each eye by itself, or the right eye gets them as each other batch. A long pulse and a short pulse (`one_walk_marks`, "The cards and the marks of the mod"). The right square bracket key is two keys right of the P key on a US keyboard |
 | Ctrl Menu key | `test_keys=1` | The layout of the buttons of the hand that does not point. The menu button of the left controller opens the game menu, Y opens the ring and the stick does not drive the ring, or Y opens the game menu and X and the stick open the ring. A long pulse and a short pulse on that hand (`button_layout`, `controllers.md`, 5.1). Shift must be up |
 | Shift Menu key | `test_keys=1` | The walk with the stick of the hand that does not point steps from 1 to 2 to 0 and back: forward is the direction of the head, forward is the direction of that controller, or the stick does not move the player. A medium pulse, a long pulse and a short pulse (`move_stick`, `god-view.md`, section 5.7). Ctrl must be up |
 
@@ -2823,6 +2869,7 @@ keys that the launcher sets.
 | `bubble_card` | 1 | 1: a speech bubble of the game is one flat card at the depth of its sign. 0: it is drawn as the game and the interface depth make it in each eye pass. See `ui-layer.md`, section 18 |
 | `bubble_card_test`, `bubble_card_test_frame` | 0, 0 | Test keys of the desktop runs. See the same section |
 | `one_walk`, `one_walk_check` | 1, 0 | See "One walk for both eyes" |
+| `one_walk_marks`, `one_walk_marks_test_frame` | 1, 0 | See "The cards and the marks of the mod" |
 | `skip_desktop_present` | 1 | See "The copy to the monitor" |
 | `blt_texture_copy` | 1 | 1: the mod makes a copy with a texture and no stretch itself. 0: each copy goes to dxwrapper. See "The copy to the monitor" |
 | `test_frame_rate` | 0 | A test key of the desktop runs: the frame rate of a run with no copy to the monitor. See "The copy to the monitor" |

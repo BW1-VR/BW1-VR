@@ -36,6 +36,16 @@ inline float ShiftPerRhw(float inv_half_tan_fov_x, float separation,
   return -inv_half_tan_fov_x * separation * half_res_x / near_plane;
 }
 
+// Pixels that a thing at one camera space depth moves from the left eye to the
+// right eye: the rule above with rhw = near / depth. For a card or a mark of
+// the mod whose vertices do not have the rhw of its place: a speech bubble
+// has the place of its sign, and a disc of hand_glow.cpp has the rhw of the
+// point of its depth test. 0 when the depth is not in front of the eye.
+inline float ShiftAtDepth(float per_rhw, float near_plane, float depth) {
+  if (!(depth > 0.0f) || !(near_plane > 0.0f)) return 0.0f;
+  return per_rhw * near_plane / depth;
+}
+
 // How the right eye gets a batch.
 enum BatchKind {
   kWorld = 0,  // each vertex moves by its own rhw
