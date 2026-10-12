@@ -1179,6 +1179,45 @@ holds the frame thread, so the walks of such a run are that much longer. An
 address in `ntdll.dll` or `win32u.dll` is mostly a call of the kernel: the
 driver in the kernel, or a wait. A save of the launcher removes the key.
 
+**The split in a headset.** SteamVR with a Steam Frame, Ryzen 9 7950X3D,
+Radeon RX 7900 XTX, a render of 3304 by 2644 with 4x multisampling,
+`one_walk=1`, `frame_send=2`, `profile_sample=250`. The ms are of one frame,
+with the time that the samples held the frame thread (0.2 ms near, 0.8 ms
+over the island):
+
+| Module | A view near the land (150 to 400 batches) | A view of the whole island (1500 to 1600 batches) |
+| --- | --- | --- |
+| `AMDXN32.DLL`, the Direct3D 9 driver of AMD | 0.5 to 1.0 ms | 3.3 to 3.8 ms |
+| `runblack.exe`, the game | 0.7 to 1.3 ms | 2.6 to 2.9 ms |
+| `ntdll.dll`, calls of the kernel and locks | 0.2 to 0.4 ms | 1.3 to 1.4 ms |
+| `d3d9.dll`, the Direct3D 9 runtime | 0.2 to 0.3 ms | 1.1 to 1.2 ms |
+| `ddraw.dll`, the mod | 0.3 to 0.7 ms | 0.7 ms |
+| `dxwrapper.dll` | 0.1 to 0.2 ms | 0.6 ms |
+| All the scene walks | 2.1 to 4.0 ms | 9.7 to 10.9 ms |
+
+So over the island about 6 ms of the scene walk are Direct3D 9, the driver
+and the kernel, and the game is less than 3 ms. dxwrapper is a small part. A
+render thread at the Direct3D 9 calls, after dxwrapper, can take those 6 ms
+off the frame thread.
+
+**The GPU after the scene walk.** With `frame_send=2` the frame thread does
+not wait for the GPU, but the frame goes to the runtime only when the GPU has
+done it. The GPU needs 2.5 to 3.2 ms after the scene walks near the land and
+3.7 to 4.2 ms over the island. From the end of `xrWaitFrame` to the end of
+`xrEndFrame` a frame takes 6 to 8 ms near the land and 15 to 16 ms (at most
+20 ms) over the island. Over 11.1 ms the runtime of SteamVR shows 45 frames a second. A lower
+anisotropic filtering (4 in place of 16) changed none of these numbers. The
+multisampling stayed at 4x in that run: `AntiAliasing = 0` in
+`dxwrapper.ini` did not change it.
+
+**DXVK.** DXVK 3.1.1 as `d3d9.dll` in the game folder runs under dxwrapper,
+but the share of the eye pictures to Direct3D 11 fails ("Failed to open
+shared D3DKMT handle"), and the game closes after the start of the OpenXR
+session. With `gpu_bridge=0` (the pictures through the CPU) and two scene
+walks, Direct3D 9 and the kernel are about 2.9 ms of a frame over the island,
+against about 6 ms for the driver of AMD with one walk. Use of DXVK needs a
+different bridge: an OpenXR session of Vulkan with the images of DXVK.
+
 ### Draw calls with one state
 
 The cost of a frame follows the count of the draw calls. The mod can give two

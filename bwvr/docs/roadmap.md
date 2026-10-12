@@ -515,15 +515,17 @@ that moves while the Hand takes it.
     planned in detail. The hard parts: a texture that the game writes in the
     middle of a scene walk, a state that the game reads back, the draws of
     the mod itself, and the order of each call. With the merge of draw calls
-    the thread has less work. The first step is a measure: which share of
-    the scene walk is the game, dxwrapper, Direct3D 9 and the driver
-    (`profile_sample`, `backend.md`, "Where the time of the scene walk
-    goes"). In a headset with one walk, a view of the whole island has about
-    1500 batches and a scene walk of 9.5 to 11 ms. The frame is then a little
-    over 11.1 ms, and the runtime shows 45 frames a second. A second step is
-    a test of DXVK under dxwrapper: it has a thread of its own for the calls
-    of the driver. Not known: whether the share of the GPU bridge with
-    Direct3D 11 works with DXVK.
+    the thread has less work. In a headset with one walk, a view of the
+    whole island has about 1500 batches and a scene walk of 9.5 to 11 ms,
+    and the runtime then shows 45 frames a second. Of that walk about 6 ms
+    are Direct3D 9, the driver of AMD and the kernel, and less than 3 ms are
+    the game (`profile_sample`, `backend.md`, "Where the time of the scene
+    walk goes"). So the thread takes the calls of dxwrapper to Direct3D 9,
+    not the calls of the game to dxwrapper. For 90 frames a second the scene
+    walk must be under about 6 ms, because the GPU needs 3 to 4 ms after it.
+    DXVK in place of the Direct3D 9 of Windows halves the time of Direct3D 9
+    and the driver, but the share of the GPU bridge to Direct3D 11 fails with
+    it.
   - **The other render ideas have a small gain.** A projection off the centre
     for each eye: a view of 70 to 98 degrees changes the walk by 4 percent
     (`backend.md`, "A wide view is nearly free"). So a narrower cull saves
