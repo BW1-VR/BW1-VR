@@ -147,6 +147,8 @@ void CursorTraceFrame(uint64_t frame);
 void ComfortCameraSetOptions(int snap_degrees, bool instant_jumps, bool glide,
                              int blink_ms);
 void ComfortCameraSetZoomStep(int step);
+void ComfortCameraSetTurnHelp(int degrees_per_event, bool keeps_focus,
+                              int tilt_degrees);
 void ComfortCameraSetSpawnTests(int temple_update, int x, int z, int flag,
                                 int toggle_update);
 void ComfortCameraInstall();
@@ -342,6 +344,11 @@ bool g_instant_jumps = true;
 bool g_camera_glide = false;
 int g_blink_ms = 0;
 int g_zoom_step = 2;  // 0 the game's own, 1 small, 2 medium, 3 large
+// The turn events of a snap turn for the tutorial, and the turn of the game
+// camera about its own focus (comfort_camera.cpp).
+int g_turn_help_degrees = 5;
+int g_tilt_help_degrees = 3;
+bool g_god_turn_keeps_focus = true;
 // The camera the story moves, see script_camera.cpp. 0 as the game moves it,
 // 1 a cut at the start of each move, 2 a cut at the end of each move.
 int g_script_camera = 2;
@@ -840,6 +847,12 @@ void ReadSettings() {
     const int zoom =
         static_cast<int>(GetPrivateProfileIntA("bwvr", "zoom_step", 2, path));
     g_zoom_step = (zoom >= 0 && zoom < 4) ? zoom : 2;
+    g_turn_help_degrees = static_cast<int>(
+        GetPrivateProfileIntA("bwvr", "turn_help_degrees", 5, path));
+    g_god_turn_keeps_focus =
+        GetPrivateProfileIntA("bwvr", "god_turn_keeps_focus", 1, path) != 0;
+    g_tilt_help_degrees = static_cast<int>(
+        GetPrivateProfileIntA("bwvr", "tilt_help_degrees", 3, path));
   }
   // The camera the story moves: 0 as the game does it, 1 a cut at the start
   // of each move, 2 a cut at the end of each move.
@@ -1293,6 +1306,8 @@ void StartVrOnce() {
     ComfortCameraSetOptions(g_snap_turn_deg, g_instant_jumps, g_camera_glide,
                             g_blink_ms);
     ComfortCameraSetZoomStep(g_zoom_step);
+    ComfortCameraSetTurnHelp(g_turn_help_degrees, g_god_turn_keeps_focus,
+                             g_tilt_help_degrees);
     ComfortCameraInstall();
     ScriptCameraSetOptions(g_script_camera, g_script_min_distance,
                            g_script_min_height, g_script_close_distance,

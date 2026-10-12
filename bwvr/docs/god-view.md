@@ -760,6 +760,18 @@ the build the game camera stays where the game put it, and the view goes to
 it (section 15). No write happens while a script holds the input or the
 pivot, while a fight holds the camera, or while a jump flies.
 
+**A snap turn alone keeps the focus** (`god_turn_keeps_focus`, 1). When the
+view only turned with snap turns since the last write
+(`TabletopGodTurnedOnly`), the game camera turns about its own focus by the
+same angle (`table_math::TurnAboutFocus`), and the focus stays. Over the land
+under the head that is the place that the rule above gives, because a turn
+about the head keeps that land point. It differs when a script put the
+focus: the turn lesson of the tutorial (section 7, "The tutorial") points
+the game camera at the Temple, and it tests each second that the focus is
+less than 25 units from that point. With `god_turn_keeps_focus=0` the turn
+puts the game camera over the land under the head, and the lesson says "No,
+try rotating first." after three seconds and starts again.
+
 **Stories.** While a story or a follow camera holds the view
 (`script_camera.cpp`, `ScriptCameraStoryOwns`), the God view stands aside.
 The story plays at the life size scale, as in the immersive mode. When the
@@ -824,8 +836,55 @@ buttons" (4), "wheel spin" (8) and "wheel down" (0x10, the middle button).
 The God view sends 8 with a zoom step and with the smooth zoom, and 2 with a
 move of the grab and of the walk with the stick.
 
-A tutorial step that waits for a tilt (0x303) cannot end in the God view,
-because the view does not tilt.
+A tutorial step that waits for a tilt (0x303) could not end in the God view,
+because the view does not tilt. The head looks up and down instead, so a
+look of the head counts as the game's tilt (`tilt_help_degrees`, 3): one
+tilt event for each 3 degrees that the head pitches at 20 degrees a second
+or faster (`table_math::CountedPitch`), one in a game turn, while the
+script lets the camera tilt (bit 1). A still head and the noise of the
+tracking count nothing. The tilt lesson (`TeachPitch`, "Good, now let's
+look up and down") wants its count of event 28 plus 25, and one look down
+and back up by 40 degrees gives 26. 0 sends no tilt events.
+
+**The turn lesson** [V: the disassembly and `Scripts\Quests\challenge.chl`,
+LHVM version 7]. The script `TeachRotate` (source file `HandDemos.txt`) is
+the step "Try rotating now to see the Temple as it's being built". It reads
+the count of turn events with the script word "get total events"
+(`GScript::GetTotalEvents` `0x0070B910`, function 237 of the script machine)
+for event 25, which `CameraHelpCallback` makes of 0x300. At its start it
+wants that count plus 60, and the step ends when the count is more than
+that. Each second it also tests that the camera position is less than 100
+units and the camera focus less than 25 units from its point at the Temple
+(`centre_pointer`). The third second that fails says "No, try rotating
+first." (`HELP_TEXT_FINAL_BEGINNING_46`), puts the camera back and plays the
+demo again.
+
+A count takes at most one event in a game turn: `CameraHelpAccumulator::
+Trigger` `0x00449040` sets a flag that `HelpProfile::Process` `0x005C4660`
+clears in each game turn, and that call also adds 100 to the clock of the
+help (`HelpProfile::AccumulatedTime` `0x00C5AFD8`). The game's own turn sends
+one event in each frame while it runs, so the lesson ends after about 6 s of
+turning. A snap turn sent one event, so it took more than 60 snap turns, and
+the turn moved the focus of the game camera (`GodAfter`), so the lesson
+started again after three seconds. Two rules make the lesson end with one
+full turn of snap turns:
+
+- `turn_help_degrees` (5): a snap turn counts as one turn event for each 5
+  degrees of its angle (`table_math::SnapTurnEvents`): 9 for 45 degrees. It
+  sends the first at once, and `PayTurnEvents` sends one of the others in
+  each new game turn. One full turn of snap turns is 72 events for each size
+  of the step. 0 gives one event for a snap turn.
+- `god_turn_keeps_focus` (1): the game camera keeps the focus that the script
+  put (section 7, "A snap turn alone keeps the focus").
+
+The report gives the events that the snap turns sent and the count of the
+help, and a line for each change of `CameraHelp::EnabledFeatures`, which is
+how the tutorial turns on the next control:
+
+```
+comfort      : the camera controls of the game are 0x1BF (1 tilt, 2 turn, 4 zoom, 8 drag, 0x10 jump). The help has counted 12 turn events
+comfort      : the snap turns sent 64 more turn events to the help of the game (turn_help_degrees=5), and 8 updates turned the game camera about its own focus (god_turn_keeps_focus=1). The help has counted 84 turn events in all
+```
 
 A hook on the callback (`h_Help` in `comfort_camera.cpp`) logs each change of
 the event, up to 80 lines, and the report counts each event:
@@ -993,6 +1052,9 @@ the walk with the stick are in section 5.7.
 | `god_spawn` | 1 | 1: the player goes where the game puts its own camera (section 15). 0: the view is built at the start, a load and the end of a story only, with the focus under the recenter pose |
 | `god_spawn_ahead_cm` | 50 | How far the land point that the game camera looks at is in front of the head, 0 to 150 |
 | `god_camera_at` | 1 | 1: the game camera is over the land point under the head. 0: over the recenter place (section 7). Ctrl and Numpad 1 change it with `test_keys=1` |
+| `god_turn_keeps_focus` | 1 | 1: a snap turn alone turns the game camera about its own focus (section 7). 0: it puts the game camera over the land under the head |
+| `tilt_help_degrees` | 3 | A look of the head up or down at 20 degrees a second or faster counts as the game's tilt: one tilt event of the help for each so many degrees, one in each game turn (section 7, "The tutorial"). 0: the head sends no tilt events |
+| `turn_help_degrees` | 5 | A snap turn counts as one turn event of the help for each so many degrees, one in each game turn, so the turn lesson of the tutorial ends with one full turn (section 7, "The turn lesson"). 0: one event for a snap turn |
 | `script_distance` | 1 | 1: a script that measures the distance from the camera gets the distance from the player (section 16). 0: the game's camera |
 | `script_view` | 1 | 1: a script that asks if the camera sees a thing gets the view of the head (section 16). 0: the game's camera |
 | `cutscene_window` | 1 | 1 plays a cut scene on a screen in the room (`cutscene-window.md`). 0 plays it in the full view with held shots |
