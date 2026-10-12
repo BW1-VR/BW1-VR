@@ -5,43 +5,53 @@ a remake: the villagers, the Creature, the quests and the advisors are the
 game's own. Your hands are the Hand. The land is at the height of your waist,
 and you reach in.
 
+[![Support the mod on Ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/buckzor)
+
+The mod is free. If you like it, you can support the work on
+[Ko-fi](https://ko-fi.com/buckzor).
+
 **Status: alpha.** This repo is private and by invitation. Please do not give
 a build or a link to a person outside the group.
 
-- [For testers](#for-testers): get a build, play, report.
-- [For contributors](#for-contributors): build the mod and put it in your game
-  with one script.
+To build the mod or to change its code, see
+[`CONTRIBUTING.md`](CONTRIBUTING.md).
 
----
-
-## For testers
-
-### What you need
+## What you need
 
 - A Windows PC and a PC VR headset with controllers. The mod is tested with a
   Quest 3 through Virtual Desktop. Other headsets can work, and we want to
   know.
-- Your own copy of Black & White (the first game).
+- Your own copy of Black & White (the first game, not Black & White 2).
 
-### 1. Set up a clean copy of the game
+## 1. Set up a clean copy of the game
+
+The mod does not contain the game. No store sells Black & White today, so you
+must find a copy yourself, for example the original CD.
 
 The mod fits one exact version of the game, so do this in order:
 
-1. Install Black & White.
-2. Install the official patch 1.10.
-3. Install the official patch 1.20.
-4. Install the unofficial patch v1.42 (from bwfiles.com).
-5. Install nothing else: no Creature Isle, no other mod, no widescreen or
-   resolution fix, no other `ddraw.dll` or graphics wrapper, no changed exe.
+1. Install Black & White. A plain folder is best, for example
+   `C:\Black & White`.
+2. Install the official
+   [patch 1.10](https://www.bwgame.net/downloads/v1-1-patch.129/).
+3. Install the official
+   [patch 1.20](https://www.bwgame.net/downloads/v1-2-patch.130/).
+4. Install the
+   [unofficial patch v1.42](https://www.bwgame.net/downloads/black-white-unofficial-patch-v1-42.1418/).
+5. Install nothing else: no patch 1.30, no Creature Isle, no other mod, no
+   widescreen or resolution fix, no other `ddraw.dll` or graphics wrapper, no
+   changed exe.
 6. Start the game one time without the mod. Make sure that it runs, then quit.
 
 Your game folder now holds a file `readme-patch-v142.txt`.
 
-### 2. Get the newest build
+If the game itself does not start on your PC, the community has a guide:
+[Running Black & White on Windows 10](https://www.bwgame.net/threads/running-black-white-on-windows-10.7916/).
+
+## 2. Install the mod
 
 Open [Releases](../../releases) and take the installer of the newest
-release. Buck makes a release when a set of changes is ready to test, not
-for each change.
+release.
 
 1. Run the installer. Windows warns about a file with no signature: select
    "More info", then "Run anyway".
@@ -50,37 +60,73 @@ for each change.
 3. To update, run a newer installer over the old build. You do not need to
    remove the old build first.
 
-To test one change before a release has it, open [Actions](../../actions),
-select the build of that commit or pull request, and take the installer from
-"Artifacts" at the bottom of the page.
+The mod adds its own files beside the game. It changes no file of the game,
+and it does not touch your saved games.
 
-### 3. Play
+## 3. Set up your headset
 
-1. Start your VR software and connect the headset. With Virtual Desktop, use
-   its own OpenXR runtime (VDXR, in the options of the Streamer). With
-   SteamVR, use version 2.17 or later as the OpenXR runtime.
+The game is a 32 bit program, so it needs an OpenXR runtime with a 32 bit
+entry. Virtual Desktop and SteamVR have one.
+
+- **Virtual Desktop.** In the options of the Streamer on the PC, set the
+  OpenXR runtime to VDXR. In the headset, open the Streaming tab of Virtual
+  Desktop and set Synchronous Spacewarp (SSW) to Disabled. The mod is tested
+  with SSW off.
+- **SteamVR.** Use version 2.17 or later, and make SteamVR the OpenXR
+  runtime.
+
+## 4. Play
+
+1. Start your VR software and connect the headset.
 2. Open the shortcut "Black & White VR Mod". The launcher names the runtime
    that it found.
-3. Select "Play in VR".
+3. Select "Play in VR". "Play, new game" starts a new game.
 4. In the headset, press a trigger or A to skip the logos. Press F11 on the
    keyboard if the view is not in front of you.
 
+### The right controller
+
+The right hand is the Hand. It is where your hand is, at the size of your
+hand.
+
 | Control | What it does |
 | --- | --- |
-| Right grip | Close it on a thing to take it. Open it to let go. Swing and open to throw |
+| Grip | Close it on a thing to take it. Open it to let go. Swing and open it to throw |
 | Point, grip, pull | Brings a thing that is out of reach to your hand |
-| Left grip | Grab the land and pull to move. Both grips: turn and zoom |
-| Right stick | Up and down: zoom. Left and right: turn |
+| Trigger | Click on a thing or in a menu. With the leash on, point and press to send your Creature there |
+| Stick | Up and down: zoom. Left and right: turn |
 | A | Hold to aim a teleport, let go to go. B cancels |
 | B | Hold and draw a gesture in the air to cast a miracle |
-| Left stick | Move over the land, in the direction of your head |
-| Y (left) | Hold for a ring menu: Temple, Creature, town, leashes, save |
-| Menu button (left) | The game menu. In a menu, point with the line and click with the trigger |
-| Trigger, leash on | Point and press to send your Creature there |
+
+### The left controller
+
+| Control | What it does |
+| --- | --- |
+| Grip | Grab the land and pull to move. With both grips: turn and zoom |
+| Stick | Move over the land, in the direction of your head |
+| Y | Hold for a ring menu: Temple, Creature, town, leashes, save |
+| Menu button | The game menu. In a menu, point with the line and click with the trigger |
 
 The full list is in "Black & White VR Mod readme.txt" in your game folder.
 
-### 4. Report a problem
+### Good to know
+
+- F11 makes the direction of your head straight ahead. Press it when you sit
+  down, or when the world is not where you expect it.
+- Save the game before you start a quest. Quick save is in the ring menu,
+  under "More".
+- If the frame rate is low, lower "Resolution scale" in the launcher.
+- A walk with the left stick makes some people ill. If it makes you ill, turn
+  off "Move with the left stick" in the launcher. Then move with the left
+  grip and with A.
+- If you see no hints and no subtitles, open the options of the game, then
+  "Help Options". Set "Intelligent ToolTips", "All Text" and "Medium Help" or
+  more.
+- Each setting in the launcher has a tooltip. If you are not sure, leave a
+  setting as it is.
+- Use headphones. A sound comes from its place in the world.
+
+## Report a problem
 
 Open [Issues](../../issues), select "New issue", and fill in the form. Three
 things make a report useful:
@@ -91,136 +137,20 @@ things make a report useful:
   mod keeps the logs of your last 20 sessions.
 - **What you did**, what you expected and what happened. A short video helps.
 
-Save the game before you start a quest. The known problems are in the section
-"KNOWN ISSUES" of the readme in your game folder, and the work list is at the
-top of [`bwvr/docs/roadmap.md`](bwvr/docs/roadmap.md).
+The known problems are in the section "KNOWN ISSUES" of the readme in your
+game folder, and the work list is at the top of
+[`bwvr/docs/roadmap.md`](bwvr/docs/roadmap.md).
 
-### To remove the mod
+## To remove the mod
 
-Remove "Black & White VR Mod" in the list of installed apps of Windows.
+Remove "Black & White VR Mod" in the list of installed apps of Windows. Your
+saved games and the files of the game stay as they are.
 
----
+## Support the mod
 
-## For contributors
+Thank you for playing. If you like the mod, you can support the work here:
 
-### What you need
-
-- Windows 10 or 11.
-- Visual Studio 2022, or the Build Tools for Visual Studio 2022, with the
-  workload "Desktop development with C++". It brings the compiler and CMake.
-- Git.
-- The game, set up as in [step 1 for testers](#1-set-up-a-clean-copy-of-the-game),
-  in a folder that your account can write to (not in Program Files).
-- Only to make an installer yourself: Inno Setup 6.
-
-All other code that the mod needs is in the repo (`third_party/`). There is
-nothing more to download.
-
-### The first time
-
-```powershell
-git clone https://github.com/BW1-VR/BW1-VR.git
-cd BW1-VR
-.\dev.ps1 setup -Game "D:\Games\Black & White"
-.\dev.ps1
-.\dev.ps1 play
-```
-
-`setup` checks that your game is the v1.42 game and keeps its folder in
-`local\game-path.txt`. `.\dev.ps1` with no word builds the mod, runs the math
-tests, and puts the mod in your game folder.
-
-**How the mod gets into the game.** The repo holds only the source of the
-mod. Your game stays in its own folder, outside the repo, and no file of the
-game is ever changed. The mod is nine files that go beside `runblack.exe`
-(`ddraw.dll`, the OpenXR loader, the launcher and a `dxwrapper` folder). The
-game loads `ddraw.dll` from its own folder when it starts, and that is how
-the mod gets in. Two things put those files there: the installer, for
-testers, and `.\dev.ps1`, for you. `.\dev.ps1` keeps the `ddraw.dll` that was
-there before, and `.\dev.ps1 uninstall` takes the nine files out and puts it
-back. The script never changes the registry. A game in Program Files needs
-a PowerShell that runs as administrator, so a copy of the game in a plain
-folder is easier for development.
-
-If PowerShell does not permit scripts, run this one time:
-`Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`.
-
-### The work loop
-
-1. Make a branch, change the code.
-2. `.\dev.ps1`, then `.\dev.ps1 play`, and look at `bwvr.log` in your game
-   folder. Its first line says which build runs.
-3. If your change can affect the game, run the desktop check:
-   `.\bwvr\tools\desk\verify_build.ps1 -Tag a`. It plays three short scenes
-   with a scripted controller, with no headset, and says `VERIFIED`.
-4. Open a pull request. GitHub builds it, runs the tests, and keeps an
-   installer with the run, so a tester can try your change.
-5. A release for the testers is made by hand, when Buck wants one: on
-   GitHub, Actions, "Release for testers", "Run workflow". The workflow
-   builds `main`, makes the installer and names the release from the
-   version, the date and the commit. Nobody makes a tag.
-
-[`CONTRIBUTING.md`](CONTRIBUTING.md) has the rules of the project. Read it
-before your first pull request.
-
-### How the mod works, in short
-
-- The mod is a C++ DLL with the name `ddraw.dll`, so the game loads it. It
-  hooks functions of `runblack.exe` (the camera, the Hand, the input, the
-  draw) with MinHook. The logic of the game stays the game's own.
-- The game is DirectX 7. dxwrapper turns that into Direct3D 9. The mod makes
-  the game draw the scene one time for each eye and gives the two pictures to
-  the headset through OpenXR.
-- The headset moves the game camera, and the controllers move the game's own
-  Hand. So a pick up, a throw and a miracle go through the code of the game.
-- A small renderer of the mod draws the hands, the highlights and the arcs
-  in the frame of the game.
-
-### Where things are
-
-| Path | What |
-| --- | --- |
-| `bwvr/src/mod/` | The mod (`ddraw.dll`): the hooks, the hands, the God view, the sound |
-| `bwvr/src/vr/` | The OpenXR session and the layers |
-| `bwvr/src/launcher/` | The launcher with the settings |
-| `bwvr/src/common/` | The addresses in the game, the version |
-| `bwvr/test/controller_math/` | The math tests (no game needed) |
-| `bwvr/tools/desk/` | The desktop test runs with a scripted controller |
-| `bwvr/tools/package.ps1` | Makes the installer |
-| `bwvr/installer/` | The installer script, the player readme, the notices |
-| `bwvr/docs/` | The design and the reverse engineering notes of each area |
-| `third_party/` | MinHook, the OpenXR loader, dxwrapper, cgltf |
-
-Start with [`bwvr/docs/roadmap.md`](bwvr/docs/roadmap.md) (the open work),
-then the doc of your area in `bwvr/docs/`:
-
-| Doc | Area |
-| --- | --- |
-| `backend.md` | The render path, the two eye passes, OpenXR, the head, the hotkeys |
-| `god-view.md`, `tabletop.md` | The God view (the main mode) and the tabletop mode |
-| `controllers.md`, `controls-audit.md` | The controllers, and each control of the game in VR |
-| `hand.md` | The Hand of the game, and the Hand at the real hand |
-| `grab.md`, `throw.md` | Taking a thing, the far grab, forests, and the throw |
-| `creature.md`, `miracles.md`, `village.md` | The Creature, miracles, and the village, scrolls and the Temple door |
-| `hand-model.md` | How the hands look and feel: the model, the glow, haptics |
-| `ui-layer.md`, `controller-hints.md` | The interface in the room, and the hint cards |
-| `audio.md` | The sound |
-| `cutscene-window.md`, `intro.md` | Stories in a window, and the start of the game |
-| `launcher.md`, `installer.md` | The launcher and the installer |
-| `address-map.md`, `software-tnl.md`, `stereo-artifacts.md`, `input-devices.md` | Facts about the game's code and its renderer |
-| `research-hla.md` | Notes on Half-Life: Alyx as a guide for the hands |
-
-Each doc holds the current state and the plans. The history is in git.
-
----
-
-## How this project is made
-
-Most of the code and the documents in this repo are written with AI coding
-tools (Claude Code), under the direction of Buck, who plays each build in a
-headset and decides what is right. We say this openly. [`CLAUDE.md`](CLAUDE.md)
-holds the rules that the tools follow here. They are good rules for a person
-too.
+[![Support the mod on Ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/buckzor)
 
 ## License and the game
 
@@ -228,5 +158,7 @@ The code and the documents of the mod have the MIT license, see
 [`LICENSE`](LICENSE). The code of other projects in `third_party/` keeps its
 own license, see [`third_party/README.md`](third_party/README.md).
 
+This is an unofficial mod, made by a fan. Electronic Arts and Lionhead
+Studios did not make it, do not endorse it, and have no connection with it.
 Black & White belongs to its owners. This repo holds no file of the game and
 never will. You need your own copy.
