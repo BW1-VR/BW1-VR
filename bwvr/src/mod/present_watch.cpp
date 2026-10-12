@@ -154,10 +154,101 @@ bool IsPrimary(IDirectDrawSurface7* surface) {
   return false;
 }
 
+// THE CHECK OF THE RECTS OF A COPY (blt_rect_check). DirectDraw refuses a
+// Blt with DDERR_INVALIDRECT when a rect goes outside its surface. dxwrapper
+// does not test this: in m_IDirectDrawSurfaceX::CopySurface it gives the rect
+// of a copy between two textures to D3DXLoadSurfaceFromSurface, which writes
+// past the end of the memory of the destination. The game makes such a copy
+// when it makes the two pictures of a save (0x007923D0, the second Blt at
+// 0x0079260C): it copies the rows 128 to 192 into a texture of 128 rows when
+// a picture file is not there yet. So the first save of a new game can stop
+// the game. The mod refuses each such copy, as DirectDraw does. The game does
+// not read the result of that Blt.
+//
+// The rect of the destination is not tested on the primary surface: there it
+// is in the pixels of the screen, and the clipper of the window cuts it.
+bool g_rect_check = true;
+uint64_t g_rect_refused = 0;
+int g_rect_logged = 0;
+const int kRectLogMax = 8;
+
+struct SurfaceSize {
+  bool known;
+  DWORD width;
+  DWORD height;
+  DWORD bits;
+};
+
+SurfaceSize SizeOf(IDirectDrawSurface7* surface) {
+  SurfaceSize size = {false, 0, 0, 0};
+  if (surface == nullptr) return size;
+  DDSURFACEDESC2 desc;
+  ZeroMemory(&desc, sizeof(desc));
+  desc.dwSize = sizeof(desc);
+  if (FAILED(surface->GetSurfaceDesc(&desc)) ||
+      (desc.dwFlags & (DDSD_WIDTH | DDSD_HEIGHT)) !=
+          (DDSD_WIDTH | DDSD_HEIGHT)) {
+    return size;
+  }
+  size.known = true;
+  size.width = desc.dwWidth;
+  size.height = desc.dwHeight;
+  size.bits = (desc.dwFlags & DDSD_PIXELFORMAT) != 0
+                  ? desc.ddpfPixelFormat.dwRGBBitCount
+                  : 0;
+  return size;
+}
+
+// True when the rect is inside the surface, or when the mod cannot tell.
+bool RectFits(const RECT* rect, const SurfaceSize& size) {
+  if (rect == nullptr || !size.known) return true;
+  const LONG left = rect->left < rect->right ? rect->left : rect->right;
+  const LONG right = rect->left < rect->right ? rect->right : rect->left;
+  const LONG top = rect->top < rect->bottom ? rect->top : rect->bottom;
+  const LONG bottom = rect->top < rect->bottom ? rect->bottom : rect->top;
+  return left >= 0 && top >= 0 && right <= static_cast<LONG>(size.width) &&
+         bottom <= static_cast<LONG>(size.height);
+}
+
+// True when the copy must not go to dxwrapper.
+bool RectOutside(IDirectDrawSurface7* self, const RECT* destination,
+                 IDirectDrawSurface7* source, const RECT* source_rect,
+                 void* caller) {
+  if (destination == nullptr && source_rect == nullptr) return false;
+  const bool check_destination = destination != nullptr && !IsPrimary(self);
+  const SurfaceSize to =
+      check_destination ? SizeOf(self) : SurfaceSize{false, 0, 0, 0};
+  const SurfaceSize from = source_rect != nullptr
+                               ? SizeOf(source)
+                               : SurfaceSize{false, 0, 0, 0};
+  if (RectFits(destination, to) && RectFits(source_rect, from)) return false;
+
+  ++g_rect_refused;
+  if (g_rect_logged < kRectLogMax) {
+    ++g_rect_logged;
+    const RECT none = {0, 0, 0, 0};
+    const RECT& d = destination != nullptr ? *destination : none;
+    const RECT& s = source_rect != nullptr ? *source_rect : none;
+    ModLog("present      : the mod refused a copy between surfaces with "
+           "DDERR_INVALIDRECT, as DirectDraw does, because a rect goes "
+           "outside its surface. Destination %lu x %lu, %lu bit, rect %ld "
+           "%ld %ld %ld. Source %lu x %lu, %lu bit, rect %ld %ld %ld %ld. "
+           "The call is from 0x%08X",
+           to.width, to.height, to.bits, d.left, d.top, d.right, d.bottom,
+           from.width, from.height, from.bits, s.left, s.top, s.right,
+           s.bottom, static_cast<unsigned>(reinterpret_cast<uintptr_t>(caller)));
+  }
+  return true;
+}
+
 HRESULT WINAPI h_Blt(IDirectDrawSurface7* self, LPRECT destination,
                      IDirectDrawSurface7* source, LPRECT source_rect,
                      DWORD flags, LPDDBLTFX fx) {
   DrawMergeFlush();
+  if (g_rect_check && RectOutside(self, destination, source, source_rect,
+                                  _ReturnAddress())) {
+    return DDERR_INVALIDRECT;
+  }
   // self is the destination surface. A copy onto the primary surface is the
   // frame going to the monitor, and while the headset is on it is wasted.
   if (g_skip_present && IsPrimary(self)) {
@@ -255,7 +346,8 @@ void PresentWatchInstall() {
   QueryPerformanceFrequency(&g_frequency);
   g_installed = hooked > 0;
   ModLog("present      : %d of 2 present paths hooked", hooked);
-  // The test key test_frame_rate, from bwvr.ini beside the game.
+  // The keys blt_rect_check and test_frame_rate, from bwvr.ini beside the
+  // game.
   {
     char path[MAX_PATH];
     const DWORD length = GetModuleFileNameA(nullptr, path, MAX_PATH);
@@ -266,7 +358,14 @@ void PresentWatchInstall() {
       strcat_s(path, "bwvr.ini");
       g_test_rate = static_cast<int>(
           GetPrivateProfileIntA("bwvr", "test_frame_rate", 0, path));
+      g_rect_check =
+          GetPrivateProfileIntA("bwvr", "blt_rect_check", 1, path) != 0;
     }
+    ModLog("present      : blt_rect_check=%d. %s", g_rect_check ? 1 : 0,
+           g_rect_check
+               ? "A copy between surfaces with a rect outside its surface "
+                 "is refused, as DirectDraw does"
+               : "Each copy between surfaces goes to dxwrapper");
     if (g_test_rate < 20 || g_test_rate > 240) g_test_rate = 0;
     if (g_test_rate > 0) {
       ModLog("present      : test_frame_rate=%d, a test key of the desktop "
@@ -308,6 +407,11 @@ void PresentWatchReport(uint64_t frames) {
   if (g_skipped > 0) {
     ModLog("present      : %llu desktop copies skipped", g_skipped);
     g_skipped = 0;
+  }
+  if (g_rect_refused > 0) {
+    ModLog("present      : %llu copies with a rect outside the surface "
+           "refused", g_rect_refused);
+    g_rect_refused = 0;
   }
   if (g_test_rate > 0) {
     ModLog("present      : test_frame_rate=%d: %llu frames waited for their "
