@@ -221,6 +221,7 @@ void ProxyForceSystemDDraw();
 void GpuBridgeInstall();
 void GpuBridgeProbeInterop();
 bool GpuBridgeHasDevice();
+bool GpuBridgeFullScreen();
 bool GpuBridgeReady();
 void* GpuBridgeCaptureEye(int eye);
 bool GpuBridgeStart(void* d3d11_device, uint32_t width, uint32_t height,
@@ -520,6 +521,8 @@ bool g_process_ends = false;
 bwvr::XrScreen* g_screen = nullptr;
 bool g_hooks_installed = false;
 bool g_vr_gave_up = false;
+// 1 starts the headset session in a full screen game too.
+bool g_vr_full_screen = false;
 int g_vr_tries = 0;
 DWORD g_next_vr_try = 0;
 
@@ -1265,6 +1268,8 @@ void ReadSettings() {
   // the start of the mod.
   g_registry_test_guard =
       GetPrivateProfileIntA("bwvr", "registry_test_guard", 0, path) != 0;
+  g_vr_full_screen =
+      GetPrivateProfileIntA("bwvr", "vr_full_screen", 0, path) != 0;
   ModLog("settings     : vr=%d, stereo=%d, screen %.2f m wide at %.2f m",
          g_vr_enabled ? 1 : 0, g_stereo ? 1 : 0, g_width, g_distance);
   ModLog("settings     : eye separation %.3f world units, interface shift "
@@ -1482,6 +1487,17 @@ void StartVrOnce() {
   // session keeps a measuring run to one command on the desktop.
   if (g_stereo_headless) {
     g_vr_gave_up = true;
+    return;
+  }
+
+  // A full screen game and the VR compositor both want the display, and the
+  // launcher always sets a window. So in a full screen game the mod does not
+  // start a session, and the game stays on the monitor. vr_full_screen=1
+  // starts one.
+  if (!g_vr_full_screen && GpuBridgeFullScreen()) {
+    g_vr_gave_up = true;
+    ModLog("vr           : vr_full_screen=0. The game is full screen, so the "
+           "mod does not use the headset. Start the game from the launcher");
     return;
   }
 
@@ -1817,6 +1833,12 @@ void EarlyHooks() {
   // the bridge need it.
   Depth24SetWanted(GetPrivateProfileIntA("bwvr", "depth24", 1, path) != 0);
   if (!wanted) return;
+  // With vr=0 the mod does nothing, so the bridge stays out of the backend. A
+  // headless run has vr=0 too, and it needs the bridge.
+  if (GetPrivateProfileIntA("bwvr", "vr", 1, path) == 0 &&
+      GetPrivateProfileIntA("bwvr", "stereo_headless", 0, path) == 0) {
+    return;
+  }
 
   const MH_STATUS status = MH_Initialize();
   if (status != MH_OK && status != MH_ERROR_ALREADY_INITIALIZED) {

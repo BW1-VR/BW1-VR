@@ -2757,7 +2757,8 @@ keys that the launcher sets.
 | `draw_merge_test`, `draw_merge_test_frame` | 0, 0 | Test keys of the desktop runs. See the same section |
 | `depth24` | 1 | A 24 bit Z buffer |
 | `near_plane_cm`, `near_plane_cm_16` | 5, 10 | The near plane in the room. 0 keeps the game's |
-| `vr`, `stereo` | 1, 1 | VR on, two eye passes |
+| `vr`, `stereo` | 1, 1 | VR on, two eye passes. With `vr=0` the mod installs no hook but the answer to the check for an internet connection, and the bridge stays out |
+| `vr_full_screen` | 0 | 0: in a full screen game the mod does not start a headset session, and the game stays on the monitor. 1: it starts one |
 | `play_mode` | 4 | See "Keys for v1.0" |
 | `screen_distance_cm`, `screen_width_cm` | 200, 260 | The quad in the window modes |
 | `eye_separation_milli` | 0 | 0 asks the headset |

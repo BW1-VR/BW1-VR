@@ -744,20 +744,66 @@ void SaveAll() {
   WriteRegistryInt("ScreenD", 32);
 }
 
-void Play(bool new_game) {
-  SaveAll();
+// Starts runblack.exe. With `process`, the caller gets the handle of the game
+// and closes it.
+bool StartGame(const char* parameters, HANDLE* process) {
   char exe[MAX_PATH];
   _snprintf_s(exe, sizeof(exe), _TRUNCATE, "%s\\runblack.exe", g_game_dir);
   SHELLEXECUTEINFOA info = {sizeof(info)};
   info.lpFile = exe;
   info.lpDirectory = g_game_dir;
-  info.lpParameters = new_game ? "-NEWGAME" : nullptr;
+  info.lpParameters = parameters;
   info.nShow = SW_SHOWNORMAL;
   info.fMask = SEE_MASK_NOCLOSEPROCESS;
-  if (ShellExecuteExA(&info)) {
-    if (info.hProcess != nullptr) CloseHandle(info.hProcess);
+  if (!ShellExecuteExA(&info)) return false;
+  if (process != nullptr) {
+    *process = info.hProcess;
+  } else if (info.hProcess != nullptr) {
+    CloseHandle(info.hProcess);
+  }
+  return true;
+}
+
+void Play(bool new_game) {
+  SaveAll();
+  if (StartGame(new_game ? "-NEWGAME" : nullptr, nullptr)) {
     PostMessageA(g_window, WM_CLOSE, 0, 0);
   } else {
+    SayStatus("Could not start runblack.exe.");
+  }
+}
+
+// THE GAME WITHOUT VR.
+//
+// "Play, no VR" starts the game with vr=0, so the mod does nothing, full
+// screen at the size of the main monitor. These values are for one game only:
+// a start of runblack.exe without the launcher must find the values for the
+// headset. So the launcher stays, with no window, until the game ends, and
+// then it writes the values for the headset again (WinMain). It writes them
+// after the end, because the game can write its display values when it ends.
+HANDLE g_plain_game = nullptr;
+int g_headset_screen_w = 0;
+int g_headset_screen_h = 0;
+
+void WriteHeadsetStart() {
+  WriteIni("vr", 1);
+  WriteRegistryInt("ScreenW", g_headset_screen_w);
+  WriteRegistryInt("ScreenH", g_headset_screen_h);
+  WriteRegistryInt("FullScreen", 0);
+}
+
+void PlayNoVr() {
+  SaveAll();
+  g_headset_screen_w = ReadRegistryInt("ScreenW", 0);
+  g_headset_screen_h = ReadRegistryInt("ScreenH", 0);
+  WriteIni("vr", 0);
+  WriteRegistryInt("ScreenW", GetSystemMetrics(SM_CXSCREEN));
+  WriteRegistryInt("ScreenH", GetSystemMetrics(SM_CYSCREEN));
+  WriteRegistryInt("FullScreen", 1);
+  if (StartGame(nullptr, &g_plain_game)) {
+    PostMessageA(g_window, WM_CLOSE, 0, 0);
+  } else {
+    WriteHeadsetStart();
     SayStatus("Could not start runblack.exe.");
   }
 }
@@ -952,13 +998,13 @@ void BuildControls() {
   }
 
   // The buttons and the status line, along the bottom. The window is as
-  // wide as its columns, and at least as wide as the four buttons in a row.
+  // wide as its columns, and at least as wide as the five buttons in a row.
   const int button_w = Scaled(110);
   const int button_h = Scaled(28);
   const int button_gap = Scaled(8);
   const int columns = column + 1;
   const int columns_w = pad + columns * (col_w + pad);
-  const int buttons_w = pad * 2 + button_w * 4 + button_gap * 3;
+  const int buttons_w = pad * 2 + button_w * 5 + button_gap * 4;
   const int width = columns_w > buttons_w ? columns_w : buttons_w;
   const int height = pad + tallest * row + Scaled(76);
   const int button_y = height - Scaled(66);
@@ -970,6 +1016,14 @@ void BuildControls() {
                                WS_CHILD | WS_VISIBLE, width - pad - button_w,
                                button_y, button_w, button_h, g_window,
                                reinterpret_cast<HMENU>(2), nullptr, nullptr);
+  HWND plain = CreateWindowExA(
+      0, "BUTTON", "Play, no VR", WS_CHILD | WS_VISIBLE,
+      width - pad - button_w * 3 - button_gap * 2, button_y, button_w,
+      button_h, g_window, reinterpret_cast<HMENU>(5), nullptr, nullptr);
+  SendMessageA(plain, WM_SETFONT, reinterpret_cast<WPARAM>(g_font), TRUE);
+  AddTip(plain, "Start the game on the monitor, without the headset. The game "
+                "is full screen, at the size of the desktop, and the mod does "
+                "nothing in it.");
   HWND support = CreateWindowExA(
       0, "BUTTON", "Support", WS_CHILD | WS_VISIBLE, pad + button_w + Scaled(8),
       button_y, button_w, button_h, g_window,
@@ -1028,6 +1082,9 @@ LRESULT CALLBACK Proc(HWND window, UINT message, WPARAM w, LPARAM l) {
           // The support page. It opens in the player's own browser.
           ShellExecuteA(nullptr, "open", BWVR_SUPPORT_URL, nullptr, nullptr,
                         SW_SHOWNORMAL);
+          return 0;
+        case 5:
+          PlayNoVr();
           return 0;
         default:
           break;
@@ -1128,6 +1185,13 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE, LPSTR, int) {
       TranslateMessage(&message);
       DispatchMessageA(&message);
     }
+  }
+  // "Play, no VR" started the game. When that game ends, the values for the
+  // headset come back.
+  if (g_plain_game != nullptr) {
+    WaitForSingleObject(g_plain_game, INFINITE);
+    CloseHandle(g_plain_game);
+    WriteHeadsetStart();
   }
   return 0;
 }

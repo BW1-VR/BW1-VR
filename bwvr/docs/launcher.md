@@ -14,8 +14,9 @@ as `ScreenW` and `ScreenH`. If a person edits one and forgets the other, the
 result looks like a bug in the mod.
 
 The window has these buttons: "Play in VR", "Play, new game" (starts the game
-with `-NEWGAME`, on the first island, with no menu), "Save" (writes the
-settings and does not start the game) and "Support".
+with `-NEWGAME`, on the first island, with no menu), "Play, no VR" (see "The
+game without VR"), "Save" (writes the settings and does not start the game)
+and "Support".
 
 ## The table
 
@@ -32,7 +33,7 @@ There is no layout to keep in step and no separate load and save code.
 The window sizes itself around the table and starts a new column when one gets
 tall. A heading stays with at least three of its settings. A column has 20
 rows at most. The table of now has 20 rows, so the window has one column, and
-it is as wide as its four buttons. One more row starts a second column.
+it is as wide as its five buttons. One more row starts a second column.
 
 There are six kinds of row:
 
@@ -65,6 +66,25 @@ Every save also writes these:
 
 If Windows refuses the write (an unelevated write to `bwvr.ini` in Program
 Files fails), the status line says so and not "Saved.".
+
+## The game without VR
+
+"Play, no VR" starts the game on the monitor, for a look at what the plain
+game does. It saves the settings as each other button does. Then it writes
+`vr=0`, so the mod does nothing in that game (it only answers the check for an
+internet connection, and the backend stays dxwrapper). It writes `FullScreen`
+1, and the size of the main monitor as `ScreenW` and `ScreenH`.
+
+These values are for one game. The launcher closes its window and stays until
+the game ends. Then it writes `vr=1`, `FullScreen` 0 and the size for the
+headset again, so a start of `runblack.exe` without the launcher and a desktop
+test find the values for the headset. It writes them after the end of the
+game, because the game can write its display values when it ends. If the
+launcher stops before the game ends, the values stay until the next "Play in
+VR" or "Save".
+
+With `vr=1`, the mod does not start a headset session in a full screen game.
+The log says so. `vr_full_screen=1` starts one.
 
 ## Retired keys
 

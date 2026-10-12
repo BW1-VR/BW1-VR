@@ -243,6 +243,22 @@ is built, and no test has proven it.
     color over the picture at the end of a frame", has the two full screen
     draws of the end of a frame. The listing shows both in each eye pass on
     the land.
+- **B19. A far grab of wood or grain drops its load.** With a far grab of
+  a pile of wood or of a field of grain, the load falls out of the Hand some
+  seconds after the grip opens. A grab with the Hand at the pile keeps the
+  load. The cause is not known.
+- **B20. No sound while the Hand takes wood or grain.** In a headset session
+  the take had no sound. Not known: whether the plain game plays a sound
+  there. "Play, no VR" in the launcher starts the plain game for a
+  comparison.
+- **B21. A failed start of the headset session can stop the game.** With no
+  headset, each try to start a session ends in `XrScreen::Stop`. One time,
+  in a full screen game, the frame thread did not come back from the first
+  try: the log stopped after the line "Connect the headset in Virtual
+  Desktop, then start the game.". The cause is not known, and no run has
+  repeated it. A full screen game makes no try (`vr_full_screen=0`), and a
+  game with `vr=0` makes none. A game in a window with no headset makes a
+  try each 3 seconds for 2 minutes.
 
 B1b, B2, B4 and B11 are one package: a thing that is held, thrown, or
 that moves while the Hand takes it.
@@ -348,6 +364,18 @@ that moves while the Hand takes it.
   Not run: a small push of the stick, a hill at the new place of the head,
   the edge of the map, a push with the switch for the drag off, an Index
   controller, and a controller with no face buttons.
+- **P14. The stream of wood or grain of a far grab.** While the Hand takes
+  wood or grain, the game shows the load as it goes up from the pile, and
+  in the plain game the Hand is above the pile. With a far grab the Hand is
+  at a different place, and the stream still goes straight up from the
+  pile. Wanted: a stream that goes from the pile along a curve into the
+  Hand. Not known: how the game draws the stream, and whether the mod can
+  give it a path.
+- **P15. A glow on the object itself.** The glow that shows the target of
+  the Hand is a flat picture. The land cuts it, and it is not always at the
+  place of the object. Wanted: a glow on the mesh of the object, as light
+  that its texture gives off. Not known: whether the mod can find the draw
+  calls of one object and draw them brighter.
 - **P5. Hand tracking.** The player plays with the hands and no
   controllers: the Hand follows the real hand and its fingers, one to one,
   as it follows a controller. First find what the headset gives to the

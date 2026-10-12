@@ -58,6 +58,11 @@ The launcher saves your settings, starts the game in the headset,
 and closes. "Play, new game" does the same and starts a new game.
 "Save" keeps your settings and does not start the game.
 
+"Play, no VR" starts the game on the monitor, without the headset.
+The game is full screen, at the size of your desktop, and the mod
+does nothing in it. The launcher closes its window and waits for the
+end of that game. Then it sets the game for the headset again.
+
 The game shows its logos when it starts. To skip them, press a
 trigger or A, B, X or Y on a controller. Esc and a mouse click skip
 them too.
