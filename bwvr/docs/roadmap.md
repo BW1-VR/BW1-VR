@@ -376,6 +376,20 @@ that moves while the Hand takes it.
   place of the object. Wanted: a glow on the mesh of the object, as light
   that its texture gives off. Not known: whether the mod can find the draw
   calls of one object and draw them brighter.
+- **P16. The margin around the view: check it in a headset.** "Margin around
+  the view" in the launcher (`fov_margin_pct`, 0 to 30, default 0) makes the
+  render go past the view of the headset on each side (`backend.md`, "A
+  margin around the view"). No run has shown it: a desktop run has no
+  headset, and only a session with a headset reads the key. Check in a
+  headset:
+  - That the world keeps its place and its scale with a margin, and that the
+    Hand and the pointer are where the controller is.
+  - That a fast turn of the head shows less black at the edge, and which
+    margin is enough at 90 Hz and at 120 Hz.
+  - The cost in frame time (`profile=1`).
+  - The interface in the eye pictures (the Creature panel, a tooltip): with a
+    margin it is larger and farther from the middle. Not known: whether that
+    needs a correction.
 - **P5. Hand tracking.** The player plays with the hands and no
   controllers: the Hand follows the real hand and its fingers, one to one,
   as it follows a controller. First find what the headset gives to the

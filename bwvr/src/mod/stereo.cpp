@@ -333,6 +333,9 @@ float g_rendered_position[2][3] = {{0, 0, 0}, {0, 0, 0}};
 float g_rendered_orientation[2][4] = {{0, 0, 0, 1}, {0, 0, 0, 1}};
 bool g_head_camera_pose_ready = false;
 float g_head_fov_deg = 0.0f;  // 0 means ask the headset
+// How far the render goes past what the headset asks for, in percent of the
+// tangent of the half angle. 0 to 30.
+int g_fov_margin_pct = 0;
 // Take a capture every so many milliseconds. Zero turns it off.
 DWORD g_capture_interval_ms = 0;
 DWORD g_next_capture_tick = 0;
@@ -804,6 +807,17 @@ void PrepareHeadView(bool to_headset) {
     const float wanted_h = tanf(need_h);
     const float wanted_v = tanf(need_v) * aspect;
     float half = atanf(wanted_h > wanted_v ? wanted_h : wanted_v);
+    // THE MARGIN. The runtime shows a frame at the pose that the head has
+    // when the frame comes to the lenses. When the head turns fast or a
+    // frame is late, that pose looks past an edge of the render, and the
+    // runtime has no picture there. With fov_margin_pct the render goes that
+    // many percent past the view on each side: the vertical angle follows
+    // the horizontal one. The launcher makes the render larger by the same
+    // percent, so a degree keeps its pixels.
+    if (g_fov_margin_pct > 0) {
+      half = atanf(tanf(half) *
+                   static_cast<float>(100 + g_fov_margin_pct) / 100.0f);
+    }
     // head_fov_deg overrides what the headset asks for. The wide view and the
     // head pose arrived together, so they have to be separable: the crash on
     // entering the world is at 0x00821AEB, in the culling code, which suspects
@@ -827,6 +841,11 @@ void PrepareHeadView(bool to_headset) {
              "covering the %.1f by %.1f the headset asks for",
              half * 2.0f * 57.29578f, vertical, info->res_x, info->res_y,
              need_h * 2.0f * 57.29578f, need_v * 2.0f * 57.29578f);
+      if (g_fov_margin_pct > 0) {
+        ModLog("head         : fov_margin_pct=%d. The render goes %d percent "
+               "past the view of the headset on each side",
+               g_fov_margin_pct, g_fov_margin_pct);
+      }
       // A render far from square wastes a lot of what it draws, but it still
       // COVERS, which is the part that matters. Say so rather than warn.
       if (aspect < 0.85f || aspect > 1.2f) {
@@ -1758,6 +1777,9 @@ void StereoSetTestKeys(bool on) { g_test_keys = on; }
 
 // The world around you instead of a screen in front of you.
 void StereoSetHeadFov(float degrees) { g_head_fov_deg = degrees; }
+void StereoSetFovMargin(int percent) {
+  g_fov_margin_pct = percent < 0 ? 0 : (percent > 30 ? 30 : percent);
+}
 
 void StereoSetHeadTracking(bool on) {
   g_head_tracking = on;

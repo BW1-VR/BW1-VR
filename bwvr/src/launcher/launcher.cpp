@@ -77,6 +77,13 @@ const Setting kSettings[] = {
      "the time of the scene. The render is a quarter wider, so that the "
      "right eye has a picture at its outer edge. A test build: report what "
      "looks wrong."},
+    // Before the resolution too: the size of the render reads this key.
+    {kValues, "fov_margin_pct", "Margin around the view",
+     "None=0|5%=5|10%=10|15%=15|20%=20|25%=25|30%=30", 0,
+     "If you see black at the edge of the view when you turn your head fast, "
+     "set a margin. The game then draws that much more on each side, and the "
+     "picture has that many more pixels each way, so it stays as sharp. A "
+     "margin costs frame time: 20% is almost half as many pixels again."},
     {kScale, "resolution_pct", "Resolution scale", "50|200|5", 100,
      "How big a picture the game draws for each eye, as a percentage of what "
      "your headset asks for. The headset's own figure is read when the game "
@@ -394,6 +401,13 @@ void ScaleToPixels(int percent, int* width, int* height) {
   int side = HeadsetWidth();
   if (HeadsetHeight() > side) side = HeadsetHeight();
   int pixels = MulDiv(side, percent, 100);
+  // THE MARGIN (stereo.cpp, PrepareHeadView). With fov_margin_pct the game
+  // draws that many percent more on each side of the view. The render gets
+  // the same percent more pixels each way, so a degree keeps its pixels.
+  int margin = ReadIni("fov_margin_pct", 0);
+  if (margin < 0) margin = 0;
+  if (margin > 30) margin = 30;
+  pixels = MulDiv(pixels, 100 + margin, 100);
   // Keep it even, and inside what the game and the driver will take.
   pixels = (pixels / 2) * 2;
   if (pixels < 640) pixels = 640;
@@ -892,7 +906,7 @@ void BuildControls() {
   const int col_w = label_w + field_w + pad;
   // The tallest a column may get. Rows and pixels are interchangeable
   // everywhere below, so this number also caps the window height.
-  const int max_rows = 20;
+  const int max_rows = 22;
 
   int column = 0;
   int used = 0;

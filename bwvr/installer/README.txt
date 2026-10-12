@@ -82,9 +82,9 @@ THE SETTINGS
 
 The launcher shows five groups.
 
-  Picture         How big a picture each eye gets, how sharp the
-                  textures are, and how far out models keep their
-                  full detail.
+  Picture         How big a picture each eye gets, a margin around
+                  the view, how sharp the textures are, and how far
+                  out models keep their full detail.
 
   View            The play mode and the intro in stereo. The default
                   play mode is the God view (see below).
@@ -937,6 +937,11 @@ the two pictures then do not join.
 
 The frame rate drops in busy scenes. If it gets too low, lower the
 resolution scale, or bring the model detail distance in.
+
+The edge of the view can show black when you turn your head fast. Set
+"Margin around the view" in the launcher (key fov_margin_pct). The
+game then draws more on each side. A margin costs frame time, so use
+the smallest one that helps.
 
 
 SUPPORT

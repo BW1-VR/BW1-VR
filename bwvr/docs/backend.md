@@ -1394,6 +1394,28 @@ render of 1.25 to 1 it starts at 57.6 degrees, outside the 54 degrees of the
 right eye of a Quest 3. A thing nearer than about 15 cm of the room at the
 outer edge of the right eye can still show the band.
 
+### A margin around the view
+
+The runtime shows a frame at the pose that the head has when the frame comes
+to the lenses. When the head turns fast or a frame is late, that pose looks
+past an edge of the render, and the runtime shows black there. Without a
+margin the render covers the view of the headset and little more: nothing at
+the top and the bottom, and at the sides only what the wider render of one
+walk adds.
+
+`fov_margin_pct` (0 to 30, default 0, "Margin around the view" in the
+launcher) makes the render go past the view on each side. `PrepareHeadView`
+multiplies the tangent of the half angle by 1 plus the margin. The game takes
+its vertical angle from the render aspect, so the top and the bottom get the
+same margin. The projection layer tells the runtime the angles of the render,
+so the picture keeps its place and its scale. The launcher multiplies the
+width and the height of the render by the same number, so a degree keeps its
+pixels. A margin of 20 percent is 44 percent more pixels, and the scene walk
+has more objects in view.
+
+The interface in the eye pictures is a part of the render. With a margin it
+is that much larger, and that much farther from the middle.
+
 ### What it saves
 
 One desktop run at 2208 by 2208, a new game to the island, a story and the
@@ -2758,6 +2780,7 @@ keys that the launcher sets.
 | `depth24` | 1 | A 24 bit Z buffer |
 | `near_plane_cm`, `near_plane_cm_16` | 5, 10 | The near plane in the room. 0 keeps the game's |
 | `vr`, `stereo` | 1, 1 | VR on, two eye passes. With `vr=0` the mod installs no hook but the answer to the check for an internet connection, and the bridge stays out |
+| `fov_margin_pct` | 0 | 0 to 30. The render goes that many percent past the view of the headset on each side. See "A margin around the view" |
 | `vr_full_screen` | 0 | 0: in a full screen game the mod does not start a headset session, and the game stays on the monitor. 1: it starts one |
 | `play_mode` | 4 | See "Keys for v1.0" |
 | `screen_distance_cm`, `screen_width_cm` | 200, 260 | The quad in the window modes |
