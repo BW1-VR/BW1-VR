@@ -900,31 +900,34 @@ window of the game then shows no new picture. The log has one line for each
 report window: the frames that waited, and the frames that were longer than
 1/N s. `throw_queue.ps1 -Fps 90` in `bwvr/tools/desk` uses the key.
 
-**A copy with a rect outside its surface.** DirectDraw refuses a `Blt` with
-`DDERR_INVALIDRECT` when a rect goes outside its surface. dxwrapper does not
-test this. For a copy between two textures it gives the rect to
-`D3DXLoadSurfaceFromSurface` (in `m_IDirectDrawSurfaceX::CopySurface`), which
-then writes past the end of the memory of the destination. The game makes
-such a copy when it makes the two pictures of a save (`0x007923D0`, the
-second `Blt` at `0x0079260C`): it copies the rows 128 to 192 of a picture,
-128 pixels wide, into a texture that it makes when the picture file is not
-there yet. The first save of a new game is such a save, and the write past
-the end can stop the game with an access violation in `msvcrt.dll`. With `blt_rect_check=1` (the default) the `Blt`
-hook of `present_watch.cpp` refuses each copy with a rect outside its
-surface, as DirectDraw does. The game does not read the result of that
-`Blt`. The rect of the destination is not tested on the primary surface,
-because there it is in the pixels of the screen and the clipper cuts it. The
-log names the first 8 refused copies with the sizes, the rects and the
-caller, and the report counts them:
+**A copy between two textures.** For a `Blt` to or from a texture,
+`m_IDirectDrawSurfaceX::CopySurface` of dxwrapper calls
+`D3DXLoadSurfaceFromSurface`. The game makes such a copy when it makes the
+two pictures of a save (`0x007923D0`, the second `Blt` at `0x0079260C`, the
+rect `0 128 128 192`), between two DXT textures of 256 by 256 pixels in
+system memory. The rect is inside both surfaces. On some PCs D3DX then
+writes to memory that is not there, and the game stops with an access
+violation in `msvcrt.dll`. The first save of a new game is such a save, so
+the game can stop when a new game starts. The cause in dxwrapper is not
+known.
+
+With `blt_texture_copy=1` (the default) the `Blt` hook of
+`present_watch.cpp` makes such a copy itself. It does this for a copy with
+no stretch and no effect, when one of the two surfaces is a texture and none
+is the primary surface. It locks the two surfaces and copies the pixels, also
+between two RGB formats, or the blocks of 4 by 4 pixels of two textures with
+one DXT format (`blt_copy_math.h`, checks in
+`test/controller_math/blt_copy_checks.h`). Each other copy goes to dxwrapper.
+The log has the first two copies of each caller with the sizes, the formats,
+the rects and the caller, and the report counts the copies:
 
 ```
-present      : the mod refused a copy between surfaces with DDERR_INVALIDRECT, ...
-present      : 1 copies with a rect outside the surface refused
+present      : the mod copies with a texture. Destination 256 x 256, ...
+present      : the mod made N copies between two textures, and M failed
 ```
 
-`blt_rect_check=0` gives each copy to dxwrapper. Not known: which part of
-the save picture the game expects in the refused copy, and whether a save
-picture then looks right in the Save Game Room.
+`blt_texture_copy=0` gives each copy to dxwrapper. Not known: whether a save
+picture looks right in the Save Game Room.
 
 Full screen is not an alternative. It would flip instead of copy, but it crashes
 the game (one fault at offset `0xdededede`, a freed pointer, and one inside the
@@ -2627,7 +2630,7 @@ keys that the launcher sets.
 | `bubble_card_test`, `bubble_card_test_frame` | 0, 0 | Test keys of the desktop runs. See the same section |
 | `one_walk`, `one_walk_check` | 0, 0 | See "One walk for both eyes" |
 | `skip_desktop_present` | 1 | See "The copy to the monitor" |
-| `blt_rect_check` | 1 | 1: a copy between surfaces with a rect outside its surface is refused, as DirectDraw does. 0: each copy goes to dxwrapper. See "The copy to the monitor" |
+| `blt_texture_copy` | 1 | 1: the mod makes a copy with a texture and no stretch itself. 0: each copy goes to dxwrapper. See "The copy to the monitor" |
 | `test_frame_rate` | 0 | A test key of the desktop runs: the frame rate of a run with no copy to the monitor. See "The copy to the monitor" |
 | `anisotropy`, `force_mips` | 16, 1 | Texture filter. `force_mips` forces the mip filter |
 | `skip_snapshot` | 1 | |
