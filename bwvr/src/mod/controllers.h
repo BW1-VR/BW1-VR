@@ -150,9 +150,21 @@ struct ControllerHintState {
   int gesture_button;   // 0 off, 1 the second face button, 2 the stick click
   bool world_grab;      // the grip of the other hand grabs the world
   int ring;             // 0 no ring, 1 a button opens it, 2 only the stick
+  int layout;           // button_layout: 1 the menu button and Y, 0 Y and X
   char profile[64];     // of the pointing hand, "fake" for the fake controller
 };
 void ControllersHintState(ControllerHintState* out);
+
+// THE LAYOUT OF THE BUTTONS of the hand that does not point (button_layout,
+// docs/controllers.md, "The layout of the other hand"). 1: the menu button of
+// the left controller opens the game menu, the second face button opens the
+// ring, the first one has no job, and the stick does not drive the ring. 0:
+// the second face button opens the game menu, the first one opens the ring,
+// and the stick can drive the ring.
+int ControllersButtonLayout();
+// The test key of button_layout (Ctrl and the Menu key, with test_keys=1),
+// and the word "layoutkey" of the scripted controller.
+void ControllersButtonLayoutToggle(const char* by);
 
 // The overlay renderer: each hand's grip pose in the world, one to one. See
 // docs/hand-model.md, "Overlay renderer".
@@ -207,7 +219,9 @@ struct RingHand {
   bool left;          // it is the left hand
   bool dialog;        // a dialog box is up
   bool grab_held;     // a grip holds the world
-  bool button;        // its first face button: X, or A when the left hand points
+  bool button;        // the face button of the ring, by button_layout: Y or X,
+                      // and B or A when the left hand points
+  bool face_buttons;  // false for a controller with no face buttons
   bool stick_click;
   bool stick_live;    // false for a Vive pad that is not clicked
   float trigger;      // 0 to 1

@@ -162,6 +162,14 @@ const Setting kSettings[] = {
      "land you look at: the thing in the middle of your view keeps its place "
      "and changes its size. The land under you: you keep your place on the "
      "land. Your Hand: the land at your Hand keeps its place."},
+    {kValues, "move_stick", "Move with the left stick",
+     "Head direction=1|Controller direction=2|Off=0", 1,
+     "Push the stick of your other hand (the left stick) to move over the "
+     "land in the God view. You stop when you let the stick go. Head "
+     "direction: forward is where your head faces. Controller direction: "
+     "forward is where that controller points. Off: the stick does not move "
+     "you. Some people feel ill when a stick moves them: use Off then, and "
+     "move with the grip and with the teleport."},
     // Not offered. These four keys act on the camera of the game. In the
     // God view the mod moves the view in cuts and in its own zoom steps,
     // and a story shows in a window in the room, so the defaults are the

@@ -43,6 +43,9 @@ enum ControllerWord {
   kWordRing,     // the control of the other hand that opens the ring
 };
 const wchar_t* ControllerHintWord(int word);
+// True when the button of the game menu is on the controller of the pointing
+// hand: the menu button of the left controller, for a left handed player.
+bool ControllerHintMenuOnPointing();
 
 // The census: a call of CameraHelp::DrawKeyOrMouse, before the mod changes it.
 void ControllerHintsNoteDraw(uint32_t from, uint32_t blink, uint32_t button,

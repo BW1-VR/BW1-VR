@@ -190,3 +190,33 @@ function Get-BwvrFrameSeconds([string]$Log, [int]$Frame) {
     if ($b.Frame -eq $a.Frame) { return [Math]::Round($a.Seconds, 1) }
     return [Math]::Round($a.Seconds + ($Frame - $a.Frame) * ($b.Seconds - $a.Seconds) / ($b.Frame - $a.Frame), 1)
 }
+
+# One choice of the ring with its button (docs/controllers.md, "The ring"):
+# the words of the scripted controller, and the two places of the left hand
+# for fake_controller_left_points. The button goes down at -Frame. The left
+# hand steps 10 cm toward the slot 6 frames later. The button goes up 30
+# frames after -Frame: that is the choice. The hand steps back 6 frames after
+# it. -Slot counts from the top and clockwise, 0 to 7. The ring is on the
+# plane through the hand that faces the middle of the head, with no roll, so
+# the step is on that plane. -Button is the face button of the layout: y
+# with button_layout=1, and x with 0. -Hand is the place of the left hand in
+# cm from the head: right, up, forward. The places are in whole cm, as the
+# key takes them. Give the places of all choices of a run in the order of
+# their frames.
+function Get-BwvrRingChoice([int]$Slot, [int]$Frame, [string]$Button = 'y', [int[]]$Hand = @(-20, -30, 35)) {
+    # The hand in the space of the runtime: x to the right, y up, z to the back.
+    $h = @([double]$Hand[0], [double]$Hand[1], -[double]$Hand[2])
+    $len = [Math]::Sqrt($h[0] * $h[0] + $h[1] * $h[1] + $h[2] * $h[2])
+    # From the hand to the head, then the right and the up of the plane.
+    $n = @((-$h[0] / $len), (-$h[1] / $len), (-$h[2] / $len))
+    $flat = [Math]::Sqrt($n[0] * $n[0] + $n[2] * $n[2])
+    $right = @(($n[2] / $flat), 0.0, (-$n[0] / $flat))
+    $up = @(($n[1] * $right[2] - $n[2] * $right[1]), ($n[2] * $right[0] - $n[0] * $right[2]), ($n[0] * $right[1] - $n[1] * $right[0]))
+    $turn = $Slot * [Math]::PI / 4
+    $p = @(0..2 | ForEach-Object { $h[$_] + 10.0 * ([Math]::Sin($turn) * $right[$_] + [Math]::Cos($turn) * $up[$_]) })
+    $to = '{0},{1},{2}' -f [int][Math]::Round($p[0]), [int][Math]::Round($p[1]), [int][Math]::Round(-$p[2])
+    return @{
+        Steps  = "$Button@$Frame+30 lpoint@$($Frame + 6)+1 lpoint@$($Frame + 36)+1"
+        Points = "$to $($Hand[0]),$($Hand[1]),$($Hand[2])"
+    }
+}

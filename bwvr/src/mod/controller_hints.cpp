@@ -46,6 +46,7 @@ struct Words {
   const wchar_t* noun;        // "stick" or "pad", for a sentence
   const wchar_t* verb;        // "Push" or "Press"
   bool swap;
+  bool menu_on_pointing;      // the menu button is on the pointing hand
 };
 
 Family FamilyOf(const char* profile) {
@@ -95,23 +96,32 @@ Words BuildWords(const ControllerHintState& state, const char* profile) {
   } else if (state.gesture_button == 2 && w.stick != nullptr) {
     w.gesture = (f == kWand) ? L"Pad click" : L"Stick click";
   }
-  // The game menu (controllers.cpp, LatchEsc): the second face button of the
-  // hand that does not point, or the menu button of the left hand.
+  // The game menu (controllers.cpp, LatchEsc). With button_layout=1: the
+  // menu button of the left controller, or the first face button of the hand
+  // that does not point on an Index controller, which has no menu button.
+  // With 0: the second face button of the hand that does not point.
+  const bool new_layout = state.layout != 0;
   if (f == kTouch) {
-    w.menu = left ? L"B" : L"Y";
+    w.menu = new_layout ? L"Menu" : (left ? L"B" : L"Y");
   } else if (f == kIndex) {
-    w.menu = L"B";
+    w.menu = new_layout ? L"A" : L"B";
   } else {
     w.menu = L"Menu";
   }
+  // The menu button is on the left controller, which a left handed player
+  // points with. A face button of the game menu is on the other hand.
+  w.menu_on_pointing = left && w.menu[0] == L'M';
   // The grab of the world (controllers.cpp, UpdateGrab): the grip of the
   // hand that does not point.
   if (state.world_grab && f != kSimple) w.world = L"Grip";
-  // The ring (radial_menu.cpp): the first face button of the hand that does
-  // not point, or the stick of that hand when only the stick opens it.
+  // The ring (radial_menu.cpp): a face button of the hand that does not
+  // point (the second one with button_layout=1, the first one with 0), or
+  // the stick of that hand when only the stick opens it.
   if (state.ring == 1) {
-    if (f == kTouch) w.ring = left ? L"A" : L"X";
-    if (f == kIndex) w.ring = L"A";
+    if (f == kTouch) {
+      w.ring = new_layout ? (left ? L"B" : L"Y") : (left ? L"A" : L"X");
+    }
+    if (f == kIndex) w.ring = new_layout ? L"B" : L"A";
   }
   if (state.ring != 0 && w.ring == nullptr) w.ring = w.stick;
   return w;
@@ -126,7 +136,8 @@ uint32_t SignatureOf(const Words& w, const ControllerHintState& s) {
   return static_cast<uint32_t>(w.family) | (s.left_handed ? 0x10u : 0u) |
          (s.swap_buttons ? 0x20u : 0u) | (s.world_grab ? 0x100u : 0u) |
          (static_cast<uint32_t>(s.gesture_button & 3) << 6) |
-         (static_cast<uint32_t>(s.ring & 3) << 9);
+         (static_cast<uint32_t>(s.ring & 3) << 9) |
+         (s.layout != 0 ? 0x800u : 0u) | (w.menu_on_pointing ? 0x1000u : 0u);
 }
 
 // --- the census -------------------------------------------------------------
@@ -752,6 +763,8 @@ const wchar_t* ControllerHintWord(int word) {
       return nullptr;
   }
 }
+
+bool ControllerHintMenuOnPointing() { return g_words.menu_on_pointing; }
 
 void ControllerHintsCountConverted() { ++g_converted; }
 void ControllerHintsCountHidden() { ++g_hidden; }

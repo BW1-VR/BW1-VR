@@ -27,16 +27,20 @@
 # game in the registry before and after the run, and it says if a value
 # changed. It writes nothing there.
 #
-# With no -Steps the run stays in the hall. The ring of the Temple goes to a
-# room: the left stick in the direction of the item for 60 frames, and the
-# left trigger 30 frames after its start. From the top and clockwise the
-# items are hall, room_creature, room_challenge (lstick_right), room_save,
-# leave (lstick_down), room_options, room_library (lstick_left). The first
-# visit of a room plays a guide of 650 to 1500 frames. For example, the
-# Challenge Room and then the Library, with a scan of the controls of each:
+# With no -Rooms the run stays in the hall. The ring of the Temple goes to a
+# room. -Rooms is a list of "item@frame": Y of the left hand goes down at the
+# frame, the left hand steps 10 cm toward the item, and Y goes up 30 frames
+# later, which is the choice (Get-BwvrRingChoice in game.ps1). The items are
+# hall, room_creature, room_challenge, room_save, leave, room_options and
+# room_library. A run has 7 choices at most. The first visit of a room plays
+# a guide of 650 to 1500 frames. For example, the Challenge Room and then the
+# Library, with a scan of the controls of each:
 #
-#   temple_run.ps1 -Name tpl2 -Dll <dll> -Set "temple_test_scan=16" -Steps `
-#     "lstick_right@3400+60 ltrigger@3430+6 lstick_left@5800+60 ltrigger@5830+6"
+#   temple_run.ps1 -Name tpl2 -Dll <dll> -Set "temple_test_scan=16" `
+#     -Rooms "room_challenge@3400 room_library@5800"
+#
+# The ring opens with Y, the button of button_layout=1. A run with
+# button_layout=0 in -Set gets X for each choice.
 #
 # A click on a door of the hall needs an aim: the door of the Save Game Room
 # is 36 degrees to the right and 7 degrees up from the rest pose of the hall
@@ -50,6 +54,7 @@ param(
     [Parameter(Mandatory = $true)][string]$Name,
     [Parameter(Mandatory = $true)][string]$Dll,
     [string]$Steps = '',
+    [string]$Rooms = '',
     [string]$Points = '20,-30,35',
     [string]$Set = '',
     [int]$Seconds = 0,
@@ -64,10 +69,30 @@ $sp = Split-Path -Parent $MyInvocation.MyCommand.Path
 . (Join-Path $PSScriptRoot 'game.ps1')
 $start = ''
 if (-not $NewGame -and -not $SaveTest) { $start = Confirm-BwvrTestSave $Save $Dll $Minutes }
-$enter = 'lstick_up@820+60 lstick_left@820+60 ltrigger@850+6'
+# The choices of the ring, in the order of their frames: the item "enter" of
+# the first page (slot 7) with the choice at frame 850, and then the items of
+# -Rooms on the ring of the Temple.
+$button = if ($Set -match '(^|;)\s*button_layout\s*=\s*0') { 'x' } else { 'y' }
+$slots = @{ hall = 0; room_creature = 1; room_challenge = 2; room_save = 3; leave = 4; room_options = 5; room_library = 6 }
+$choices = @()
 # -NoEnter: the run stays on the land (the taps on the door and the posts).
-if ($NoEnter) { $enter = '' }
+if (-not $NoEnter) { $choices += , @(820, 7) }
+foreach ($word in ($Rooms -split '\s+' | Where-Object { $_ })) {
+    if ($word -notmatch '^([a-z_]+)@(\d+)$' -or -not $slots.ContainsKey($Matches[1])) {
+        "no item of the ring of the Temple in '$word'. Use item@frame with one of: $(($slots.Keys | Sort-Object) -join ', ')"
+        exit 7
+    }
+    $choices += , @([int]$Matches[2], $slots[$Matches[1]])
+}
+$enter = ''
+$left = ''
+foreach ($c in ($choices | Sort-Object { $_[0] })) {
+    $ring = Get-BwvrRingChoice -Slot $c[1] -Frame $c[0] -Button $button
+    $enter = "$enter $($ring.Steps)".Trim()
+    $left = "$left $($ring.Points)".Trim()
+}
 $keys = 'grab_hand=1'
+if ($left) { $keys = "$keys;fake_controller_left_points=$left" }
 # In a test save the steps count from the frame at which the controller first
 # places the Hand, as frame 800. The start is 10 s shorter than the start of
 # a new game.
@@ -143,7 +168,7 @@ $log = Join-Path $sp "desk-$Name\bwvr.log"
 if (-not (Test-Path $log)) { "no log at $log"; exit 1 }
 if ($Pattern -eq '') {
     $Pattern = '^temple|^ring         : (the game|the player chose|the ring does not)|^hooks        : (Temple|InnerCamera)|' +
-               '^controllers  : (the fake (hand|trigger|grip|y)|the (left|right) button|the controller lets go|a dialog box)|' +
+               '^controllers  : (the fake (hand|left hand|trigger|grip|y|lmenu)|the menu button|the (left|right) button|the controller lets go|a dialog box)|' +
                '^hand         : state|^god view     : the game draws'
 }
 Get-Content $log | Where-Object { $_ -match $Pattern } | ForEach-Object {

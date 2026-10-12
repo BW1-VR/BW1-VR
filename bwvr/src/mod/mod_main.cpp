@@ -688,6 +688,14 @@ void ReadSettings() {
     // 0 over the recenter place. With test_keys=1, Ctrl and Numpad 1 change
     // it.
     t.god_camera_at = number("god_camera_at", 1);
+    // The walk with the stick of the hand that does not point: 1 moves the
+    // player over the land along the direction of the head, 2 along the
+    // direction in which that controller points, and 0 is off. A full push
+    // is move_stick_speed_cm of the room for each second. With test_keys=1,
+    // Shift and the Menu key change the rule (docs/god-view.md, "The walk
+    // with the stick").
+    t.move_stick = number("move_stick", 1);
+    t.move_stick_speed_cm = number("move_stick_speed_cm", 150);
     t.test_keys = number("test_keys", 0) != 0;
     // Tests with no key press, for a desktop run: the game's zoom to the
     // Temple at an update of the camera mode, and the test key of god_spawn.

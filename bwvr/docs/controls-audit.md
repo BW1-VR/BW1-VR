@@ -75,7 +75,7 @@ means an item that is not on a default page: the player puts its word in
 | `0x03`, `0x04` | Zoom Out, Zoom In | wheel | The camera zooms | Stick up and down [D] |
 | `0x05` | Talk | T | Opens the text line of a multiplayer game | No way. It needs a keyboard for the text |
 | `0x06` | Zoom On | right Ctrl, held | The mouse and the arrow keys zoom | Not needed: the stick and the two grips zoom |
-| `0x07` to `0x0A` | Move Left, Right, Forwards, Backwards | arrow keys | The camera moves | The grip of the other hand, and A [D] |
+| `0x07` to `0x0A` | Move Left, Right, Forwards, Backwards | arrow keys | The camera moves | The stick of the other hand in the God view (`move_stick`), the grip of the other hand, and A [D] |
 | `0x0B`, `0x0C` | Tilt Up, Tilt Down | A, Q | The camera tilts. In the God view the land moves up or down [D] | The grip of the other hand, pull up or down [D] |
 | `0x0D`, `0x0E` | Rotate Left, Rotate Right | Z, scan code `0x16` | The camera turns | Stick left and right [D] |
 | `0x0F` | Tilt/Rotate On | right Shift, held | The mouse and the arrow keys tilt and turn | Not needed |
@@ -114,7 +114,7 @@ wins.
 
 | Key | What the game does | With the controllers |
 | --- | --- | --- |
-| Esc | Opens the game menu. Ends a cut scene that can end. Closes a dialog box. In the Temple: back to the hall, and from the hall out of the Temple | Y of the left controller and the left menu button [D]. In the Temple also the ring item `leave` [R] |
+| Esc | Opens the game menu. Ends a cut scene that can end. Closes a dialog box. In the Temple: back to the hall, and from the hall out of the Temple | The left menu button, and Y of the left controller with `button_layout=0` [D]. In the Temple also the ring item `leave` [R] |
 | F2 | Asks "Are you sure you want to go to the Gods' Playground?", then goes there (single player) | Ring (ini), `playground` [R] |
 | P | Pause on and off (`PauseGame` `0x0054AE20`, single player) | Ring, `pause`, page 2 [R] |
 | Alt 1, Alt 2 | The game speed: half as fast (0.5 at the least), two times as fast (2.0 at the most). `GGame::SetSpeed` `0x005537F0` | Ring (ini), `slower`, `faster` [R] |
@@ -192,7 +192,7 @@ both click (controllers.md, section 11).
 | --- | --- | --- |
 | A click on a door of the hall | The camera of the hall goes to the door, and `Temple::Update` `0x00793EE0` changes the room when the camera is there (controllers.md, 11.1) | Ray on the door and a click: the player is in that room [R] |
 | F4 to F9 | `fn_00794900`: goes to that room from each room (`Temple::GoToRoom` `0x00793D90`) | The ring of the Temple (section 2, section 8) [R] |
-| Esc | In a room: back to the hall. In the hall: `GGame::LeaveInsideCitadel` `0x00553A70`, and the pause goes back to what it was | Y, or the ring item `leave` [R] |
+| Esc | In a room: back to the hall. In the hall: `GGame::LeaveInsideCitadel` `0x00553A70`, and the pause goes back to what it was | The left menu button, or the ring item `leave` [R] |
 | A click on a picture, a slider, a check box or a line of a room | The save games, the options, the key map, the challenges, the statistics of the Creature | Ray and a click. Seen: a pad of the pool, a scroll, a picture and the boxes of the Save Game Room. The Challenge Room, the Library and the controls of the Options Room are not proven [?] |
 | The keys A and Z, held | The camera of the room moves forward and back (`InnerCamera::UpdateMain` `0x00795CE0`) | No way. Not needed. The stick of the pointing hand turns the player in the room by one step |
 | A text line (the name of a save game) | The keyboard | No way. It needs a keyboard |
@@ -224,9 +224,10 @@ The player puts the word in a page with `radial_menu_items`,
 `faster` (Alt 1, Alt 2), `details` (S), `load` (Ctrl L), `playground` (F2),
 `leash_next` and `leash_previous`.
 
-The left controller has these jobs: the grip moves the land, X or the stick
-opens the ring, the trigger chooses on the ring, and Y and the menu button
-send Esc. Its stick has no other job.
+The left controller has these jobs: the grip moves the land, Y opens the
+ring, the stick moves the player in the God view, and the menu button sends
+Esc. X and the trigger have no job. `button_layout=0` gives the layout with X
+and the stick for the ring and Y for Esc (`controllers.md`, 5.1).
 
 ## 8. What the ring gives
 

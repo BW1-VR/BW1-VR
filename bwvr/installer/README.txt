@@ -84,7 +84,8 @@ The launcher shows five groups.
   View            The play mode and the intro in stereo. The default
                   play mode is the God view (see below).
 
-  Moving around   Turns in steps, and a blink when you jump or
+  Moving around   Turns in steps, the zoom with the stick, the walk
+                  with the left stick, and a blink when you jump or
                   turn.
 
   Controllers     The glow at the Hand, and the grab of the world.
@@ -149,9 +150,16 @@ fingers that follow the trigger and the grip only.
                       stops when it is too near or too far below you.
                       Hold both grips, then turn or spread your hands
                       to turn and zoom.
-  Y (left hand)       Open the game menu. The left menu button does
-                      the same.
-  X (left hand)       Hold it for the ring: the Temple, your Creature,
+  Left stick          Push it to move over the land. You go where
+                      your head faces, and you stop when you let the
+                      stick go. In the launcher, "Move with the left
+                      stick" makes forward the direction of the left
+                      controller, or turns the walk off (key
+                      move_stick). A walk with a stick makes some
+                      people ill. If it makes you ill, turn it off,
+                      and move with the left grip and with A.
+  Left menu button    Open the game menu.
+  Y (left hand)       Hold it for the ring: the Temple, your Creature,
                       the leashes and more. See MOTION CONTROLLERS.
   Trigger             Click on things. A drag with the trigger does
                       not move the land. Use the left grip.
@@ -229,6 +237,14 @@ still:
                       or off.
   Ctrl Shift F11      Turn the interface panel on and off, when it is
                       set up.
+  Ctrl Menu key       Change the layout of the left controller: the
+                      menu button for the game menu and Y for the
+                      ring, or Y for the game menu and X and the
+                      stick for the ring (button_layout). The Menu
+                      key is the key beside the right Ctrl key.
+  Shift Menu key      Change the walk with the left stick: where your
+                      head faces, where the controller points, or off
+                      (move_stick).
   Number pad keys     Switch between two ways of one behavior, while
                       you play. See TEST KEYS OF THE NUMBER PAD.
 
@@ -285,23 +301,36 @@ size of your hand.
                       and zoom. The world stops when you let go. In
                       the God view, pull up or down to move the land
                       up or down.
-  Y (left hand)       Open the game menu. The left menu button does
-                      the same. With the left hand as the pointing
-                      hand, B does it.
-  X (left hand)       Hold it, and a ring of items opens at your left
+  Left stick          In the God view, push it to move over the land.
+                      Forward is where your head faces. You stop when
+                      you let the stick go.
+  Left menu button    Open the game menu. With the left hand as the
+                      pointing hand, the same button does it.
+  Y (left hand)       Hold it, and a ring of items opens at your left
                       hand. Move your hand toward an item, then let go
-                      of X. Let go with your hand in the middle to
+                      of Y. Let go with your hand in the middle to
                       close the ring with no choice. With the left
-                      hand as the pointing hand, A opens the ring at
+                      hand as the pointing hand, B opens the ring at
                       your right hand.
-  Left stick          Push it toward an item of the same ring, then
-                      pull the left trigger to choose. Let the stick
-                      rest in the middle to close the ring.
+  X (left hand)       No job.
 
 To change the grab of the world, set "Grab the world" in the
 launcher (key grab_hand). 1 uses the grip of your other hand. 2 also
 uses the grip of the pointing hand when the Hand is empty and not
 over an object. 0 turns the grab off.
+
+To change the walk with the left stick, set "Move with the left
+stick" in the launcher (key move_stick). 1 moves you where your head
+faces. 2 moves you where the left controller points. 0 turns the walk
+off. A full push moves you 150 cm of your room each second, at each
+zoom (key move_stick_speed_cm in bwvr.ini). The stick does not move
+you while a grip holds the land, in a menu, in a cut scene and in the
+Temple.
+
+Set button_layout=0 in bwvr.ini for a different layout of the left
+controller: Y opens the game menu, X opens the ring, and the left
+stick points at an item of the ring (the left trigger then chooses).
+The left stick does not move you with that layout.
 
 While a menu or a dialog box is open, the Hand steps aside. The
 pointing controller then points like a mouse: a thin line shows where
@@ -338,11 +367,12 @@ leash_learning, leash_compassion, leash_aggression, leash_next,
 leash_previous, mark_set, mark_go, mark_back, pause, slower, faster,
 help, names, details, save, load, playground, hall, room_creature,
 room_challenge, room_save, room_options, room_library, leave, more
-and none. Set radial_menu_stick=0 for the ring with X only,
-radial_menu_button=0 for the ring with the stick only, or
-radial_menu=0 for no ring. Set radial_menu_reach_cm to change how far
-your hand moves to pick an item (5), and radial_menu_size_pct for the
-size of the ring (100).
+and none. Set radial_menu=0 for no ring. With button_layout=0 the
+ring opens with X and with the left stick: set radial_menu_stick=0
+for the ring with X only, or radial_menu_button=0 for the ring with
+the stick only. Set radial_menu_reach_cm to change how far your hand
+moves to pick an item (5), and radial_menu_size_pct for the size of
+the ring (100).
 
 
 THE TEMPLE
@@ -416,8 +446,8 @@ give this hint the rule of the other trigger hints.
 
 Each controller has its own card. A line for a button of the other
 controller shows beside the wrist of that hand: "Grip Move the land",
-"X Ring menu" and "Y Game menu" show at your left hand. The two cards
-can show at the same time.
+"Y Ring menu" and "Menu Game menu" show at your left hand. The two
+cards can show at the same time.
 
 The cards also show prompts: what a button does now. Examples are "Grip
 Take" over an object, "Grip Pull to fetch" for a far object, "Grip Hold
@@ -808,7 +838,8 @@ controller gives a long pulse for the way that is the default, and a
 short pulse for the other way. These keys are for testers. A player
 does not need them.
 
-  Ctrl 1    The two ways of the ring (X, the stick, or both).
+  Ctrl 1    With button_layout=0: the two ways of the ring (X,
+            the stick, or both).
   Ctrl 5    The four rules of the aim of the trigger
             (creature_command_rule). One short pulse for each
             unit of the value.
@@ -836,8 +867,8 @@ that you look when the cut scene starts. The game moves its camera
 there as it does on a monitor. The screen is a window: the scene is
 behind it, and the subtitles are below the scene. The view opens
 again when the cut scene ends. The screen does not follow your head.
-If you do not see it, press F11, and it comes in front of you. Y on
-the left controller is Esc. The Hand does not follow your hands until
+If you do not see it, press F11, and it comes in front of you. The
+left menu button is Esc. The Hand does not follow your hands until
 the view is open again. To see cut scenes in the full view with held
 shots, set cutscene_window=0 in bwvr.ini.
 

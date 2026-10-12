@@ -50,6 +50,10 @@ sets the flags of each mode.
 - **The grab of the world** moves the land one to one with one hand, across
   and up and down, and two hands turn and scale it. Nothing moves after the
   release.
+- **The walk with the stick.** The stick of the hand that does not point
+  moves the player over the land while it is pushed, along the direction of
+  the head or of the controller (`move_stick`). It stops when the stick comes
+  back (section 5.7).
 - **The Hand** is always the real hand (`hand_real_cm`, 19 cm) at the scale
   now. Zoomed out, it is large against the villagers.
 - **The game camera** stays over the player's place at 400 units, for the
@@ -60,8 +64,8 @@ sets the flags of each mode.
 - **The mouse** drags the land, and the land point under the mouse stays
   under it. The wheel zooms, the tilt keys move the ground, and the turn keys
   and the middle mouse turn.
-- **The menu.** Y on the left controller sends Esc, and a dialog box takes the
-  pointing hand as a pointer (section 10).
+- **The menu.** The menu button of the left controller sends Esc, and a
+  dialog box takes the pointing hand as a pointer (section 10).
 - **The tutorial.** The zoom, the pan and the turn keep to the game's camera
   switches, and they send the game's camera events. So a tutorial step that
   waits for a zoom or a drag can end.
@@ -293,8 +297,8 @@ The left grip moves the ground up and down (section 5). With the grip closed,
 a hand that moves up raises the land by the same distance, and a hand that
 moves down lowers it. A raise is `G.y -= s * d`, where `d` is the rise of the
 hand in meters: every land point goes `d` up in the room, and the scale and
-the heading stay. The left stick does not move the ground: it opens the ring
-menu (`controllers.md`, "10. The ring").
+the heading stay. The left stick does not move the ground: it moves the
+player over the land (section 5.7).
 
 With the mouse, the game's two tilt keys move the ground in steps of 5 cm
 (`god_ground_step_cm`), one step for each press (`GodTiltKeys` in
@@ -380,6 +384,7 @@ The code is in `world_grab.cpp` (the state machine, `TableAnchor`,
 | Pointing trigger | The left button | Held back from the game. It must open before it presses again |
 | Any new left press | Goes to the game | Held back, the same way |
 | Stick | Snap turn and zoom steps | Refused and counted. A refused push must come back before it acts |
+| Stick of the other hand | The walk with the stick (5.7) | Refused, with one log line. The push must come back before it walks |
 | A button | The teleport | Refused |
 | Mouse wheel, turn keys, middle mouse | As usual | Refused and counted in `comfort_camera.cpp` |
 
@@ -601,6 +606,103 @@ keys. After a run, the report has one line, `the held camera moved X units a
 frame on average, Y at most`. A real hand is never quite still, so in the
 headset this line shows the tracking noise times the gain.
 
+### 5.7 The walk with the stick
+
+The stick of the hand that does not point (the left stick, by default) moves
+the player over the land while it is pushed. The move is the pan of a grab of
+the world (5.1): the waist point goes to the land that was one step from it
+in the room, and the height of the ground, the heading and the scale stay.
+
+```
+G' = G + s * Lt * (step.x, 0, step.z)      step = speed * the time of the frame
+```
+
+The plain game has a move of its camera over the land by the keys. Its code
+tests bit 8 of the camera switches (`0x0045C946`) and sends event 0x308
+(`0x0045C981`) [V]. The walk keeps to the same switch and sends the same
+event.
+
+- **Forward** (`move_stick`). With 1 it is the forward direction of the head,
+  flat on the land. It comes from the right axis of the head (`HeadYaw`), so
+  a look down at the land does not change it. With 2 it is the direction in
+  which the controller of the stick points (its aim ray, `controllers.md`,
+  section 8), flat on the land. The mod takes the direction again in each
+  frame, so a turn of the head or of the hand turns the walk. With 0 the
+  stick does not move the player.
+- **A controller that points up or down.** A controller that points less than
+  11.5 degrees from straight up or from straight down has no direction on
+  the land. The walk then keeps the direction of the frame before, and a walk
+  with no such frame does not move.
+- **The stick.** Forward on the stick moves the player forward, back moves
+  back, and left and right move to the side. The push has the dead zone and
+  the curve of the smooth zoom along its length (`Push` in `walk_math.h`): no
+  move below 30 percent, the top speed from 95 percent, and a straight line
+  between the two. A diagonal is not faster than a straight push.
+- **The speed** is a speed of the room: `move_stick_speed_cm` (150) cm of the
+  room for each second at a full push. So the walk feels the same at each
+  scale. At 100 units for each meter that is 150 units a second over the
+  land, and at the life size scale it is 11 units a second. The step of a
+  frame is the speed times the real time of the frame, and a frame counts at
+  most 50 ms.
+- **It stops at once.** The pump of the controllers asks the view again
+  before each frame (`PumpWalk`, `TabletopGodWalk`), and the main camera call
+  moves the view one time (`ApplyGodWalk`). A frame with no request moves
+  nothing, so the walk stops in the frame in which the stick comes back.
+  There is no glide and no ease.
+- **A hill at the new place.** The view does not rise and fall with the land.
+  When the land at the new place of the head is nearer than 10 cm below the
+  head, all of the land goes down to that limit (`ZoomClearHead`), as in a
+  zoom that moves the head over the land. The land does not come up again by
+  itself.
+- **The map and the game camera.** The waist point stays on the map, as for a
+  grab. The version of the view goes up on each frame that moves, so the game
+  camera follows the player (section 7).
+- **The game's switch.** The walk needs the switch for the drag of the land
+  (bit 8), as the grab does. A push with the switch off does nothing, is
+  counted one time and must come back. Each frame that moves sends event
+  0x308 with the input bit 2, as a move of the grab does.
+- **When the stick does not move the player.** While a grip holds the world.
+  In a dialog box and in the game menu. While the God view does not own the
+  view: a story, a cut scene, the Temple. While the camera is not the
+  player's (`WorldGrabCameraReady`). While the controllers cannot act
+  (`controllers.md`, section 9). While the stick drives the ring
+  (`button_layout=0`, or a controller with no face buttons: `controllers.md`,
+  5.1). A push that is refused, and a push that is there when the stick gets
+  this job, must come back to the middle before it moves the player. The log
+  has one line for a refused push.
+- **The other stick** keeps its jobs. The stick of the pointing hand turns
+  and zooms, also during a walk.
+- **Comfort.** A walk with a stick makes some players ill. The grab and the
+  teleport move the player with no such motion. `move_stick=0`, and the
+  choice "Off" of the launcher, turn the walk off.
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `move_stick` | 1 | 0: the stick does not move the player. 1: forward is the direction of the head. 2: forward is the direction in which the controller of the stick points. The launcher row "Move with the left stick" |
+| `move_stick_speed_cm` | 150 | The speed of a full push, in cm of the room for each second, 10 to 500 |
+
+With `test_keys=1`, Shift and the Menu key of the keyboard change `move_stick`
+from 1 to 2, to 0 and back to 1 while the game runs. The Menu key is the key
+beside the right Ctrl key that opens a context menu. The pointing controller
+gives a short pulse for 0, a medium pulse for 1 and a long pulse for 2. A
+walk that runs stops, and a stick that is still pushed starts a new walk with
+the new rule. The word `movekey` of the scripted controller does the same in
+a desktop run.
+
+The log has one line for the start of a walk, one for its end, and one for a
+check 30 frames later:
+
+```
+god view     : the walk with the stick starts at 100.00 units per meter, with the land under your head at 1858.8 2528.7. Forward is the direction of your head (move_stick=1), and it is 30.0 degrees to the left of straight ahead in the room. A full push moves you 150 cm of the room each second (move_stick_speed_cm), frame 171.
+god view     : the walk with the stick stopped (the stick is back). You went 173.48 units over the land, which is 173.48 cm of the room, 30.0 degrees to the left of straight ahead in the room. The land under your head was at 1858.8 2528.7 and is at 2025.6 2576.6. The stick was pushed for 1.157 s, which gives 150.0 cm of the room each second, and the view moved on 60 of 60 frames (move_stick=1, 100.00 to 100.00 units per meter), frame 231.
+god view     : walk check, 30 frames after the stop the waist point is at 2025.56 2576.62, and it was at 2025.56 2576.62 at the stop: 0.000 units apart. In those frames the drawn head moved 0.00 cm of the room.
+controllers  : the stick of the other hand does not move you: a grip holds the world, frame 1081
+```
+
+The line of the end also says how far the land went down for a hill, and on
+how many frames the controller had no direction. The report of a window has
+the count of the walks, their time and the frames that moved the view.
+
 ## 6. The Hand
 
 The Hand's size is the real hand at the scale now:
@@ -647,7 +749,8 @@ write:
   view.
 
 It moves only when the player moves the view: once for each step, on each
-frame of a grab, and in a hold of the smooth zoom (section 2). A hold that
+frame of a grab or of a walk with the stick, and in a hold of the smooth zoom
+(section 2). A hold that
 moves the head over the land writes it on each frame, and a hold that does
 not writes it at its start and at its end. It does not follow the head when
 the view is still, because `GCamera::Update` sets
@@ -690,7 +793,8 @@ God view keeps to the same bits:
 
 - A zoom step and the smooth zoom need bit 4 (`TabletopGodStep`,
   `TabletopGodZoomHold`).
-- The mouse pan and the grab need bit 8 (`MousePan`, `TabletopMove`).
+- The mouse pan, the grab and the walk with the stick need bit 8 (`MousePan`,
+  `TabletopMove`, `TabletopGodWalk`).
 - A two hand grab turns only with bit 2 and zooms only with bit 4
   (`TabletopGrabAllows`, called by `world_grab.cpp`).
 - A snap turn needs bit 2 (`MayTurn` in `comfort_camera.cpp`).
@@ -712,13 +816,13 @@ game's own names of the events at `0x009CDD70`. That table has no names for
 | 0x304 | The camera zoomed | `0x0045C3A8`, on each update in which the camera zooms | A zoom step, each frame of the smooth zoom that changes the scale, and a zoom of a two hand grab |
 | 0x305, 0x306 | A double click jump to the land, or to an object | `0x0045DE85`, `0x0045DE1E` | The game's own jump, and each move of the teleport |
 | 0x307 | The zoom to the Temple | `0x00457EDE` | Never |
-| 0x308 | A drag of the land, or a move by the keys | `0x0045D682`, `0x0045C981` | The game's drag code, for the mouse pan, and a pan of the grab |
+| 0x308 | A drag of the land, or a move by the keys | `0x0045D682`, `0x0045C981` | The game's drag code, for the mouse pan, a pan of the grab, and each frame of the walk with the stick that moves |
 
 The third argument names what made the move. The game's names for its bits
 at `0x009CDDF0` are "keyboard" (1), "mouse button" (2), "both mouse
 buttons" (4), "wheel spin" (8) and "wheel down" (0x10, the middle button).
 The God view sends 8 with a zoom step and with the smooth zoom, and 2 with a
-move of the grab.
+move of the grab and of the walk with the stick.
 
 A tutorial step that waits for a tilt (0x303) cannot end in the God view,
 because the view does not tilt.
@@ -826,9 +930,11 @@ about 9 degrees (`tabletop.md`, "A spirit at a place of the world"). With
 | --- | --- |
 | Right stick forward or back | Zoom in or out one step, about the land that the head looks at (`god_zoom_about`). With `god_zoom_smooth=1`, zoom while the stick is held |
 | Right stick left or right | Turn one step about the head |
-| Left stick | Opens the ring menu and points at an item (`radial_menu_stick=1`) |
+| Left stick | Move over the land while it is pushed (`move_stick`, section 5.7) |
 | Left grip | Grab the land: pull to move it across, and up or down |
-| Y (left controller), or the left menu button | Esc: open the game menu (see below) |
+| Y (left controller) | Hold it for the ring menu, and move the hand to an item (`controllers.md`, section 10) |
+| X (left controller) | No job |
+| The left menu button | Esc: open the game menu (see below) |
 | Both grips | Turn and scale the land |
 | Right grip, trigger, B | Pick up, click, draw a gesture. A trigger drag on the land moves nothing |
 | A | Hold to aim an arc and a ring. Let go to go there. B while A is down cancels (section 14) |
@@ -841,19 +947,19 @@ about 9 degrees (`tabletop.md`, "A spirit at a place of the world"). With
 | F11 | Recenter: the waist point goes under your head again |
 
 For a left handed player (`controller_left_handed=1`) the hands change sides:
-the pointing hand's stick zooms and turns, and the other hand's grip moves the
-land, across and up and down. The right hand then has the Esc button, B, and
-the draw button of the left hand is Y.
+the pointing hand's stick zooms and turns, the other hand's grip moves the
+land, across and up and down, and the other hand's stick moves the player.
+The right hand then has the ring on B, and the draw button of the left hand
+is Y. The table has the layout of `button_layout=1`. `controllers.md`, 5.1,
+has the layout of `button_layout=0`, with Y for Esc and X for the ring.
 
-**The menu button.** Y on the left controller sends the game's Esc key, and so
-does the left menu button when the runtime gives it to the game. The
-pump sends WM_KEYDOWN and WM_KEYUP to the game window (scan code 1), one press
-for one Esc. The game opens its menu. The menu does not close with Esc again:
-`MainMenu::CanESCOut` returns false, so the player closes it with "Continue
-Game". For a left handed player the pointing hand is the left one and its Y
-draws gestures, so the second face button of the right hand (B) is Esc. It is
-the free hand's button, so it never clashes with the draw button or with the B
-of the teleport.
+**The menu button.** The menu button of the left controller sends the game's
+Esc key. The pump sends WM_KEYDOWN and WM_KEYUP to the game window (scan code
+1), one press for one Esc. The game opens its menu. The menu does not close
+with Esc again: `MainMenu::CanESCOut` returns false, so the player closes it
+with "Continue Game". A Quest gives a program no menu button of the right
+controller, so a left handed player has the same button, on the controller of
+the pointing hand (`controllers.md`, 3.6).
 
 **The menu ray.** While a dialog box is up (`SetupBox::GetCurrentActiveBox`
 `0x00407ED0`, which reads `0x00C4CD20`), the direct hand steps aside. The
@@ -865,9 +971,10 @@ box closes, the direct hand comes back on the same frame.
 
 ### Ini keys
 
-All in `[bwvr]`. Only the play mode and the grab row are in the launcher. The
-keys of the teleport are in section 14.6, and the keys of the grab are in
-section 5.6.
+All in `[bwvr]`. The launcher has the play mode, the grab row, the two rows
+of the zoom and the row of the walk with the stick. The keys of the teleport
+are in section 14.6, the keys of the grab are in section 5.6, and the keys of
+the walk with the stick are in section 5.7.
 
 | Key | Default | Meaning |
 | --- | --- | --- |
@@ -894,8 +1001,11 @@ section 5.6.
 | `near_plane_cm_16` | 10 | The same, with a 16 bit Z buffer |
 
 The test words of the fake controller, with `fake_controller=2`: `x` and `y`,
-the face buttons of the left hand, `lgrip` and `lpoint`, the grip and the
-points of the left hand (`fake_controller_left_points`).
+the face buttons of the left hand, `lmenu`, its menu button, `lgrip` and
+`lpoint`, the grip and the points of the left hand
+(`fake_controller_left_points`), `lstick_left`, `lstick_right`, `lstick_up`
+and `lstick_down`, the stick of the left hand, and `movekey`, the test key of
+`move_stick`.
 
 **The test mouse.** A desktop run must not move the real mouse. So
 `fake_mouse_script` moves the pointer and presses the left button inside the
@@ -923,13 +1033,14 @@ The launcher removes these keys from `bwvr.ini` when it saves.
 | --- | --- |
 | `src/mod/table_math.h` | `GodRoom`, `PoseWorld`, `PoseRoom`, `GroundInRoom`, `ScaleAbout`, `GodZoomAbout`, `GodZoom`, `GodRaise`, `GodTurn`, `GameCameraOver`, `RayLevel`, `RayLand`, `GodSpawn`, `CameraLookPoint` and `HeadYaw`, as pure functions |
 | `src/mod/zoom_math.h` | The smooth zoom: the share of the top rate for a push (`StickShare`), the time of a frame (`FrameSeconds`) and the ratio of a frame (`FrameRatio`). The point of a zoom: its place across the room for each value of `god_zoom_about` (`PointAcross`), the level (`ZoomLevel`), the point in the world (`PivotAt`) and the rule for a hill at the new place of the head (`ClearHead`). All are pure functions |
-| `src/mod/tabletop.cpp`, `tabletop.h` | The God view in the table state: the place at a game camera (`PlaceGod`, `ApplyGodSpawn`), the steps (`ApplyGodSteps`), the point of a zoom (`GodZoomPoint`, `ZoomClearHead`), the smooth zoom (`TabletopGodZoomHold`, `ApplyGodZoomHold`), the mouse pan (`MousePan`), the camera switches and events, the hook on `GGame::ClearMap`, the values that follow the scale, the Hand's size, the ears and the game camera it wants |
+| `src/mod/walk_math.h` | The walk with the stick: the push (`Push`), the forward direction of the head and of the controller (`HeadForward`, `AimForward`), the speed in the room (`Speed`), the step of a frame (`Step`) and the view after a step (`Walk`). All are pure functions |
+| `src/mod/tabletop.cpp`, `tabletop.h` | The God view in the table state: the place at a game camera (`PlaceGod`, `ApplyGodSpawn`), the steps (`ApplyGodSteps`), the point of a zoom (`GodZoomPoint`, `ZoomClearHead`), the smooth zoom (`TabletopGodZoomHold`, `ApplyGodZoomHold`), the walk with the stick (`TabletopGodWalk`, `ApplyGodWalk`), the mouse pan (`MousePan`), the camera switches and events, the hook on `GGame::ClearMap`, the values that follow the scale, the Hand's size, the ears and the game camera it wants |
 | `src/mod/near_plane.cpp` | The near plane hook, for the God view, the table and the immersive view |
 | `src/mod/teleport.cpp`, `teleport.h`, `aim_smooth.h` | The teleport: the states, the arc and the hit on the CPU, the refusals, the mouse double click, the aim filter, the log (section 14) |
 | `src/mod/comfort_camera.cpp` | The game camera write (`GodAfter`), the watch of the game's own camera moves (`WatchBefore`, `WatchAfterGame`, `WatchEnd`), the turn, the wheel, the tilt keys (`GodTiltKeys`), the game camera after a land drag (`GodDragBefore`, `GodDragAfter`), the write of the grab on the game camera (`ComfortCameraGrabMove`) and the log of the camera events (`h_Help`) |
 | `src/mod/pointer_map.cpp` | The mouse ray in the room (`PointerMapMouseRay`), the game's land drag hooks and the test mouse |
 | `src/mod/world_grab.cpp` | The grab: the state machine, the table solve with its ground limits (`TableSolve`, `TabletopGodLimitHeight`), the camera switches for a turn and a zoom of the grab, and the solve on the game camera |
-| `src/mod/controllers.cpp` | The sticks, the menu button (`PumpEsc`), the pointer mode while a dialog box is up (`DirectHandNow`, `ControllersMenuRay`), the grip points and the fake left hand |
+| `src/mod/controllers.cpp` | The sticks (`PumpStick`, and `PumpWalk` for the walk), the layout of the buttons (`ButtonLayout`), the menu button (`PumpEsc`), the pointer mode while a dialog box is up (`DirectHandNow`, `ControllersMenuRay`), the grip points and the fake left hand |
 | `src/mod/script_camera.cpp` | `ScriptCameraStoryOwns`, and `ScriptCameraOwnerNow` for the scripts |
 | `src/mod/hand_direct.cpp`, `near_math.h` | The player that a script sees: the hooks on the four script words, the latch of the player and the test of section 16.4 (`ScriptPlayerNow`, `PlayerDistance`, `PlayerIsCamera`, `HeadSees`) |
 | `src/mod/cutscene_window.cpp`, `cutscene_window_math.h` | The cut scene window: the signal, the state of each frame, the screen and the walls (`cutscene-window.md`) |
@@ -998,6 +1109,20 @@ checks the pure functions at 7.5, 100 and 2000 units per meter:
   Hand's reach, and a level ray find nothing.
 - The game camera is 400 units from its ground point, 50 degrees over it,
   along the heading.
+- The walk with the stick (`walk_checks.h`): the values of the key and the
+  order of the test key. A stick in the dead zone gives no push, a full push
+  gives the top speed in each direction, and a diagonal is not faster. The
+  forward direction of a head that is level, turned, turned with a look down,
+  and straight down, and no direction for a head on its side. The forward
+  direction of a controller that points down by 30 and by 75 degrees, and no
+  direction at 80 degrees and straight down. Forward, back and to the side
+  on the stick with the head 30 degrees left and right. One second of a full
+  push is 1.5 m at 90 and at 45 frames a second, a frame of 0.5 s counts as
+  50 ms, and a stick that is back gives no step. A step puts the land that
+  was ahead under the head, keeps the height, the heading and the scale, is
+  the pan of a grab with one hand, and is 400 units at 4000 units for each
+  meter and 0.75 units at life size. A hill at the new place goes 10 cm below
+  the head.
 - The teleport (14.8), the place at a game camera (15.9) and the player that a
   script sees (16.8) have their own checks.
 
@@ -1064,6 +1189,30 @@ render size, because the recipes depend on it.
   starts with the stick at rest. The fake stick has full pushes only, so the
   rate of a small push has only the math test.
 
+- The walk with the stick [R]: `spawn_run.ps1 -Save temple` with
+  `fake_controller_play_frame=800`, `fake_controller_yaw=30`,
+  `fake_controller_sweep_yaw=30`, `fake_controller_sweep_pitch=-30`,
+  `god_zoom_about=0` and the steps `look@830+1300 lstick_up@900+60
+  lstick_right@1020+60 movekey@1130+1 lstick_up@1150+60 movekey@1260+1
+  lstick_up@1280+60 movekey@1360+1 stick_up@1380+10 lstick_up@1440+60
+  movekey@1540+1 lstick_up@1560+60 lstick_down@1680+60 lstick_left@1680+60
+  lgrip@1790+90 lstick_up@1810+40 layoutkey@1920+1 lstick_up@1940+50`. The
+  word `look` turns the head 30 degrees to the left, and the left controller
+  points 30 degrees to the right. Each walk must have its three log lines
+  (section 5.7). With `move_stick=1` the player goes 30.0 degrees to the left
+  of straight ahead, and with 2 goes 30.0 degrees to the right. With 0 the
+  log has no walk, and the next walk starts at the place where the last one
+  stopped. A push to the right with the head as the direction goes 60.0
+  degrees to the right. A push back and to the left with the controller as
+  the direction goes 105.0 degrees to the left. Each walk moves the view on
+  60 of 60 frames at 150.0 cm of the room each second, at 100 and at 66.67
+  units for each meter: the distance in units is the time of the 60 frames
+  times 1.5 m times the scale. 30 frames after each stop the waist point is
+  0.000 units from its place at the stop, and the drawn head moved 0.00 cm.
+  The push during the grab is refused with one log line. After the word
+  `layoutkey` the stick opens the ring and moves nothing. The scripted stick
+  has full pushes only, so the speed of a small push has only the math test.
+
 **The mouse pan and the tutorial events** need a run with the test mouse. Use
 `play_mode=0` (it must log the God view), `-NEWGAME` on Land 1,
 `fake_mouse_step_px=4`, home at 45 and 49 percent, and the second home at 50
@@ -1117,16 +1266,22 @@ and the camera events (0x304 for a wheel click and 0x308 for a land drag).
   and whether the dead zone of 30 percent fits a real stick. No run has shown
   a push with the zoom switch off, a small push, or the key Ctrl, Shift and
   Insert with a real key.
-- **The point of the zoom** (section 2). A headset test must show whether a
-  zoom about the land that the head looks at (`god_zoom_about=1`) still looks
-  like a move forward or back, against 0 and 2 (Ctrl, Shift and Delete). The
-  line of the look is the forward direction of the head, and the eyes of a
-  player can look lower than that. The limit of 3 m, the move of the land
-  under the player with a look at the horizon, and the small rise and fall of
-  the looked-at land on a slope also need the headset. No run has shown the
-  Hand's point with no controller, a hill at the new place of the head, the
-  mouse wheel with the look, or the key with a real key. These have the math
-  test only.
+- **The point of the zoom** (section 2). A headset session compared the
+  three points. The three stay as choices, and the land that the head looks
+  at stays the default. The line of the look is the forward direction of the
+  head, and the eyes of a player can look lower than that. No run has shown
+  the Hand's point with no controller, a hill at the new place of the head,
+  the mouse wheel with the look, or the key with a real key. These have the
+  math test only.
+- **The walk with the stick** (section 5.7). A headset test must show
+  whether the walk is comfortable with the head as the direction and with
+  the controller as the direction (Shift and the Menu key change the rule),
+  whether 150 cm of the room for each second is a good top speed near the
+  land and far out, and whether the dead zone of 30 percent fits a real
+  stick. No run has shown a small push, a hill at the new place of the head,
+  the edge of the map, a push with the switch for the drag off, a controller
+  that points straight up or down, or the test key with a real key. These
+  have the math test or no test.
 - **Needs the headset:** the ground height of 60 cm, the zoom step of 1.5
   times, the start scale of 100, the Hand at the life size scale near the
   eyes with the near plane of 5 cm, the look of the land and the clouds at

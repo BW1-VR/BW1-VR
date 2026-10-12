@@ -2508,7 +2508,9 @@ in front. The mod reads the keys and never takes them from the game.
 | Shift Delete | `test_keys=1` | While the Lionhead logo plays in stereo: the mark beside the logo has the depth of the logo, or the same pixel in each eye (`intro_text_place`, `intro.md`). In play: a speech bubble of the game (a signpost, a villager that speaks, the Creature) is one flat card at the depth of its sign, or it is drawn as the game and the interface depth make it in each eye pass (`bubble_card`, `ui-layer.md`, section 18). A long pulse and a short pulse. Ctrl must be up |
 | Ctrl Pause | `test_keys=1` | The mod skips the wait of 20 ms of the audio DLL at the stop of a sound that the mixer of the mod plays, or each stop has the wait. A long pulse and a short pulse (`audio_stop_wait`, `audio.md`, 7.6). Shift must be up |
 | Ctrl Shift Numpad Slash | `test_keys=1` | The mod waits for the GPU after each eye pass, one time a frame, or one time a frame on a second thread that also gives the frame to the runtime. A long pulse, a pulse of middle length and a short pulse (`frame_send`, "One wait a frame, and a second thread"). The slash key with Shift and no Ctrl is a key of the Temple, and with no Shift it is a key of the throw |
-| Menu key | `test_keys=1` | One walk for both eyes on and off (see "One walk for both eyes"). The key beside the right Ctrl key that opens a context menu |
+| Menu key | `test_keys=1` | One walk for both eyes on and off (see "One walk for both eyes"). The key beside the right Ctrl key that opens a context menu. Ctrl and Shift must be up |
+| Ctrl Menu key | `test_keys=1` | The layout of the buttons of the hand that does not point. The menu button of the left controller opens the game menu, Y opens the ring and the stick does not drive the ring, or Y opens the game menu and X and the stick open the ring. A long pulse and a short pulse on that hand (`button_layout`, `controllers.md`, 5.1). Shift must be up |
+| Shift Menu key | `test_keys=1` | The walk with the stick of the hand that does not point steps from 1 to 2 to 0 and back: forward is the direction of the head, forward is the direction of that controller, or the stick does not move the player. A medium pulse, a long pulse and a short pulse (`move_stick`, `god-view.md`, section 5.7). Ctrl must be up |
 
 The launcher shows `test_keys` as "Test keys", in a group named "Testing". It is off
 by default.
@@ -2583,6 +2585,8 @@ keys that the launcher sets.
 | `window_width`, `window_height` | 0 | A forced window size |
 | `snap_turn`, `blink`, `instant_jumps`, `camera_glide` | 2, 0, 1, 0 | See "Moving around" |
 | `zoom_step` | 2 | See "Zoom in steps" |
+| `move_stick`, `move_stick_speed_cm` | 1, 150 | The walk with the stick of the hand that does not point, in the God view. See `god-view.md`, section 5.7 |
+| `button_layout` | 1 | The layout of the buttons of the hand that does not point. See `controllers.md`, 5.1 |
 | `drag_smoothing_ms` | 35 | See "Smoother drags far out" |
 | `script_camera` and its keys | 2 | See "The story camera" |
 | `hint_mode`, `hint_flat`, `hint_scale_pct` | by head, 1, 20 | See "The hint beside the Hand" |

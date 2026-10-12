@@ -3459,6 +3459,7 @@ void CreatureChecks() {
 #include "zoom_checks.h"
 #include "catch_checks.h"
 #include "one_walk_checks.h"
+#include "walk_checks.h"
 
 int main() {
   const float eye[3] = {120.0f, 45.0f, -300.0f};
@@ -3855,6 +3856,7 @@ int main() {
   frame_time_checks::FrameTimeChecks();
   catch_checks::CatchChecks();
   one_walk_checks::OneWalkChecks();
+  walk_checks::WalkChecks();
 
   printf("\n%d checks, %d failed\n", g_checks, g_failures);
   return g_failures == 0 ? 0 : 1;
