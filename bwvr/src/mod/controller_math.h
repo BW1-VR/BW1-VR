@@ -857,6 +857,27 @@ inline GripStepOut GripStep(GripHold* s, bool grip, const GripFacts& f,
   return out;
 }
 
+// THE GRIP AFTER A STATE OF THE FAR GRAB (far_grab.cpp, docs/grab.md, "A bulk
+// source at a distance"). While the far grab has the grip (a lock, a pull, a
+// fetch), the grip machine sees an open grip. When such a state ends with the
+// grip still closed, the grip stays held back until it opens, so it is no new
+// press for the machine.
+//
+// In the Take state the machine has the grip: it is the game's button for the
+// take. A grip that is held back there looks like an opening to the machine.
+// When that comes in the frame in which the game ends the take (the game
+// deletes a pile that is used up in that game turn), the machine reads an
+// opening of a press whose object came late, and it lets the bundle go with
+// its click. So the end of the Take state does not hold the grip back
+// (take_carry, the key far_take_carry): the machine sees the closed grip, and
+// the grip carries the bundle.
+//
+// True when the far grab must hold the grip back until it opens.
+inline bool FarHoldsBack(bool grip_closed, bool take_state, bool take_carry) {
+  if (!grip_closed) return false;
+  return !(take_state && take_carry);
+}
+
 // THE GRIP OPENS AT ONCE (docs/throw.md, "The release at once"). A grip or a
 // trigger gives a value from 0 to 1. The control closes above
 // kGripCloseAbove and opens below kGripOpenBelow, as in the plain game. A hand that

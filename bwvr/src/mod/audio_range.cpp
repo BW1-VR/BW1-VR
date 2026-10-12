@@ -38,6 +38,14 @@
 //   the distance from the ears divided by k.
 // - A sound with no object is at the game camera, and audio_rolloff.cpp puts
 //   it at the ears. It keeps the game's tests.
+// - THE LOOP OF A BULK TAKE is a sound with no object at a place of its own,
+//   the Hand. While the Hand takes from a pile or a field, the game asks for
+//   it on each game turn (fn_0068F930, the call at 0x0068F9E8): sample 44
+//   (food) or 98 (wood) of the in game bank, a loop with a range of 60 to
+//   180 units. The game camera is 400 units away, so the game refuses each
+//   ask. With audio_take_loop=1 the ears decide that start too
+//   (audio_math::TakeLoopStart). The game stops the loop at the end of the
+//   take (PSysGlobal::StopMultiPickup, 0x0068FA50).
 //
 // With the ears on the game camera, in a story, and with audio_range=0, the
 // game's own tests apply, and this file only writes the log.
@@ -47,7 +55,13 @@
 // it is refused. Each line gives the distance from the head and from the
 // game camera.
 //
-// Ini: audio_range (default 1), audio_loops_keep (default 1). Test only:
+// The loop of a take has the tag "audio take": one line when it starts, with
+// its place and the two distances, one line when the game or the head
+// refuses it, and one line when it stops.
+//
+// Ini: audio_range (default 1), audio_loops_keep (default 1),
+// audio_take_loop (default 1, with the test key of Ctrl, Shift and the
+// equals key). Test only:
 // audio_test_tag and audio_test_tag_bank put a sound tag on the Creature,
 // and audio_test_bank lists the loops of a bank.
 
@@ -66,6 +80,7 @@
 void ModLog(const char* format, ...);
 float TabletopViewScale();
 float HeadPoseScale();
+void ControllersGesturePulse(float amplitude, float seconds);
 
 namespace {
 
@@ -76,6 +91,9 @@ const uintptr_t kPlayEffect = 0x00429E30;
 const uintptr_t kMaxDistance = 0x0042A430;
 // The return address of its call in PlaySoundEffect.
 const uintptr_t kMaxDistanceReturn = 0x00429EFC;
+// The return address of the call of PlaySoundEffect for the loop of a bulk
+// take (fn_0068F930, from PileResource::ProcessInInteract 0x0066E5F9).
+const uintptr_t kTakeLoopReturn = 0x0068F9ED;
 // The 3D object callback that the game gives to the DLL. cdecl.
 const uintptr_t kObjectCallback = 0x00427200;
 // GAudio::SamplePlayAnimEffect(object, distance, effect, a, bank, b, f1,
@@ -175,6 +193,28 @@ bool g_force = false;         // make the game's distance test pass
 bool g_call_active = false;
 bool g_call_reached = false;  // the game called LHSamplePlay
 void* g_call_info = nullptr;
+
+// THE LOOP OF A BULK TAKE.
+enum TakeLoopState {
+  kTakeLoopNone,
+  kTakeLoopPlays,
+  kTakeLoopOutOfRange,   // refused: out of range of the head
+  kTakeLoopGameRefused,  // refused: the game camera is out of range
+  kTakeLoopRule,         // refused by another test of the game
+  kTakeLoopNoSlot        // the DLL gave no sample info
+};
+bool g_take_loop = true;        // audio_take_loop
+bool g_take_loop_keys = false;  // test_keys
+bool g_take_loop_key_down = false;
+int g_take_loop_state = kTakeLoopNone;
+void* g_take_loop_info = nullptr;  // the sample info while the loop plays
+int g_take_loop_sample = 0;
+DWORD g_take_loop_tick = 0;     // of the last ask of the game
+DWORD g_take_loop_start = 0;    // of the start of the loop
+uint64_t g_take_loop_asks = 0;  // asks of the game in this take
+// The game asks on each game turn of a take, 100 ms. An ask that comes later
+// than this after the last one is the first ask of a new take.
+const DWORD kTakeLoopGapMs = 500;
 
 // The sample slots of the DLL, counted at most each 100 ms.
 int g_slots = 0;
@@ -448,14 +488,174 @@ float __fastcall h_MaxDistance(void* self, void* unused, unsigned sample,
   return o_MaxDistance(self, unused, sample, bank);
 }
 
+// THE LOOP OF A BULK TAKE: one ask of the game, on a game turn of a take.
+// The ears decide the start (audio_math::TakeLoopStart). The log has one line
+// for each change: the loop starts, or it is refused.
+int PlayTakeLoop(void* self, void* options, int sample) {
+  const uint8_t* o = static_cast<const uint8_t*>(options);
+  const uintptr_t bank = Ptr(o + kOptBank);
+  Facts f;
+  for (int i = 0; i < 3; ++i) {
+    f.point[i] = Float(o + kOptPosition + 4 * i) + Float(o + kOptOffset + 4 * i);
+  }
+  f.max = o_MaxDistance(self, nullptr, static_cast<unsigned>(sample),
+                        reinterpret_cast<void*>(bank));
+  if (f.max == 0.0f) f.max = Float(o + kOptMax);
+  if (!Finite(f.point[0]) || !Finite(f.point[1]) || !Finite(f.point[2]) ||
+      !Finite(f.max)) {
+    return o_PlayEffect(self, nullptr, options);
+  }
+  Measure(&f);
+  const DWORD now = GetTickCount();
+  if (now - g_take_loop_tick > kTakeLoopGapMs &&
+      g_take_loop_state != kTakeLoopPlays) {
+    g_take_loop_state = kTakeLoopNone;
+    g_take_loop_asks = 0;
+  }
+  g_take_loop_tick = now;
+  ++g_take_loop_asks;
+  const bool game_in_range =
+      f.camera >= 0.0f && audio_math::RangeStarts(f.camera, f.max);
+  const int rule = audio_math::TakeLoopStart(g_take_loop, f.by_ears, f.head,
+                                             f.k, f.max);
+  const bool by_head = rule == audio_math::kTakeLoopStart;
+  int state = kTakeLoopOutOfRange;
+  int r = 0;
+  if (rule != audio_math::kTakeLoopRefuse) {
+    g_force = by_head;
+    g_call_active = true;
+    g_call_reached = false;
+    g_call_info = nullptr;
+    r = o_PlayEffect(self, nullptr, options);
+    g_force = false;
+    g_call_active = false;
+    if (g_call_reached) {
+      state = g_call_info != nullptr ? kTakeLoopPlays : kTakeLoopNoSlot;
+    } else {
+      state = by_head || game_in_range ? kTakeLoopRule : kTakeLoopGameRefused;
+    }
+  }
+  if (state == kTakeLoopPlays) {
+    g_take_loop_info = g_call_info;
+    g_take_loop_sample = sample;
+  }
+  if (state == g_take_loop_state) return r;
+  g_take_loop_state = state;
+  const float upm = UnitsPerMeter();
+  char where[256];
+  _snprintf_s(where, sizeof(where), _TRUNCATE,
+              "%s %d, at %.0f %.0f %.0f. That place is %.2f m from the head "
+              "(%.0f units), and the range of the sample is %.2f m (%.0f "
+              "units times %.3f). The game camera is %.0f units from it",
+              AudioBankName(bank), sample, f.point[0], f.point[1], f.point[2],
+              f.head >= 0.0f ? f.head / upm : -1.0f, f.head,
+              f.max * f.k / upm, f.max, f.k, f.camera);
+  // With audio_capture=1 each line has the frame of the capture file, so a
+  // measure of that file finds the take (bwvr/tools/audio_measure.py).
+  char capture[48] = "";
+  if (AudioCaptureFrames() > 0) {
+    _snprintf_s(capture, sizeof(capture), _TRUNCATE, ", capture frame %ld",
+                AudioCaptureFrames());
+  }
+  switch (state) {
+    case kTakeLoopPlays:
+      g_take_loop_start = now;
+      ModLog("audio take   : the loop of the take starts: %s. %s "
+             "(audio_take_loop=%d)%s", where,
+             !by_head ? "The test of the game decided"
+             : game_in_range ? "The head decided, and the game camera is in "
+                               "range too"
+                             : "The head decided. The game camera is past "
+                               "the maximum of the sample, so the game "
+                               "refuses this loop",
+             g_take_loop ? 1 : 0, capture);
+      break;
+    case kTakeLoopOutOfRange:
+      ModLog("audio take   : the loop of the take does not start: %s. The "
+             "place is out of range of the head (audio_take_loop=1)", where);
+      break;
+    case kTakeLoopGameRefused:
+      ModLog("audio take   : the game refuses the loop of the take: %s, past "
+             "the maximum of the sample. The take has no sound "
+             "(audio_take_loop=%d%s)%s", where, g_take_loop ? 1 : 0,
+             g_take_loop ? ", and the ears do not decide in this view" : "",
+             capture);
+      break;
+    case kTakeLoopRule:
+      ModLog("audio take   : a rule of the game that is not the distance "
+             "refuses the loop of the take: %s", where);
+      break;
+    default:
+      CountSlots();
+      ModLog("audio take   : the loop of the take does not start: %s. The "
+             "DLL gave no sample slot (%d of %d are free)", where,
+             g_free_slots, g_slots);
+      break;
+  }
+  return r;
+}
+
+// Once a frame: the loop of a take that plays, and the test key.
+void TakeLoopFrame() {
+  if (g_take_loop_state == kTakeLoopPlays) {
+    const uint8_t* info = static_cast<const uint8_t*>(g_take_loop_info);
+    const bool plays = Readable(info, kInfoSize) &&
+                       Int(info + kInfoUsed) == 1 &&
+                       Ptr(info + kInfoObject) == 0 &&
+                       Int(info + kInfoSample) == g_take_loop_sample;
+    if (!plays) {
+      const DWORD now = GetTickCount();
+      g_take_loop_state = kTakeLoopNone;
+      g_take_loop_info = nullptr;
+      char capture[48] = "";
+      if (AudioCaptureFrames() > 0) {
+        _snprintf_s(capture, sizeof(capture), _TRUNCATE, ", capture frame %ld",
+                    AudioCaptureFrames());
+      }
+      ModLog("audio take   : the loop of the take stopped, %lu ms after its "
+             "start. The game asked for it %llu times, and its last ask was "
+             "%lu ms before the stop%s", now - g_take_loop_start,
+             g_take_loop_asks, now - g_take_loop_tick, capture);
+      g_take_loop_asks = 0;
+    }
+  }
+  // THE A/B KEY (test_keys=1): Ctrl and Shift with the equals key of the row
+  // of digits change audio_take_loop. The plus key of the number pad is a
+  // key of the throw. The pointing controller gives a long pulse for 1 and a
+  // short pulse for 0. Only while a window of the game is in front.
+  if (!g_take_loop_keys) return;
+  const bool down = (GetAsyncKeyState(VK_OEM_PLUS) & 0x8000) != 0 &&
+                    (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0 &&
+                    (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
+  const bool pressed = down && !g_take_loop_key_down;
+  g_take_loop_key_down = down;
+  if (!pressed) return;
+  DWORD process = 0;
+  const HWND window = GetForegroundWindow();
+  if (window != nullptr) GetWindowThreadProcessId(window, &process);
+  if (process != GetCurrentProcessId()) return;
+  g_take_loop = !g_take_loop;
+  ControllersGesturePulse(0.5f, g_take_loop ? 0.30f : 0.08f);
+  ModLog("audio take   : Ctrl, Shift and the equals key: audio_take_loop is "
+         "%d now. %s", g_take_loop ? 1 : 0,
+         g_take_loop ? "The ears decide the start of the loop of a bulk take"
+                     : "The game camera decides the start of the loop of a "
+                       "bulk take, as in the game");
+}
+
 int __fastcall h_PlayEffect(void* self, void* unused, void* options) {
+  const uintptr_t caller = reinterpret_cast<uintptr_t>(_ReturnAddress());
   const uint8_t* o = static_cast<const uint8_t*>(options);
   if (!Readable(o, 0x60)) return o_PlayEffect(self, unused, options);
   const int sample = Int(o + kOptSample);
   const uintptr_t object = Ptr(o + kOptObject);
   // A flat sound has no distance test. A sound with no object is at the game
-  // camera, and it keeps the game's test.
+  // camera, and it keeps the game's test. The loop of a bulk take is at the
+  // Hand, and the ears decide its start.
   if (sample == 0 || Int(o + kOptFlag3d) == 0 || object == 0) {
+    if (sample != 0 && Int(o + kOptFlag3d) != 0 && caller == kTakeLoopReturn) {
+      return PlayTakeLoop(self, options, sample);
+    }
     return o_PlayEffect(self, unused, options);
   }
   const uintptr_t bank = Ptr(o + kOptBank);
@@ -765,6 +965,15 @@ bool AudioRangeInstall(bool by_ears, bool keep_loops, int test_tag,
            "GAudio::SamplePlayAnimEffect");
   }
   g_test_bank = AudioIni("audio_test_bank", -1);
+  g_take_loop = AudioIni("audio_take_loop", 1) != 0;
+  g_take_loop_keys = AudioIni("test_keys", 0) != 0;
+  ModLog("audio take   : audio_take_loop=%d. %s", g_take_loop ? 1 : 0,
+         !c ? "A hook is missing, so the game camera decides the start of "
+              "the loop of a bulk take"
+         : g_take_loop ? "The ears decide the start of the loop of a bulk "
+                         "take, as for a sound with an object"
+                       : "The game camera decides the start of the loop of a "
+                         "bulk take, as in the game");
   if (!c) {
     ModLog("audio range  : a hook is missing, so the game camera decides "
            "which sounds %s", a ? "start" : "start and stop");
@@ -819,6 +1028,7 @@ void AudioRangeNotePlay(void* info) {
 void AudioRangeFrame() {
   if (!g_hooked) return;
   TestTag();
+  TakeLoopFrame();
   const DWORD now = GetTickCount();
   if (now - g_last_check >= 1000) {
     g_last_check = now;

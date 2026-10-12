@@ -923,8 +923,9 @@ A test key that acts at a frame of its own counts the same way, so a recipe
 keeps the distance between its steps and its test keys with each start of a
 run: `aim_test_keys`, `near_test_flips`, `text_click_test`,
 `miracle_test_seeds`, `miracle_test_cancel`, `village_test_site`,
-`village_test_workshop`, `village_test_scaffolds`, `village_test_census` and
-`village_test_chants`. A frame of such a key from N on counts from the frame
+`village_test_workshop`, `village_test_scaffolds`, `village_test_census`,
+`village_test_chants` and `target_glow_test_keys`. A frame of such a key from
+N on counts from the frame
 at which the controller first places the Hand, and a frame before N keeps its
 number (`ControllersTestFrame` in `controllers.cpp`, and the pure header
 `script_frame_math.h` with its checks in `script_frame_checks.h`). Without

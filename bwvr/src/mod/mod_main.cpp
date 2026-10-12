@@ -28,6 +28,8 @@
 #include "frame_profile.h"
 #include "tabletop.h"
 #include "far_grab.h"
+#include "take_stream.h"
+#include "target_glow.h"
 #include "throw_physics.h"
 #include "teleport.h"
 #include "ui_panel.h"
@@ -123,6 +125,8 @@ void PassGuardSetOptions(bool skip_hand, bool skip_physics);
 void PassGuardSetSkipPrepare(bool on);
 void PassGuardInstall();
 void FrameTimersInstall();
+// tick_direct.cpp: the clock of the game with no check of busy waiting.
+void TickDirectInstall(bool on);
 void FovInstall();
 void InputWatchInstall();
 void HeadCameraInstall();
@@ -184,6 +188,7 @@ void HeadCameraSetHandAnchored(bool on);
 void HeadCameraSetEnabled(bool on);
 void StereoSetHeadTracking(bool on);
 void StereoSetHeadFov(float degrees);
+void StereoSetFovMargin(int percent);
 void HeadPoseSetScale(float units_per_meter);
 void HeadPoseSetEnabled(bool on);
 void HeadPoseSetFake(bool on, float yaw_degrees, float pitch_degrees,
@@ -219,6 +224,7 @@ void ProxyForceSystemDDraw();
 void GpuBridgeInstall();
 void GpuBridgeProbeInterop();
 bool GpuBridgeHasDevice();
+bool GpuBridgeFullScreen();
 bool GpuBridgeReady();
 void* GpuBridgeCaptureEye(int eye);
 bool GpuBridgeStart(void* d3d11_device, uint32_t width, uint32_t height,
@@ -272,6 +278,7 @@ bool g_move_camera_point = false;
 // frame time. 0 gives the number from before the passes. The three test keys
 // are for desktop runs. See frame_time.cpp.
 int g_frame_time_real = 1;
+bool g_tick_direct = true;
 int g_frame_time_test_frame = 0;
 int g_frame_time_test_readers = 0;
 int g_frame_time_test_readers_frames = 600;
@@ -313,6 +320,8 @@ bool g_head_tracking = true;
 bool g_tabletop = false;
 TabletopSettings g_table;
 float g_head_fov_deg = 0.0f;
+// The margin of the render past the view of the headset, in percent.
+int g_fov_margin_pct = 0;
 float g_fov_absolute_deg = 0.0f;
 bool g_skip_snapshot = true;
 bool g_water_simple = true;
@@ -408,6 +417,8 @@ FakeControllerSettings g_fake_controller;
 DirectHandSettings g_direct_hand;
 // A glow marks the point the Hand interacts from (hand_glow.cpp).
 bool g_hand_glow = true;
+// The mesh of a target of the Hand glows (target_glow.cpp).
+TargetGlowSettings g_target_glow;
 // The mod draws its own test hand at each controller (overlay.cpp).
 bool g_overlay = false;
 // The teleport with a visible arc (teleport.cpp). See docs/god-view.md.
@@ -415,6 +426,9 @@ TeleportSettings g_teleport;
 // The grab from a distance (far_grab.cpp), and the square root law of the
 // throw. See docs/grab.md, "The grab from a distance".
 FarGrabSettings g_far_grab;
+// take_stream: the stream of a take at a distance goes on a curve from the
+// source to the Hand (take_stream.cpp).
+int g_take_stream = 1;
 // The law of a throw and its log (throw_physics.cpp).
 int g_throw_law = 2;
 int g_throw_slow_x10 = 20;
@@ -517,6 +531,8 @@ bool g_process_ends = false;
 bwvr::XrScreen* g_screen = nullptr;
 bool g_hooks_installed = false;
 bool g_vr_gave_up = false;
+// 1 starts the headset session in a full screen game too.
+bool g_vr_full_screen = false;
 int g_vr_tries = 0;
 DWORD g_next_vr_try = 0;
 
@@ -554,6 +570,8 @@ void ReadSettings() {
   g_freeze_time = GetPrivateProfileIntA("bwvr", "freeze_time", 1, path) != 0;
   g_frame_time_real =
       GetPrivateProfileIntA("bwvr", "frame_time_real", 1, path) != 0 ? 1 : 0;
+  g_tick_direct =
+      GetPrivateProfileIntA("bwvr", "tick_direct", 1, path) != 0;
   g_frame_time_test_frame = static_cast<int>(
       GetPrivateProfileIntA("bwvr", "frame_time_test_frame", 0, path));
   g_frame_time_test_readers = static_cast<int>(
@@ -940,6 +958,8 @@ void ReadSettings() {
       GetPrivateProfileIntA("bwvr", "game_camera_rebuild", 1, path) != 0;
   g_head_fov_deg = static_cast<float>(
       GetPrivateProfileIntA("bwvr", "head_fov_deg", 0, path));
+  g_fov_margin_pct = static_cast<int>(
+      GetPrivateProfileIntA("bwvr", "fov_margin_pct", 0, path));
   // An invented head, for testing on the desktop with no headset.
   g_fake_head = GetPrivateProfileIntA("bwvr", "fake_head", 0, path) != 0;
   g_head_camera =
@@ -1039,6 +1059,11 @@ void ReadSettings() {
     d.creature_slap_wait = number("creature_slap_wait", 0) != 0;
     // A glow at the point the Hand interacts from. See docs/hand-model.md, "The glow at the Hand's point".
     g_hand_glow = number("hand_glow", 1) != 0;
+    // The glow on the mesh of a target of the Hand. See docs/hand-model.md,
+    // "The glow on the mesh of a target". target_glow=0 gives the halo.
+    g_target_glow.mode = number("target_glow", 1);
+    g_target_glow.pct = number("target_glow_pct", 45);
+    g_target_glow.anim = number("target_glow_anim", 3);
     // The overlay renderer's test hand. See docs/hand-model.md, "Overlay renderer".
     g_overlay = number("overlay", 1) != 0;
     // The teleport: hold A to aim an arc, let go to go there. See
@@ -1146,6 +1171,17 @@ void ReadSettings() {
       g_far_grab.stay = number("far_grab_stay", 1);
       g_far_grab.stay_deg = degrees("far_grab_stay_deg", g_far_grab.stay_deg);
     }
+    // far_take_carry: 1 leaves the grip with the grip machine when the source
+    // of a take at a distance goes away while the grip is closed, so the grip
+    // carries the bundle. 0 holds the grip back until it opens, and the
+    // machine lets the bundle go (docs/grab.md, "A bulk source at a
+    // distance").
+    g_far_grab.take_carry = number("far_take_carry", 1);
+    // take_stream: 1 puts the pieces of the stream of a take at a distance on
+    // a curve from the top of the source to the Hand. 0 leaves the line of
+    // the game, from the land under the Hand (docs/grab.md, "The stream of a
+    // take at a distance").
+    g_take_stream = number("take_stream", 1);
 
     // Moving around by grabbing the world. See docs/god-view.md, "Moving
     // around: the grab and the mouse".
@@ -1260,6 +1296,8 @@ void ReadSettings() {
   // the start of the mod.
   g_registry_test_guard =
       GetPrivateProfileIntA("bwvr", "registry_test_guard", 0, path) != 0;
+  g_vr_full_screen =
+      GetPrivateProfileIntA("bwvr", "vr_full_screen", 0, path) != 0;
   ModLog("settings     : vr=%d, stereo=%d, screen %.2f m wide at %.2f m",
          g_vr_enabled ? 1 : 0, g_stereo ? 1 : 0, g_width, g_distance);
   ModLog("settings     : eye separation %.3f world units, interface shift "
@@ -1298,6 +1336,7 @@ void StartVrOnce() {
     PassGuardSetOptions(g_skip_hand_pass2, g_skip_physics_pass2);
     PassGuardInstall();
     FrameTimersInstall();
+    TickDirectInstall(g_tick_direct);
     FovInstall();
     InputWatchInstall();
     PointerMapInstall();
@@ -1354,6 +1393,7 @@ void StartVrOnce() {
     PassGuardSetSkipPrepare(g_skip_prepare);
     HeadPoseSetScale(g_head_units_per_meter);
     StereoSetHeadFov(g_head_fov_deg);
+    StereoSetFovMargin(g_fov_margin_pct);
     HeadPoseSetFake(g_fake_head, g_fake_yaw, g_fake_pitch, g_fake_roll);
     HeadPoseFakeSweep(g_fake_sweep);
     if (g_fake_head) {
@@ -1385,8 +1425,13 @@ void StartVrOnce() {
         ThrowPhysicsSetDraw(g_throw_draw);
         ThrowPhysicsInstallEarly();
         FarGrabInstall();
+        TakeStreamSetOptions(g_take_stream, g_test_keys);
+        TakeStreamInstall();
         ThrowPhysicsInstall();
         HandGlowSetEnabled(g_hand_glow);
+        g_target_glow.test_keys = g_test_keys;
+        TargetGlowSetOptions(g_target_glow);
+        TargetGlowInstall();
       }
       ControllersSetGrab(g_grab);
       WorldGrabSetOptions(g_grab);
@@ -1476,6 +1521,17 @@ void StartVrOnce() {
   // session keeps a measuring run to one command on the desktop.
   if (g_stereo_headless) {
     g_vr_gave_up = true;
+    return;
+  }
+
+  // A full screen game and the VR compositor both want the display, and the
+  // launcher always sets a window. So in a full screen game the mod does not
+  // start a session, and the game stays on the monitor. vr_full_screen=1
+  // starts one.
+  if (!g_vr_full_screen && GpuBridgeFullScreen()) {
+    g_vr_gave_up = true;
+    ModLog("vr           : vr_full_screen=0. The game is full screen, so the "
+           "mod does not use the headset. Start the game from the launcher");
     return;
   }
 
@@ -1811,6 +1867,12 @@ void EarlyHooks() {
   // the bridge need it.
   Depth24SetWanted(GetPrivateProfileIntA("bwvr", "depth24", 1, path) != 0);
   if (!wanted) return;
+  // With vr=0 the mod does nothing, so the bridge stays out of the backend. A
+  // headless run has vr=0 too, and it needs the bridge.
+  if (GetPrivateProfileIntA("bwvr", "vr", 1, path) == 0 &&
+      GetPrivateProfileIntA("bwvr", "stereo_headless", 0, path) == 0) {
+    return;
+  }
 
   const MH_STATUS status = MH_Initialize();
   if (status != MH_OK && status != MH_ERROR_ALREADY_INITIALIZED) {

@@ -14,8 +14,9 @@ as `ScreenW` and `ScreenH`. If a person edits one and forgets the other, the
 result looks like a bug in the mod.
 
 The window has these buttons: "Play in VR", "Play, new game" (starts the game
-with `-NEWGAME`, on the first island, with no menu), "Save" (writes the
-settings and does not start the game) and "Support".
+with `-NEWGAME`, on the first island, with no menu), "Play, no VR" (see "The
+game without VR"), "Save" (writes the settings and does not start the game)
+and "Support".
 
 ## The table
 
@@ -30,9 +31,9 @@ A row gives a control, a tooltip, a default, and the reading and writing.
 There is no layout to keep in step and no separate load and save code.
 
 The window sizes itself around the table and starts a new column when one gets
-tall. A heading stays with at least three of its settings. A column has 20
-rows at most. The table of now has 20 rows, so the window has one column, and
-it is as wide as its four buttons. One more row starts a second column.
+tall. A heading stays with at least three of its settings. A column has 22
+rows at most. The table of now has 21 rows, so the window has one column, and
+it is as wide as its five buttons. More than 22 rows start a second column.
 
 There are six kinds of row:
 
@@ -65,6 +66,25 @@ Every save also writes these:
 
 If Windows refuses the write (an unelevated write to `bwvr.ini` in Program
 Files fails), the status line says so and not "Saved.".
+
+## The game without VR
+
+"Play, no VR" starts the game on the monitor, for a look at what the plain
+game does. It saves the settings as each other button does. Then it writes
+`vr=0`, so the mod does nothing in that game (it only answers the check for an
+internet connection, and the backend stays dxwrapper). It writes `FullScreen`
+1, and the size of the main monitor as `ScreenW` and `ScreenH`.
+
+These values are for one game. The launcher closes its window and stays until
+the game ends. Then it writes `vr=1`, `FullScreen` 0 and the size for the
+headset again, so a start of `runblack.exe` without the launcher and a desktop
+test find the values for the headset. It writes them after the end of the
+game, because the game can write its display values when it ends. If the
+launcher stops before the game ends, the values stay until the next "Play in
+VR" or "Save".
+
+With `vr=1`, the mod does not start a headset session in a full screen game.
+The log says so. `vr_full_screen=1` starts one.
 
 ## Retired keys
 
@@ -123,6 +143,7 @@ does not delete them, so a value that a person writes in `bwvr.ini` is kept.
 | Setting | Default | What it does |
 | --- | --- | --- |
 | One scene walk for both eyes (prototype) | On | Key `one_walk`. On also makes the render a quarter wider (`one_walk_guard_pct`, 25), see `backend.md`, "One walk for both eyes". It is before the resolution in the table, because a save writes the rows in order and the size reads it |
+| Margin around the view | None | Key `fov_margin_pct`, 0 to 30 in steps of 5. The game draws that many percent more on each side of the view of the headset, and the render has that many percent more pixels each way, so a degree keeps its pixels (`backend.md`, "A margin around the view"). It is before the resolution in the table for the same reason as the row above |
 | Resolution scale | 100% | A slider from 50 to 200 in steps of 5. Key `resolution_pct`. See "The resolution comes from the headset". |
 | Anisotropic filtering | 16x | A list: off, 2x, 4x, 8x, 16x. Key `anisotropy` (1, 2, 4, 8, 16). The launcher also writes the level to `AnisotropicFiltering` in `dxwrapper\dxwrapper.ini`, because dxwrapper applies its own level to the Direct3D 9 device. A fixed 16 there would make "off" do nothing. dxwrapper reads 0 as "leave it to the game". |
 | Enable texture mipmaps | on | Uses smaller copies of each texture in the distance. Key `force_mips`. |

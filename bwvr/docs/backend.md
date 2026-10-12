@@ -900,6 +900,35 @@ window of the game then shows no new picture. The log has one line for each
 report window: the frames that waited, and the frames that were longer than
 1/N s. `throw_queue.ps1 -Fps 90` in `bwvr/tools/desk` uses the key.
 
+**A copy between two textures.** For a `Blt` to or from a texture,
+`m_IDirectDrawSurfaceX::CopySurface` of dxwrapper calls
+`D3DXLoadSurfaceFromSurface`. The game makes such a copy when it makes the
+two pictures of a save (`0x007923D0`, the second `Blt` at `0x0079260C`, the
+rect `0 128 128 192`), between two DXT textures of 256 by 256 pixels in
+system memory. The rect is inside both surfaces. On some PCs D3DX then
+writes to memory that is not there, and the game stops with an access
+violation in `msvcrt.dll`. The first save of a new game is such a save, so
+the game can stop when a new game starts. The cause in dxwrapper is not
+known.
+
+With `blt_texture_copy=1` (the default) the `Blt` hook of
+`present_watch.cpp` makes such a copy itself. It does this for a copy with
+no stretch and no effect, when one of the two surfaces is a texture and none
+is the primary surface. It locks the two surfaces and copies the pixels, also
+between two RGB formats, or the blocks of 4 by 4 pixels of two textures with
+one DXT format (`blt_copy_math.h`, checks in
+`test/controller_math/blt_copy_checks.h`). Each other copy goes to dxwrapper.
+The log has the first two copies of each caller with the sizes, the formats,
+the rects and the caller, and the report counts the copies:
+
+```
+present      : the mod copies with a texture. Destination 256 x 256, ...
+present      : the mod made N copies between two textures, and M failed
+```
+
+`blt_texture_copy=0` gives each copy to dxwrapper. Not known: whether a save
+picture looks right in the Save Game Room.
+
 Full screen is not an alternative. It would flip instead of copy, but it crashes
 the game (one fault at offset `0xdededede`, a freed pointer, and one inside the
 Virtual Desktop streaming library). Exclusive full screen and a VR compositor both
@@ -1257,10 +1286,67 @@ Only a headset session can show what the wait, the copy to the bridge and the
 frame to the runtime cost in a slow frame. Only a person can say if a sound
 that stops sounds the same with `audio_stop_wait` 0 and 1.
 
+### The clock of the game and the hooks of dxwrapper
+
+With `Dd7to9 = 1` dxwrapper runs the Win32 hooks of its copy of DDrawCompat
+(v0.3.2), and its ini cannot turn them off: `DDrawCompat = 0` does not stop
+them (`Dllmain.cpp`, `InstallDd7to9Hooks`). The hooks are in front of
+`GetTickCount`, `timeGetTime`, `PeekMessage`, `GetMessage` and some wait
+functions. Each call asks Windows for the cycle time of the thread
+(`QueryThreadCycleTime`, a call into the kernel), and after 3 million
+cycles of the thread it calls `Sleep(0)` (`WaitFunctions.cpp`,
+`mitigateBusyWaiting`). The current DDrawCompat of its author has no such
+hooks.
+
+The game calls `GetTickCount` in the draw (`fn_00837DF0`, the call at
+`0x00838302`): 1000 to 1250 times in a frame in the six scenes. A sampling
+profile of the frame thread in a run of `bench_run.ps1` with `one_walk=1`
+had 8.3 percent of the samples of the scenes 1 to 5 in that check, nearly
+all of it in the call into the kernel. The same profile, for the parts of
+the frame thread: the game code 23 percent, the NVIDIA driver, `d3d9.dll`
+and the calls into the kernel under them about 45 percent, dxwrapper 7.7
+percent and the mod 7.3 percent.
+
+`tick_direct=1` gives the import slot of `GetTickCount` in `runblack.exe`
+(`0x008A91C4`) a function of the mod (`tick_direct.cpp`). It gives the low
+32 bits of `GetTickCount64`, which is the number of `GetTickCount`, and it
+makes no call into the kernel. The game does not wait for its clock in a
+loop, because the headset paces the frame. The other hooks of dxwrapper
+stay. The log has one line at the start and the count of the calls of each
+report window.
+
+`bench_run.ps1 -Runs 3 -ProfileLevel 2 -Set "one_walk=1;test_frame_rate=240"
+-Set2 "tick_direct=0"`, the mean ms of the work of a frame:
+
+| Scene | `tick_direct=1` | `tick_direct=0` | Less | Spread |
+| --- | --- | --- | --- | --- |
+| 1 | 5.88 | 6.33 | 0.45 (7.1 percent) | 0.04 |
+| 2 | 8.83 | 9.39 | 0.57 (6.0 percent) | 0.09 |
+| 3 | 7.47 | 8.14 | 0.68 (8.3 percent) | 0.13 |
+| 4 | 6.77 | 7.57 | 0.79 (10.4 percent) | 0.04 |
+| 5 | 6.96 | 7.68 | 0.72 (9.4 percent) | 0.09 |
+| 6 | 0.91 | 0.96 | 0.05 | 0.03 |
+
+Each difference of the scenes 1 to 5 is more than two times the spread of
+the runs.
+
+In a headset (Quest 3 through Virtual Desktop, 90 Hz) the five runs of 90 s
+at the door of the Temple (the test save `temple`, a still headset,
+`profile=1`) held 90 frames a second with each value, because that view
+fits in the frame before the change too. The scene walk of the eye pass,
+the median of the windows: 5.15 and 5.55 ms with `tick_direct=1` (and 5.5
+ms in the first half of one more run, whose view changed in its second
+half), and 5.71 and 5.73 ms with `tick_direct=0`. The time went to the wait
+for the headset, and the age of a frame was 6.29 ms against 6.82 and 6.88
+ms. One run with `tick_direct=1` had 81 frames a second, with the frame to
+the runtime at 2.94 ms against 0.09 ms in the others: that is the state of
+the streaming session ("What the scene walk is made of"), and not the
+change.
+
 ## One walk for both eyes
 
 `one_walk=1` walks the scene one time a frame, for the left eye, and makes
-the right eye from the same batches (`one_walk.cpp`). The key is 0 by
+the right eye from the same batches (`one_walk.cpp`). The key is 1 by
 default. The launcher shows it as "One scene walk for both eyes (prototype)".
 With `test_keys=1`, the menu key turns it on and off in play.
 
@@ -1307,6 +1393,28 @@ the band with no picture was at most 160 px, a tangent of 0.21. With a
 render of 1.25 to 1 it starts at 57.6 degrees, outside the 54 degrees of the
 right eye of a Quest 3. A thing nearer than about 15 cm of the room at the
 outer edge of the right eye can still show the band.
+
+### A margin around the view
+
+The runtime shows a frame at the pose that the head has when the frame comes
+to the lenses. When the head turns fast or a frame is late, that pose looks
+past an edge of the render, and the runtime shows black there. Without a
+margin the render covers the view of the headset and little more: nothing at
+the top and the bottom, and at the sides only what the wider render of one
+walk adds.
+
+`fov_margin_pct` (0 to 30, default 0, "Margin around the view" in the
+launcher) makes the render go past the view on each side. `PrepareHeadView`
+multiplies the tangent of the half angle by 1 plus the margin. The game takes
+its vertical angle from the render aspect, so the top and the bottom get the
+same margin. The projection layer tells the runtime the angles of the render,
+so the picture keeps its place and its scale. The launcher multiplies the
+width and the height of the render by the same number, so a degree keeps its
+pixels. A margin of 20 percent is 44 percent more pixels, and the scene walk
+has more objects in view.
+
+The interface in the eye pictures is a part of the render. With a margin it
+is that much larger, and that much farther from the middle.
 
 ### What it saves
 
@@ -2587,6 +2695,7 @@ in front. The mod reads the keys and never takes them from the game.
 | Shift Scroll Lock | `test_keys=1` | A still hand high over the land lets the object fall, or sets it down at each height (`release_fall_cm`, `throw.md`). Ctrl must be up |
 | Ctrl Shift Scroll Lock | `test_keys=1` | An object that comes to rest while the Hand takes it stays in the physics of the game until the game puts it in the Hand, or the game ends its physics and a tree is then a dead tree (`catch_rest_guard`, `grab.md`, "An object that comes to rest while the Hand takes it"). A long pulse and a short pulse |
 | Ctrl Shift Backspace | `test_keys=1` | An object that moves is in the hand at the press of the grip, or it moves on until the game takes it, which is 225 ms and some game turns after the press. A long pulse and a short pulse (`catch_at_once`, `grab.md`, "A catch at once"). Backspace with Ctrl and no Shift is the key of `far_grab_stay` |
+| Shift Backspace | `test_keys=1` | When the source of a take at a distance goes away while the grip is closed, the grip carries the bundle, or the far grab holds the grip back and the Hand lets the bundle go. A long pulse and a short pulse (`far_take_carry`, `grab.md`). Ctrl must be up |
 | Ctrl Scroll Lock | `test_keys=1` | The picture of a thrown object between the steps of the game: a touch of another object has the real time and the picture does not go back behind a guess, or each substep has its time of the flight (`throw_draw`, `throw.md`, "The picture between the steps"). Shift must be up |
 | Shift Pause | `test_keys=1` | A tree that falls turns down fast on the land, or keeps the game's turn (`throw_tree_settle`, `throw.md`). Ctrl must be up |
 | Ctrl Shift Pause | `test_keys=1` | After its landing a thrown object loses a turn in place fast, the brake of the land is off on steep land and an object that lies still for 0.5 s is at rest, or the object keeps the turn of the brake, the brake acts on each land and only the rest test of the game ends the landing (`throw_land_rest`, `throw.md`, "The rest after a landing"). A long pulse and a short pulse |
@@ -2610,7 +2719,10 @@ in front. The mod reads the keys and never takes them from the game.
 | Shift Page Down | `test_keys=1` | While the Lionhead logo plays in stereo: each eye has its own trails, or each eye pass draws over the picture of the other eye and each orb shows two times (`intro_eye_trails`, `intro.md`). In play: each eye pass of the scene starts from its own frame before, or the two eye passes share the render target (`eye_clean`, `stereo-artifacts.md`, "The frame before of each eye"). A long pulse and a short pulse. Ctrl must be up |
 | Shift Delete | `test_keys=1` | While the Lionhead logo plays in stereo: the mark beside the logo has the depth of the logo, or the same pixel in each eye (`intro_text_place`, `intro.md`). In play: a speech bubble of the game (a signpost, a villager that speaks, the Creature) is one flat card at the depth of its sign, or it is drawn as the game and the interface depth make it in each eye pass (`bubble_card`, `ui-layer.md`, section 18). A long pulse and a short pulse. Ctrl must be up |
 | Ctrl Pause | `test_keys=1` | The mod skips the wait of 20 ms of the audio DLL at the stop of a sound that the mixer of the mod plays, or each stop has the wait. A long pulse and a short pulse (`audio_stop_wait`, `audio.md`, 7.6). Shift must be up |
-| Ctrl Shift Pause | `test_keys=1` | The copy of the subtitle card is read at the start of a later frame with no wait, or after the eye passes of its frame with a wait for the GPU. A long pulse and a short pulse (`subtitle_read_ahead`, `ui-layer.md`, 17.2) |
+| Ctrl Shift Equals | `test_keys=1` | The ears decide the start of the loop of a bulk take, or the game camera decides and the take has no sound in the God view. A long pulse and a short pulse (`audio_take_loop`, `audio.md`, 6.4). The equals key is in the row of digits |
+| Ctrl Shift Minus | `test_keys=1` | The pieces of the stream of a take at a distance go on a curve from the top of the source to the Hand, or they are on the line of the game, from the land under the Hand. A long pulse and a short pulse (`take_stream`, `grab.md`, "The stream of a take at a distance"). The minus key is in the row of digits |
+| Ctrl Shift Left bracket | `test_keys=1` | What marks a target of the Hand steps from 1 to 0 to 2 and back: the glow on the mesh with a halo only for a target whose mesh does not glow, the halo, or the glow and the halo. A long pulse for 1, a short pulse for 0 and a longer pulse for 2 (`target_glow`, `hand-model.md`, "The glow on the mesh of a target"). The left square bracket key is right of the P key on a US keyboard |
+| Ctrl Shift Right bracket | `test_keys=1` | The copy of the subtitle card is read at the start of a later frame with no wait, or after the eye passes of its frame with a wait for the GPU. A long pulse and a short pulse (`subtitle_read_ahead`, `ui-layer.md`, 17.2). The right square bracket key is right of the left one. `subtitle_read_ahead_test_seconds=N` makes the same change each N seconds |
 | Ctrl Shift Numpad Slash | `test_keys=1` | The mod waits for the GPU after each eye pass, one time a frame, or one time a frame on a second thread that also gives the frame to the runtime. A long pulse, a pulse of middle length and a short pulse (`frame_send`, "One wait a frame, and a second thread"). The slash key with Shift and no Ctrl is a key of the Temple, and with no Shift it is a key of the throw |
 | Menu key | `test_keys=1` | One walk for both eyes on and off (see "One walk for both eyes"). The key beside the right Ctrl key that opens a context menu. Ctrl and Shift must be up |
 | Ctrl Menu key | `test_keys=1` | The layout of the buttons of the hand that does not point. The menu button of the left controller opens the game menu, Y opens the ring and the stick does not drive the ring, or Y opens the game menu and X and the stick open the ring. A long pulse and a short pulse on that hand (`button_layout`, `controllers.md`, 5.1). Shift must be up |
@@ -2668,10 +2780,13 @@ keys that the launcher sets.
 | `gpu_bridge` | 1 | The GPU path |
 | `frame_send` | 0 | 0: the mod waits for the GPU after each eye pass. 1: one wait a frame. 2: one wait a frame on a second thread, which also gives the frame to the runtime. See "One wait a frame, and a second thread" |
 | `draw_merge` | 1 | 1: in an eye pass of the scene, a row of draw calls of the game with one state goes to Direct3D as one draw call. 0: each draw call goes as it comes. See "One draw call for a row of draw calls" |
+| `tick_direct` | 1 | 1: the `GetTickCount` of the game goes past the check of busy waiting of dxwrapper. 0: the game calls it through the hooks of dxwrapper. See "The clock of the game and the hooks of dxwrapper" |
 | `draw_merge_test`, `draw_merge_test_frame` | 0, 0 | Test keys of the desktop runs. See the same section |
 | `depth24` | 1 | A 24 bit Z buffer |
 | `near_plane_cm`, `near_plane_cm_16` | 5, 10 | The near plane in the room. 0 keeps the game's |
-| `vr`, `stereo` | 1, 1 | VR on, two eye passes |
+| `vr`, `stereo` | 1, 1 | VR on, two eye passes. With `vr=0` the mod installs no hook but the answer to the check for an internet connection, and the bridge stays out |
+| `fov_margin_pct` | 0 | 0 to 30. The render goes that many percent past the view of the headset on each side. See "A margin around the view" |
+| `vr_full_screen` | 0 | 0: in a full screen game the mod does not start a headset session, and the game stays on the monitor. 1: it starts one |
 | `play_mode` | 4 | See "Keys for v1.0" |
 | `screen_distance_cm`, `screen_width_cm` | 200, 260 | The quad in the window modes |
 | `eye_separation_milli` | 0 | 0 asks the headset |
@@ -2710,6 +2825,7 @@ keys that the launcher sets.
 | `bubble_card_test`, `bubble_card_test_frame` | 0, 0 | Test keys of the desktop runs. See the same section |
 | `one_walk`, `one_walk_check` | 1, 0 | See "One walk for both eyes" |
 | `skip_desktop_present` | 1 | See "The copy to the monitor" |
+| `blt_texture_copy` | 1 | 1: the mod makes a copy with a texture and no stretch itself. 0: each copy goes to dxwrapper. See "The copy to the monitor" |
 | `test_frame_rate` | 0 | A test key of the desktop runs: the frame rate of a run with no copy to the monitor. See "The copy to the monitor" |
 | `anisotropy`, `force_mips` | 16, 1 | Texture filter. `force_mips` forces the mip filter |
 | `skip_snapshot` | 1 | |
@@ -2719,6 +2835,9 @@ keys that the launcher sets.
 | `eye_test_luma` | 0 | A test key. 1: the log names each run of frames with one dark eye and each run of black frames. See "Testing without a headset" |
 | `land_light_eyes` | 1 | 1: the white light of a lightning on the land, and each other light on the land that comes one time in a frame, shows in both eyes. 0: it shows in the left eye only. See "The lights on the land in the second eye pass" |
 | `land_light_test` | 0 | A test key. 1: the step of the atmosphere adds the light of a lightning at the place of the Hand, for 150 frames of each 500 frames |
+| `target_glow` | 1 | What marks a target of the Hand. 1: the glow on its mesh, and a halo only for a target whose mesh does not glow. 0: the halo. 2: the glow and the halo. See `hand-model.md`, "The glow on the mesh of a target" |
+| `target_glow_pct`, `target_glow_anim` | 45, 3 | The strength of that glow, 0 to 200 percent of the halo color. Its animation: 0 steady, 1 the pulse, 2 the band of light that goes up the mesh, 3 both |
+| `target_glow_test_keys`, `target_glow_log` | none, 0 | Test keys of the desktop runs. See the same section |
 | `fake_head`, `fake_head_yaw`, `fake_head_pitch`, `fake_head_roll`, `fake_head_sweep`, `stereo_headless`, `fov_absolute_deg`, `head_fov_deg` | 0 | See "Testing without a headset" |
 
 ## Ready to hand out

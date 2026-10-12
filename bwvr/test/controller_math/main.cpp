@@ -3543,6 +3543,7 @@ void CreatureChecks() {
 #include "feel_checks.h"
 #include "pinch_checks.h"
 #include "temple_checks.h"
+#include "take_stream_checks.h"
 #include "eye_luma_checks.h"
 #include "land_light_checks.h"
 #include "tree_plant_checks.h"
@@ -3554,6 +3555,8 @@ void CreatureChecks() {
 #include "catch_checks.h"
 #include "one_walk_checks.h"
 #include "walk_checks.h"
+#include "blt_copy_checks.h"
+#include "target_glow_checks.h"
 
 int main() {
   const float eye[3] = {120.0f, 45.0f, -300.0f};
@@ -3952,6 +3955,9 @@ int main() {
   catch_checks::CatchChecks();
   one_walk_checks::OneWalkChecks();
   walk_checks::WalkChecks();
+  blt_copy_checks::BltCopyChecks();
+  take_stream_checks::TakeStreamChecks();
+  target_glow_checks::TargetGlowChecks();
 
   printf("\n%d checks, %d failed\n", g_checks, g_failures);
   return g_failures == 0 ? 0 : 1;

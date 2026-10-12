@@ -1604,6 +1604,7 @@ bool VillageHalo(FarDraw* out) {
   }
   out->radius = g_join.radius;
   out->units_per_meter = g_join_units;
+  out->target = g_join.target;
   return true;
 }
 

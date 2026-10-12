@@ -1,12 +1,13 @@
-# How to contribute
+# How to build the mod and contribute
 
-Thank you for your help. This file has the rules of the project. They are
-short, and most of them come from a lesson that cost time.
+Thank you for your help. This file tells you how to build the mod, where
+things are, and the rules of the project. The rules are short, and most of
+them come from a lesson that cost time.
 
 ## The two roles
 
 - **Testers** play the builds and write reports. A tester needs no tools:
-  see "For testers" in the [README](README.md).
+  see the [README](README.md).
 - **Contributors** change the code or the documents through pull requests.
 
 ## Hard rules
@@ -18,18 +19,130 @@ short, and most of them come from a lesson that cost time.
    runs as a git hook (after `.\dev.ps1 setup`) and on GitHub.
 2. **Do not share builds or the repo** with a person outside the group.
 
+## Build the mod
+
+### What you need
+
+- Windows 10 or 11.
+- Visual Studio 2022, or the Build Tools for Visual Studio 2022, with the
+  workload "Desktop development with C++". It brings the compiler and CMake.
+- Git.
+- The game, set up as in
+  [step 1 of the README](README.md#1-set-up-a-clean-copy-of-the-game), in a
+  folder that your account can write to (not in Program Files).
+- Only to make an installer yourself: Inno Setup 6.
+
+All other code that the mod needs is in the repo (`third_party/`). There is
+nothing more to download.
+
+### The first time
+
+```powershell
+git clone https://github.com/BW1-VR/BW1-VR.git
+cd BW1-VR
+.\dev.ps1 setup -Game "D:\Games\Black & White"
+.\dev.ps1
+.\dev.ps1 play
+```
+
+`setup` checks that your game is the v1.42 game and keeps its folder in
+`local\game-path.txt`. `.\dev.ps1` with no word builds the mod, runs the math
+tests, and puts the mod in your game folder.
+
+If PowerShell does not permit scripts, run this one time:
+`Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`.
+
+### How the mod gets into the game
+
+The repo holds only the source of the mod. Your game stays in its own
+folder, outside the repo, and no file of the game is ever changed. The mod
+is nine files that go beside `runblack.exe` (`ddraw.dll`, the OpenXR loader,
+the launcher and a `dxwrapper` folder). The game loads `ddraw.dll` from its
+own folder when it starts, and that is how the mod gets in.
+
+Two things put those files there: the installer, for players, and
+`.\dev.ps1`, for you. `.\dev.ps1` keeps the `ddraw.dll` that was there
+before, and `.\dev.ps1 uninstall` takes the nine files out and puts it back.
+The script never changes the registry. A game in Program Files needs a
+PowerShell that runs as administrator, so a copy of the game in a plain
+folder is easier for development.
+
 ## How a change gets in
 
 1. Make a branch from `main`. One subject for each branch.
-2. Build and test: `.\dev.ps1`. For a change that can affect the game, also
-   `.\bwvr\tools\desk\verify_build.ps1 -Tag a`.
-3. Open a pull request and fill in its template. GitHub builds it and makes
-   an installer, so a tester can try your change before the merge.
-4. Buck merges. `main` must always build and pass the tests, because a
-   release for the testers is a build of `main`.
+2. Change the code. Then run `.\dev.ps1` and `.\dev.ps1 play`, and look at
+   `bwvr.log` in your game folder. Its first line says which build runs.
+3. If your change can affect the game, run the desktop check:
+   `.\bwvr\tools\desk\verify_build.ps1 -Tag a`. It plays three short scenes
+   with a scripted controller, with no headset, and says `VERIFIED`.
+4. Open a pull request and fill in its template. GitHub builds it, runs the
+   tests, and keeps an installer with the run, so a tester can try your
+   change before the merge.
+5. Buck merges. `main` must always build and pass the tests, because a
+   release is a build of `main`.
 
 Do not push to `main` directly. GitHub does not enforce this on a private
 repo of this kind, so it is a rule between us.
+
+To test one change before a release has it, open [Actions](../../actions),
+select the build of that commit or pull request, and take the installer from
+"Artifacts" at the bottom of the page.
+
+A release is made by hand, when Buck wants one: on GitHub, Actions, "Release
+for testers", "Run workflow". The workflow builds `main`, makes the installer
+and names the release from the version, the date and the commit. Nobody makes
+a tag. Buck makes a release when a set of changes is ready to test, not for
+each change.
+
+## How the mod works, in short
+
+- The mod is a C++ DLL with the name `ddraw.dll`, so the game loads it. It
+  hooks functions of `runblack.exe` (the camera, the Hand, the input, the
+  draw) with MinHook. The logic of the game stays the game's own.
+- The game is DirectX 7. dxwrapper turns that into Direct3D 9. The game walks
+  its scene one time a frame, for the left eye, and the mod makes the right
+  eye from the same batches. The mod gives the two pictures to the headset
+  through OpenXR.
+- The headset moves the game camera, and the controllers move the game's own
+  Hand. So a pick up, a throw and a miracle go through the code of the game.
+- A small renderer of the mod draws the hands, the highlights and the arcs
+  in the frame of the game.
+
+## Where things are
+
+| Path | What |
+| --- | --- |
+| `bwvr/src/mod/` | The mod (`ddraw.dll`): the hooks, the hands, the God view, the sound |
+| `bwvr/src/vr/` | The OpenXR session and the layers |
+| `bwvr/src/launcher/` | The launcher with the settings |
+| `bwvr/src/common/` | The addresses in the game, the version |
+| `bwvr/test/controller_math/` | The math tests (no game needed) |
+| `bwvr/tools/desk/` | The desktop test runs with a scripted controller |
+| `bwvr/tools/package.ps1` | Makes the installer |
+| `bwvr/installer/` | The installer script, the player readme, the notices |
+| `bwvr/docs/` | The design and the reverse engineering notes of each area |
+| `third_party/` | MinHook, the OpenXR loader, dxwrapper, cgltf |
+
+Start with [`bwvr/docs/roadmap.md`](bwvr/docs/roadmap.md) (the open work),
+then the doc of your area in `bwvr/docs/`:
+
+| Doc | Area |
+| --- | --- |
+| `backend.md` | The render path, the two eyes, OpenXR, the head, the hotkeys |
+| `god-view.md`, `tabletop.md` | The God view (the main mode) and the tabletop mode |
+| `controllers.md`, `controls-audit.md` | The controllers, and each control of the game in VR |
+| `hand.md` | The Hand of the game, and the Hand at the real hand |
+| `grab.md`, `throw.md` | Taking a thing, the far grab, forests, and the throw |
+| `creature.md`, `miracles.md`, `village.md` | The Creature, miracles, and the village, scrolls and the Temple door |
+| `hand-model.md` | How the hands look and feel: the model, the glow, haptics |
+| `ui-layer.md`, `controller-hints.md` | The interface in the room, and the hint cards |
+| `audio.md` | The sound |
+| `cutscene-window.md`, `intro.md` | Stories in a window, and the start of the game |
+| `launcher.md`, `installer.md` | The launcher and the installer |
+| `address-map.md`, `software-tnl.md`, `stereo-artifacts.md`, `input-devices.md` | Facts about the game's code and its renderer |
+| `research-hla.md` | Notes on Half-Life: Alyx as a guide for the hands |
+
+Each doc holds the current state and the plans. The history is in git.
 
 ## Rules for the mod itself
 

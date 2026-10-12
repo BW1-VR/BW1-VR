@@ -131,6 +131,7 @@
 #include "creature_stay.h"
 #include "far_choice_math.h"
 #include "far_grab.h"
+#include "take_stream.h"
 #include "forest_take.h"
 #include "haptics.h"
 #include "miracle.h"
@@ -816,6 +817,7 @@ char g_far_runner[160];
 const char* g_far_why = nullptr;
 bool g_choice_key_down = false;
 bool g_stay_key_down = false;
+bool g_take_carry_key_down = false;
 // The pulses that tell the value of far_grab_choice after its test key: how
 // many are left, and the tick of the next one.
 int g_choice_pulses = 0;
@@ -1223,6 +1225,7 @@ float g_near_target_center[3] = {0.0f, 0.0f, 0.0f};
 float g_near_target_radius = 0.0f;
 float g_near_target_half = 0.0f;
 bool g_near_target_acts = false;
+void* g_near_target_object = nullptr;  // for the glow on its mesh
 
 // THE BULK TAKE. The object of the take now, for the log and the report.
 void* g_take_object = nullptr;
@@ -1261,6 +1264,12 @@ double g_take_end_time = 0.0;     // NowSeconds() at the last try
 const double kTakeEndWait = 0.2;
 uint64_t g_take_ends_forced = 0;
 uint64_t g_take_ends_direct = 0;
+// TEST (far_test_take_gone=N, for the desktop runs only): the game turn of a
+// take at a distance at which the test ends the take with the grip closed, or
+// 0. See FarTestTakeGone.
+int g_far_test_take_gone = 0;
+bool g_far_test_take_asked = false;  // the test asked for the end of this take
+bool g_take_end_test = false;        // the ask of this frame is the test's
 // A GAME TURN NOW. The frames left in which the next ask of the game for a
 // turn gets a yes.
 int g_turn_now = 0;
@@ -3265,6 +3274,29 @@ void PollStayKey() {
          "%llu. %s", FarGrabStay(), g_frame, FarGrabStayWords(FarGrabStay()));
 }
 
+// THE A/B KEY OF A TAKE WHOSE SOURCE GOES AWAY (test_keys=1): Shift with the
+// Backspace key changes far_take_carry between 1 and 0. The pointing
+// controller gives a long pulse for 1 and a short pulse for 0. Ctrl must be
+// up. Read once a frame, only while a window of the game is in front.
+void PollTakeCarryKey() {
+  if (!g_release_key) return;
+  const bool down = (GetAsyncKeyState(VK_BACK) & 0x8000) != 0 &&
+                    (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0 &&
+                    (GetAsyncKeyState(VK_CONTROL) & 0x8000) == 0;
+  const bool pressed = down && !g_take_carry_key_down;
+  g_take_carry_key_down = down;
+  if (!pressed) return;
+  HWND window = GetForegroundWindow();
+  DWORD process = 0;
+  if (window != nullptr) GetWindowThreadProcessId(window, &process);
+  if (process != GetCurrentProcessId()) return;
+  FarGrabSetTakeCarry(FarGrabTakeCarry() != 0 ? 0 : 1);
+  ControllersGesturePulse(0.5f, FarGrabTakeCarry() != 0 ? 0.30f : 0.08f);
+  ModLog("far grab    : Shift and Backspace: far_take_carry is %d now, frame "
+         "%llu. %s", FarGrabTakeCarry(), g_frame,
+         FarGrabTakeCarryWords(FarGrabTakeCarry()));
+}
+
 
 void PollNearKey() {
   // The test key near_test_flips: the rule changes between 1 and 2 at each
@@ -3572,9 +3604,12 @@ bool EndTakeNow(uint8_t* face) {
   g_take_end_time = NowSeconds();
   if (g_take_logs < kMaxTakeLogs) {
     ++g_take_logs;
-    ModLog("hand bulk    : the take still runs with the grip open, so the mod "
-           "ends it with %s. The interface action was %d and is %d, and the "
-           "take %s, frame %llu", how, before, *action,
+    ModLog("hand bulk    : %s, so the mod ends it with %s. The interface "
+           "action was %d and is %d, and the take %s, frame %llu",
+           g_take_end_test ? "the test key far_test_take_gone asks for the "
+                             "end of the take with the grip closed"
+                           : "the take still runs with the grip open",
+           how, before, *action,
            TakeObject(face) != nullptr ? "waits for the game" : "is over",
            g_frame);
   }
@@ -5763,6 +5798,7 @@ void LatchNearTarget() {
   g_near_target = g_one_target && g_glow_valid && g_choice != nullptr &&
                   !g_choice_far && State(g_hand) == kStateNormal &&
                   HandEmpty();
+  g_near_target_object = g_near_target ? g_choice : nullptr;
   if (!g_near_target) return;
   for (int i = 0; i < 3; ++i) g_near_target_center[i] = g_choice_center[i];
   g_near_target_radius = g_choice_radius;
@@ -6256,12 +6292,49 @@ bool Multiplayer() {
   return on;
 }
 
+// TEST (far_test_take_gone=N, for the desktop runs only). The game deletes a
+// pile that is used up in the game turn in which it ends the take, with the
+// grip still closed. The test makes that case with a pile that is not used
+// up. At game turn N of a take at a distance it asks for the end of the take
+// on each frame, as the grip machine does for a take that still runs with
+// the button up (EndTakeNow). The grip stays closed. In the frame in which
+// the take is over, the far grab gets the answer that its source is gone.
+// Before the far grab reads the frame, as the test that the target lives.
+void FarTestTakeGone() {
+  g_take_end_test = false;
+  if (g_far_test_take_gone <= 0 || g_face == nullptr) return;
+  if (!FarGrabTaking()) {
+    g_far_test_take_asked = false;
+    return;
+  }
+  if (TakeObject(g_face) != nullptr) {
+    if (g_take_turns < g_far_test_take_gone) return;
+    if (!g_far_test_take_asked) {
+      g_far_test_take_asked = true;
+      ModLog("far grab    : test key far_test_take_gone=%d: the take at a "
+             "distance is at game turn %d, so the test asks for its end with "
+             "the grip closed, frame %llu", g_far_test_take_gone,
+             g_take_turns, g_frame);
+    }
+    g_take_end_test = true;
+    if (g_owns) ++g_take_end_asks;
+    return;
+  }
+  if (!g_far_test_take_asked) return;
+  g_far_test_take_asked = false;
+  ModLog("far grab    : test key far_test_take_gone: the take is over, and "
+         "the far grab gets the answer that its source is gone, as for a "
+         "pile that the game deletes, frame %llu", g_frame);
+  FarGrabGone();
+}
+
 // The grab from a distance, once a frame: the facts of the frame go to
 // far_grab.cpp, and the cone and the selection latch what they need.
 void FarFrameStep(bool active) {
   g_far_ready = false;
   g_far_offer = false;
   g_far_ray = false;
+  FarTestTakeGone();
   // THE TARGET LIVES, or the far grab lets it go now. The mesh of a locked
   // target stays in the pick of this frame.
   g_far_keep_model = nullptr;
@@ -6782,6 +6855,17 @@ void HandDirectInstallTable() {
     ModLog("hand bulk    : test key bulk_test_no_keep=1, so the source of a "
            "take does not go back in the pick record and the mod ends no take");
   }
+  // A TAKE WHOSE SOURCE GOES AWAY: the test key far_test_take_gone=N ends a
+  // take at a distance at its game turn N with the grip closed, and tells the
+  // far grab that the source is gone. For the desktop run that shows who has
+  // the grip then (far_take_carry). Never for play.
+  g_far_test_take_gone = TestKey("far_test_take_gone");
+  if (g_far_test_take_gone > 0) {
+    ModLog("far grab    : test key far_test_take_gone=%d, so a take at a "
+           "distance ends at that game turn with the grip closed, and the far "
+           "grab gets the answer that its source is gone",
+           g_far_test_take_gone);
+  }
   // A GAME TURN NOW: release_at_once=0 leaves the game turns as they are.
   // With test_keys=1 the hook goes in for both values, so the A/B key can
   // turn the release at once on.
@@ -7208,6 +7292,8 @@ void HandDirectFrame() {
   PollNearKey();
   PollChoiceKey();
   PollStayKey();
+  PollTakeCarryKey();
+  TakeStreamFrame(g_frame);
   PollCatchKey();
   PollWideKey();
   LogRelease();
@@ -7501,6 +7587,19 @@ bool HandDirectNearTarget(float center[3], float* radius, float* half_height,
   *half_height = g_near_target_half;
   *acts = g_near_target_acts;
   return true;
+}
+
+// For hand_glow.cpp and target_glow.cpp: the object of that target, or null.
+// The answer is from the latch of this frame or of the frame before: the
+// glow on the mesh takes its targets before the eye passes of a frame, and
+// the latch of that frame comes in its first eye pass.
+void* HandDirectNearTargetObject(bool* acts) {
+  if (!g_near_target || !g_active || g_hand == nullptr ||
+      g_glow_frame + 1 < g_frame) {
+    return nullptr;
+  }
+  if (acts != nullptr) *acts = g_near_target_acts;
+  return g_near_target_object;
 }
 
 // For hand_glow.cpp, and for the hint card: what a press of the grip does at

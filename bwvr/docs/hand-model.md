@@ -24,7 +24,8 @@ about Half-Life: Alyx that this doc uses.
 | The mod's hands | `hand_model.cpp`, `hand_model_math.h`, `hand_model_file.cpp` |
 | Poses, curls, the overlay | `overlay.cpp`, `overlay_math.h` |
 | Fingers and the world | `hand_feel.cpp`, `hand_feel_math.h` |
-| The glow | `hand_glow.cpp` |
+| The glow at the Hand's point and the halos | `hand_glow.cpp` |
+| The glow on the mesh of a target | `target_glow.cpp`, `target_glow_math.h` |
 | Pulses | `haptics.cpp`, `haptics_math.h` |
 | The export tool | `bwvr/tools/hand_export/` |
 
@@ -1149,7 +1150,10 @@ Hand. The halo is gold, or red when the influence stops the press. The halo
 is as large as the body of its target. For a tall body it is an ellipse along
 the image of the upright axis. grab.md ("One target" and "The grab from a
 distance"), creature.md and miracles.md say when each halo shows. The halo
-of the target at the Hand draws also with `hand_glow=0`.
+of the target at the Hand draws also with `hand_glow=0`. By default the mesh
+of a target glows in the color of its halo, and the halo shows only for a
+target whose mesh does not glow (`target_glow=1`, "The glow on the mesh of a
+target").
 
 **How it is drawn** (`src/mod/hand_glow.cpp`):
 
@@ -1230,6 +1234,169 @@ and a hill in front must still hide it. Whether a one frame change of the look
 objects give the touch look: scrolls, signposts and buildings. On the
 desktop, a press at the edge of the view can start off the render while one
 eye shows gold.
+
+## The glow on the mesh of a target
+
+A target of the Hand shows with light on its own mesh, in the color that its
+halo has (`target_glow=1`, the default). The light has the outline and the
+depth of the object, so the land hides it only where the land hides the
+object. A halo is a flat disc around the base point of the object: the land
+cuts it, and it is beside a tall body or a body on a slope.
+
+**The targets and the colors.** `hand_glow.cpp` gives them (`Halos`,
+`HandGlowTargets`), and the halo uses the same list. So each rule of a halo
+is a rule of the glow: which object, and gold, red or green.
+
+| Target | Color |
+| --- | --- |
+| The target of the grip at the Hand's point, a far target, the target of a miracle, the thing that takes the object in the Hand | gold (255, 190, 40) |
+| The same targets when the influence or the game stops the press | red (255, 70, 50) |
+| The target of a Creature command | green (70, 255, 150) |
+
+**The look.** The mesh gets a share of that color on top of its texture. The
+share is the product of five numbers (`target_glow_math.h`):
+
+| Number | Value | Why |
+| --- | --- | --- |
+| The key `target_glow_pct` | 45 percent | The glow shows on a small villager |
+| The size | 1 for a mesh up to 3 units high in the world. Less for a higher mesh (the square root of 3 units over the height), and 0.55 at the least | The share that marks a villager makes a house one bright patch. A villager is 1.5 units high, a rock 2 to 3, a pile 3, a scroll 6, and a tree and the Village Store 13 |
+| The fade | 0 to 1 in 0.15 s, with a soft start and a soft end | A change of target has no jump. The old target fades out while the new one fades in |
+| The pulse | From 1 down to 0.7 and back in 1.8 s | A slow breath. It is never 0, so the target has its mark at each moment |
+| The wave | 1.5 in a band of light and 0.7 away from it, with a mean of 1. The band goes from the base of the mesh to its top in 1.5 s, and the next band then comes in at the base | The light is not flat: it moves over the mesh |
+
+The color of a target that stays the target can change, for example from
+gold to red at the edge of the influence. Each channel then goes to its new
+value in the time of the fade.
+
+Each number comes from the real time of the frame, so 72, 90 and 120 Hz have
+the same look. The mod takes the time, the targets and the fade one time a
+frame, before the eye passes. Both eyes get the same color for each vertex.
+The wave is a function of the height of a vertex in the world, not of its
+place on the screen, so it stays on the mesh when the head moves. Nothing
+moves in place or in size: only the color changes.
+
+**The halo with `target_glow=1`.** A target whose mesh glows in the frame has
+no halo. A target whose mesh did not come to the draw with the glow keeps its
+halo, so each target has a mark:
+
+- The Creature (`LH3DCreature::DrawNow`, `0x0048E260`) and a building in
+  work (`0x00517F90`) do not draw through the function that the mod hooks.
+- An object that the game draws as a picture far away has no mesh in the
+  draw.
+
+A target that is new in a frame has no halo in that frame: its mesh glows
+from the next frame on. The glow at the Hand's point is not a halo. It does
+not change.
+
+**How it works** (`src/mod/target_glow.cpp`). Each 3D object of the game has
+a color that Direct3D adds over the texture, the specular color at `+0x50`
+(the diffuse color is at `+0x4C`). The game uses it for haze, poison and
+fire, in the form `0xFF000000` and a saturating add. The vertices of the
+game have the format `0x1C4`, with a specular color in each vertex.
+
+1. `TargetGlowFrame` runs one time a frame in `stereo.cpp`, after the frame
+   functions of the hands and before the eye passes. It takes the targets,
+   the time, the fade and the pulse.
+2. Each draw of an object of the game goes through
+   `Game3DObject::AddForDrawing` (`0x0063B5D0`, a `__fastcall` with the 3D
+   object `[Object+0x40]` in `ecx` and the object of the game in `edx`). For
+   a target, the hook writes a color into `+0x50` before the game draws: the
+   color of the game plus the glow with no wave. The low 3 bits of blue hold
+   the number of the target (8 slots), so the color is also a mark.
+3. The vertex builders of the game copy that color into each vertex
+   (`fn_0084A6D0` at `0x0084A77A`, and the lit path `fn_0084BA90` at
+   `0x0084BEEC`). With a color at `+0x50`, `fn_0080DB30` takes the draw path
+   that uses it.
+4. The vertices come to `LH3DRender::DrawTriangle` (`0x0082F810`), and a
+   mesh that the engine clips comes to `LH3DRender::DrawAndClip`
+   (`0x0082A500`). `draw_hooks.cpp` gives each batch of the world to
+   `TargetGlowBatch`. A batch inside the call of `AddForDrawing` for a target
+   is a batch of that target: the game draws most meshes at once, in that
+   call. After the call, a batch whose first vertex has a mark is a batch of
+   that target: that is a mesh of the sorted list.
+5. Each vertex of the batch that a triangle uses and that has the mark gets
+   the wave. The mod finds the height of the vertex in the world from its
+   pixel and its `rhw` (`HeightFromScreen`), and writes the color for that
+   height. The game keeps vertices in the array that it did not project, with
+   camera space values, and no triangle uses them: the mod does not read
+   them. The base and the top of the mesh come from the vertices of the
+   frames before (`Follow`): a frame can make the known mesh larger at once,
+   and it makes the known mesh smaller by a tenth in a frame. So a mesh at
+   the edge of the view, which has fewer vertices in some frames, keeps a
+   calm wave and a calm size.
+6. The game can scale the color. The builder `fn_00856D40` draws a tree. For
+   a tree at the widest zoom of the God view it scales the specular color of
+   each projected vertex and writes the factor into its alpha: the mark
+   `32 25 08` comes to the draw as `FE 31 24 07`. So a vertex with an alpha
+   below `FF` has the mark when each channel is the channel of the mark times
+   alpha / 255, 1 more or less (`HasMark`). The new color gets the same
+   factor (`Faded`). A color of 0 is never a mark: in the call of a villager
+   the game also draws 8 vertices with a specular color of 0 or near 0.
+7. Direct3D adds the specular color of a vertex only while the render state
+   `SPECULARENABLE` is on. The game turns it on for a mesh that has a color
+   at `+0x50`, and dxwrapper gives the state to Direct3D 9. The mod does not
+   change the state. It reads the state for each batch of a target: the
+   vertices of a batch that comes with the state off do not count as a glow,
+   so that target keeps its halo.
+8. The right eye of one walk is a copy of these vertices with their colors.
+   With two walks, the second walk makes the same colors from the same
+   numbers.
+9. After the scene walk of each eye pass, `TargetGlowPassDone` puts the color
+   of the game back into each 3D object. An object of the sorted list draws
+   after its `AddForDrawing`, so the color stays to the end of the walk. When
+   the game wrote a different color in the walk, that color stays.
+
+The mod does not add a draw call or a pixel shader, and it changes no state
+of the device. The light is even on the texture: it does not follow the
+bright parts of the texture, and it does not go past the outline.
+
+**Keys.** `target_glow` (1): 0 gives the halo for each target and no glow on
+a mesh. 1 gives the glow, and a halo only for a target whose mesh does not
+glow. 2 gives the glow and the halo. `target_glow_pct` (45, 0 to 200): the
+strength. `target_glow_anim` (3): 0 is a steady glow, 1 the pulse, 2 the
+wave, 3 the pulse and the wave. The keys are not in the launcher.
+
+**The test key** (`test_keys=1`). Ctrl and Shift with the left square bracket
+key step `target_glow` from 1 to 0 to 2 and back to 1. The pointing
+controller gives a short pulse for 0, a long pulse for 1 and a longer pulse
+for 2. For a desktop run, `target_glow_test_keys` has up to 8 frames at which
+the test key acts, and `target_glow_log=N` gives a line for each target each
+N frames.
+
+**The log.** The tag is `target glow`. One line when the mesh of a target
+starts to glow, with the count of its vertices, the color and the height of
+the mesh in the world. One line when a target keeps its halo, with the
+reason. One line for each press of the test key. Each report window counts
+the targets, the frames with the glow, the frames with a halo and the
+vertices.
+
+**Tests.** The math test (`TargetGlowChecks`): the color of the game with
+more light stops at 255 and has full alpha, the fade has the same speed at
+72, 90 and 120 Hz, the pulse and the wave are never 0, the mean of the wave
+is 1, a large mesh gets less, each slot has its own mark, a vertex that the
+game fades has the mark and a color of 0 never has it, the height of a point
+comes back from its pixel within 0.02 units, two eyes get the same height for
+one point, the base and the top of the mesh, and the rule of the halo.
+
+On the desktop the pictures of both eyes show the glow on a rock, a
+villager, a bush, a pile and the Village Store, in gold, red and green. With
+one walk the right eye has the colors of its own walk: the two pictures of
+the right eye differ by 0.1 of 255 in the mean at the target. With two walks
+both eyes find the same heights for the mesh. For a tree and a scroll the log
+shows the vertices with the glow, and the mesh is too small in the pictures
+of those runs. In each run the game drew each mesh at once, in the call of
+`AddForDrawing`, and no mesh came through the clip of the engine. The frame
+cost measure (`bench_run.ps1`, a target in each scene) shows no difference
+between `target_glow=1` and `target_glow=0` that is larger than the spread
+of two runs.
+
+**Open.** No run has shown a mesh of the sorted list as a target, a mesh
+that comes through the clip of the engine, or a target by day: the test
+saves are at dusk. Only a headset shows these: whether 45 percent is right by
+day and by night, on a villager and on a house. Whether the pulse and the
+wave are calm enough at the size of the God view. Whether the Creature and a
+building in work, which keep the halo, look wrong beside a target that
+glows.
 
 ## Overlay renderer
 

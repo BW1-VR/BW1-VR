@@ -37,7 +37,7 @@
 #                shake. -Icon gives the seed type of a different icon (3 is
 #                Food, which pours as Water does).
 # The other kinds (charge, store, job, tree, throw, probe, workshop, site,
-# build, scaffold, choice) have a comment at their steps below.
+# build, scaffold, fartake, choice) have a comment at their steps below.
 param(
     [Parameter(Mandatory = $true)][string]$Name,
     [Parameter(Mandatory = $true)][string]$Dll,
@@ -182,6 +182,50 @@ if ($Kind -eq 'totem') {
                  'seek@1500+1 grip@1540+200 point@1620+1 shot@1850+1'
     }
     $keys = "$keys;village_test_scaffolds=2@930"
+} elseif ($Kind -eq 'fartake') {
+    # A take at a distance from a pile of the Village Store (bwvr/docs/grab.md,
+    # "A bulk source at a distance"). The God view goes to the store, and the
+    # hand goes to the height of the head: the Hand's point on the store turns
+    # the far grab off. The word "aimfar" aims at the nearest bulk source
+    # (seek_bulk=1), and the grip stays closed for 1500 frames. The test key
+    # far_test_take_gone=30 ends the take at its game turn 30 with the grip
+    # closed, and tells the far grab that the source is gone, as for a pile
+    # that the game deletes when it is used up. The lines "grip" and "hand
+    # pick" then show who has the bundle: the grip carries it to the end of
+    # the run, or with -Set "far_take_carry=0" the Hand lets it go at once.
+    #
+    # A take that the grip ends: -Set "far_test_take_gone=0" with
+    #   -Steps "<the steps below with grip@1080+180 and shot@2400+1>"
+    # The bundle then stays in the Hand with the grip open.
+    #
+    # The sound of the take: the lines "audio take" have the start and the
+    # stop of the loop (sample 44 of the in game bank for food, 98 for wood),
+    # or the refusal of the game with -Set "audio_take_loop=0". With
+    # audio_trace=1 the lines "audio play" and "audio chan" have what the DLL
+    # sent to QMixer. With audio_capture=1 the mod writes the stream to
+    # bwvr-audio.wav in the game folder, and each line "audio take" ends with
+    # the frame of that file. Take the file out of the game folder after the
+    # run.
+    #
+    # The stream of the take: the lines "take stream" have its start (the
+    # source, its top, the Hand, the length of the way) and its end (the
+    # count of the pieces that the mod placed), or with -Set "take_stream=0"
+    # that the pieces are on the line of the game. Eye pictures of a take
+    # that the grip ends, with pictures while it runs:
+    #   -Set "far_test_take_gone=0" -Steps "<the steps below with
+    #   grip@1080+400 and shot@1140+1 shot@1180+1 shot@1220+1 shot@1300+1>"
+    #
+    # far_grab_choice=0 and far_touch=0: a villager or a scroll near the line
+    # of the aim does not take the halo from the pile.
+    if ($Plan -eq '') { $Plan = 'gostore' }
+    if ($Census -eq '') { $Census = '890' }
+    if ($Seconds -eq 0) { $Seconds = 80 }
+    $points = '0,-30,60 0,0,45'
+    if ($Steps -eq '') {
+        $Steps = $pre + 'seek@920+1 point@1000+1 aimfar@1040+1 shot@1070+1 grip@1080+1500 ' +
+                 'shot@1200+1 shot@2500+1'
+    }
+    $keys = "$keys;seek_bulk=1;far_test_take_gone=30;far_grab_choice=0;far_touch=0"
 } elseif ($Kind -eq 'choice') {
     # The choice of a far target (bwvr/docs/grab.md, "The cone and the
     # choice"). The God view goes to the Village Store. The word "aimfar"
@@ -249,6 +293,12 @@ $pattern = '^village      :|^miracle      : (?!miracle_)|^hand pick    : seek pl
            '^hand         : state|^gesture      : (the draw|the game)|^controllers  : the right button press started off|^grip         :|^hand (throw|drop|hold|take) *:'
 if ($Kind -eq 'choice') {
     $pattern = '^far grab    : (far_grab_choice|far_grab_stay|the cone of a living|target|no target|the target \S+ \(\w+\) keeps|test: (aimfar|the tree))|^hand pick    : seek plan'
+}
+if ($Kind -eq 'fartake') {
+    $pattern = '^far grab    : (far_take_carry|test|target|the grip closed|the grip goes|the game takes|the take|the target \S+ is gone|the \w+ ends|\d+ targets were deleted)|' +
+               '^hand bulk    : (the game|the bulk take ends|the amount in the Hand is \d+ after (10|20|30|50|100) game|test key|the take|the test key)|' +
+               '^hand pick    : (seek plan|the Hand holds)|^hand press   : the grip pressed|^grip         : (?!\d)|^hand throw   : (release|the object left)|' +
+               '^audio play   : .* in game (44|98),|^audio chan   : .* in game (44|98) |^audio take   :|^take stream  :'
 }
 $cards = @{}
 Get-Content $log | Where-Object { $_ -match $pattern -or $_ -match '^hint card    : frame \d+, the card of the right hand: (.*?)\. \d' } | ForEach-Object {

@@ -58,6 +58,16 @@ The launcher saves your settings, starts the game in the headset,
 and closes. "Play, new game" does the same and starts a new game.
 "Save" keeps your settings and does not start the game.
 
+A new game opens the start dialog of the game. You can play the
+tutorial of the game in VR, but it is made for the mouse and the
+keyboard of the original game. We recommend that you skip it: select
+"Skip straight to the Creature select" in the start dialog.
+
+"Play, no VR" starts the game on the monitor, without the headset.
+The game is full screen, at the size of your desktop, and the mod
+does nothing in it. The launcher closes its window and waits for the
+end of that game. Then it sets the game for the headset again.
+
 The game shows its logos when it starts. To skip them, press a
 trigger or A, B, X or Y on a controller. Esc and a mouse click skip
 them too.
@@ -77,9 +87,9 @@ THE SETTINGS
 
 The launcher shows five groups.
 
-  Picture         How big a picture each eye gets, how sharp the
-                  textures are, and how far out models keep their
-                  full detail.
+  Picture         How big a picture each eye gets, a margin around
+                  the view, how sharp the textures are, and how far
+                  out models keep their full detail.
 
   View            The play mode and the intro in stereo. The default
                   play mode is the God view (see below).
@@ -205,6 +215,12 @@ change their level (100 is the level as made).
 The advisors and the speech of a story sound as the game made them.
 Set audio_mixer=0 in bwvr.ini to let the sound system of the game
 (QMixer) pan each sound, with no mixing by the mod.
+
+While your Hand collects food or wood, the game plays a sound that
+becomes higher as the take becomes faster. The mod starts that sound
+by the distance from your head. Set audio_take_loop=0 in bwvr.ini to
+let the camera of the game decide: in the God view the take then has
+no sound.
 
 When a sound stops, the sound system of the game holds the picture
 for 20 ms. The mod skips that wait for each sound that it plays, so
@@ -490,12 +506,21 @@ THE HAND AND THE OBJECTS
 ------------------------
 
 With the direct hand, the Hand acts from one point: the tip of your
-index finger. Put that point on an object, or at most 4 cm from it. A
-gold halo then shows around the object, and a glow shows at your
-finger tip. Close the grip, and the Hand acts on the object with the
-halo, and on no other object. With no halo and no glow, a press of the
-grip does nothing. An object at your palm or at your wrist is not
-taken. Set hand_pick_cm in bwvr.ini to change the distance.
+index finger. Put that point on an object, or at most 4 cm from it.
+The object then glows gold, and a glow shows at your finger tip. That
+gold light on the object is its halo. Close the grip, and the Hand
+acts on the object with the halo, and on no other object. With no halo
+and no glow, a press of the grip does nothing. An object at your palm
+or at your wrist is not taken. Set hand_pick_cm in bwvr.ini to change
+the distance.
+
+The halo is light on the object itself. It gets brighter and less
+bright slowly, and a band of light goes up the object. Your Creature
+and a building in work do not glow: their halo is a disc of light
+around them. Set target_glow=0 in bwvr.ini for a disc around each
+object, or target_glow=2 for the glow and the disc. Set
+target_glow_pct (45) for a stronger or a weaker glow, and
+target_glow_anim=0 for a glow that does not change.
 
 An object that you can hold, for example a rock, is also taken from
 farther: up to 15 cm from your finger tip, when no other object that a
@@ -563,8 +588,8 @@ behind you.
 THE FAR GRAB
 ------------
 
-To take an object that is out of reach, point your hand at it. A gold
-halo shows around the object, and the controller gives a short tick.
+To take an object that is out of reach, point your hand at it. The
+object gets its gold halo, and the controller gives a short tick.
 Close the grip and a thin line shows from your Hand to the object. Then
 pull your hand toward your head. The object glides to your Hand, and
 the grip carries it. Open the grip before you pull to cancel. The halo
@@ -599,7 +624,14 @@ distance. The value 0 gives no limit.
 
 A pile of food or wood of a store, a field and a fish farm are far
 targets too. Point at one and keep the grip closed to collect from a
-distance. Open the grip to stop.
+distance. Open the grip to stop. When the pile is used up while the
+grip is closed, the grip carries the bundle, and the next opening of
+the grip puts it down. With far_take_carry=0 in bwvr.ini the Hand
+lets the bundle go when such a pile is used up.
+
+While you collect from a distance, the pieces of food or wood go up
+out of the pile and along a curve into your Hand. With take_stream=0
+in bwvr.ini they come out of the land under your Hand.
 
 A forest is a far target too. Point at it, close the grip and pull:
 one tree comes to your Hand. You can also put your Hand in the forest
@@ -744,7 +776,7 @@ milliseconds (350). Set creature_stay_look=0 if your Creature must not
 look at your hand.
 
 While the leash is on your Creature, the trigger commands it. Point
-your hand at an object: a green halo shows around it. Press the
+your hand at an object: the object gets a green halo. Press the
 trigger, and your Creature goes to the object and acts on it. An object
 that your Hand touches is a target too: put the glow on it and press
 the trigger. A far object outside your influence has a red halo with no
@@ -932,6 +964,11 @@ the two pictures then do not join.
 
 The frame rate drops in busy scenes. If it gets too low, lower the
 resolution scale, or bring the model detail distance in.
+
+The edge of the view can show black when you turn your head fast. Set
+"Margin around the view" in the launcher (key fov_margin_pct). The
+game then draws more on each side. A margin costs frame time, so use
+the smallest one that helps.
 
 
 SUPPORT

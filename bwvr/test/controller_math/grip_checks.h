@@ -177,6 +177,66 @@ inline void TakeRuleChecks() {
         "and the step asks for no end of the mouse's take", 0, 0);
 }
 
+// A TAKE AT A DISTANCE WHOSE SOURCE GOES AWAY (docs/grab.md, "A bulk source at
+// a distance"). The game ends the take and deletes a pile that is used up in
+// one game turn, with the grip closed. FarHoldsBack says whether the far grab
+// then holds the grip back, and the grip machine shows what each answer does.
+inline void FarTakeChecks() {
+  using namespace controller_math;
+  printf("\nA take at a distance whose source goes away\n");
+  Check(!FarHoldsBack(true, true, true),
+        "the Take state ends with the grip closed: the grip stays with the "
+        "grip machine (far_take_carry=1)", 0, 0);
+  Check(FarHoldsBack(true, true, false),
+        "with far_take_carry=0 the far grab holds the grip back", 1, 1);
+  Check(FarHoldsBack(true, false, true) && FarHoldsBack(true, false, false),
+        "a lock, a pull or a fetch that ends with the grip closed holds it "
+        "back with each value of the key", 1, 1);
+  Check(!FarHoldsBack(false, true, true) && !FarHoldsBack(false, true, false) &&
+            !FarHoldsBack(false, false, true),
+        "an open grip is never held back", 0, 0);
+
+  GripRun run;
+  const GripFacts empty = Facts(false, true);
+  const GripFacts held = Facts(true, true);
+  const GripFacts take = TakeFacts();
+
+  // The grip stays with the machine: the grip is closed in the frame after
+  // the take, and it carries the bundle.
+  GripStart(&run);
+  GripFrames(&run, 1, true, empty);
+  GripFrames(&run, 300, true, take);
+  int e = GripFrames(&run, 1, true, held);
+  Check((e & kGripCarried) != 0 && (e & (kGripLate | kGripClickDown)) == 0 &&
+            run.hold.phase == kGripCarry && !run.out.button,
+        "the machine sees the closed grip after the take: the grip carries "
+        "the bundle, with no click", e, kGripCarried);
+  e = GripFrames(&run, GripTestFrames(15000), true, held);
+  Check(e == 0 && run.hold.phase == kGripCarry && !run.out.button &&
+            !run.out.click,
+        "the grip carries the bundle for 15 s with no button and no click",
+        e, 0);
+  e = GripFrames(&run, 1, false, held);
+  Check((e & kGripLettingGo) != 0 && (e & kGripClickDown) != 0,
+        "and the opening of the grip lets the bundle go, as for each object",
+        e, kGripLettingGo | kGripClickDown);
+
+  // The far grab holds the grip back: the machine sees an open grip in the
+  // frame after the take. That is the opening of a press whose object came
+  // late, so the machine lets the bundle go with its click.
+  GripStart(&run);
+  GripFrames(&run, 1, true, empty);
+  GripFrames(&run, 300, true, take);
+  e = GripFrames(&run, 1, false, held);
+  Check((e & kGripLate) != 0 && run.hold.phase == kGripLetGo,
+        "the machine sees an open grip in the frame after the take: the "
+        "bundle is a late object to let go", e, kGripLate);
+  e |= GripFrames(&run, 2, false, held);
+  Check((e & kGripClickDown) != 0,
+        "and the click of the machine drops the bundle, with the real grip "
+        "closed", e & kGripClickDown, kGripClickDown);
+}
+
 // THE GRIP OPENS AT ONCE: GripLevelStep.
 inline void LevelChecks() {
   using namespace controller_math;
@@ -689,6 +749,7 @@ inline void PressHoldChecks() {
 
 inline void GripRuleChecks() {
   TakeRuleChecks();
+  FarTakeChecks();
   LevelChecks();
   PressHoldChecks();
   RangeChecks();

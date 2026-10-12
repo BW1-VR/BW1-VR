@@ -18,7 +18,9 @@ function Get-BwvrGame {
 # least one time. Else the reason. The launcher writes bwvr.ini and gives the
 # game its display size (a value of the game in the registry, which a test
 # only reads). Before that the game renders 800 by 600 and has no settings
-# file, and no recipe of the scripted controller fits.
+# file, and no recipe of the scripted controller fits. A game that is set to
+# full screen is a reason too: its picture is over each window of the PC, and
+# the launcher sets a window with "Play in VR".
 function Test-BwvrFirstStart([string]$Game) {
     if (-not (Test-Path -LiteralPath (Join-Path $Game 'bwvr.ini'))) {
         return 'there is no bwvr.ini in the game folder'
@@ -26,6 +28,9 @@ function Test-BwvrFirstStart([string]$Game) {
     $setup = Get-ItemProperty 'HKCU:\Software\Lionhead Studios Ltd\Black & White\BWSetup' -ErrorAction SilentlyContinue
     if (-not $setup -or -not $setup.ScreenW -or [int]$setup.ScreenW -lt 1024) {
         return 'the game has no display size from the launcher yet (it renders 800 by 600)'
+    }
+    if ($null -eq $setup.FullScreen -or [int]$setup.FullScreen -ne 0) {
+        return 'the game is set to full screen in the registry'
     }
     return ''
 }

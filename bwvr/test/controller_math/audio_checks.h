@@ -284,6 +284,45 @@ void AudioChecks() {
          am::RangeDistance(ears, portal, 0.0f), 306.0, 0.1);
   }
 
+  printf("Sound in the room: the loop of a bulk take\n");
+  {
+    // The God view at 100 units a meter, with the game camera of the checks
+    // above. The Hand is 58 cm from the head. The loop of a take has no
+    // object, the game asks for it at the Hand, and its maximum is 180 units.
+    const float camera[3] = {1000.0f, 400.0f * 0.7660f,
+                             1000.0f - 400.0f * 0.6428f};
+    const float ears[3] = {1000.0f, 60.0f, 1000.0f};
+    const float hand[3] = {1000.0f, 30.0f, 1050.0f};
+    const float max = 180.0f;
+    const float k = am::RoomFactor(100.0f, 40.0f, 0.05f, 100.0f);
+    const float game = am::RangeDistance(camera, hand, 1.0f);
+    const float head = am::RangeDistance(ears, hand, 1.0f);
+    Near("the game camera is 413 units from the Hand", game, 413.2, 0.5);
+    Check(!am::RangeStarts(game, max),
+          "the test of the game refuses the loop on each game turn", game,
+          max);
+    Near("the Hand is 58 units from the head", head, 58.3, 0.1);
+    Check(am::TakeLoopStart(true, true, head, k, max) == am::kTakeLoopStart,
+          "the ears start the loop (audio_take_loop=1)",
+          am::TakeLoopStart(true, true, head, k, max), am::kTakeLoopStart);
+    Check(am::TakeLoopStart(false, true, head, k, max) == am::kTakeLoopGame,
+          "with audio_take_loop=0 the test of the game decides",
+          am::TakeLoopStart(false, true, head, k, max), am::kTakeLoopGame);
+    Check(am::TakeLoopStart(true, false, head, k, max) == am::kTakeLoopGame,
+          "when the ears do not decide (a story, the ears on the game "
+          "camera), the test of the game decides",
+          am::TakeLoopStart(true, false, head, k, max), am::kTakeLoopGame);
+    Check(am::TakeLoopStart(true, true, -1.0f, k, max) == am::kTakeLoopGame,
+          "with no place of the ears the test of the game decides",
+          am::TakeLoopStart(true, true, -1.0f, k, max), am::kTakeLoopGame);
+    Check(am::TakeLoopStart(true, true, max * k * 0.99f, k, max) ==
+              am::kTakeLoopStart &&
+              am::TakeLoopStart(true, true, max * k * 1.01f, k, max) ==
+                  am::kTakeLoopRefuse,
+          "the loop starts to 4.5 m of the room from the head, and not past "
+          "it", max * k / 100.0f, 4.5);
+  }
+
   printf("Sound in the room: a loop out of range keeps its slot\n");
   Check(am::SlotReserve(16) == 8, "of 16 slots, 8 are the reserve",
         am::SlotReserve(16), 8);

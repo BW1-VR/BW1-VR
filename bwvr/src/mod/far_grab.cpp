@@ -56,7 +56,9 @@
 // (stay_math::Step). The target does not change in that time.
 //
 // A grip that is closed when a lock or a fetch ends stays held back until it
-// opens, so it never reaches the grip machine as a new press on the land.
+// opens, so it never reaches the grip machine as a new press on the land. The
+// end of the Take state does not hold the grip back: the grip machine has the
+// grip there, and it carries the bundle (controller_math::FarHoldsBack).
 //
 // A TARGET THAT MOVES OR DIES. The lock keeps the pointer of the object, and
 // the game can delete the object before the pull: a rock that sinks in the
@@ -127,6 +129,9 @@ bool g_hooked = false;
 int g_state = kIdle;
 FarPick g_pick = {};
 bool g_have_pick = false;
+// The class of the target. The caller writes a new name to its own buffer at
+// each selection, so the far grab keeps its copy.
+char g_pick_name[48] = "";
 FarFrame g_f = {};
 bool g_have_frame = false;
 
@@ -184,6 +189,7 @@ uint64_t g_far_leashes = 0;
 uint64_t g_far_stays = 0;
 uint64_t g_forest_trees = 0;
 uint64_t g_gone = 0;
+uint64_t g_gone_takes = 0;  // of them, in the Take state with the grip closed
 // Where the target was at the lock, for the log of how far it moved.
 float g_lock_at[3] = {0.0f, 0.0f, 0.0f};
 
@@ -200,6 +206,13 @@ double Meters(const float a[3], const float b[3]) {
   return sqrt(dx * dx + dy * dy + dz * dz);
 }
 
+// True when the state that ends now must hold a closed grip back until it
+// opens (controller_math::FarHoldsBack, the key far_take_carry).
+bool HoldsBackNow() {
+  return controller_math::FarHoldsBack(g_pump_grip, g_state == kTake,
+                                       g_set.take_carry != 0);
+}
+
 // Cancel a lock, a pull or a fetch. A grip that is still closed stays held
 // back until it opens.
 void Cancel(const char* why) {
@@ -213,7 +226,7 @@ void Cancel(const char* why) {
     ModLog("far grab    : the %s ends: %s, frame %llu", kStateName[g_state], why,
            g_f.frame);
   }
-  if (g_pump_grip) g_hold_open = true;
+  if (HoldsBackNow()) g_hold_open = true;
   g_state = kIdle;
   g_have_pick = false;
 }
@@ -374,6 +387,7 @@ void FarGrabSetOptions(const FarGrabSettings& settings) {
   g_set.stay = g_set.stay != 0 ? 1 : 0;
   if (!(g_set.stay_deg >= 0.0f)) g_set.stay_deg = 0.0f;
   if (g_set.stay_deg > 20.0f) g_set.stay_deg = 20.0f;
+  g_set.take_carry = g_set.take_carry != 0 ? 1 : 0;
   if (!g_set.on) {
     ModLog("far grab    : far_grab=0, the Hand takes only what it touches");
   } else {
@@ -392,6 +406,8 @@ void FarGrabSetOptions(const FarGrabSettings& settings) {
     ModLog("far grab    : far_grab_stay=%d. %s. The margin is %.1f degrees "
            "(far_grab_stay_deg)", g_set.stay, FarGrabStayWords(g_set.stay),
            g_set.stay_deg);
+    ModLog("far grab    : far_take_carry=%d. %s", g_set.take_carry,
+           FarGrabTakeCarryWords(g_set.take_carry));
     if (g_set.max_m > 0.0f) {
       ModLog("far grab    : a target is at most %.2f m of the room from the "
              "head, along the floor (far_grab_max_m). A pile of a store, a "
@@ -420,6 +436,8 @@ float FarGrabBallOtherDeg() { return g_set.ball_other_deg; }
 int FarGrabStay() { return g_set.stay; }
 void FarGrabSetStay(int stay) { g_set.stay = stay != 0 ? 1 : 0; }
 float FarGrabStayDeg() { return g_set.stay_deg; }
+int FarGrabTakeCarry() { return g_set.take_carry; }
+void FarGrabSetTakeCarry(int carry) { g_set.take_carry = carry != 0 ? 1 : 0; }
 
 const char* FarGrabChoiceWords(int choice) {
   switch (choice) {
@@ -461,6 +479,17 @@ const char* FarGrabStayWords(int stay) {
              : "The halo goes to a different thing when its score is 2 "
                "degrees lower, and a living thing has its rank only in its "
                "cone";
+}
+
+const char* FarGrabTakeCarryWords(int carry) {
+  return carry != 0
+             ? "When the source of a take at a distance goes away while the "
+               "grip is closed, the grip machine keeps the grip, and the grip "
+               "carries the bundle"
+             : "When the source of a take at a distance goes away while the "
+               "grip is closed, the far grab holds the grip back until it "
+               "opens. The grip machine then sees an open grip and lets the "
+               "bundle go";
 }
 
 void FarGrabInstall() {
@@ -626,6 +655,8 @@ void FarGrabSelect(const FarPick& pick) {
   const bool changed = !g_have_pick || pick.object != g_pick.object;
   const bool was_inside = g_have_pick && g_pick.inside;
   g_pick = pick;
+  strcpy_s(g_pick_name, pick.name != nullptr ? pick.name : "unknown");
+  g_pick.name = g_pick_name;
   g_have_pick = true;
   g_state = kAim;
   if (changed) {
@@ -665,7 +696,22 @@ bool FarGrabLocked() {
          g_state == kTake || g_state == kHold;
 }
 
+bool FarGrabTaking() { return g_state == kTake; }
+
 void* FarGrabTargetObject() { return g_have_pick ? g_pick.object : nullptr; }
+
+bool FarGrabTakeSource(FarTakeSource* out) {
+  if (!g_set.on || !g_have_frame || !g_have_pick || !g_pick.bulk) return false;
+  // The press goes to the game in Pull and Fetch, and the game starts the
+  // stream in the game turn of the press, before FarGrabFrame reads the take.
+  if (g_state != kPull && g_state != kFetch && g_state != kTake) return false;
+  out->object = g_pick.object;
+  out->vtable = g_pick.vtable;
+  out->name = g_pick.name;
+  for (int i = 0; i < 3; ++i) out->position[i] = g_pick.position[i];
+  out->units_per_meter = g_f.units_per_meter;
+  return true;
+}
 
 bool FarGrabTargetFacts(void** object, void** vtable, const void** model) {
   if (!g_have_pick) return false;
@@ -699,16 +745,33 @@ void FarGrabTrack(const float position[3], const float land[2], bool inside) {
 void FarGrabGone() {
   if (!g_have_pick) return;
   ++g_gone;
+  const bool locked = g_state == kLock || g_state == kPull ||
+                      g_state == kFetch || g_state == kTake ||
+                      g_state == kHold;
+  const bool holds_back = locked && HoldsBackNow();
+  // THE SOURCE OF A TAKE IS GONE WITH THE GRIP CLOSED: the game deletes a
+  // pile that is used up, in the game turn in which it ends the take.
+  const bool take_closed = g_state == kTake && g_pump_grip;
+  if (take_closed) ++g_gone_takes;
   if (LogRoom()) {
     ModLog("far grab    : the target %p is gone: the game deleted the object "
-           "in the %s state. The mod lets it go and does not read it again, "
-           "frame %llu", g_pick.object, kStateName[g_state], g_f.frame);
+           "in the %s state. The mod lets it go and does not read it again. "
+           "%s, frame %llu", g_pick.object, kStateName[g_state],
+           !g_pump_grip ? "The grip is open"
+           : holds_back && take_closed
+                 ? "The grip is closed, and the far grab holds it back until "
+                   "it opens, so the grip machine sees an open grip "
+                   "(far_take_carry=0)"
+           : holds_back ? "The grip is closed, and the far grab holds it back "
+                          "until it opens"
+           : take_closed ? "The grip is closed and stays with the grip "
+                           "machine, which carries the bundle "
+                           "(far_take_carry=1)"
+                         : "The grip is closed and stays with the grip machine",
+           g_f.frame);
   }
   if (g_glide.object == g_pick.object) g_glide.armed = false;
-  if (g_state == kLock || g_state == kPull || g_state == kFetch ||
-      g_state == kTake || g_state == kHold) {
-    if (g_pump_grip) g_hold_open = true;
-  }
+  if (holds_back) g_hold_open = true;
   if (g_state == kHold) {
     CreatureStayGone();
     g_press = stay_math::Press();
@@ -936,6 +999,7 @@ bool FarGrabDrawState(FarDraw* out) {
   out->land[0] = g_pick.land[0];
   out->land[1] = g_pick.land[1];
   out->units_per_meter = g_f.units_per_meter;
+  out->target = g_pick.object;
   return out->units_per_meter > 0.0f;
 }
 
@@ -943,8 +1007,10 @@ void FarGrabReport() {
   CreatureStayReport();
   if (g_gone != 0) {
     ModLog("far grab    : %llu targets were deleted by the game while the mod "
-           "held them, this window", g_gone);
-    g_gone = 0;
+           "held them, %llu of them the source of a take with the grip closed "
+           "(far_take_carry=%d), this window", g_gone, g_gone_takes,
+           g_set.take_carry);
+    g_gone = g_gone_takes = 0;
   }
   if (g_targets == 0 && g_locks == 0 && g_cancels == 0 && g_refused == 0) {
     return;

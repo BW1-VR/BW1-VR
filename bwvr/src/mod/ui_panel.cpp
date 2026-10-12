@@ -1027,7 +1027,8 @@ void UiPanelToggle() {
   ModLog("test key     : %s", ModeName(g_mode));
 }
 
-// Ctrl Shift Pause with test_keys=1: the read ahead of the subtitle card goes
+// Ctrl Shift Right bracket with test_keys=1, and
+// subtitle_read_ahead_test_seconds: the read ahead of the subtitle card goes
 // off and on, for a live A/B. A copy from before the key does not show. A
 // long pulse says that the read ahead is on, a short pulse that it is off.
 void UiPanelSubtitleReadAheadToggle(const char* keys) {

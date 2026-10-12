@@ -243,6 +243,27 @@ is built, and no test has proven it.
     color over the picture at the end of a frame", has the two full screen
     draws of the end of a frame. The listing shows both in each eye pass on
     the land.
+- **B19. A take at a distance from a pile of a miracle.** When the Hand
+  takes all of such a pile at a distance, the game deletes the pile, and the
+  grip must carry the load (`far_take_carry`, `grab.md`, "A bulk source at a
+  distance"). The desktop runs make the case with a test key and a pile of
+  the store. Open: a headset session with the pile of a wood or a food
+  miracle.
+- **B20. The loop of a bulk take.** In the God view the ears decide the
+  start of the loop that the game plays while the Hand takes wood or grain
+  (`audio_take_loop`, `audio.md`, 6.4), and a desktop run has the loop in the
+  stream. Open: only a person can hear the loop and say how loud it is
+  beside the other sounds. Each other sound that the game asks for at the
+  Hand with no object keeps the test of the game camera (`audio.md`,
+  section 12).
+- **B21. A failed start of the headset session can stop the game.** With no
+  headset, each try to start a session ends in `XrScreen::Stop`. One time,
+  in a full screen game, the frame thread did not come back from the first
+  try: the log stopped after the line "Connect the headset in Virtual
+  Desktop, then start the game.". The cause is not known, and no run has
+  repeated it. A full screen game makes no try (`vr_full_screen=0`), and a
+  game with `vr=0` makes none. A game in a window with no headset makes a
+  try each 3 seconds for 2 minutes.
 
 B1b, B2, B4 and B11 are one package: a thing that is held, thrown, or
 that moves while the Hand takes it.
@@ -348,6 +369,58 @@ that moves while the Hand takes it.
   Not run: a small push of the stick, a hill at the new place of the head,
   the edge of the map, a push with the switch for the drag off, an Index
   controller, and a controller with no face buttons.
+- **P14. The stream of a take at a distance: check it in a headset.** In a
+  take at a distance the pieces of wood or grain go on a curve from the top
+  of the source to the Hand (`take_stream`, `grab.md`, "The stream of a take
+  at a distance"). Desktop runs show the curve from a pile of wood of the
+  Village Store, with the Hand 0.27 m to the side of the pile and 0.5 m over
+  it. Open:
+  - Only a headset can show whether the curve reads well in depth, and how
+    it looks with a hand that moves. The test key is Ctrl, Shift and the
+    minus key.
+  - A piece lives 1 s for each length of the way, and 8 pieces start in a
+    second. So on a way of 2 m the pieces are 25 cm apart, and they go 2 m
+    in a second. If that does not read well, the rule has both values
+    (`RaiseTime` at `+0x2C`, `EmitRate` at `+0x30`), and the hook can change
+    them for a take at a distance.
+  - No run has shown the stream from a pile of food, a field, a fish farm or
+    the pile of a miracle, a way that is long along the floor, and a pile
+    that goes down in the take.
+- **P15. The glow on the mesh of a target: check it in a headset, and the
+  targets that keep the halo.** The mesh of a target of the Hand glows in
+  the color of its halo, with a pulse and a band of light that goes up the
+  mesh (`target_glow=1`, `hand-model.md`, "The glow on the mesh of a
+  target"). Desktop runs show it in both eyes on a rock, a villager, a bush,
+  a pile and the Village Store. Open:
+  - Only a headset shows whether the strength is right by day and by night
+    (`target_glow_pct`, 45), whether the pulse and the band of light are calm
+    enough at the size of the God view, and whether a small target needs
+    more than the light on its mesh. The test key steps `target_glow`
+    through the glow, the halo and both.
+  - The Creature (`LH3DCreature::DrawNow`, `0x0048E260`) and a building in
+    work (`0x00517F90`) do not draw through `Game3DObject::AddForDrawing`.
+    They keep the halo. Wanted: the glow on their mesh.
+  - An object that the game draws as a picture far away keeps the halo.
+  - No run has shown a mesh of the sorted list as a target, a mesh that
+    comes through the clip of the engine (`LH3DRender::DrawAndClip`), or a
+    target by day.
+  - The light is even on the mesh. A glow that follows the bright parts of
+    the texture needs a second draw of the triangles with additive blend.
+    Not built.
+- **P16. The margin around the view: check it in a headset.** "Margin around
+  the view" in the launcher (`fov_margin_pct`, 0 to 30, default 0) makes the
+  render go past the view of the headset on each side (`backend.md`, "A
+  margin around the view"). No run has shown it: a desktop run has no
+  headset, and only a session with a headset reads the key. Check in a
+  headset:
+  - That the world keeps its place and its scale with a margin, and that the
+    Hand and the pointer are where the controller is.
+  - That a fast turn of the head shows less black at the edge, and which
+    margin is enough at 90 Hz and at 120 Hz.
+  - The cost in frame time (`profile=1`).
+  - The interface in the eye pictures (the Creature panel, a tooltip): with a
+    margin it is larger and farther from the middle. Not known: whether that
+    needs a correction.
 - **P5. Hand tracking.** The player plays with the hands and no
   controllers: the Hand follows the real hand and its fingers, one to one,
   as it follows a controller. First find what the headset gives to the
@@ -561,3 +634,11 @@ that moves while the Hand takes it.
 - **R9. No recipe shows a stay that stops a walk.** `creature_recipe.ps1
   -Kind stay` makes three stays of a Creature that stands (`creature.md`,
   6.2). A grip from a distance in the walk of `-Kind tie` can show it.
+- **R10. Two test keys on one key.** Ctrl and the 9 key of the number pad is
+  the test key of `creature_palm_point` (`hand_direct.cpp`) and of the take
+  from a forest (`forest_take.cpp`). The keys of the keyboard that no code
+  of the game or of the mod reads are few: a new test key needs a search
+  first (`backend.md`, the hotkey table).
+- **R11. The log of the far grab stops in a long session.** The far grab
+  writes 200 lines at most, so in a long session only its report counters
+  stay.

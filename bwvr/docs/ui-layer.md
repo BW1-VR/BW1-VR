@@ -1138,7 +1138,8 @@ rig. `subtitle_selftest=1` draws two lines of help text in the HelpText scope
 with the game's own text code (`SubtitleSelfTest`), because a desktop run shows
 no subtitle. With `test_keys=1` and `ui_panel=0`, Ctrl Shift F11 switches
 between the cards and the eye pictures, for a live comparison. With
-`test_keys=1`, Ctrl Shift Pause turns `subtitle_read_ahead` off and on.
+`test_keys=1`, Ctrl Shift Right bracket turns `subtitle_read_ahead` off and
+on.
 `subtitle_read_ahead_test_seconds=N` (5 to 600) does the same each N seconds
 while the card is in use, with the same pulses, for a comparison in the
 headset with no keyboard. A save of the launcher removes this key.

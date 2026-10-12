@@ -88,6 +88,8 @@ bool g_ready = false;     // and everything needed for it exists
 // Captured from the backend as it builds its device.
 IDirect3DDevice9* g_device = nullptr;
 IDirect3DDevice9Ex* g_device_ex = nullptr;
+// The newest device of the backend is a full screen one.
+bool g_full_screen = false;
 
 // One shared texture per eye. Two, not one, because the Direct3D 11 copy of
 // the left eye is still queued when the right eye is captured, and a single
@@ -603,6 +605,7 @@ void TakeDevice(IDirect3DDevice9* device,
                 const D3DPRESENT_PARAMETERS* present) {
   if (device == nullptr) return;
   if (present != nullptr) {
+    g_full_screen = !present->Windowed;
     ModLog("gpu bridge   : the backend made a device, %ux%u %s",
            present->BackBufferWidth, present->BackBufferHeight,
            present->Windowed ? "in a window"
@@ -818,6 +821,9 @@ void GpuBridgeInstall() {
 
 // True once a 9Ex device has been captured, so the shared path is possible.
 bool GpuBridgeHasDevice() { return g_device_ex != nullptr; }
+
+// True when the newest device of the backend is a full screen one.
+bool GpuBridgeFullScreen() { return g_full_screen; }
 
 bool GpuBridgeReady() { return g_ready; }
 
