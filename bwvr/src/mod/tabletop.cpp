@@ -2105,6 +2105,9 @@ void ApplyGodWalk(double frame_seconds) {
   Derive();
   ++g_serial;
   ++g_god_version;
+  // A walk is no snap turn: the game camera goes over the land under the
+  // head, and does not turn about its focus (TabletopGodTurnedOnly).
+  g_god_nonturn_version = g_god_version;
   ++g_walk.moved;
   ++g_walk_moves;
   g_walk.went[0] += took[0];
