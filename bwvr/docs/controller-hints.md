@@ -560,6 +560,17 @@ names.
   the mod, for example "Push the stick to turn and zoom."
 - Any other line with the whole words "mouse wheel" or "the wheel" gets "stick"
   ("pad" on Wand) in their place. Five lines match.
+- The camera lessons of the tutorial and the hints about them tell of the
+  Move Button at the edge of the screen. In the God view the stick turns, and
+  the head looks up and down (`god-view.md`, section 7, "The turn lesson").
+  The turn lesson line (`HELP_TEXT_FINAL_BEGINNING_44`) gets "Push the stick
+  left or right to turn.", and the turn hint (`HELP_TEXT_NEW_INTERFACE_03`)
+  "You know, Boss, you can turn with the stick." Eight lines about looking up
+  and down get a sentence about the head: the tilt lesson
+  (`HELP_TEXT_FINAL_BEGINNING_50`, "Look up and down with your head."), its
+  hint (`HELP_TEXT_NEW_INTERFACE_04`) and the six hints for a look at the sky
+  (`HELP_TEXT_INTERFACE_LOOK_AT_SKY_01` to `_06`). The voice of the spirits
+  still says the game's own words.
 - The Escape lines (`TUTORIAL_LAND_09`, `_10`, `_40`, `_106`,
   `CITADEL_GUIDE_13`) and "Action Button" stay. The menu button has no job
   there.

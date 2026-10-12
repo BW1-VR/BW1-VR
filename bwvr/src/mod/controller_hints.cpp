@@ -310,11 +310,15 @@ enum TextKind {
   kZoomLong,   // a long line about the wheel, with the middle button in it
   kZoomShort,
   kPhrase,     // the words "mouse wheel" or "the wheel" in a longer line
+  kTurnLesson, // the turn lesson of the tutorial: the edge of the screen
+  kTurnHint,   // the hint that the edge of the screen turns the view
+  kHead,       // a line about looking up and down: the head does it
 };
 
 struct KeyRow {
   const wchar_t* key;
   TextKind kind;
+  const wchar_t* head;  // the sentence of a kHead line
 };
 const KeyRow kKeys[] = {
     {L"HELP_TEXT_ACTIONS_LEFTMOUSEBUTTON", kLmb},
@@ -328,6 +332,28 @@ const KeyRow kKeys[] = {
     {L"HELP_TEXT_TUTORIAL_LAND_108", kKeyboard},
     {L"HELP_TEXT_DYK_18", kZoomLong},
     {L"HELP_TEXT_JUST_IN_CASE_37", kZoomShort},
+    // The camera lessons of the tutorial (TeachRotate, TeachPitch) and the
+    // hints about them tell of the Move Button at the edge of the screen.
+    // In the God view the stick turns, and the view does not tilt: the head
+    // looks up and down (tilt_help_degrees, comfort_camera.cpp).
+    {L"HELP_TEXT_FINAL_BEGINNING_44", kTurnLesson},
+    {L"HELP_TEXT_NEW_INTERFACE_03", kTurnHint},
+    {L"HELP_TEXT_FINAL_BEGINNING_50", kHead,
+     L"Look up and down with your head."},
+    {L"HELP_TEXT_NEW_INTERFACE_04", kHead,
+     L"You know, Boss, you can look up and down with your head."},
+    {L"HELP_TEXT_INTERFACE_LOOK_AT_SKY_01", kHead,
+     L"Yeah, the sky's very pretty. But tilt your head to look down."},
+    {L"HELP_TEXT_INTERFACE_LOOK_AT_SKY_02", kHead,
+     L"A tilt of your head pitches your view down."},
+    {L"HELP_TEXT_INTERFACE_LOOK_AT_SKY_03", kHead,
+     L"Tilt your head to look down, Boss."},
+    {L"HELP_TEXT_INTERFACE_LOOK_AT_SKY_04", kHead,
+     L"You can tilt your head to alter your view angle."},
+    {L"HELP_TEXT_INTERFACE_LOOK_AT_SKY_05", kHead,
+     L"Look down by tilting your head."},
+    {L"HELP_TEXT_INTERFACE_LOOK_AT_SKY_06", kHead,
+     L"You can look down by tilting your head."},
 };
 
 struct TextRow {
@@ -336,6 +362,7 @@ struct TextRow {
   wchar_t* alt;           // the copy with controller words, or null
   uint32_t alt_signature;
   TextKind kind;
+  const wchar_t* head;    // the sentence of a kHead line
   bool dead;              // the game changed the slot, so the mod leaves it
   wchar_t key[48];        // for the log
 };
@@ -376,9 +403,11 @@ void __fastcall h_AddText(void* entry, void* edx, int a, int b,
   }
   bool found = false;
   TextKind kind = kPhrase;
+  const wchar_t* head = nullptr;
   for (const KeyRow& row : kKeys) {
     if (wcscmp(key, row.key) == 0) {
       kind = row.kind;
+      head = row.head;
       found = true;
       break;
     }
@@ -392,6 +421,7 @@ void __fastcall h_AddText(void* entry, void* edx, int a, int b,
   row.original = static_cast<wchar_t*>(*slot);
   row.alt_signature = 0xFFFFFFFFu;
   row.kind = kind;
+  row.head = head;
   wcsncpy_s(row.key, key, _TRUNCATE);
 }
 
@@ -458,6 +488,20 @@ bool BuildAlt(const TextRow& row, const Words& w, std::wstring* out) {
       *out = ReplacePhrases(row.original, w.noun);
       return true;
     }
+    case kTurnLesson:
+      if (w.noun == nullptr) return false;
+      *out = std::wstring(w.verb) + L" the " + w.noun +
+             L" left or right to turn.";
+      return true;
+    case kTurnHint:
+      if (w.noun == nullptr) return false;
+      *out = std::wstring(L"You know, Boss, you can turn with the ") +
+             w.noun + L".";
+      return true;
+    case kHead:
+      if (row.head == nullptr) return false;
+      *out = row.head;
+      return true;
   }
   return false;
 }
