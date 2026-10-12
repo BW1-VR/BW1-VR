@@ -56,6 +56,8 @@
 //                                 frame, so the frame thread does not wait
 //                                 for the GPU. 0: it is read after the eye
 //                                 passes of its frame
+//   subtitle_read_ahead_test_seconds=N  a test key: the read ahead goes off
+//                                 and on each N seconds (5 to 600)
 //   subtitle_card_test=1          a test key: the route with no headset
 //   subtitle_selftest=1           a test key: two test lines of help text
 
@@ -378,6 +380,7 @@ struct SubtitleSettings {
   bool test = false;      // subtitle_card_test: the route with no headset
   bool selftest = false;  // subtitle_selftest
   bool read_ahead = true;  // subtitle_read_ahead
+  int read_ahead_test_seconds = 0;  // subtitle_read_ahead_test_seconds
 };
 
 // What the help text does in a frame.
@@ -423,6 +426,8 @@ struct SubtitleState {
   // from before it holds other text.
   bool had_content = false;
   uint64_t content_since = 0;
+  // subtitle_read_ahead_test_seconds: the time of the last change.
+  double read_ahead_switched = 0.0;
   double read_ms = 0.0;
   double worst_ms = 0.0;
   uint64_t bytes = 0;
@@ -464,6 +469,8 @@ void SubtitleReadSettings() {
   s.test = SubtitleIniKey("subtitle_card_test", 0) != 0;
   s.selftest = SubtitleIniKey("subtitle_selftest", 0) != 0;
   s.read_ahead = SubtitleIniKey("subtitle_read_ahead", 1) != 0;
+  const int test_seconds = SubtitleIniKey("subtitle_read_ahead_test_seconds", 0);
+  s.read_ahead_test_seconds = test_seconds > 0 ? Clamp(test_seconds, 5, 600) : 0;
 }
 
 subtitle_math::Layout SubtitleLayout() {
@@ -553,6 +560,17 @@ void SubtitleBeginFrame(bool to_headset, bool projection, uint64_t frame,
     }
   }
   GpuBridgePanelNewFrame(false);
+  // subtitle_read_ahead_test_seconds=N: the read ahead goes off and on each
+  // N seconds, as with its test key, for an A/B with no keyboard.
+  if (s.set.read_ahead_test_seconds > 0 && mode == kSubtitlesCard) {
+    const double now = NowSeconds();
+    if (s.read_ahead_switched == 0.0) {
+      s.read_ahead_switched = now;
+    } else if (now - s.read_ahead_switched >= s.set.read_ahead_test_seconds) {
+      s.read_ahead_switched = now;
+      UiPanelSubtitleReadAheadToggle("subtitle_read_ahead_test_seconds");
+    }
+  }
   // The read ahead: a copy of a frame before, which the GPU has done, goes to
   // system memory now, before the eye passes give the GPU new work.
   if (s.set.read_ahead) GpuBridgePanelFetchHalf();
@@ -951,6 +969,12 @@ void UiPanelSetOptions(const UiPanelSettings& settings) {
                    "thread does not wait"
                  : "The copy of the card goes to system memory after the eye "
                    "passes, and the frame thread waits for the GPU");
+      if (sub.read_ahead_test_seconds > 0) {
+        ModLog("subtitles    : subtitle_read_ahead_test_seconds=%d. The read "
+               "ahead goes off and on each %d seconds while the card has the "
+               "help text", sub.read_ahead_test_seconds,
+               sub.read_ahead_test_seconds);
+      }
     }
     return;
   }
