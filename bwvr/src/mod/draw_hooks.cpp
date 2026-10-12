@@ -115,6 +115,11 @@ void CutsceneWindowProbeBatch(const void* verts, uint32_t count,
 // place the Hand.
 bool HandGlowEyePoint(int eye, float* x, float* y, float* meters);
 
+// target_glow.cpp: a batch of the world with the vertex format 0x1C4. The
+// vertices of a target of the Hand get their glow. caller is for the log.
+void TargetGlowBatch(void* verts, uint32_t count, const uint16_t* idx,
+                     uint32_t indices, bool clipped, uint32_t caller);
+
 // intro_vr.cpp: the flat text and the boxes of the Lionhead logo in stereo.
 // IntroFlatOn is true when a flat batch from `caller` comes in an eye pass
 // of the intro and must get a place in the scene. IntroFlatVertex gives one
@@ -2259,6 +2264,12 @@ void __cdecl h_DrawAndClip(D3DPRIMITIVETYPE type, uint32_t fvf, void* verts,
                            uint32_t count, uint16_t* idx, uint32_t n) {
   const uint32_t outer = g_caller;
   g_caller = reinterpret_cast<uint32_t>(_ReturnAddress());
+  // A mesh that the engine clips comes this way. The mesh of a target of the
+  // Hand gets its glow here too (target_glow.cpp).
+  if (fvf == kExpectedFvf && type == D3DPT_TRIANGLELIST &&
+      !IsUiCaller(g_caller)) {
+    TargetGlowBatch(verts, count, idx, n, true, g_caller);
+  }
   DrawInterface(o_DrawAndClip, type, fvf, verts, count, idx, n);
   g_caller = outer;
 }
@@ -2282,6 +2293,9 @@ void __fastcall h_DrawTriangle(void* verts, uint32_t count, uint16_t* idx,
                                uint32_t n) {
   // World geometry never goes to the interface panel.
   PanelRelease();
+  // The mesh of a target of the Hand gets its glow (target_glow.cpp).
+  TargetGlowBatch(verts, count, idx, n, false,
+                  reinterpret_cast<uint32_t>(_ReturnAddress()));
   if (g_window_probe) {
     CutsceneWindowProbeBatch(verts, count, idx, n,
                              reinterpret_cast<uint32_t>(_ReturnAddress()));

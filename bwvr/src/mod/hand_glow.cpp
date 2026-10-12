@@ -88,6 +88,7 @@
 #include "miracle.h"
 #include "village.h"
 #include "near_math.h"
+#include "target_glow.h"
 
 extern void ModLog(const char* format, ...);
 
@@ -108,6 +109,9 @@ bool HandDirectEyeFrame(int* eye, uint64_t* frame);
 void HandDirectChooseNow();
 bool HandDirectNearTarget(float center[3], float* radius, float* half_height,
                           bool* acts);
+// hand_direct.cpp: the object of that target, from the latch of this frame
+// or of the frame before, or null.
+void* HandDirectNearTargetObject(bool* acts);
 bool HandDirectGlowIdle();
 // overlay.cpp: the world to camera matrix of this eye pass, with the camera
 // matrices put back as they were.
@@ -509,7 +513,9 @@ void DrawOneHalo(IDirect3DDevice7* device, const FarDraw& d,
   }
 }
 
-// The halo of a far target, once in each eye pass of a frame.
+// THE TARGETS WITH A HALO NOW, and the style of each. The halo and the glow
+// on the mesh (target_glow.cpp) take their targets and their colors from
+// here. The answer is the count, 4 at most.
 //
 // A RED TARGET THAT THE CREATURE CAN GO TO. A far target outside the
 // influence is red: the Hand cannot take it. With the leash on the Hand, the
@@ -522,7 +528,13 @@ void DrawOneHalo(IDirect3DDevice7* device, const FarDraw& d,
 // target of the grip in its wide cone, and a target of a command in its tight
 // cone. Then each has its halo, gold for the grip and green for the trigger.
 // One object that is both has the gold halo.
-void DrawHalo() {
+struct Halo {
+  FarDraw draw;
+  const Style* style;
+};
+
+int Halos(Halo out[4]) {
+  int n = 0;
   FarDraw d, c, m;
   bool same = false;
   bool far_target = FarGrabDrawState(&d);
@@ -539,7 +551,35 @@ void DrawHalo() {
   // pile, the scaffold or the altar that the opening of the grip acts on.
   FarDraw v;
   const bool village = VillageHalo(&v);
-  if (!far_target && !command && !miracle && !village) return;
+  // The red halo of a far target gives way to the green halo of a command
+  // on the same object.
+  const bool red_gives_way = far_target && command && same && !d.valid &&
+                             !d.locked;
+  if (far_target && !red_gives_way) {
+    out[n].draw = d;
+    out[n++].style = d.valid ? &kHaloValid : &kHaloInvalid;
+  }
+  if (command && (!far_target || !same || red_gives_way)) {
+    out[n].draw = c;
+    out[n++].style = &kHaloCommand;
+  }
+  if (miracle) {
+    out[n].draw = m;
+    out[n++].style = m.valid ? &kHaloMiracle : &kHaloInvalid;
+  }
+  if (village) {
+    out[n].draw = v;
+    out[n++].style = v.valid ? &kHaloHold : &kHaloInvalid;
+  }
+  return n;
+}
+
+// The halos, once in each eye pass of a frame. A target whose mesh glows has
+// no halo (target_glow=1).
+void DrawHalo() {
+  Halo halos[4];
+  const int count = Halos(halos);
+  if (count == 0) return;
   int eye = -1;
   uint64_t frame = 0;
   if (!HandDirectEyeFrame(&eye, &frame) || eye < 0 || eye > 1) return;
@@ -549,21 +589,9 @@ void DrawHalo() {
       *reinterpret_cast<IDirect3DDevice7* const*>(
           bw::render::kDirect3DDevice7);
   if (device == nullptr) return;
-  // The red halo of a far target gives way to the green halo of a command
-  // on the same object.
-  const bool red_gives_way = far_target && command && same && !d.valid &&
-                             !d.locked;
-  if (far_target && !red_gives_way) {
-    DrawOneHalo(device, d, d.valid ? kHaloValid : kHaloInvalid, eye, frame);
-  }
-  if (command && (!far_target || !same || red_gives_way)) {
-    DrawOneHalo(device, c, kHaloCommand, eye, frame);
-  }
-  if (miracle) {
-    DrawOneHalo(device, m, m.valid ? kHaloMiracle : kHaloInvalid, eye, frame);
-  }
-  if (village) {
-    DrawOneHalo(device, v, v.valid ? kHaloHold : kHaloInvalid, eye, frame);
+  for (int i = 0; i < count; ++i) {
+    if (!TargetGlowHaloShows(halos[i].draw.target)) continue;
+    DrawOneHalo(device, halos[i].draw, *halos[i].style, eye, frame);
   }
 }
 
@@ -586,6 +614,8 @@ void DrawNearHalo(IDirect3DDevice7* device, int eye, uint64_t frame,
   float center[3], body = 0.0f, half_height = 0.0f;
   bool acts = false;
   if (!HandDirectNearTarget(center, &body, &half_height, &acts)) return;
+  // A target whose mesh glows has no halo (target_glow=1).
+  if (!TargetGlowHaloShows(HandDirectNearTargetObject(nullptr))) return;
   float radius = kHaloGrow * body + kHaloPlusCm * 0.01f * units;
   if (radius < kHaloMinCm * 0.01f * units) radius = kHaloMinCm * 0.01f * units;
   GlowDisc disc = {};
@@ -818,6 +848,36 @@ void HandGlowDraw() {
   if (eye == 1 && g_drawn_frame[0] == frame) {
     LogFrame(frame, mode, units_per_meter, style.radius_cm);
   }
+}
+
+// For target_glow.cpp, once a frame before the eye passes: each object that
+// has a halo now, with the color of its halo. The mesh of the object glows in
+// that color. The target at the Hand is the last one: gold, or red when the
+// influence stops the press.
+int HandGlowTargets(TargetGlowMark* out, int max) {
+  int n = 0;
+  Halo halos[4];
+  const int count = Halos(halos);
+  for (int i = 0; i < count && n < max; ++i) {
+    if (halos[i].draw.target == nullptr) continue;
+    out[n].object = halos[i].draw.target;
+    out[n].r = halos[i].style->r;
+    out[n].g = halos[i].style->g;
+    out[n].b = halos[i].style->b;
+    out[n++].name = halos[i].style->name;
+  }
+  bool acts = false;
+  void* near_target = HandDirectNearTargetObject(&acts);
+  if (near_target != nullptr && n < max) {
+    const Style& style = acts ? kHaloValid : kHaloInvalid;
+    out[n].object = near_target;
+    out[n].r = style.r;
+    out[n].g = style.g;
+    out[n].b = style.b;
+    out[n++].name = acts ? "the target at the Hand"
+                         : "the target at the Hand outside the influence";
+  }
+  return n;
 }
 
 // For draw_hooks.cpp: the Hand's point in this eye, from this frame or the

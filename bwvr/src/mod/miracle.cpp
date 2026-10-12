@@ -1438,6 +1438,7 @@ bool MiracleHalo(FarDraw* out) {
   }
   out->radius = blocked ? g_blocked_radius : g_target_radius;
   out->units_per_meter = g_units;
+  out->target = blocked ? g_blocked : g_target;
   return true;
 }
 

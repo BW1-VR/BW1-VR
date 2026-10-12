@@ -2123,6 +2123,7 @@ void CreatureCommandFrame() {
 bool CreatureCommandHalo(FarDraw* out, bool* far_target) {
   if (!g_halo.active) return false;
   *out = g_halo;
+  out->target = g_halo_object;
   *far_target = FarGrabTargetObject() == g_halo_object;
   return true;
 }

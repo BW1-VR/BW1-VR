@@ -50,6 +50,7 @@ add_library(bwvr_mod SHARED
     text_click.cpp
     hand_direct.cpp
     hand_glow.cpp
+    target_glow.cpp
     haptics.cpp
     hand_exact.cpp
     hand_model.cpp

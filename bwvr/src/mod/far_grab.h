@@ -192,6 +192,8 @@ struct FarDraw {
   float land[2];
   float hand[3];          // the Hand's point
   float units_per_meter;
+  void* target;           // the object of the game, for the glow on its mesh
+                          // (target_glow.cpp)
 };
 bool FarGrabDrawState(FarDraw* out);
 

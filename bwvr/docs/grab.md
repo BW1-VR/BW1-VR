@@ -615,7 +615,10 @@ The target at the Hand has the halo of a far target (`DrawNearHalo` in
 influence and the object needs the influence. It is as large as the body, 35
 percent and 1 cm more. For a tall body it is an ellipse along the image of the
 upright axis (`near_math::HaloEllipse`). Its depth test is one radius behind
-the middle of the body, so the object hides the middle of the disc.
+the middle of the body, so the object hides the middle of the disc. By
+default the mesh of the target glows in that color, and the disc shows only
+for a target whose mesh does not glow (`target_glow=1`, `hand-model.md`, "The
+glow on the mesh of a target").
 
 The fingertip glow shows only while a press of the grip has a target at the
 Hand's point (`hand_glow_idle=0`). Its look comes from the choice, and not from
@@ -1862,7 +1865,9 @@ moment of its rest comes to the hand each time.
   percent of the distance. The depth test uses a point one radius behind the
   center (`GlowProject` takes a negative pull). So the object hides the middle
   of the disc, and the light shows around its outline. Nothing is drawn on the
-  land under the target.
+  land under the target. By default the mesh of the target glows in the color
+  of the halo, and the disc shows only for a target whose mesh does not glow
+  (`target_glow=1`, `hand-model.md`, "The glow on the mesh of a target").
 - **The tether** (`overlay.cpp`, `BuildFar`). After the lock, a gold tube of 3 mm
   goes from the Hand's point to the object. It also shows while the game takes
   from a far bulk source.

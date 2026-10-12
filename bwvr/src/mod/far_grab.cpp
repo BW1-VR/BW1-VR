@@ -999,6 +999,7 @@ bool FarGrabDrawState(FarDraw* out) {
   out->land[0] = g_pick.land[0];
   out->land[1] = g_pick.land[1];
   out->units_per_meter = g_f.units_per_meter;
+  out->target = g_pick.object;
   return out->units_per_meter > 0.0f;
 }
 

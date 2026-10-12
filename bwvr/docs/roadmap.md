@@ -386,44 +386,27 @@ that moves while the Hand takes it.
   - No run has shown the stream from a pile of food, a field, a fish farm or
     the pile of a miracle, a way that is long along the floor, and a pile
     that goes down in the take.
-- **P15. A glow on the object itself.** The glow that shows the target of
-  the Hand is a flat picture. The land cuts it, and it is not always at the
-  place of the object. Wanted: a glow on the mesh of the object, as light
-  that its texture gives off. Not built. No run has shown a part of it.
-
-  Why the glow of now looks wrong (`hand_glow.cpp`): its place is the base
-  point of the object plus a radius or half a height, not the middle of the
-  mesh, so a tall body, a mesh with its origin off the middle and an object
-  on a slope get a disc beside them. The disc has one depth, one radius
-  behind its middle, so each pixel of the land that is nearer cuts it with a
-  hard line.
-
-  Known from the listing: each draw of an object of the game goes through
-  `Game3DObject::AddForDrawing` (`0x0063B5D0`, ecx is the 3D object, edx is
-  the object of the game, 57 callers). The 3D object has a color that
-  Direct3D adds over the texture (the vertex specular, `+0x50`), and the
-  game uses it for haze, poison and fire. The vertices are made on the CPU
-  with that color.
-
-  The way: a hook on that function adds a glow color to `+0x50` of the
-  target object and puts the old value back. No pixel shader, no new draw
-  call. The right eye of one walk is a copy of the vertices with their
-  colors, so both eyes agree. The look is an even light on the whole mesh:
-  not a glow that follows the bright parts of the texture, and no halo
-  outside the outline. A second draw of the same triangles with additive
-  blend gives a glow that follows the texture, with more work and more
-  risk. A pixel shader gives no more than that, because the vertices have
-  no normals.
-
-  Open: a run with pictures of both eyes. Whether dxwrapper gives
-  `SPECULARENABLE` to Direct3D 9. An object in the sorted list draws after
-  the hook, so its value must go back at the end of the pass. The Creature
-  (`LH3DCreature::DrawNow` `0x0048E260`) and a building in work
-  (`0x00517F90`) do not go through that function. An object past the last
-  detail distance is a shared picture and gets no glow. The target must be
-  latched at the start of the frame, or the eyes differ for one frame. Only
-  a headset can show whether an even light reads as a highlight on a small
-  target, and whether a small halo must stay for it.
+- **P15. The glow on the mesh of a target: check it in a headset, and the
+  targets that keep the halo.** The mesh of a target of the Hand glows in
+  the color of its halo, with a pulse and a band of light that goes up the
+  mesh (`target_glow=1`, `hand-model.md`, "The glow on the mesh of a
+  target"). Desktop runs show it in both eyes on a rock, a villager, a bush,
+  a pile and the Village Store. Open:
+  - Only a headset shows whether the strength is right by day and by night
+    (`target_glow_pct`, 45), whether the pulse and the band of light are calm
+    enough at the size of the God view, and whether a small target needs
+    more than the light on its mesh. The test key steps `target_glow`
+    through the glow, the halo and both.
+  - The Creature (`LH3DCreature::DrawNow`, `0x0048E260`) and a building in
+    work (`0x00517F90`) do not draw through `Game3DObject::AddForDrawing`.
+    They keep the halo. Wanted: the glow on their mesh.
+  - An object that the game draws as a picture far away keeps the halo.
+  - No run has shown a mesh of the sorted list as a target, a mesh that
+    comes through the clip of the engine (`LH3DRender::DrawAndClip`), or a
+    target by day.
+  - The light is even on the mesh. A glow that follows the bright parts of
+    the texture needs a second draw of the triangles with additive blend.
+    Not built.
 - **P16. The margin around the view: check it in a headset.** "Margin around
   the view" in the launcher (`fov_margin_pct`, 0 to 30, default 0) makes the
   render go past the view of the headset on each side (`backend.md`, "A

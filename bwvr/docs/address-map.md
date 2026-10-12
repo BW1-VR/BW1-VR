@@ -55,7 +55,7 @@ changes nothing on screen.
 | `0x0082F460` | `FinishFrame()` | The real per-frame bracket, static |
 | `0x0082F2C0` | `RegisterFinishFrameCallback(ulong, bool, void(__stdcall*)(void*), void*)` | **An official end-of-frame callback registration.** Possibly no hook needed |
 | `0x0082F3B0` | `RemoveFinishFrameCallback(...)` | Pair of the above |
-| `0x0082F810` | `DrawTriangle(Vertex3D*, ulong, ushort*, ulong)` | **`__fastcall`**, verts in `ecx`, count in `edx`, `ret 8`. Hardcodes FVF `0x1C4` (XYZRHW), so `Vertex3D` is a screen space vertex despite the name |
+| `0x0082F810` | `DrawTriangle(Vertex3D*, ulong, ushort*, ulong)` | **`__fastcall`**, verts in `ecx`, count in `edx`, `ret 8`. Hardcodes FVF `0x1C4` (XYZRHW), so `Vertex3D` is a screen space vertex despite the name. Each vertex has the specular color of its 3D object at `+0x14` (see "The color that a 3D object adds") |
 | `0x00ECA638` | `Direct3DDevice7` (`IDirect3DDevice7*`) | **Global device pointer.** No need to hook `DirectDrawCreate` to reach the device |
 | `0x00ECA644` | `g_started_frame` (int) | Frame state flag |
 | `0x00ECA648` | `g_zsorter` (`LH3DZSorter*`) | Z sorting |
@@ -129,6 +129,30 @@ binary uses rather than the order the decomp header names them:
 | `0x20` | inverse half tangent, **vertical** | 2.5389, so 43 degrees |
 | `0x24` | `CosHalfFovSqr` | 0.5736 |
 | `0x2C` | `CosHalfFov` | 0.8192, so a 35 degree cull cone |
+
+### The color that a 3D object adds
+
+The mod uses these for the glow on the mesh of a target
+([hand-model.md](hand-model.md), "The glow on the mesh of a target").
+
+| Address | Symbol | Why it matters |
+| --- | --- | --- |
+| `0x0063B5D0` | `Game3DObject::AddForDrawing` | **`__fastcall`**, the 3D object in `ecx`, the object of the game in `edx`, a plain `ret`. The first bytes are `53 55 56 8B F1`. Each draw of an object of the game goes through it [V, by the hook: a rock, a tree, a villager, a pile and the Village Store]. It calls the virtual function `+0x100` of the 3D object |
+| `0x00815A70` | `LH3DObject::AddForDrawing`, the virtual function `+0x100` | Tests the object against the screen, chooses the detail, and draws the mesh now (the virtual function `+0x108`) or puts the object into the sorted list (`LH3DZSorter::NewZObject`) |
+| `0x0080DB30` | the draw of a 3D object (no symbol) | Copies the two colors of the object into the two globals below. When `0x00ECA60C` is not 0 and the specular color has no red, green and blue or no alpha, it takes the draw path of the virtual function `+0x10C` |
+| `+0x4C`, `+0x50` of a 3D object | the diffuse color and the specular color | Direct3D adds the specular color over the texture. The game writes it as `0xFF000000` and a saturating add, for haze, poison and fire |
+| `0x00C37D8C`, `0x00E9FE2C` | the diffuse color and the specular color of the object in the draw | The vertex builders read them |
+| `0x0084A6D0`, `0x0084BA90` | two vertex builders (no symbol) | They copy the specular color into each vertex, at `0x0084A77A` and at `0x0084BEEC` (the lit path). `0x0084BA90` calls `DrawTriangle` at `0x0084C39C`: the mesh of a villager and of a scroll comes from there [V, by the hook] |
+| `0x00856D40` | a vertex builder (no symbol) | It calls `DrawTriangle` at `0x008573E3`: the mesh of a tree comes from there [V, by the hook]. For a tree at the widest zoom of the God view it scales each channel of the specular color of a projected vertex and writes the factor into the alpha: the color `32 25 08` comes to the draw as `FE 31 24 07` [V]. Why it scales is not known: the fade of the detail distance is a guess [I] |
+| `0x00859D80`, `0x0085B238` | two calls of `DrawTriangle` (the functions have no symbol) | The mesh of the Village Store comes from the first one. The mesh of a rock, of a pile and of a `MobileStatic` comes from the second one [V, by the hook] |
+| `0x0081C5B1` | a call of `DrawTriangle` in `Draw3DScreenTriangle` | In the call of `Game3DObject::AddForDrawing` for a villager, the game also draws 8 vertices and 4 triangles from here [V, by the hook]. Their specular color is 0 or near 0: an alpha below 18 of 255 and no channel above 3 [M]. What they show is not known |
+
+A batch of `DrawTriangle` can hold vertices that the builder did not project.
+Such a vertex has its camera space values, with its depth in the place of
+`rhw`, and it has the two colors of the object. No triangle of the batch uses
+it [V: a tree at the edge of the view came as 20 vertices and 4 triangles,
+and 10 of the vertices in the triangles had the color of the tree. The other
+vertices had camera space values].
 
 ## The Hand: `CHand`
 

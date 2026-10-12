@@ -1225,6 +1225,7 @@ float g_near_target_center[3] = {0.0f, 0.0f, 0.0f};
 float g_near_target_radius = 0.0f;
 float g_near_target_half = 0.0f;
 bool g_near_target_acts = false;
+void* g_near_target_object = nullptr;  // for the glow on its mesh
 
 // THE BULK TAKE. The object of the take now, for the log and the report.
 void* g_take_object = nullptr;
@@ -5797,6 +5798,7 @@ void LatchNearTarget() {
   g_near_target = g_one_target && g_glow_valid && g_choice != nullptr &&
                   !g_choice_far && State(g_hand) == kStateNormal &&
                   HandEmpty();
+  g_near_target_object = g_near_target ? g_choice : nullptr;
   if (!g_near_target) return;
   for (int i = 0; i < 3; ++i) g_near_target_center[i] = g_choice_center[i];
   g_near_target_radius = g_choice_radius;
@@ -7585,6 +7587,19 @@ bool HandDirectNearTarget(float center[3], float* radius, float* half_height,
   *half_height = g_near_target_half;
   *acts = g_near_target_acts;
   return true;
+}
+
+// For hand_glow.cpp and target_glow.cpp: the object of that target, or null.
+// The answer is from the latch of this frame or of the frame before: the
+// glow on the mesh takes its targets before the eye passes of a frame, and
+// the latch of that frame comes in its first eye pass.
+void* HandDirectNearTargetObject(bool* acts) {
+  if (!g_near_target || !g_active || g_hand == nullptr ||
+      g_glow_frame + 1 < g_frame) {
+    return nullptr;
+  }
+  if (acts != nullptr) *acts = g_near_target_acts;
+  return g_near_target_object;
 }
 
 // For hand_glow.cpp, and for the hint card: what a press of the grip does at

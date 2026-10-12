@@ -29,6 +29,7 @@
 #include "tabletop.h"
 #include "far_grab.h"
 #include "take_stream.h"
+#include "target_glow.h"
 #include "throw_physics.h"
 #include "teleport.h"
 #include "ui_panel.h"
@@ -416,6 +417,8 @@ FakeControllerSettings g_fake_controller;
 DirectHandSettings g_direct_hand;
 // A glow marks the point the Hand interacts from (hand_glow.cpp).
 bool g_hand_glow = true;
+// The mesh of a target of the Hand glows (target_glow.cpp).
+TargetGlowSettings g_target_glow;
 // The mod draws its own test hand at each controller (overlay.cpp).
 bool g_overlay = false;
 // The teleport with a visible arc (teleport.cpp). See docs/god-view.md.
@@ -1056,6 +1059,11 @@ void ReadSettings() {
     d.creature_slap_wait = number("creature_slap_wait", 0) != 0;
     // A glow at the point the Hand interacts from. See docs/hand-model.md, "The glow at the Hand's point".
     g_hand_glow = number("hand_glow", 1) != 0;
+    // The glow on the mesh of a target of the Hand. See docs/hand-model.md,
+    // "The glow on the mesh of a target". target_glow=0 gives the halo.
+    g_target_glow.mode = number("target_glow", 1);
+    g_target_glow.pct = number("target_glow_pct", 45);
+    g_target_glow.anim = number("target_glow_anim", 3);
     // The overlay renderer's test hand. See docs/hand-model.md, "Overlay renderer".
     g_overlay = number("overlay", 1) != 0;
     // The teleport: hold A to aim an arc, let go to go there. See
@@ -1421,6 +1429,9 @@ void StartVrOnce() {
         TakeStreamInstall();
         ThrowPhysicsInstall();
         HandGlowSetEnabled(g_hand_glow);
+        g_target_glow.test_keys = g_test_keys;
+        TargetGlowSetOptions(g_target_glow);
+        TargetGlowInstall();
       }
       ControllersSetGrab(g_grab);
       WorldGrabSetOptions(g_grab);

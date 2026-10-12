@@ -501,12 +501,21 @@ THE HAND AND THE OBJECTS
 ------------------------
 
 With the direct hand, the Hand acts from one point: the tip of your
-index finger. Put that point on an object, or at most 4 cm from it. A
-gold halo then shows around the object, and a glow shows at your
-finger tip. Close the grip, and the Hand acts on the object with the
-halo, and on no other object. With no halo and no glow, a press of the
-grip does nothing. An object at your palm or at your wrist is not
-taken. Set hand_pick_cm in bwvr.ini to change the distance.
+index finger. Put that point on an object, or at most 4 cm from it.
+The object then glows gold, and a glow shows at your finger tip. That
+gold light on the object is its halo. Close the grip, and the Hand
+acts on the object with the halo, and on no other object. With no halo
+and no glow, a press of the grip does nothing. An object at your palm
+or at your wrist is not taken. Set hand_pick_cm in bwvr.ini to change
+the distance.
+
+The halo is light on the object itself. It gets brighter and less
+bright slowly, and a band of light goes up the object. Your Creature
+and a building in work do not glow: their halo is a disc of light
+around them. Set target_glow=0 in bwvr.ini for a disc around each
+object, or target_glow=2 for the glow and the disc. Set
+target_glow_pct (45) for a stronger or a weaker glow, and
+target_glow_anim=0 for a glow that does not change.
 
 An object that you can hold, for example a rock, is also taken from
 farther: up to 15 cm from your finger tip, when no other object that a
@@ -574,8 +583,8 @@ behind you.
 THE FAR GRAB
 ------------
 
-To take an object that is out of reach, point your hand at it. A gold
-halo shows around the object, and the controller gives a short tick.
+To take an object that is out of reach, point your hand at it. The
+object gets its gold halo, and the controller gives a short tick.
 Close the grip and a thin line shows from your Hand to the object. Then
 pull your hand toward your head. The object glides to your Hand, and
 the grip carries it. Open the grip before you pull to cancel. The halo
@@ -762,7 +771,7 @@ milliseconds (350). Set creature_stay_look=0 if your Creature must not
 look at your hand.
 
 While the leash is on your Creature, the trigger commands it. Point
-your hand at an object: a green halo shows around it. Press the
+your hand at an object: the object gets a green halo. Press the
 trigger, and your Creature goes to the object and acts on it. An object
 that your Hand touches is a target too: put the glow on it and press
 the trigger. A far object outside your influence has a red halo with no

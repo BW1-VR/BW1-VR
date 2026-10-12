@@ -164,6 +164,10 @@ void HandDirectPassDone(int eye);
 void HandDirectReport();
 // hand_glow.cpp: the glow at the Hand's point.
 void HandGlowReport();
+// target_glow.cpp: the glow on the mesh of a target of the Hand.
+void TargetGlowFrame();
+void TargetGlowPassDone();
+void TargetGlowReport();
 // overlay.cpp: the mod's own meshes. See docs/hand-model.md, "Overlay
 // renderer".
 void OverlayFrame();
@@ -1164,6 +1168,8 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
   FrameFunction(kFpFnCreatureCommand, CreatureCommandFrame);
   FrameFunction(kFpFnMiracle, MiracleFrame);
   FrameFunction(kFpFnVillage, VillageFrame);
+  // The targets whose mesh glows, after each frame function that has one.
+  TargetGlowFrame();
   FrameFunction(kFpFnOverlay, OverlayFrame);
   FrameFunction(kFpFnWater, WaterModeApply);
   FrameFunction(kFpFnTable, TabletopApplyFrame);
@@ -1303,6 +1309,8 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
     // The merge of draw calls takes the draw calls of the scene walk only.
     DrawMergePass(true);
     o_Process3dEngine(self, unused);
+    // The targets get the color of the game back (target_glow.cpp).
+    TargetGlowPassDone();
     DrawMergePass(false);
     if (walk_wide) {
       EyeCleanOneWalkAfter();
@@ -1652,6 +1660,7 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
     ControllersReport();
     HandDirectReport();
     HandGlowReport();
+    TargetGlowReport();
     OverlayReport();
     TeleportReport();
     CreatureCommandReport();
