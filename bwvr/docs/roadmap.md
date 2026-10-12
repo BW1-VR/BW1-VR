@@ -317,6 +317,20 @@ is built, and no test has proven it.
   depth is the depth of the inside of the window. Wanted: the cut scene
   plays inside the window, and the advisors have a depth between the
   player and the window.
+- **B30. The Creature does not take food from the Hand with the leash
+  on.** In a headset session the Creature was on the leash. The player took
+  a pig and opened the grip to give it to the Creature, as in the game. The
+  Creature did not take it: it stood there and pointed at things. Some more
+  tries had the same result. With the leash shaken off, the Creature took
+  the pig after two or three tries. The cause is not known. To find: what
+  the game needs for the gift of food (the place of the Hand, the leash, the
+  state of the Creature), and what the mod sends when the grip opens with
+  the leash on the Hand.
+- **B31. With the leash on, the Hand cannot take some objects at a
+  distance.** In a headset session with the Creature on the leash, a grip
+  at a distance did not take some objects. Wanted: with the leash on, the
+  targets of a Creature command keep their teal halo, and the grip still
+  takes each object that is in reach of the grab at a distance.
 
 B1b, B2, B4 and B11 are one package: a thing that is held, thrown, or
 that moves while the Hand takes it.
@@ -351,6 +365,15 @@ that moves while the Hand takes it.
   The log of the grab from a distance has room for 200 lines in a session
   (`kMaxLogs` in `far_grab.cpp`), so a long headset session has no line of a
   new target after that.
+
+  From a headset session, to do:
+  - **The Creature is hard to choose.** Trees, signposts and other things
+    took the halo when the aim was at the Creature. Check the rank and the
+    cone of the Creature in the choice.
+  - **A miracle is hard to choose, and a signpost wins too often.** In the
+    quest of the tutorial in which the player takes miracles out of a pit,
+    the signpost near them took the halo again and again. Wanted: a higher
+    rank for a miracle, and a lower rank for a signpost.
 - **P2. The stay of the Creature: test it in the headset.** A grip from a
   distance that stays closed on the Creature makes it stop and stay until
   the grip opens. A short grip changes the leash when it opens
