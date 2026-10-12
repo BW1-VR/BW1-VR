@@ -48,6 +48,7 @@
 
 #include "MinHook.h"
 #include "controllers.h"
+#include "table_math.h"
 
 extern void ModLog(const char* format, ...);
 // spirit_anchor.cpp: the camera made a cut, so the spirits find their place
@@ -71,6 +72,11 @@ bool TabletopGodStep(int zoom, int ground);
 bool TabletopGodTurn(int direction, float degrees);
 bool TabletopGodGameCamera(float position[3], float focus[3],
                            uint64_t* version);
+// The view only turned since the last pair of camera and view.
+bool TabletopGodTurnedOnly(float* turned);
+// head_pose.cpp: the head of this frame. Column 2 of the matrix is its
+// forward in the room.
+bool HeadPoseCurrent(float matrix_out[9], float translation_out[3]);
 // The game put its own camera at a new place, and the camera is at rest
 // there. The God view goes to that place at its next main camera call.
 void TabletopGodGameMoved(const char* cause, const float position[3],
@@ -122,9 +128,22 @@ const uintptr_t kHeadingAndPitch = 0x004428D0;
 // the 0x300 events reach HelpProfile::Trigger. The point is not read for
 // them.
 const uintptr_t kCameraHelpCallback = 0x00449140;
+// HelpProfile::AccumulatedTime: HelpProfile::Process adds 100 to it in each
+// game turn, and it clears the flag of each count of the help then, so a
+// count takes at most one event in a game turn (CameraHelpAccumulator::
+// Trigger). A new value is a new game turn.
+const uintptr_t kHelpClock = 0x00C5AFD8;
+// The help counts of the game: GGame::g_game, its HelpProfile at +0x250060,
+// and the count of event N at +8 + N * 0x10C (CameraHelpAccumulator, its
+// total first). Event 25 is a turn of the camera: CameraHelpCallback gives
+// event 0x300 as 0x19. The script word "get total events" reads it.
+const uintptr_t kGamePointer = 0x00D0195C;
+const uintptr_t kGameHelpProfile = 0x250060;
+const int kHelpTurnCount = 25;
 const int kHelpTurn = 0x300;
 const int kHelpTurnLeft = 0x301;
 const int kHelpTurnRight = 0x302;
+const int kHelpTilt = 0x303;
 // Which input turned the camera, for that callback: 0x10 is the middle
 // mouse, 8 is a key. Read from the mask the game builds at 0x0045C06A.
 const unsigned kInputMiddle = 0x10;
@@ -283,6 +302,36 @@ uint64_t g_god_turns = 0;
 uint64_t g_god_wheel = 0;
 // The version of the God view that the game camera was last put over.
 uint64_t g_god_written = 0;
+// god_turn_keeps_focus: a snap turn alone turns the game camera about its
+// own focus (GodAfter). The updates where it did.
+bool g_turn_keeps_focus = true;
+uint64_t g_god_focus_kept = 0;
+
+// THE TURN EVENTS OF A SNAP TURN (turn_help_degrees). A snap turn sends one
+// turn event at once and owes the rest, one in each later game turn
+// (table_math::SnapTurnEvents, PayTurnEvents).
+float g_turn_help_degrees = 5.0f;
+int g_turn_owed = 0;
+int g_turn_owed_direction = 0;
+unsigned g_turn_owed_input = 0;
+int32_t g_turn_clock = 0;
+uint64_t g_turn_paid = 0;
+
+// THE TILT OF THE HEAD (tilt_help_degrees). The view does not tilt, so a
+// look of the head up or down counts as the game's tilt: one tilt event
+// for each so many degrees that the head pitches at kTiltHelpSpeed or
+// faster (table_math::CountedPitch), one in a game turn, while the script
+// lets the camera tilt. The step of the tutorial that teaches the tilt
+// (TeachPitch in challenge.chl) ends after more than 25 tilt events.
+const float kTiltHelpSpeed = 20.0f;  // degrees a second
+float g_tilt_help_degrees = 3.0f;
+bool g_tilt_have = false;
+float g_tilt_pitch = 0.0f;
+LARGE_INTEGER g_tilt_time = {};
+float g_tilt_sum = 0.0f;
+int g_tilt_owed = 0;
+int32_t g_tilt_clock = 0;
+uint64_t g_tilt_paid = 0;
 
 // THE GAME'S LAND DRAG IN THE GOD VIEW. The camera before the game's update,
 // to put back after a land drag (GodDragBefore and GodDragAfter), and the
@@ -433,6 +482,87 @@ float Wrap(float angle) {
   return angle;
 }
 
+// The count of turn events that the help of the game has, or -1.
+int64_t HelpTurnCount() {
+  const uint8_t* game = *reinterpret_cast<uint8_t* const*>(kGamePointer);
+  if (game == nullptr) return -1;
+  const uint8_t* profile =
+      *reinterpret_cast<uint8_t* const*>(game + kGameHelpProfile);
+  if (profile == nullptr) return -1;
+  return *reinterpret_cast<const uint32_t*>(profile + 8 +
+                                           kHelpTurnCount * 0x10C);
+}
+
+// A snap turn sent its first turn event. It owes the rest of the events
+// that its angle takes (table_math::SnapTurnEvents), and PayTurnEvents sends
+// them, one in each new game turn. The step of the tutorial that teaches the
+// turn (TeachRotate in challenge.chl) ends after more than 60 turn events,
+// which the game's own turn makes in about 6 s.
+void OweTurnEvents(int direction, unsigned input) {
+  const int events =
+      table_math::SnapTurnEvents(g_snap_degrees, g_turn_help_degrees);
+  g_turn_owed += events - 1;
+  if (g_turn_owed > 64) g_turn_owed = 64;
+  g_turn_owed_direction = direction;
+  g_turn_owed_input = input;
+  g_turn_clock = *reinterpret_cast<const int32_t*>(kHelpClock);
+}
+
+// One owed turn event in a game turn that has none yet from the mod.
+void PayTurnEvents(uint8_t* mode) {
+  if (g_turn_owed <= 0) return;
+  const int32_t clock = *reinterpret_cast<const int32_t*>(kHelpClock);
+  if (clock == g_turn_clock) return;
+  g_turn_clock = clock;
+  --g_turn_owed;
+  ++g_turn_paid;
+  const HelpFn help = reinterpret_cast<HelpFn>(kCameraHelpCallback);
+  const float* position = Floats(mode, kModePositionCopy);
+  help(kHelpTurn, position, g_turn_owed_input);
+  help(g_turn_owed_direction > 0 ? kHelpTurnRight : kHelpTurnLeft, position,
+       g_turn_owed_input);
+}
+
+// The tilt events of the head: the pitch of each update, and one owed
+// event sent in each new game turn while the script lets the camera tilt.
+void HeadTiltHelp(uint8_t* mode) {
+  float h[9], t[3];
+  if (!(g_tilt_help_degrees > 0.0f) || !HeadPoseCurrent(h, t)) {
+    g_tilt_have = false;
+    return;
+  }
+  const float up = h[5] > 1.0f ? 1.0f : (h[5] < -1.0f ? -1.0f : h[5]);
+  const float pitch = asinf(up) * 57.29578f;
+  LARGE_INTEGER now, frequency;
+  QueryPerformanceCounter(&now);
+  QueryPerformanceFrequency(&frequency);
+  if (g_tilt_have && frequency.QuadPart != 0) {
+    const float seconds =
+        static_cast<float>(now.QuadPart - g_tilt_time.QuadPart) /
+        static_cast<float>(frequency.QuadPart);
+    g_tilt_sum += table_math::CountedPitch(g_tilt_pitch, pitch, seconds,
+                                           kTiltHelpSpeed);
+    while (g_tilt_sum >= g_tilt_help_degrees) {
+      g_tilt_sum -= g_tilt_help_degrees;
+      if (g_tilt_owed < 32) ++g_tilt_owed;
+    }
+  }
+  g_tilt_have = true;
+  g_tilt_pitch = pitch;
+  g_tilt_time = now;
+  if (g_tilt_owed <= 0) return;
+  const uint32_t features =
+      *reinterpret_cast<const uint32_t*>(kEnabledFeatures);
+  if ((features & kFeatureTilt) == 0) return;
+  const int32_t clock = *reinterpret_cast<const int32_t*>(kHelpClock);
+  if (clock == g_tilt_clock) return;
+  g_tilt_clock = clock;
+  --g_tilt_owed;
+  ++g_tilt_paid;
+  reinterpret_cast<HelpFn>(kCameraHelpCallback)(
+      kHelpTilt, Floats(mode, kModePositionCopy), kInputKeys);
+}
+
 // A SNAP TURN IN PLACE.
 //
 // The position stays. The focus and the pivot the camera turns about both
@@ -470,6 +600,7 @@ void SnapTurn(uint8_t* mode, int direction, unsigned input) {
   const HelpFn help = reinterpret_cast<HelpFn>(kCameraHelpCallback);
   help(kHelpTurn, position, input);
   help(direction > 0 ? kHelpTurnRight : kHelpTurnLeft, position, input);
+  OweTurnEvents(direction, input);
 
   ++g_snaps;
   g_last_snap_tick = GetTickCount64();
@@ -566,6 +697,18 @@ void GodAfter(uint8_t* mode) {
   for (int axis = 0; axis < 3; ++axis) {
     now_position[axis] = ZoomerAt(camera, kCameraPosition, axis)[1];
     now_focus[axis] = ZoomerAt(camera, kCameraFocus, axis)[1];
+  }
+  // A snap turn alone turns the game camera about its own focus, as the
+  // game's turn does. Over the land under the head that is the place the
+  // God view would give it, and a focus that a script set stays.
+  float turned = 0.0f;
+  if (g_turn_keeps_focus && TabletopGodTurnedOnly(&turned)) {
+    for (int axis = 0; axis < 3; ++axis) {
+      position[axis] = now_position[axis];
+      focus[axis] = now_focus[axis];
+    }
+    table_math::TurnAboutFocus(focus, turned, position);
+    ++g_god_focus_kept;
   }
   if (PointDistance(now_position, position) < 0.01f &&
       PointDistance(now_focus, focus) < 0.01f) {
@@ -1312,6 +1455,22 @@ int __fastcall h_IsActionPerformed(void* self, void* unused, int action) {
 // of the mod around it. h_ModeUpdate puts the watch of the game camera
 // around all of it.
 void ModeUpdate(uint8_t* mode, void* unused) {
+  PayTurnEvents(mode);
+  HeadTiltHelp(mode);
+  // The tutorial turns the camera controls on one at a time: a log line for
+  // each change, with the count of turn events of the help.
+  {
+    static uint32_t said = 0xFFFFFFFFu;
+    static int lines = 0;
+    const uint32_t now = *reinterpret_cast<const uint32_t*>(kEnabledFeatures);
+    if (now != said && lines < 40) {
+      ++lines;
+      said = now;
+      ModLog("comfort      : the camera controls of the game are 0x%X (1 tilt, "
+             "2 turn, 4 zoom, 8 drag, 0x10 jump). The help has counted %lld "
+             "turn events", now, HelpTurnCount());
+    }
+  }
   // A double click of the mouse in the God view teleports the view. It is
   // taken before the game reads it, so the game does not fly its camera.
   TeleportMouseDoubleClick(mode);
@@ -1405,6 +1564,7 @@ void ModeUpdate(uint8_t* mode, void* unused) {
     const float* position = Floats(mode, kModePositionCopy);
     help(kHelpTurn, position, input);
     help(direction > 0 ? kHelpTurnRight : kHelpTurnLeft, position, input);
+    OweTurnEvents(direction, input);
     ++g_god_turns;
     g_last_snap_tick = GetTickCount64();
     if (from_controller) ControllersSnapTurned();
@@ -1519,6 +1679,37 @@ void ComfortCameraSetOptions(int snap_degrees, bool instant_jumps, bool glide,
   ModLog("comfort      : jumps %s, the camera %s, blink %u ms",
          instant_jumps ? "land at once" : "fly as the game flies them",
          glide ? "glides" : "stops with the mouse", g_blink_ms);
+}
+
+void ComfortCameraSetTurnHelp(int degrees_per_event, bool keeps_focus,
+                              int tilt_degrees) {
+  g_tilt_help_degrees =
+      static_cast<float>(tilt_degrees > 0 ? tilt_degrees : 0);
+  g_turn_help_degrees =
+      static_cast<float>(degrees_per_event > 0 ? degrees_per_event : 0);
+  g_turn_keeps_focus = keeps_focus;
+  if (g_turn_help_degrees > 0.0f) {
+    ModLog("comfort      : turn_help_degrees=%.0f. A snap turn counts for the "
+           "tutorial and the hints as the game's own turn of that angle: one "
+           "turn event for each %.0f degrees, one in a game turn",
+           g_turn_help_degrees, g_turn_help_degrees);
+  } else {
+    ModLog("comfort      : turn_help_degrees=0. A snap turn is one turn event");
+  }
+  ModLog("comfort      : god_turn_keeps_focus=%d. %s", keeps_focus ? 1 : 0,
+         keeps_focus ? "A snap turn of the God view turns the game camera "
+                       "about its own focus"
+                     : "A snap turn of the God view puts the game camera over "
+                       "the land under the head");
+  if (g_tilt_help_degrees > 0.0f) {
+    ModLog("comfort      : tilt_help_degrees=%.0f. A look of the head up or "
+           "down at %.0f degrees a second or faster counts as the game's "
+           "tilt: one tilt event for each %.0f degrees, one in a game turn",
+           g_tilt_help_degrees, kTiltHelpSpeed, g_tilt_help_degrees);
+  } else {
+    ModLog("comfort      : tilt_help_degrees=0. The head sends no tilt "
+           "events");
+  }
 }
 
 void ComfortCameraInstall() {
@@ -1680,6 +1871,17 @@ void ComfortCameraReport() {
            g_god_ground_keys, g_god_drag_frames);
     g_god_writes = g_god_turns = g_god_wheel = 0;
     g_god_drag_frames = g_god_ground_keys = 0;
+  }
+  if (g_turn_paid != 0 || g_god_focus_kept != 0 || g_tilt_paid != 0) {
+    ModLog("comfort      : the snap turns sent %llu more turn events to the "
+           "help of the game (turn_help_degrees=%.0f), and %llu updates turned "
+           "the game camera about its own focus (god_turn_keeps_focus=%d). "
+           "The help has counted %lld turn events in all. The head sent %llu "
+           "tilt events (tilt_help_degrees=%.0f)",
+           g_turn_paid, g_turn_help_degrees, g_god_focus_kept,
+           g_turn_keeps_focus ? 1 : 0, HelpTurnCount(), g_tilt_paid,
+           g_tilt_help_degrees);
+    g_turn_paid = g_god_focus_kept = g_tilt_paid = 0;
   }
   if (g_watch_moves != 0 || g_watch_small != 0 || g_watch_dropped != 0 ||
       g_watch_player != 0 || g_watch_settle != 0) {

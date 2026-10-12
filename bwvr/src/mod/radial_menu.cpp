@@ -3,8 +3,7 @@
 // WHY. The plain game needs the keyboard for the Temple and its rooms, the
 // Creature, the kinds of the leash, the bookmarks, the pause and more
 // (docs/controls-audit.md, "What a player cannot do with the controllers"). A player in a headset has no keyboard.
-// The controller of the hand that does not point had three inputs with no
-// job: its first face button (X), its stick and its trigger.
+// The ring is on the controller of the hand that does not point.
 //
 // WHAT. A ring of 8 items opens at that hand. It is one picture in the room
 // (a quad layer, as the hint cards), so it is sharp and it is never double.
@@ -16,6 +15,13 @@
 //
 // A release in the middle, and a stick that rests in the middle for half a
 // second, choose nothing.
+//
+// THE LAYOUT OF THE BUTTONS (button_layout, controllers.cpp) chooses the
+// face button and the job of the stick. With 1 the button is the second face
+// button (Y), and the stick does not drive the ring: it moves the player
+// (move_stick). A controller with no face buttons keeps the ring on its
+// stick. With 0 the button is the first face button (X), and the stick
+// drives the ring too.
 //
 // HOW AN ITEM ACTS. Each item is a key of the plain game. The mod writes the
 // key into the key buffer of the game (GKeyBuffer::AddKey 0x005E1BB0), and
@@ -30,10 +36,11 @@
 //
 //   radial_menu=1              0 turns the ring off
 //   radial_menu_button=1       what opens the ring with a hold: 0 nothing,
-//                              1 the first face button (X), 2 the stick click,
-//                              3 the trigger
+//                              1 the face button of button_layout (Y or X),
+//                              2 the stick click, 3 the trigger
 //   radial_menu_stick=1        1 the stick opens the ring and points, and the
-//                              trigger chooses
+//                              trigger chooses. It acts with button_layout=0,
+//                              and on a controller with no face buttons
 //   radial_menu_items          the 8 items of the first page, from the top
 //                              and clockwise, with commas
 //   radial_menu_items2         the second page. "more" changes the page
@@ -45,8 +52,9 @@
 //                              game, which starts its follow camera
 //
 // With test_keys=1, Ctrl and the 1 key of the number pad go through the two
-// ways: both, the button only, the stick only. radial_test_save=N (a test
-// key) saves the first N pictures of the ring as bwvr-ring-NNNNN.bmp.
+// ways while the stick can drive the ring: both, the button only, the stick
+// only. radial_test_save=N (a test key) saves the first N pictures of the
+// ring as bwvr-ring-NNNNN.bmp.
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -99,6 +107,9 @@ int g_temple_items[kPages][kSlots];
 Settings g_settings = DefaultSettings();
 // The test key: 0 both ways, 1 the button only, 2 the stick only.
 int g_way = 0;
+// The controller of the ring has face buttons. One with none (a Vive wand, a
+// Windows Mixed Reality controller) keeps the ring on its stick.
+bool g_face_buttons = true;
 
 bool IniPath(char path[MAX_PATH]) {
   const DWORD length = GetModuleFileNameA(nullptr, path, MAX_PATH);
@@ -156,10 +167,21 @@ void ReadPage(const char* key, const char* fallback, int out[kSlots]) {
   }
 }
 
+// The stick can drive the ring: radial_menu_stick is 1, and the layout of the
+// buttons gives the stick to the ring (button_layout=0, or a controller with
+// no face buttons). The trigger cannot open the ring and choose with the
+// stick too.
+bool StickCanDrive() {
+  return g_stick && g_button != kButtonTrigger &&
+         (ControllersButtonLayout() == 0 || !g_face_buttons);
+}
+
 void ApplyWay() {
-  g_settings.button = g_button != kButtonNone && g_way != 2;
-  // The trigger cannot open the ring and choose with the stick too.
-  g_settings.stick = g_stick && g_button != kButtonTrigger && g_way != 1;
+  const bool stick = StickCanDrive();
+  // The test key leaves one way on only while the ring has two ways.
+  const int way = stick ? g_way : 0;
+  g_settings.button = g_button != kButtonNone && way != 2;
+  g_settings.stick = stick && way != 1;
 }
 
 void ReadSettings() {
@@ -192,9 +214,14 @@ void ReadSettings() {
   ReadPage("radial_menu_items_temple", kDefaultTemple, g_temple_items[0]);
   for (int i = 0; i < kSlots; ++i) g_temple_items[1][i] = kItemNone;
   g_pages = PageHasItems(g_items[1]) ? 2 : 1;
-  static const char* const kButtonWords[4] = {
-      "no button opens it", "the first face button of the hand that does not "
-      "point opens it (X)", "the stick click of that hand opens it",
+  const bool new_layout = ControllersButtonLayout() != 0;
+  const char* const kButtonWords[4] = {
+      "no button opens it",
+      new_layout ? "the second face button of the hand that does not point "
+                   "opens it (Y, button_layout=1)"
+                 : "the first face button of the hand that does not point "
+                   "opens it (X, button_layout=0)",
+      "the stick click of that hand opens it",
       "the trigger of that hand opens it"};
   char a[200], b[200], c[200];
   PageWords(g_items[0], a, sizeof(a));
@@ -206,7 +233,10 @@ void ReadSettings() {
          g_button, kButtonWords[g_button], g_reach_cm, g_stick ? 1 : 0,
          g_settings.stick ? "the stick of that hand opens the ring and points, "
                             "and its trigger chooses"
-                          : "the stick does not open the ring",
+         : g_stick && new_layout
+             ? "the stick does not open the ring with button_layout=1, but "
+               "on a controller with no face buttons it does"
+             : "the stick does not open the ring",
          g_size_pct);
   ModLog("ring         : page 1: %s", a);
   if (g_pages > 1) ModLog("ring         : page 2: %s", b);
@@ -1065,6 +1095,12 @@ void PollTestKey() {
   DWORD process = 0;
   if (window != nullptr) GetWindowThreadProcessId(window, &process);
   if (process != GetCurrentProcessId()) return;
+  if (!StickCanDrive()) {
+    ModLog("ring         : Ctrl and numpad 1: the stick does not drive the "
+           "ring now (button_layout=%d), so the ring has one way, frame %llu",
+           ControllersButtonLayout(), ControllersFrameCount());
+    return;
+  }
   g_way = (g_way + 1) % 3;
   ApplyWay();
   static const char* const kWays[3] = {
@@ -1105,6 +1141,29 @@ int RadialMenuHintMode() {
   return 0;
 }
 
+bool RadialMenuStickDrives() {
+  ReadSettings();
+  return g_on && g_settings.stick;
+}
+
+void RadialMenuLayoutChanged() {
+  ReadSettings();
+  g_button_seen_up = false;
+  g_trigger_down = false;
+  if (g_state_ready && g_state.open != kClosed) {
+    Reset(&g_state);
+    ++g_no_choice;
+    if (LogRoom()) {
+      ModLog("ring         : the ring closes with no choice: the layout of "
+             "the buttons changed, frame %llu", ControllersFrameCount());
+    }
+  }
+  // A stick that is pushed now must go back to the middle before it opens
+  // the ring.
+  if (g_state_ready) g_state.stick_back = true;
+  ApplyWay();
+}
+
 void RadialMenuPump(unsigned long long) {
   if (g_queued == 0) return;
   const int count = g_queued;
@@ -1129,6 +1188,17 @@ void RadialMenuFrame() {
 
   RingHand hand;
   const bool have_hand = ControllersRingHand(&hand);
+  // A controller with no face buttons keeps the ring on its stick.
+  if (have_hand && hand.active && hand.face_buttons != g_face_buttons) {
+    g_face_buttons = hand.face_buttons;
+    ApplyWay();
+    if (LogRoom()) {
+      ModLog("ring         : the controller of the ring has %s, so the stick "
+             "%s the ring, frame %llu",
+             g_face_buttons ? "face buttons" : "no face buttons",
+             g_settings.stick ? "drives" : "does not drive", frame);
+    }
+  }
   Facts facts;
   const bool have_game = ReadFacts(&facts);
   if (have_game) Watch(facts);

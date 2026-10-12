@@ -132,6 +132,17 @@ own `LHMatrix::SetInverse` at `0x007FB290` after each move. The probe outcome
 `retex` finds this fault, because the vertices hold still and only the texture
 coordinates move.
 
+### A light on the land in one eye
+
+The game keeps a list of the lights on the land of one scene walk, and the end
+of the walk empties it. The white light of a lightning comes from
+`LH3DAtmos::Update3D`, a step of the world that the second eye pass skips. So
+that light comes in the first eye pass only. The mod adds the lights of that
+step, the lights from before the passes, and the light maps of the particles
+that the second pass does not have, to the list again in the second eye pass
+(`land_light_eyes`, `backend.md`, "The lights on the land in the second eye
+pass"). With `land_light_eyes=0` the land is white in the left eye only.
+
 ### Depth is not a classifier
 
 Every draw path writes the same two fields, and

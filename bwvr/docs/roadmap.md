@@ -119,13 +119,6 @@ is built, and no test has proven it.
   text of a different script waits for a click (`text_click`,
   `controller-hints.md`, section 10). No run and no headset session has
   shown it.
-- **B7. The center of the zoom: choose the default.** The stick zooms about
-  the land that the player looks at (`god_zoom_about=1`, the default), about
-  the land under the head (0), or about the Hand's point (2) (`god-view.md`,
-  section 2). A headset session with `god_zoom_about=0` showed no fault of
-  the zoom. No headset session has compared the three. The line of the look
-  is the forward direction of the head, and the eyes can look lower than
-  that.
 
 - **B10. A thrown object that touches another object: check the picture in
   a headset.** In a substep where another object touches the thrown object,
@@ -229,6 +222,27 @@ is built, and no test has proven it.
     it (`ui-layer.md`, 18.6).
   - The size of a bubble comes from the depth of the sign in units, with no
     change for the scale of the God view.
+- **B18. A flash of lightning in the left eye only: check it in a
+  headset.** In a headset session the white flashes of the lightning at the
+  end of the quest of the singing stones showed in the left eye only. A
+  lightning of a storm makes the land white with a light on the land, and
+  the game keeps the lights on the land in a list that each scene walk
+  empties. The second eye pass gets each light that it does not add itself
+  (`land_light_eyes=1`, `backend.md`, "The lights on the land in the second
+  eye pass"). A desktop run shows it with the test light
+  (`land_light_test=1`), which is the light of a lightning of a storm. Still
+  open:
+  - No run had a real lightning. Check in a headset that the land is white
+    in both eyes at a lightning of a storm and at the Lightning Bolt
+    miracle. Ctrl, Shift and the Menu key (`test_keys=1`) give the left eye
+    only for a comparison.
+  - Not known: whether the flash of that session was a light on the land.
+    If a flash still shows in one eye, the lines `land light` in the log of
+    that session have the count of the lights of each group at that time. A
+    flash with no such line is not a light on the land. `backend.md`, "The
+    color over the picture at the end of a frame", has the two full screen
+    draws of the end of a frame. The listing shows both in each eye pass on
+    the land.
 
 B1b, B2, B4 and B11 are one package: a thing that is held, thrown, or
 that moves while the Hand takes it.
@@ -291,16 +305,19 @@ that moves while the Hand takes it.
   hand grab as in Deisim.**
   - A choice of control scheme: more options, so that each player chooses
     how the controls work. The launcher offers the turn in steps, the zoom
-    in steps or smooth, the center of the zoom, and the grip that grabs the
-    world (`launcher.md`, "Moving around" and "Controllers"). Not built: a
-    smooth turn with the stick, and a choice in the game (the launcher
-    runs before the game). Keep the scheme of now as the default.
+    in steps or smooth, the center of the zoom, the walk with the stick of
+    the other hand (along the direction of the head, along the direction of
+    the controller, or off), and the grip that grabs the world
+    (`launcher.md`, "Moving around" and "Controllers"). The layout of the
+    buttons of the other hand has an ini key and no row (`button_layout`,
+    `controllers.md`, 5.1). Not built: a smooth turn with the stick, and a
+    choice in the game (the launcher runs before the game). Keep the scheme
+    of now as the default.
   - The default of the zoom: the stick zooms in steps of 1.5 times, and
     `god_zoom_smooth=1` gives a smooth zoom while the stick is held
     (`god-view.md`, section 2). Compare the two in a headset with the test
     key (Ctrl, Shift and Insert), set the top rate (`god_zoom_smooth_ms`),
-    and choose the default. This goes with B7: the point of the zoom is in
-    one function (`GodZoomPoint`).
+    and choose the default.
   - A two hand grab as in Deisim: the player holds both grips, and the
     hands make the world smaller or larger and turn it. The mod has a
     version of this (`god-view.md`): both grips turn the land about up and
@@ -309,6 +326,28 @@ that moves while the Hand takes it.
     the mod with the controls of Deisim. Points to compare: the turn is
     only about up here, the height of the land stays, and the grip of the
     Hand also takes objects.
+- **P13. The walk with the stick and the layout of the left controller:
+  check them in a headset.** The stick of the hand that does not point moves
+  the player over the land of the God view while it is pushed
+  (`move_stick=1`, `god-view.md`, section 5.7). The menu button of the left
+  controller opens the game menu, Y opens the ring, and X has no job
+  (`button_layout=1`, `controllers.md`, 5.1). The math checks and desktop
+  runs show the rules. Check in a headset, with `test_keys=1`:
+  - The comfort of the walk, with the head as the direction and with the
+    controller as the direction. Shift and the Menu key of the keyboard
+    change `move_stick` from 1 to 2, to 0 and back.
+  - The top speed of 150 cm of the room for each second
+    (`move_stick_speed_cm`), near the land and far out, and the dead zone of
+    the stick.
+  - Whether Y is easy to hold while the hand moves to an item of the ring.
+    Ctrl and the Menu key change `button_layout` between 1 and 0.
+  - That the left menu button always comes to the game. Virtual Desktop can
+    keep that button for its own menu (`controllers.md`, section 6), and
+    with `button_layout=1` no other button opens the game menu.
+
+  Not run: a small push of the stick, a hill at the new place of the head,
+  the edge of the map, a push with the switch for the drag off, an Index
+  controller, and a controller with no face buttons.
 - **P5. Hand tracking.** The player plays with the hands and no
   controllers: the Hand follows the real hand and its fingers, one to one,
   as it follows a controller. First find what the headset gives to the
@@ -382,8 +421,8 @@ that moves while the Hand takes it.
     `Lock` of dxwrapper does for a surface that a copy used in the same
     frame. Then name the thing that the second write is for (the list at
     `0x00FAA7E0` of `LH3DIsland::Draw`).
-  - **One walk of the scene for both eyes.** Built as a prototype, off by
-    default (`one_walk`, `backend.md`, "One walk for both eyes"). The batches
+  - **One walk of the scene for both eyes.** It is on by default
+    (`one_walk`, `backend.md`, "One walk for both eyes"). The batches
     of eye pass 0 go to a wide target, and a hook draws each one again for
     the right eye, moved by the disparity of its `rhw`. On the desktop the
     scene time of `verify_build.ps1` went down by 35 to 40 percent. Not shown:
@@ -423,9 +462,9 @@ that moves while the Hand takes it.
   Suspects: the picture of a new save is flat magenta, the waist point is
   8.4 units higher after a load, the ray ends short of the pointer in the
   left eye in a dialog box inside the Temple, and the leash posts are 1.4
-  cm from each other at the scale of the start. In the ring menu: a thumb
-  on the left stick can open it, and a jump to the town or to a bookmark
-  takes the heading of the game camera.
+  cm from each other at the scale of the start. In the ring menu: with
+  `button_layout=0` a thumb on the left stick can open it, and a jump to the
+  town or to a bookmark takes the heading of the game camera.
 - **N5. The village.** Not run: food, an animal or crops set down at a
   store, the altar, a gift to the Creature, the red halo outside the
   influence, a Workshop that gives scaffolds, villagers that make chants,

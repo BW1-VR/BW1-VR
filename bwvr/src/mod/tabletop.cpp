@@ -78,6 +78,7 @@
 #include "../common/bw_addresses.h"
 #include "table_math.h"
 #include "tabletop.h"
+#include "walk_math.h"
 #include "zoom_math.h"
 
 extern void ModLog(const char* format, ...);
@@ -408,6 +409,9 @@ bool g_god_story = false;
 // Goes up each time the player moves the God view: a step or a grab. The game
 // camera is written once for each value (TabletopGodGameCamera).
 uint64_t g_god_version = 0;
+// The last value of g_god_version that was not a snap turn alone. A turn
+// alone keeps the focus of the game camera (TabletopGodTurnedOnly).
+uint64_t g_god_nonturn_version = 0;
 uint64_t g_god_steps = 0;
 uint64_t g_god_refused = 0;
 // THE TELEPORT request (TabletopGodTeleport, TabletopTableTeleport): the
@@ -485,6 +489,52 @@ uint64_t g_pan_held = 0;
 // The moves that a camera switch refused, and the loads that cleared the map.
 uint64_t g_switch_refused = 0;
 uint64_t g_clears = 0;
+
+// THE WALK WITH THE STICK (ApplyGodWalk). push is what the stick asked for
+// since the last main camera call, aim is the forward direction of its
+// controller on the land in the room, and fresh says that the stick asked.
+// The rest is the walk that runs: its rule, the forward direction of its
+// last frame, the waist point, the land point under the head and the scale
+// at its start, that land point after its last frame, the time of its
+// frames, how many of them moved the view, and the way that the player went
+// in the room.
+struct WalkHold {
+  float push[2] = {0.0f, 0.0f};
+  bool fresh = false;
+  bool have_aim = false;
+  float aim[2] = {0.0f, 1.0f};
+  bool active = false;
+  int rule = 0;
+  bool have_forward = false;
+  float forward[2] = {0.0f, 1.0f};
+  float start_center[2] = {0.0f, 0.0f};  // the waist point, x and z
+  float start_under[2] = {0.0f, 0.0f};
+  float under[2] = {0.0f, 0.0f};
+  float start_scale = 0.0f;
+  float went[2] = {0.0f, 0.0f};  // the sum of the steps, meters of the room
+  float path = 0.0f;             // the sum of their lengths
+  float sunk = 0.0f;  // how far ZoomClearHead put the land down, in meters
+  double seconds = 0.0;
+  uint64_t frames = 0;
+  uint64_t moved = 0;
+  uint64_t blind = 0;  // frames in which the controller had no direction
+} g_walk;
+// The check after a walk: this many frames after the stop, the log compares
+// the waist point and the render head with the ones at the stop.
+const int kWalkCheckFrames = 30;
+struct WalkCheck {
+  int frames_left = 0;
+  float center[2] = {0.0f, 0.0f};  // the waist point at the stop, x and z
+  uint64_t version = 0;
+  bool have_eye = false;
+  float eye[3] = {0.0f, 0.0f, 0.0f};
+} g_walk_check;
+uint64_t g_walks = 0;
+uint64_t g_walk_moves = 0;
+double g_walk_seconds = 0.0;
+int g_walk_logs = 0;
+const int kMaxWalkLogs = 120;
+void StopWalk(const char* cause, bool view_stays);
 
 // The sea disc, built with the table.
 float g_fan_positions[kFanVertices][3];
@@ -1288,6 +1338,7 @@ void MousePan(bool drag) {
   ++g_serial;
   g_pan.serial = g_serial;
   ++g_god_version;
+  g_god_nonturn_version = g_god_version;
   ++g_pan_moves;
   ++g_pan.moved;
 }
@@ -1440,6 +1491,7 @@ void ApplyGodSteps() {
   TablePose pose = Pose();
   TablePose next = pose;
   bool moved = false;
+  bool placed = false;  // a step that is not a snap turn
 
   if (turn != 0) {
     GodTurn(pose, room, head, turn * g_god_turn_degrees / 57.29578f, &next);
@@ -1508,6 +1560,7 @@ void ApplyGodSteps() {
       for (int i = 0; i < 3; ++i) g_zoom_probe.pivot[i] = point.pivot[i];
       pose = next;
       moved = true;
+      placed = true;
       Help(kHelpZoom, kInputWheel);
     } else {
       ++g_god_refused;
@@ -1537,6 +1590,7 @@ void ApplyGodSteps() {
     } else {
       pose = next;
       moved = true;
+      placed = true;
       if (GodLog()) {
         ModLog("god view     : the ground went %s %d cm. The land under your "
                "head is %.2f m below it.", rise > 0.0f ? "up" : "down",
@@ -1559,6 +1613,7 @@ void ApplyGodSteps() {
                 kGroundFarthest, &to);
     pose = to;
     moved = true;
+    placed = true;
   }
 
   if (!moved) return;
@@ -1571,6 +1626,7 @@ void ApplyGodSteps() {
   ++g_serial;
   ++g_god_steps;
   ++g_god_version;
+  if (placed) g_god_nonturn_version = g_god_version;
   ComfortCameraBlink();
   if (teleport) {
     float head_after[3];
@@ -1624,7 +1680,10 @@ void StopZoomHold(const char* cause, bool view_stays) {
   g_hold_seconds += g_hold.seconds;
   // A hold that changed nothing was at a limit of the scale.
   if (g_hold.moved == 0) ++g_god_refused;
-  if (g_hold.moved != 0 && view_stays) ++g_god_version;
+  if (g_hold.moved != 0 && view_stays) {
+    ++g_god_version;
+    g_god_nonturn_version = g_god_version;
+  }
   const bool at_limit = g_hold.direction > 0 ? g_hold.scale <= GodLowest()
                                              : g_hold.scale >= GodHighest();
   float eye[3] = {0.0f, 0.0f, 0.0f};
@@ -1804,7 +1863,10 @@ void ApplyGodZoomHold(double frame_seconds) {
   g_scale = next.scale;
   Derive();
   ++g_serial;
-  if (g_hold.moved == 0 || g_hold.kept) ++g_god_version;
+  if (g_hold.moved == 0 || g_hold.kept) {
+    ++g_god_version;
+    g_god_nonturn_version = g_god_version;
+  }
   ++g_hold.moved;
   g_hold.scale = g_scale;
   PoseWorld(Pose(), room, head, under);
@@ -1812,6 +1874,249 @@ void ApplyGodZoomHold(double frame_seconds) {
   g_hold.under[1] = under[2];
   PoseRoom(Pose(), room, g_hold.point.pivot, g_hold.point_now);
   Help(kHelpZoom, kInputWheel);
+}
+
+bool WalkLog() {
+  if (g_walk_logs >= kMaxWalkLogs) return false;
+  ++g_walk_logs;
+  return true;
+}
+
+const char* WalkRuleText(int rule) {
+  return rule == walk_math::kRuleController
+             ? "the direction in which the controller points"
+             : "the direction of your head";
+}
+
+// THE END OF A WALK with the stick: the stick came back, or the player
+// cannot move now. A request that waits is dropped. One log line gives the
+// place at the start and at the end, how far the player went over the land
+// and in the room, in which direction of the room, and for how long. The
+// check of ApplyGodWalk starts.
+//
+// view_stays: the view stays where the walk left it. It is false when the
+// view is built again, and then there is no check.
+void StopWalk(const char* cause, bool view_stays) {
+  g_walk.fresh = false;
+  g_walk.have_aim = false;
+  g_walk.push[0] = g_walk.push[1] = 0.0f;
+  if (!g_walk.active) return;
+  g_walk.active = false;
+  ++g_walks;
+  g_walk_seconds += g_walk.seconds;
+  g_walk_check.frames_left = 0;
+  if (view_stays) {
+    g_walk_check.frames_left = kWalkCheckFrames;
+    g_walk_check.version = g_god_version;
+    g_walk_check.center[0] = g_center[0];
+    g_walk_check.center[1] = g_center[2];
+    g_walk_check.have_eye = HeadCameraTableEye(g_walk_check.eye);
+  }
+  if (!WalkLog()) return;
+  const float dx = g_center[0] - g_walk.start_center[0];
+  const float dz = g_center[2] - g_walk.start_center[1];
+  const float room_m =
+      sqrtf(g_walk.went[0] * g_walk.went[0] + g_walk.went[1] * g_walk.went[1]);
+  const float degrees = walk_math::DegreesRight(g_walk.went);
+  char hill[128] = "";
+  if (g_walk.sunk > 0.0005f) {
+    sprintf_s(hill, " The land went %.1f cm down in the room, so a hill under "
+              "your head is %.0f cm below it.", g_walk.sunk * 100.0f,
+              kGroundNearest * 100.0f);
+  }
+  char blind[128] = "";
+  if (g_walk.blind != 0) {
+    sprintf_s(blind, " On %llu frames the controller pointed too far up or "
+              "down for a direction.", g_walk.blind);
+  }
+  ModLog("god view     : the walk with the stick stopped (%s). You went %.2f "
+         "units over the land, which is %.2f cm of the room, %.1f degrees to "
+         "the %s of straight ahead in the room. The land under your head was "
+         "at %.1f %.1f and is at %.1f %.1f. The stick was pushed for %.3f s, "
+         "which gives %.1f cm of the room each second, and the view moved on "
+         "%llu of %llu frames (move_stick=%d, %.2f to %.2f units per "
+         "meter), frame %llu.%s%s",
+         cause, sqrtf(dx * dx + dz * dz), room_m * 100.0f, fabsf(degrees),
+         degrees < -0.05f ? "left" : "right", g_walk.start_under[0],
+         g_walk.start_under[1], g_walk.under[0], g_walk.under[1],
+         g_walk.seconds,
+         g_walk.seconds > 0.0 ? g_walk.path * 100.0f / g_walk.seconds : 0.0,
+         g_walk.moved, g_walk.frames, g_walk.rule, g_walk.start_scale, g_scale,
+         ControllersFrameCount(), hill, blind);
+}
+
+// THE WALK WITH THE STICK (move_stick, docs/god-view.md, "The walk with the
+// stick"), once a frame, at the main camera call. While the stick of the hand
+// that does not point is pushed, the player moves over the land: the waist
+// point goes to the land that was one step from it in the room
+// (walk_math.h). It is the pan of a grab of the world, so the height of the
+// ground, the heading and the scale stay.
+//
+// FORWARD is the forward direction of the head (move_stick=1) or the
+// direction in which the controller of the stick points (2), flat on the
+// land, taken again in each frame. A controller that points almost straight
+// up or down has no direction on the land (walk_math::kAimLeast): the walk
+// then keeps the direction of the frame before, and a walk with no such
+// frame does not move.
+//
+// THE SPEED is a speed of the room (move_stick_speed_cm at a full push), so
+// the walk feels the same at each scale. The step of a frame is the speed
+// times the real time of the frame, with the cap of the smooth zoom.
+//
+// The pump of the controllers asks again before each frame
+// (TabletopGodWalk). A frame with no request moves nothing, so the walk
+// stops in the frame in which the stick comes back, and nothing glides.
+//
+// THE RULES OF A GRAB hold (TabletopMove). The game's switch for the drag of
+// the land (bit 8) must be on. The waist point stays on the map. Each frame
+// that moves sends the drag event of the game (0x308), and the version of
+// the view goes up, so the game camera follows the player. A hill at the new
+// place of the head stays below the head (ZoomClearHead).
+//
+// The log has one line for the start of a walk, one for its end, and one for
+// the check kWalkCheckFrames frames later.
+void ApplyGodWalk(double frame_seconds) {
+  const bool fresh = g_walk.fresh;
+  const float push[2] = {fresh ? g_walk.push[0] : 0.0f,
+                         fresh ? g_walk.push[1] : 0.0f};
+  const bool have_aim = fresh && g_walk.have_aim;
+  const float aim[2] = {g_walk.aim[0], g_walk.aim[1]};
+  g_walk.fresh = false;
+  g_walk.have_aim = false;
+  g_walk.push[0] = g_walk.push[1] = 0.0f;
+  if (g_walk_check.frames_left > 0 && --g_walk_check.frames_left == 0 &&
+      WalkLog()) {
+    float eye[3];
+    if (g_walk_check.version != g_god_version) {
+      ModLog("god view     : walk check, the view moved again in the %d "
+             "frames after the stop, so there is no check", kWalkCheckFrames);
+    } else {
+      const float dx = g_center[0] - g_walk_check.center[0];
+      const float dz = g_center[2] - g_walk_check.center[1];
+      char drawn[96] = "the drawn head is not known";
+      if (g_walk_check.have_eye && HeadCameraTableEye(eye) && g_scale > 0.0f) {
+        const float ex = eye[0] - g_walk_check.eye[0];
+        const float ez = eye[2] - g_walk_check.eye[2];
+        sprintf_s(drawn, "the drawn head moved %.2f cm of the room",
+                  sqrtf(ex * ex + ez * ez) / g_scale * 100.0f);
+      }
+      ModLog("god view     : walk check, %d frames after the stop the waist "
+             "point is at %.2f %.2f, and it was at %.2f %.2f at the stop: "
+             "%.3f units apart. In those frames %s.", kWalkCheckFrames,
+             g_center[0], g_center[2], g_walk_check.center[0],
+             g_walk_check.center[1], sqrtf(dx * dx + dz * dz), drawn);
+    }
+  }
+  if (push[0] == 0.0f && push[1] == 0.0f) {
+    StopWalk("the stick is back", true);
+    return;
+  }
+  const int rule = walk_math::Rule(g_settings.move_stick);
+  if (rule == walk_math::kRuleOff) {
+    StopWalk("move_stick is 0", true);
+    return;
+  }
+  if ((CameraFeatures() & kFeatureDrag) == 0) {
+    StopWalk("the game turned its switch for the drag of the land off", true);
+    return;
+  }
+  if (g_walk.active && rule != g_walk.rule) {
+    StopWalk("the rule of the direction changed", true);
+  }
+  float room[3], head[3], under[3];
+  TableRoom(room);
+  HeadRoom(head);
+  const TablePose pose = Pose();
+  PoseWorld(pose, room, head, under);
+  // Forward on the land, in the room.
+  float forward[2] = {0.0f, 1.0f};
+  bool have_forward = false;
+  if (rule == walk_math::kRuleHead) {
+    float matrix[9], lean[3];
+    have_forward = HeadPoseCurrent(matrix, lean) &&
+                   walk_math::HeadForward(matrix, forward);
+  } else if (have_aim) {
+    forward[0] = aim[0];
+    forward[1] = aim[1];
+    have_forward = true;
+  }
+  if (!g_walk.active) {
+    g_walk.active = true;
+    g_walk.rule = rule;
+    g_walk.have_forward = false;
+    g_walk.start_center[0] = pose.center[0];
+    g_walk.start_center[1] = pose.center[2];
+    g_walk.start_under[0] = g_walk.under[0] = under[0];
+    g_walk.start_under[1] = g_walk.under[1] = under[2];
+    g_walk.start_scale = pose.scale;
+    g_walk.went[0] = g_walk.went[1] = 0.0f;
+    g_walk.path = 0.0f;
+    g_walk.sunk = 0.0f;
+    g_walk.seconds = 0.0;
+    g_walk.frames = g_walk.moved = g_walk.blind = 0;
+    g_walk_check.frames_left = 0;
+    if (WalkLog()) {
+      char where[96] = "has no direction on the land now";
+      if (have_forward) {
+        const float degrees = walk_math::DegreesRight(forward);
+        sprintf_s(where, "is %.1f degrees to the %s of straight ahead in the "
+                  "room", fabsf(degrees), degrees < -0.05f ? "left" : "right");
+      }
+      ModLog("god view     : the walk with the stick starts at %.2f units per "
+             "meter, with the land under your head at %.1f %.1f. Forward is "
+             "%s (move_stick=%d), and it %s. A full push moves you %d cm of "
+             "the room each second (move_stick_speed_cm), frame %llu.",
+             pose.scale, under[0], under[2], WalkRuleText(rule), rule, where,
+             g_settings.move_stick_speed_cm, ControllersFrameCount());
+    }
+  }
+  const float seconds = zoom_math::FrameSeconds(frame_seconds, kHoldFrameCap);
+  ++g_walk.frames;
+  g_walk.seconds += seconds;
+  if (have_forward) {
+    g_walk.forward[0] = forward[0];
+    g_walk.forward[1] = forward[1];
+    g_walk.have_forward = true;
+  } else {
+    // The direction of the frame before, when the walk has one.
+    ++g_walk.blind;
+    if (!g_walk.have_forward) return;
+    forward[0] = g_walk.forward[0];
+    forward[1] = g_walk.forward[1];
+  }
+  float speed[2], step[2];
+  walk_math::Speed(forward, push, g_settings.move_stick_speed_cm * 0.01f,
+                   speed);
+  walk_math::Step(speed, seconds, step);
+  // In a frame with no time, nothing moves.
+  if (step[0] == 0.0f && step[1] == 0.0f) return;
+  TablePose next;
+  walk_math::Walk(pose, step, &next);
+  // The waist point stays on the map, as for a grab.
+  next.center[0] = ClampCenter(next.center[0]);
+  next.center[2] = ClampCenter(next.center[2]);
+  if (next.center[0] == g_center[0] && next.center[2] == g_center[2]) return;
+  float took[2];
+  walk_math::InRoom(pose, next.center[0] - pose.center[0],
+                    next.center[2] - pose.center[2], took);
+  // The head moves over the land, and a hill there stays below it.
+  g_walk.sunk += ZoomClearHead(&next, room, head);
+  for (int i = 0; i < 3; ++i) g_center[i] = next.center[i];
+  Derive();
+  ++g_serial;
+  ++g_god_version;
+  // A walk is no snap turn: the game camera goes over the land under the
+  // head, and does not turn about its focus (TabletopGodTurnedOnly).
+  g_god_nonturn_version = g_god_version;
+  ++g_walk.moved;
+  ++g_walk_moves;
+  g_walk.went[0] += took[0];
+  g_walk.went[1] += took[1];
+  g_walk.path += sqrtf(took[0] * took[0] + took[1] * took[1]);
+  PoseWorld(Pose(), room, head, under);
+  g_walk.under[0] = under[0];
+  g_walk.under[1] = under[2];
+  Help(kHelpDrag, kInputButton);
 }
 
 // THE TELEPORT ON THE TABLE (play mode 3). The land point goes to the table
@@ -2059,6 +2364,23 @@ void LogZoomAbout(const char* tag) {
          g_settings.test_keys ? ". Ctrl, Shift and Delete change it" : "");
 }
 
+// The rule of the walk with the stick, for the log of the start and of the
+// test key.
+void LogMoveStick(const char* tag) {
+  const int rule = walk_math::Rule(g_settings.move_stick);
+  const char* keys =
+      g_settings.test_keys ? ". Shift and the Menu key change it" : "";
+  if (rule == walk_math::kRuleOff) {
+    ModLog("%s: move_stick=0. The stick of the hand that does not point does "
+           "not move you%s", tag, keys);
+    return;
+  }
+  ModLog("%s: move_stick=%d. While the stick of the hand that does not point "
+         "is pushed, you move over the land. Forward is %s, and a full push "
+         "moves you %d cm of the room each second (move_stick_speed_cm)%s",
+         tag, rule, WalkRuleText(rule), g_settings.move_stick_speed_cm, keys);
+}
+
 }  // namespace
 
 void TabletopSetOptions(const TabletopSettings& settings) {
@@ -2096,6 +2418,11 @@ void TabletopSetOptions(const TabletopSettings& settings) {
   g_settings.god_spawn = g_settings.god_spawn != 0 ? 1 : 0;
   if (g_settings.god_spawn_ahead_cm < 0) g_settings.god_spawn_ahead_cm = 0;
   if (g_settings.god_spawn_ahead_cm > 150) g_settings.god_spawn_ahead_cm = 150;
+  g_settings.move_stick = walk_math::Rule(g_settings.move_stick);
+  if (g_settings.move_stick_speed_cm < 10) g_settings.move_stick_speed_cm = 10;
+  if (g_settings.move_stick_speed_cm > 500) {
+    g_settings.move_stick_speed_cm = 500;
+  }
 }
 
 // Only when play_mode picks the table. With any other play mode, nothing in
@@ -2168,6 +2495,7 @@ void TabletopInstall() {
              g_settings.test_keys ? ". Ctrl, Shift and Insert change it" : "");
     }
     LogZoomAbout("god view     ");
+    LogMoveStick("god view     ");
     return;
   }
   Hook(kBlockCull, reinterpret_cast<void*>(&h_BlockCull),
@@ -2206,6 +2534,7 @@ void TabletopToggle() {
   g_owned = false;
   g_god_zoom = g_god_ground = g_god_turn = 0;
   StopZoomHold("Ctrl F11", false);
+  StopWalk("Ctrl F11", false);
   g_spawn.pending = false;
   g_spawn.again = false;
   g_pan = {};
@@ -2234,6 +2563,7 @@ bool TabletopCamera(const float asked_position[3], const float asked_focus[3],
              g_settings.god ? "god view     " : "tabletop     ",
              g_settings.god ? "God view" : "table");
     }
+    StopWalk("the game draws from another camera", false);
     return false;
   }
   g_said_aside = false;
@@ -2263,6 +2593,7 @@ bool TabletopCamera(const float asked_position[3], const float asked_focus[3],
       g_build_cause = window ? "the end of a cut scene" : "the end of a story";
       g_god_zoom = g_god_ground = g_god_turn = 0;
       StopZoomHold("the God view stands aside", false);
+      StopWalk("the God view stands aside", false);
       g_tele.pending = false;
       g_spawn.pending = false;
       g_spawn.again = false;
@@ -2274,7 +2605,7 @@ bool TabletopCamera(const float asked_position[3], const float asked_focus[3],
       ModLog("god view     : your camera is back, so the God view is too");
     }
     if (!GodLand()) return false;
-    // The time of this frame, for the smooth zoom.
+    // The time of this frame, for the smooth zoom and the walk.
     const double clock = Seconds();
     const double frame_seconds = g_god_clock > 0.0 ? clock - g_god_clock : 0.0;
     g_god_clock = clock;
@@ -2332,10 +2663,12 @@ bool TabletopCamera(const float asked_position[3], const float asked_focus[3],
     }
     // A move of the game camera to a new place, once, as one cut.
     ApplyGodSpawn(asked_position, asked_focus);
-    // The steps of the player and the smooth zoom, once a frame, before
-    // anything reads the view of this frame. Then the pan of the mouse.
+    // The steps of the player, the smooth zoom and the walk with the stick,
+    // once a frame, before anything reads the view of this frame. Then the
+    // pan of the mouse.
     ApplyGodSteps();
     ApplyGodZoomHold(frame_seconds);
+    ApplyGodWalk(frame_seconds);
     MousePan(drag);
   } else {
     if (!FitLand()) return false;
@@ -2475,7 +2808,10 @@ void TabletopMove(const TablePose& pose) {
   g_scale = pose.scale;
   Derive();
   ++g_moves;
-  if (g_settings.god) ++g_god_version;
+  if (g_settings.god) {
+    ++g_god_version;
+    g_god_nonturn_version = g_god_version;
+  }
   MoveHelp(before, kInputButton);
 }
 
@@ -2709,6 +3045,13 @@ void GodReport() {
            "(god_zoom_smooth=%d)", g_holds, g_hold_seconds,
            g_settings.god_zoom_smooth);
   }
+  if (g_walks != 0 || g_walk_moves != 0) {
+    ModLog("god view     : the walk with the stick ran %llu times, for %.2f s "
+           "in all, and it moved the view on %llu frames (move_stick=%d)",
+           g_walks, g_walk_seconds, g_walk_moves, g_settings.move_stick);
+  }
+  g_walks = g_walk_moves = 0;
+  g_walk_seconds = 0.0;
   g_holds = 0;
   g_hold_seconds = 0.0;
   g_spawn_moves = g_spawn_same = 0;
@@ -2849,6 +3192,19 @@ void TabletopGodCameraWritten(const float position[3], const float focus[3]) {
   g_pair.version = g_god_version;
 }
 
+// THE TURN THAT KEEPS THE GAME'S FOCUS (GodAfter in comfort_camera.cpp,
+// god_turn_keeps_focus). True when the view only turned with snap turns since
+// the pair of the game camera and the view was kept, and turned then gives by
+// how much, in radians, to the right above 0. The game camera can then turn
+// about its own focus, as the game's turn does, also when a script put that
+// focus there.
+bool TabletopGodTurnedOnly(float* turned) {
+  if (!TabletopGodOwnsView() || !g_pair.have) return false;
+  if (g_god_nonturn_version > g_pair.version) return false;
+  *turned = Wrap(g_heading - g_pair.pose.heading);
+  return true;
+}
+
 // THE TEST KEY of god_spawn (Ctrl and Numpad 0, with test_keys=1). The rule
 // changes between 1 and 0. Then the view goes to the game camera of now by
 // the rule that it has, so the two places can be compared at one camera.
@@ -2875,6 +3231,7 @@ void TabletopGodCameraAtToggle() {
          g_settings.god_camera_at != 0 ? "the land point under your head"
                                        : "the recenter place");
   ++g_god_version;
+  g_god_nonturn_version = g_god_version;
 }
 
 // A step from the sticks or the wheel. It is kept until the next main camera
@@ -2969,6 +3326,63 @@ void TabletopGodZoomAboutCycle() {
   LogZoomAbout("test key     ");
 }
 
+// THE WALK WITH THE STICK: the rule of now, and the request of the stick for
+// the next frame (ApplyGodWalk). The last request before a main camera call
+// counts, and that call uses it once.
+//
+// The walk keeps to the game's switch for the drag of the land (bit 8), as a
+// grab of the world does. A refused request keeps nothing, and the caller
+// gets false. The stick then asks again only after it came back, so each
+// refused push is counted and logged once.
+int TabletopGodMoveStick() {
+  if (!g_installed || !g_settings.god) return walk_math::kRuleOff;
+  return walk_math::Rule(g_settings.move_stick);
+}
+
+bool TabletopGodWalk(const float push[2], const float* aim) {
+  if (TabletopGodMoveStick() == walk_math::kRuleOff || !TabletopGodOwnsView()) {
+    return false;
+  }
+  if (!(push[0] == push[0]) || !(push[1] == push[1])) return false;
+  if (push[0] == 0.0f && push[1] == 0.0f) return false;
+  if ((CameraFeatures() & kFeatureDrag) == 0) {
+    ++g_god_refused;
+    ++g_switch_refused;
+    if (GodLog()) {
+      ModLog("god view     : the game does not allow a drag of the land now "
+             "(camera switch 8 is off), so the stick does not move you");
+    }
+    StopWalk("the game turned its switch for the drag of the land off", true);
+    return false;
+  }
+  g_walk.push[0] = push[0];
+  g_walk.push[1] = push[1];
+  g_walk.have_aim = aim != nullptr;
+  if (aim != nullptr) {
+    g_walk.aim[0] = aim[0];
+    g_walk.aim[1] = aim[1];
+  }
+  g_walk.fresh = true;
+  return true;
+}
+
+// THE TEST KEY of move_stick (Shift and the Menu key, with test_keys=1). The
+// rule goes from the head (1) to the controller (2), to off (0) and back.
+// The pointing controller gives a short pulse for 0, a medium pulse for 1
+// and a long pulse for 2. A walk that runs stops, and a stick that is still
+// pushed starts a new walk with the new rule.
+void TabletopGodMoveStickCycle() {
+  if (!g_installed || !g_settings.god || !g_settings.test_keys) return;
+  g_settings.move_stick =
+      walk_math::NextRule(walk_math::Rule(g_settings.move_stick));
+  StopWalk("the test key changed move_stick", true);
+  const int rule = g_settings.move_stick;
+  ControllersGesturePulse(0.5f, rule == walk_math::kRuleController ? 0.40f
+                                : rule == walk_math::kRuleHead     ? 0.24f
+                                                                   : 0.08f);
+  LogMoveStick("test key     ");
+}
+
 bool TabletopGodTurn(int direction, float degrees) {
   if (!TabletopGodOwnsView() || direction == 0 || !(degrees > 0.0f)) {
     return false;
@@ -3015,9 +3429,10 @@ bool TabletopGodGameCamera(float position[3], float focus[3],
       place[1] = under[2];
     }
     // The start of a hold of the smooth zoom has its own line, with the
-    // place and the scale.
+    // place and the scale, and so have the start and the end of a walk with
+    // the stick.
     static int said = 0;
-    if (said < 40 && g_scale > 0.0f && !g_hold.active) {
+    if (said < 40 && g_scale > 0.0f && !g_hold.active && !g_walk.active) {
       ++said;
       ModLog("god view     : the game camera is over the %s at %.1f %.1f, %.1f "
              "units per meter",

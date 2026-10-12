@@ -71,7 +71,7 @@ const Setting kSettings[] = {
     // Before the resolution: a save writes the rows in order, and the size of
     // the render reads this key.
     {kBool, "one_walk", "One scene walk for both eyes (prototype)", nullptr,
-     0,
+     1,
      "The game draws the scene one time, for the left eye, and the mod makes "
      "the right eye from the same drawing. This takes about 40 percent off "
      "the time of the scene. The render is a quarter wider, so that the "
@@ -162,6 +162,14 @@ const Setting kSettings[] = {
      "land you look at: the thing in the middle of your view keeps its place "
      "and changes its size. The land under you: you keep your place on the "
      "land. Your Hand: the land at your Hand keeps its place."},
+    {kValues, "move_stick", "Move with the left stick",
+     "Head direction=1|Controller direction=2|Off=0", 1,
+     "Push the stick of your other hand (the left stick) to move over the "
+     "land in the God view. You stop when you let the stick go. Head "
+     "direction: forward is where your head faces. Controller direction: "
+     "forward is where that controller points. Off: the stick does not move "
+     "you. Some people feel ill when a stick moves them: use Off then, and "
+     "move with the grip and with the teleport."},
     // Not offered. These four keys act on the camera of the game. In the
     // God view the mod moves the view in cuts and in its own zoom steps,
     // and a story shows in a window in the room, so the defaults are the
@@ -397,7 +405,7 @@ void ScaleToPixels(int percent, int* width, int* height) {
   // own right edge. A wider render gives the game a wider horizontal angle at
   // the same pixels per degree (stereo.cpp, PrepareHeadView), so that edge is
   // outside what the right eye shows.
-  if (ReadIni("one_walk", 0) != 0) {
+  if (ReadIni("one_walk", 1) != 0) {
     int guard = ReadIni("one_walk_guard_pct", 25);
     if (guard < 0) guard = 0;
     if (guard > 60) guard = 60;
@@ -618,7 +626,8 @@ const char* const kRetiredKeys[] = {
     "frame_time_test_readers_frames", "god_zoom_about_test",
     "god_zoom_test_toggle",
     "hand_feel_test_toggle", "hand_model_test_look", "hand_model_test_swap",
-    "help_test", "near_test_flips", "spawn_test_flag", "spawn_test_temple",
+    "help_test", "land_light_test", "near_test_flips", "spawn_test_flag",
+    "spawn_test_temple",
     "spawn_test_toggle", "spawn_test_x", "spawn_test_z",
     "spirit_point_world_test", "spirit_world_size_test",
     "subtitle_card_test", "subtitle_selftest", "temple_test_camera_trace",

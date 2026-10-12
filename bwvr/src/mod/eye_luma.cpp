@@ -130,10 +130,12 @@ void EyeLumaReport() {
   ModLog("eye test     : %llu frames this window: %llu with one dark eye, "
          "%llu with both eyes black, and %llu black flashes. The largest "
          "difference between the eyes was %.1f (left %.1f, right %.1f) at "
-         "frame %llu. %llu frames had no picture to read",
+         "frame %llu. The brightest frame was frame %llu (left %.1f, right "
+         "%.1f). %llu frames had no picture to read",
          g_track.all, g_track.one_eye, g_track.black, g_track.flashes,
          g_track.most_gap, g_track.gap_left, g_track.gap_right,
-         g_track.gap_frame, g_missed);
+         g_track.gap_frame, g_track.bright_frame, g_track.bright_left,
+         g_track.bright_right, g_missed);
   eye_luma::NewWindow(&g_track);
   g_missed = 0;
 }

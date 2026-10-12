@@ -46,6 +46,7 @@ struct Words {
   const wchar_t* noun;        // "stick" or "pad", for a sentence
   const wchar_t* verb;        // "Push" or "Press"
   bool swap;
+  bool menu_on_pointing;      // the menu button is on the pointing hand
 };
 
 Family FamilyOf(const char* profile) {
@@ -95,23 +96,32 @@ Words BuildWords(const ControllerHintState& state, const char* profile) {
   } else if (state.gesture_button == 2 && w.stick != nullptr) {
     w.gesture = (f == kWand) ? L"Pad click" : L"Stick click";
   }
-  // The game menu (controllers.cpp, LatchEsc): the second face button of the
-  // hand that does not point, or the menu button of the left hand.
+  // The game menu (controllers.cpp, LatchEsc). With button_layout=1: the
+  // menu button of the left controller, or the first face button of the hand
+  // that does not point on an Index controller, which has no menu button.
+  // With 0: the second face button of the hand that does not point.
+  const bool new_layout = state.layout != 0;
   if (f == kTouch) {
-    w.menu = left ? L"B" : L"Y";
+    w.menu = new_layout ? L"Menu" : (left ? L"B" : L"Y");
   } else if (f == kIndex) {
-    w.menu = L"B";
+    w.menu = new_layout ? L"A" : L"B";
   } else {
     w.menu = L"Menu";
   }
+  // The menu button is on the left controller, which a left handed player
+  // points with. A face button of the game menu is on the other hand.
+  w.menu_on_pointing = left && w.menu[0] == L'M';
   // The grab of the world (controllers.cpp, UpdateGrab): the grip of the
   // hand that does not point.
   if (state.world_grab && f != kSimple) w.world = L"Grip";
-  // The ring (radial_menu.cpp): the first face button of the hand that does
-  // not point, or the stick of that hand when only the stick opens it.
+  // The ring (radial_menu.cpp): a face button of the hand that does not
+  // point (the second one with button_layout=1, the first one with 0), or
+  // the stick of that hand when only the stick opens it.
   if (state.ring == 1) {
-    if (f == kTouch) w.ring = left ? L"A" : L"X";
-    if (f == kIndex) w.ring = L"A";
+    if (f == kTouch) {
+      w.ring = new_layout ? (left ? L"B" : L"Y") : (left ? L"A" : L"X");
+    }
+    if (f == kIndex) w.ring = new_layout ? L"B" : L"A";
   }
   if (state.ring != 0 && w.ring == nullptr) w.ring = w.stick;
   return w;
@@ -126,7 +136,8 @@ uint32_t SignatureOf(const Words& w, const ControllerHintState& s) {
   return static_cast<uint32_t>(w.family) | (s.left_handed ? 0x10u : 0u) |
          (s.swap_buttons ? 0x20u : 0u) | (s.world_grab ? 0x100u : 0u) |
          (static_cast<uint32_t>(s.gesture_button & 3) << 6) |
-         (static_cast<uint32_t>(s.ring & 3) << 9);
+         (static_cast<uint32_t>(s.ring & 3) << 9) |
+         (s.layout != 0 ? 0x800u : 0u) | (w.menu_on_pointing ? 0x1000u : 0u);
 }
 
 // --- the census -------------------------------------------------------------
@@ -310,11 +321,15 @@ enum TextKind {
   kZoomLong,   // a long line about the wheel, with the middle button in it
   kZoomShort,
   kPhrase,     // the words "mouse wheel" or "the wheel" in a longer line
+  kTurnLesson, // the turn lesson of the tutorial: the edge of the screen
+  kTurnHint,   // the hint that the edge of the screen turns the view
+  kHead,       // a line about looking up and down: the head does it
 };
 
 struct KeyRow {
   const wchar_t* key;
   TextKind kind;
+  const wchar_t* head;  // the sentence of a kHead line
 };
 const KeyRow kKeys[] = {
     {L"HELP_TEXT_ACTIONS_LEFTMOUSEBUTTON", kLmb},
@@ -328,6 +343,28 @@ const KeyRow kKeys[] = {
     {L"HELP_TEXT_TUTORIAL_LAND_108", kKeyboard},
     {L"HELP_TEXT_DYK_18", kZoomLong},
     {L"HELP_TEXT_JUST_IN_CASE_37", kZoomShort},
+    // The camera lessons of the tutorial (TeachRotate, TeachPitch) and the
+    // hints about them tell of the Move Button at the edge of the screen.
+    // In the God view the stick turns, and the view does not tilt: the head
+    // looks up and down (tilt_help_degrees, comfort_camera.cpp).
+    {L"HELP_TEXT_FINAL_BEGINNING_44", kTurnLesson},
+    {L"HELP_TEXT_NEW_INTERFACE_03", kTurnHint},
+    {L"HELP_TEXT_FINAL_BEGINNING_50", kHead,
+     L"Look up and down with your head."},
+    {L"HELP_TEXT_NEW_INTERFACE_04", kHead,
+     L"You know, Boss, you can look up and down with your head."},
+    {L"HELP_TEXT_INTERFACE_LOOK_AT_SKY_01", kHead,
+     L"Yeah, the sky's very pretty. But tilt your head to look down."},
+    {L"HELP_TEXT_INTERFACE_LOOK_AT_SKY_02", kHead,
+     L"A tilt of your head pitches your view down."},
+    {L"HELP_TEXT_INTERFACE_LOOK_AT_SKY_03", kHead,
+     L"Tilt your head to look down, Boss."},
+    {L"HELP_TEXT_INTERFACE_LOOK_AT_SKY_04", kHead,
+     L"You can tilt your head to alter your view angle."},
+    {L"HELP_TEXT_INTERFACE_LOOK_AT_SKY_05", kHead,
+     L"Look down by tilting your head."},
+    {L"HELP_TEXT_INTERFACE_LOOK_AT_SKY_06", kHead,
+     L"You can look down by tilting your head."},
 };
 
 struct TextRow {
@@ -336,6 +373,7 @@ struct TextRow {
   wchar_t* alt;           // the copy with controller words, or null
   uint32_t alt_signature;
   TextKind kind;
+  const wchar_t* head;    // the sentence of a kHead line
   bool dead;              // the game changed the slot, so the mod leaves it
   wchar_t key[48];        // for the log
 };
@@ -376,9 +414,11 @@ void __fastcall h_AddText(void* entry, void* edx, int a, int b,
   }
   bool found = false;
   TextKind kind = kPhrase;
+  const wchar_t* head = nullptr;
   for (const KeyRow& row : kKeys) {
     if (wcscmp(key, row.key) == 0) {
       kind = row.kind;
+      head = row.head;
       found = true;
       break;
     }
@@ -392,6 +432,7 @@ void __fastcall h_AddText(void* entry, void* edx, int a, int b,
   row.original = static_cast<wchar_t*>(*slot);
   row.alt_signature = 0xFFFFFFFFu;
   row.kind = kind;
+  row.head = head;
   wcsncpy_s(row.key, key, _TRUNCATE);
 }
 
@@ -458,6 +499,20 @@ bool BuildAlt(const TextRow& row, const Words& w, std::wstring* out) {
       *out = ReplacePhrases(row.original, w.noun);
       return true;
     }
+    case kTurnLesson:
+      if (w.noun == nullptr) return false;
+      *out = std::wstring(w.verb) + L" the " + w.noun +
+             L" left or right to turn.";
+      return true;
+    case kTurnHint:
+      if (w.noun == nullptr) return false;
+      *out = std::wstring(L"You know, Boss, you can turn with the ") +
+             w.noun + L".";
+      return true;
+    case kHead:
+      if (row.head == nullptr) return false;
+      *out = row.head;
+      return true;
   }
   return false;
 }
@@ -752,6 +807,8 @@ const wchar_t* ControllerHintWord(int word) {
       return nullptr;
   }
 }
+
+bool ControllerHintMenuOnPointing() { return g_words.menu_on_pointing; }
 
 void ControllerHintsCountConverted() { ++g_converted; }
 void ControllerHintsCountHidden() { ++g_hidden; }

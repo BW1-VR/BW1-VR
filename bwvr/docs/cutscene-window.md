@@ -454,7 +454,7 @@ act: each needs the room, and a flat frame has none.
 
 | Button | In the window |
 | --- | --- |
-| Y on the left controller, or the left menu button | Esc. The game drops Esc while a script holds the cinema bars (`GGame::ProcessKey` `0x0063EF20` tests `HelpSystem + 0x45E8` and `+ 0x45EC`) [V]. So Esc does nothing in a story, on a monitor too, and it opens the menu again after the story |
+| The left menu button (and Y on the left controller with `button_layout=0`) | Esc. The game drops Esc while a script holds the cinema bars (`GGame::ProcessKey` `0x0063EF20` tests `HelpSystem + 0x45E8` and `+ 0x45EC`) [V]. So Esc does nothing in a story, on a monitor too, and it opens the menu again after the story |
 | The trigger | A left click at the place of the pointer |
 | The mouse and the keys | As on a monitor |
 | F11 | Recenter. The screen moves in front of the head |

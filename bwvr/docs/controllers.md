@@ -705,13 +705,18 @@ trigger makes the seed active and does not reach the game. While the grip is
 closed with a miracle that needs a circle, the path of the hand goes to the
 game as it does for the draw button. See `miracles.md`.
 
-**Esc** (`PumpEsc` in `controllers.cpp`). Y on the left controller sends the
-Esc key of the game, and so does the left menu button when the runtime gives
-it to the game. A left handed player (`controller_left_handed=1`) has the
-pointing hand on the left, and its Y is the gesture draw button. So B on the
-right hand sends Esc then. It is the second face button of the hand that does
-not point, so it never clashes with the draw button or with the B of the
-teleport.
+**Esc** (`PumpEsc` in `controllers.cpp`). The menu button of the left
+controller sends the Esc key of the game. With `button_layout=1` (the
+default, 5.1) it is the one button of the game menu. A Quest gives a program
+no menu button of the right controller, so a left handed player
+(`controller_left_handed=1`) has the same button, on the controller of the
+pointing hand. An Index controller has no menu button that a program gets
+(2.3). There the first face button of the hand that does not point (A) sends
+Esc, because it has no other job. With `button_layout=0` the second face
+button of the hand that does not point sends Esc too: Y on the left
+controller, or B on the right controller of a left handed player. That button
+never clashes with the draw button or with the B of the teleport, which are
+on the pointing hand.
 
 The game reads the keyboard only from window messages. The window procedure
 passes `WM_KEYDOWN` and `WM_KEYUP` to `LHKeyboard::ProcessKeyboard`
@@ -867,10 +872,11 @@ The words that hold a button (or the stick at full) for `frames` frames:
 | `menu` | The menu button of the right hand |
 | `stick_click` | The stick click of the right hand |
 | `stick_left`, `stick_right`, `stick_up`, `stick_down` | The stick of the right hand at full |
-| `x`, `y` | X, Y of the left hand (needs `fake_controller=2`). Y sends Esc |
+| `x`, `y` | X, Y of the left hand (needs `fake_controller=2`). With `button_layout=1` Y opens the ring and X has no job. With 0 X opens the ring and Y sends Esc |
+| `lmenu` | The menu button of the left hand: Esc |
 | `lgrip`, `ltrigger` | Grip, trigger of the left hand |
 | `gripdip` | While the word `grip` holds, the squeeze of the right grip reads 0.59 and not 1.0 for the frames of this word. One frame is a real hand that jerks away |
-| `lstick_left`, `lstick_right`, `lstick_up`, `lstick_down` | The stick of the left hand at full. Two words at the same time give a diagonal |
+| `lstick_left`, `lstick_right`, `lstick_up`, `lstick_down` | The stick of the left hand at full. Two words at the same time give a diagonal. The stick moves the player in the God view (`move_stick`), or drives the ring with `button_layout=0` |
 | `nofocus` | The headset session has no focus of the runtime. Both fake hands are not active, as `XrScreen` gives them then |
 
 The words that act on the first frame of the word only:
@@ -897,6 +903,8 @@ The words that act on the first frame of the word only:
 | `bench` | The frames of the word are one scene of the frame cost measure (`profile=1`, `backend.md`, "The frame cost measure"). It moves nothing. The scene starts with the frame after the first frame of the word |
 | `deactivate` | The game gets `WM_ACTIVATEAPP` with 0 and `WM_KILLFOCUS`, as when the player clicks a different program. See 9.5 |
 | `exit` | The mod asks the game to end by itself, on its usual exit path, as `exit_test_frame` does. From that frame the mod drops each write of the game to the registry. See `backend.md`, "The test of the end" |
+| `layoutkey` | The test key of `button_layout` acts (5.1) |
+| `movekey` | The test key of `move_stick` acts (`god-view.md`, section 5.7) |
 
 The placement of the hand is in cm from the head center. Each pose word sets
 the position of the right hand until the next one.
@@ -964,11 +972,50 @@ hands change sides. The default mode is the God view (`god-view.md`).
 | Control | Behavior |
 | --- | --- |
 | Grip | Grabs the land: pull to move it across, and up or down, one to one. Both grips turn and scale the land (`god-view.md`, section 5). `grab_hand=2` also lets the grip of the pointing hand grab the land when the Hand is empty and over nothing it can hold |
-| X (A when the left hand points) | Hold: opens the ring, and the hand picks an item (section 10) |
-| Stick | Push: opens the ring. The stick points and the trigger chooses (section 10) |
-| Trigger | Chooses an item when the stick opened the ring. No other job |
-| Y (B when the left hand points) | Esc (3.6) |
-| Menu button | Esc |
+| Y (B when the left hand points) | Hold: opens the ring, and the hand picks an item (section 10) |
+| X (A when the left hand points) | No job |
+| Stick | In the God view: push it to move over the land (`move_stick`, `god-view.md`, section 5.7). No job in the other views and in a room of the Temple |
+| Trigger | No job |
+| Menu button of the left controller | Esc: the game menu (3.6) |
+
+**The layout of the other hand** (`button_layout`, `ButtonLayout` in
+`controllers.cpp`). The table above has the layout of `button_layout=1`, the
+default. Each control has one job, and one button opens the game menu.
+
+| | `button_layout=1` | `button_layout=0` |
+| --- | --- | --- |
+| The game menu (Esc) | The menu button of the left controller | The second face button of the other hand (Y, or B), and the menu button of the left controller |
+| The ring | Hold the second face button of the other hand (Y, or B) | Hold the first face button (X, or A), or push the stick and pull the trigger (`radial_menu_stick`) |
+| The first face button (X, or A) | No job. A press makes one log line | The ring |
+| The stick of the other hand | The walk with the stick (`move_stick`) | The ring, and no walk |
+| The trigger of the other hand | No job | Chooses an item when the stick opened the ring |
+
+- **A left handed player.** The left menu button is then on the controller
+  of the pointing hand. It still sends Esc: `LatchEsc` reads the menu button
+  of the left controller, whichever hand points. The ring is on B of the
+  right controller, and A of the right controller has no job.
+- **An Index controller** has no menu button that a program gets (2.3). With
+  `button_layout=1` the first face button of the other hand (A) sends Esc
+  there, and B opens the ring.
+- **A controller with no face buttons** (a Vive wand, a Windows Mixed Reality
+  controller) keeps the ring on its stick or pad with each layout, so its
+  stick does not move the player. `radial_menu_stick=0` with
+  `radial_menu_button=2` gives the ring to the stick click, and the stick
+  then moves the player.
+- **A dialog box and the game menu.** The menu button sends Esc, and the game
+  decides what Esc does there. The ring does not open, and the stick does not
+  move the player.
+- **A room of the Temple.** The ring opens with the button of the layout, and
+  the menu button sends Esc: back to the hall, or out of the Temple. The
+  stick of the other hand has no job there with `button_layout=1`.
+- **The test key.** With `test_keys=1`, Ctrl and the Menu key of the keyboard
+  change `button_layout` between 1 and 0 while the game runs. The Menu key is
+  the key beside the right Ctrl key that opens a context menu. The hand that
+  does not point gives a long pulse for 1 and a short pulse for 0, and the
+  log names the layout. A ring that is open closes with no choice. A button
+  that is down at that moment must go up before it does its new job, and a
+  stick that is pushed must come back. The hint cards and the hints show the
+  buttons of the layout in use (`controller-hints.md`).
 
 ### 5.2 Player keys
 
@@ -986,6 +1033,8 @@ hands change sides. The default mode is the God view (`god-view.md`).
 | `gesture_button` | 1 | The gesture draw button: 0 off, 1 the second face button of the pointing hand, 2 the stick click |
 | `gesture_size_cm` | 30 | This much hand motion is a third of the view height to the game |
 | `teleport` | 1 | 1: A makes the teleport. 0: A makes a jump |
+| `button_layout` | 1 | The layout of the buttons of the hand that does not point (5.1). 1: the menu button of the left controller opens the game menu, the second face button opens the ring, the first face button has no job, and the stick does not drive the ring. 0: the second face button opens the game menu, the first face button opens the ring, and the stick can drive the ring. The test key Ctrl and the Menu key goes between the two (`test_keys=1`). Not in the launcher |
+| `move_stick`, `move_stick_speed_cm` | 1, 150 | The walk with the stick of the hand that does not point, in the God view: 0 off, 1 along the direction of the head, 2 along the direction of the controller, and the speed of a full push in cm of the room for each second (`god-view.md`, section 5.7). The launcher row "Move with the left stick" |
 | `miracle_cancel_ms` | 400 | The longest press of the second face button that takes a miracle out of the Hand |
 | `controller_hints` | 1 | 1 shows the controller words in the hints and the help text of the game while a controller owns the pointer. 0 leaves every hint as the game draws it (`controller-hints.md`) |
 | `text_click` | 1 | 1: while a text of the game waits for a click, its prompt shows on the hint card in each view, and a press of the trigger goes to the game as the left button: no Creature command, no seed, and with the Hand off the view too. 0: the prompt has the rule of each other hint of the left button, and the trigger keeps its other jobs (`controller-hints.md`, section 10) |
@@ -1015,6 +1064,7 @@ are in `god-view.md`, section 5.6.
 | `bwvr/src/mod/pointer_map.cpp` | The controller pixel in `PointerMapApply`, the owner rule, the held bits, the focus rules |
 | `bwvr/src/mod/comfort_camera.cpp` | `ComfortCameraRequestTurn`, the zoom steps |
 | `bwvr/src/mod/radial_menu.cpp`, `radial_menu_math.h` | The ring (section 10) |
+| `bwvr/src/mod/walk_math.h` | The walk with the stick: the push, the forward direction, the speed and the step (`god-view.md`, section 5.7) |
 | `bwvr/src/mod/temple.cpp`, `temple_math.h` | The Temple (section 11) |
 | `bwvr/src/mod/teleport.cpp` | The teleport |
 | `bwvr/src/mod/haptics.cpp` | The pulses |
@@ -1066,7 +1116,8 @@ game camera goes over the place of the player (`god-view.md`). `backend.md`,
 The math tests are in `bwvr/test/controller_math/` and run with
 `.\dev.ps1 build`. `main.cpp` has the checks of the transform, the aim and the
 pixel. `aim_checks.h`, `ring_checks.h` and `temple_checks.h` have the checks of
-sections 8, 10 and 11.
+sections 8, 10 and 11. `walk_checks.h` has the checks of the walk with the
+stick.
 
 Desktop runs use the fake controller with `fake_head=1`. These checks apply:
 
@@ -1387,7 +1438,7 @@ program gets it, and the real cursor does not move.
 | The trigger, the grip, the click of an open grip, the jump of A | `LHMouse::SetButtons`, the original function, from the pump |
 | The pointer | The pointer fields of the game (`PointerMapApply`), and the message `0x8009` to the game window, which `h_MouseMoveHandler` maps |
 | The stick | The wheel sum `0x00E85300`, the turn request of `comfort_camera.cpp`, the zoom step of the God view |
-| Esc (Y, the menu button) | `WM_KEYDOWN` and `WM_KEYUP` with `SendMessageA` to the game window `0x00E85078`. The call runs the window procedure in the process, from the game thread |
+| Esc (the menu button) | `WM_KEYDOWN` and `WM_KEYUP` with `SendMessageA` to the game window `0x00E85078`. The call runs the window procedure in the process, from the game thread |
 | The ring | The key buffer of the game (10.3) |
 | The Hand, the far grab, the teleport, the gestures, the Creature commands, the miracle | Code of the mod that asks `Usable` |
 
@@ -1490,8 +1541,8 @@ fake controller stands for it), a real `WM_ACTIVATEAPP` from Windows, and a
 take of an object in the `deactivate` state.
 
 Needs the headset: start the game, click a different window on the desktop,
-and put the headset on. The hands, the grip, the trigger, the stick and Y must
-act. Open the menu of the headset: nothing may act in the game until it
+and put the headset on. The hands, the grip, the trigger, the sticks, Y and the
+menu button must act. Open the menu of the headset: nothing may act in the game until it
 closes. The log then names the program that was in front.
 
 ## 10. The ring
@@ -1512,17 +1563,25 @@ frame) and `radial_menu_math.h` (the items, the pick, the ring step by step).
 
 The ring belongs to the hand that does not point: the left hand, or the right
 hand with `controller_left_handed=1`. It has two ways, and each one needs only
-that hand.
+that hand. The layout of the buttons (`button_layout`, 5.1) chooses the
+button, and whether the stick drives the ring.
 
 | Way | Open | Pick | Choose | Close with no choice |
 | --- | --- | --- | --- | --- |
-| The button | Hold the first face button (X, or A when the left hand points) | Move the hand 5 cm or more toward an item | Let go of the button | Let go with the hand in the middle |
-| The stick | Push the stick of that hand | The stick points at an item | Pull the trigger of that hand | Let the stick rest in the middle for 0.5 s |
+| The button | Hold the second face button (Y, or B when the left hand points). With `button_layout=0`: the first face button (X, or A) | Move the hand 5 cm or more toward an item | Let go of the button | Let go with the hand in the middle |
+| The stick, with `button_layout=0` and on a controller with no face buttons | Push the stick of that hand | The stick points at an item | Pull the trigger of that hand | Let the stick rest in the middle for 0.5 s |
 
-**Why two ways.** On a Touch controller the thumb holds X, and the same thumb
-moves the stick. So one thumb cannot hold X and point with the stick. With the
-button, the hand picks, as the weapon choice of Half-Life: Alyx does. With the
-stick, the index finger chooses with the trigger. Both ways are on by default.
+**The button is the one way of a Touch controller** with `button_layout=1`.
+The stick of that hand moves the player there (`god-view.md`, section 5.7),
+so it does not drive the ring. The thumb holds Y and the hand picks, as the
+weapon choice of Half-Life: Alyx does. A controller with no face buttons (a
+Vive wand, a Windows Mixed Reality controller) has the ring on its stick or
+pad, and its trigger chooses.
+
+**Why two ways with `button_layout=0`.** On a Touch controller the thumb holds
+X, and the same thumb moves the stick. So one thumb cannot hold X and point
+with the stick. With the button, the hand picks. With the stick, the index
+finger chooses with the trigger.
 
 **Why not the trigger as the control that opens the ring.** The left grip
 moves the land, and a hand that closes on the grip often closes on the trigger
@@ -1656,8 +1715,8 @@ does not show, and its items still act.
 | Key | Default | Meaning |
 | --- | --- | --- |
 | `radial_menu` | 1 | 0 turns the ring off |
-| `radial_menu_button` | 1 | What opens the ring with a hold: 0 nothing, 1 the first face button, 2 the stick click, 3 the trigger |
-| `radial_menu_stick` | 1 | 1 the stick opens the ring and points, and the trigger chooses. Off with `radial_menu_button=3` |
+| `radial_menu_button` | 1 | What opens the ring with a hold: 0 nothing, 1 the face button of `button_layout` (the second one with 1, the first one with 0), 2 the stick click, 3 the trigger |
+| `radial_menu_stick` | 1 | 1 the stick opens the ring and points, and the trigger chooses. It acts with `button_layout=0`, and on a controller with no face buttons. Off with `radial_menu_button=3` |
 | `radial_menu_items` | see 10.2 | The 8 items of page 1, with commas, from the top and clockwise |
 | `radial_menu_items2` | see 10.2 | Page 2. A page with no item gives a ring of one page |
 | `radial_menu_items_temple` | see 10.2 | The ring in the Temple |
@@ -1666,17 +1725,23 @@ does not show, and its items still act.
 | `radial_menu_creature` | 1 | 1 the item `creature` is one teleport in the God view, 0 it is the key of the game |
 | `radial_test_save` | 0 | A test key: the mod saves the first N pictures of the ring as `bwvr-ring-NNNNN.bmp` |
 
-**The test key.** With `test_keys=1`, Ctrl and the 1 key of the number pad go
-through the ways: both, the button only, the stick only. The hand of the ring
-gives a longer pulse for each next way, and the log names the way.
+**The test keys.** With `test_keys=1`, Ctrl and the Menu key change
+`button_layout` (5.1). While the stick can drive the ring (`button_layout=0`),
+Ctrl and the 1 key of the number pad go through the ways: both, the button
+only, the stick only. The hand of the ring gives a longer pulse for each next
+way, and the log names the way.
 
-The fake controller has the words `lstick_left`, `lstick_right`, `lstick_up`,
-`lstick_down` and `ltrigger` for the left hand (4.2).
+The fake controller has the words `x`, `y`, `lpoint`, `lstick_left`,
+`lstick_right`, `lstick_up`, `lstick_down` and `ltrigger` for the left hand
+(4.2). `Get-BwvrRingChoice` in `bwvr/tools/desk/game.ps1` gives the words and
+the two places of the left hand for one choice with the button: the button
+goes down, the hand steps 10 cm toward the item on the plane of the ring, the
+button goes up, and the hand steps back.
 
 ### 10.6 The log
 
 ```
-ring         : radial_menu=1. radial_menu_button=1: the first face button of the hand that does not point opens it (X), the hand picks an item after 5 cm, and the release chooses. radial_menu_stick=1: [...]
+ring         : radial_menu=1. radial_menu_button=1: the second face button of the hand that does not point opens it (Y, button_layout=1), the hand picks an item after 5 cm, and the release chooses. radial_menu_stick=1: [...]
 ring         : the ring opens at the left hand (the button, and the hand picks), at -0.200 -0.300 -0.350 m, 50 cm from the head. Page 1: temple, creature, [...], frame 821
 ring         : the player chose "temple": the key Space, 2 times, frame 1021
 ring         : the key Space goes into the key buffer of the game (1 of 128 keys), frame 1021
@@ -1721,17 +1786,47 @@ The first visit of the Temple and of each room plays a guide of the game with
 the cinema bars. The game takes no key in the Temple then, and the ring does
 not open.
 
+The layout of the buttons [R] (a run in the test save at the Temple,
+`spawn_run.ps1 -Save temple`, with the words `x@840+30 lstick_right@900+60
+ltrigger@930+6 y@1000+30 lpoint@1006+1 lpoint@1036+1 lmenu@1150+6
+lstick_up@1260+40 y@1330+30` and the left points `-16,-24,42 -20,-30,35`):
+
+- With `button_layout=1`: X makes the log line "the first face button of the
+  left hand is down. It has no job". The left stick moves the player and
+  does not open the ring, and the left trigger does nothing. Y opens the
+  ring, the step of the hand picks `creature`, and the release chooses it. Y
+  sends no Esc. The left menu button sends Esc, and the game menu is up.
+  With the menu up, the stick does not move the player, and Y does not open
+  the ring.
+- With `button_layout=0`: X opens the ring, and the release in the middle
+  closes it. The stick opens the ring and picks `town`, and the trigger
+  chooses it. Y sends Esc, and so does the left menu button. No walk starts.
+- With `controller_left_handed=1` and `button_layout=1` (the words `a`,
+  `stick_up`, `b` with two steps of `point`, and `lmenu`): A of the right
+  hand has no job, the right stick moves the player, B opens the ring at
+  the right hand and the step of that hand picks `creature`, and the left
+  menu button sends Esc.
+- In the Temple (`temple_run.ps1 -Rooms "room_challenge@3500" -Steps
+  "x@3360+20 lstick_up@3400+40 lmenu@5300+6"`): Y with a step of the hand
+  chooses `enter` on the land and `room_challenge` in the hall. In the hall X
+  has no job, and the stick does not move the player ("the God view does not
+  own the view now"). The menu button sends Esc, and the player is in the
+  hall again.
+- The word `layoutkey` changes the layout in a run: after it the stick opens
+  the ring and does not move the player.
+
 Not run: `save` and `load`, because a quick save writes a saved game of the
 profile and a test must not do that. They use the same path as each other
 action key. Also not run: `room_options` (the same call with a different
-room), the left hand as the pointing hand, the test key, and a real
-controller.
+room), the two test keys with a real key, an Index controller, a controller
+with no face buttons, and a real controller.
 
 Needs the headset:
 
 1. That Virtual Desktop shows the quad layer of the ring, and that it is sharp.
-2. The two ways: X with the hand, and the stick with the trigger. Ctrl and
-   Numpad 1 leave only one of them on.
+2. Whether Y is easy to hold while the hand moves to an item
+   (`button_layout=1`). Ctrl and the Menu key change to the layout with X and
+   the stick, and Ctrl and Numpad 1 then leave only one of its two ways on.
 3. Whether 5 cm is the right reach, and whether 32 cm is the right size
    (`radial_menu_reach_cm`, `radial_menu_size_pct`).
 4. Whether the card in the middle is in the way of the hand.
@@ -1749,7 +1844,7 @@ controllers:
 | The view | The game draws a room from a camera of its own, and the God view stands aside. The room fills the view at life size. The camera of the game gives the place and the heading of the player in the room, and the head gives the view: its turn, its pitch, its roll and the place of each eye, one to one (11.4). That camera is at the rest pose of the room at once, and it does not move by itself. A guide of the game plays in the cut scene window |
 | Go to a room | The ring of the Temple, from each room, or the pointing hand on a door in the room and a click |
 | Use a thing of a room | The pointing hand on the thing and a click (11.2 and 11.3) |
-| Come out | The ring item `leave`, one time in a room and one time in the hall. Y sends the same Esc |
+| Come out | The ring item `leave`, one time in a room and one time in the hall. The menu button sends the same Esc |
 | After it | The God view is back at its place of before, and the pause is as before |
 
 The code is `temple.cpp` (the game side, the depth of the ray, the camera
@@ -2367,7 +2462,7 @@ always starts in a new game.
   eyes have no desktop run.** The math checks cover the rules. The recipes
   that show them, each one with the default values and with
   `temple_view=0;temple_camera_screen=0;temple_fade_eyes=0`:
-  - `temple_run.ps1 -Set "eye_test_luma=1;temple_test_camera_trace=1;fake_head_pitch=-40;fake_head_roll=20" -Seconds 150 -Steps "shot@3300+1 lstick_down@3400+60 lstick_right@3400+60 ltrigger@3430+6 shot@5100+1 look@5200+200 shot@5260+1 lstick_down@5600+60 ltrigger@5630+6 lstick_down@6100+60 ltrigger@6130+6"`.
+  - `temple_run.ps1 -Set "eye_test_luma=1;temple_test_camera_trace=1;fake_head_pitch=-40;fake_head_roll=20" -Seconds 150 -Rooms "room_save@3400 leave@5600 leave@6100" -Steps "shot@3300+1 shot@5100+1 look@5200+200 shot@5260+1"`.
     The head looks 40 degrees down with a roll of 20 degrees, and the word
     `look` turns it in one step. The ring goes to the Save Game Room and back,
     and then out of the Temple. The line of the cut of the hall has the place

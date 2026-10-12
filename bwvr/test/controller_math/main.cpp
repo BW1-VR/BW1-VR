@@ -1686,6 +1686,99 @@ void GodChecks() {
     Near("and it looks along the heading of the view, degrees",
          table_math::Wrap(psi - heading) / kDeg, 0.0, 1e-3);
   }
+
+  printf("A turn of the view keeps the game's focus\n");
+  {
+    // The camera of the turn lesson: 60.6 units from the focus at the Temple.
+    const float focus[3] = {1914.3f, 29.9f, 2509.4f};
+    const float heading = 122.5f * kDeg;
+    const float pitch = 23.8f * kDeg;
+    float position[3], start[3];
+    table_math::GameCameraOver(focus, heading, 60.6f, pitch, position);
+    table_math::GameCameraOver(focus, heading, 60.6f, pitch, start);
+    const float turned = 45.0f * kDeg;
+    table_math::TurnAboutFocus(focus, turned, position);
+    float want[3];
+    table_math::GameCameraOver(focus, heading + turned, 60.6f, pitch, want);
+    Near("after a turn of 45 degrees to the right the camera is where the "
+         "view's heading puts it, units",
+         Distance(position, want), 0.0, 1e-3);
+    Near("its distance to the focus stays, units", Distance(position, focus),
+         60.6, 1e-3);
+    Near("and its height", position[1], start[1], 1e-6);
+    float psi = 0.0f;
+    table_math::Heading(position, focus, &psi);
+    Near("it looks at the focus along the new heading, degrees",
+         table_math::Wrap(psi - heading - turned) / kDeg, 0.0, 1e-3);
+    for (int i = 1; i < 8; ++i) {
+      table_math::TurnAboutFocus(focus, turned, position);
+    }
+    Near("eight turns of 45 degrees come back to the start, units",
+         Distance(position, start), 0.0, 1e-2);
+    table_math::TurnAboutFocus(focus, -turned, position);
+    table_math::GameCameraOver(focus, heading - turned, 60.6f, pitch, want);
+    Near("a turn to the left goes the other way, units",
+         Distance(position, want), 0.0, 1e-2);
+  }
+
+  printf("The turn events of a snap turn\n");
+  {
+    Check(table_math::SnapTurnEvents(45.0f, 5.0f) == 9,
+          "a snap turn of 45 degrees counts as 9 turn events at 5 degrees",
+          table_math::SnapTurnEvents(45.0f, 5.0f), 9);
+    Check(table_math::SnapTurnEvents(30.0f, 5.0f) == 6,
+          "one of 30 degrees as 6", table_math::SnapTurnEvents(30.0f, 5.0f),
+          6);
+    Check(table_math::SnapTurnEvents(90.0f, 5.0f) == 18,
+          "one of 90 degrees as 18", table_math::SnapTurnEvents(90.0f, 5.0f),
+          18);
+    Check(table_math::SnapTurnEvents(45.0f, 0.0f) == 1,
+          "turn_help_degrees=0 gives one event, as before",
+          table_math::SnapTurnEvents(45.0f, 0.0f), 1);
+    Check(table_math::SnapTurnEvents(4.0f, 5.0f) == 1,
+          "a turn smaller than one step is still one event",
+          table_math::SnapTurnEvents(4.0f, 5.0f), 1);
+    // The turn lesson (TeachRotate in challenge.chl) ends when the count of
+    // turn events is more than 60 over its count at the start.
+    const int sizes[3] = {30, 45, 90};
+    for (int size : sizes) {
+      const int full =
+          (360 / size) *
+          table_math::SnapTurnEvents(static_cast<float>(size), 5.0f);
+      Check(full > 60, "one full turn of snap turns ends the turn lesson "
+            "(events)", full, 61);
+    }
+  }
+
+  printf("The tilt of the head counts as the game's tilt\n");
+  {
+    // 90 updates a second.
+    const float dt = 1.0f / 90.0f;
+    Near("a look down at 60 degrees a second counts all of it, degrees",
+         table_math::CountedPitch(10.0f, 10.0f - 60.0f * dt, dt, 20.0f),
+         60.0f * dt, 1e-5);
+    Near("a look up counts too", table_math::CountedPitch(-5.0f, -5.0f + 0.5f,
+                                                          dt, 20.0f),
+         0.5, 1e-5);
+    Near("a drift of 10 degrees a second counts nothing",
+         table_math::CountedPitch(0.0f, 10.0f * dt, dt, 20.0f), 0.0, 1e-9);
+    Near("the noise of the tracking counts nothing",
+         table_math::CountedPitch(3.0f, 3.02f, dt, 20.0f), 0.0, 1e-9);
+    Near("an update with no time counts nothing",
+         table_math::CountedPitch(0.0f, 5.0f, 0.0f, 20.0f), 0.0, 1e-9);
+    // The tilt lesson (TeachPitch) ends after more than 25 tilt events. A
+    // look down by 40 degrees and back up at 60 degrees a second, at 3
+    // degrees an event:
+    float sum = 0.0f, pitch = 0.0f;
+    for (int i = 0; i < 60; ++i) {
+      const float next = pitch + (i < 30 ? -40.0f : 40.0f) / 30.0f;
+      sum += table_math::CountedPitch(pitch, next, 0.5f / 30.0f, 20.0f);
+      pitch = next;
+    }
+    Check(static_cast<int>(sum / 3.0f) > 25,
+          "one look down and back up by 40 degrees ends the tilt lesson "
+          "(events)", static_cast<int>(sum / 3.0f), 26);
+  }
 }
 
 // A unit vector from right, up and forward parts.
@@ -3451,6 +3544,7 @@ void CreatureChecks() {
 #include "pinch_checks.h"
 #include "temple_checks.h"
 #include "eye_luma_checks.h"
+#include "land_light_checks.h"
 #include "tree_plant_checks.h"
 #include "text_click_checks.h"
 #include "script_frame_checks.h"
@@ -3459,6 +3553,7 @@ void CreatureChecks() {
 #include "zoom_checks.h"
 #include "catch_checks.h"
 #include "one_walk_checks.h"
+#include "walk_checks.h"
 #include "blt_copy_checks.h"
 
 int main() {
@@ -3847,6 +3942,7 @@ int main() {
   pinch_checks::PinchChecks();
   temple_checks::TempleChecks();
   eye_luma_checks::EyeLumaChecks();
+  land_light_checks::LandLightChecks();
   tree_plant_checks::TreePlantChecks();
   zoom_checks::ZoomChecks();
   stay_checks::StayChecks();
@@ -3856,6 +3952,7 @@ int main() {
   frame_time_checks::FrameTimeChecks();
   catch_checks::CatchChecks();
   one_walk_checks::OneWalkChecks();
+  walk_checks::WalkChecks();
   blt_copy_checks::BltCopyChecks();
 
   printf("\n%d checks, %d failed\n", g_checks, g_failures);

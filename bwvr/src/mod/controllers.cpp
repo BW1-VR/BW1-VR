@@ -66,6 +66,7 @@
 #include "temple_math.h"
 #include "text_click.h"
 #include "text_click_math.h"
+#include "walk_math.h"
 #include "zoom_math.h"
 
 extern void ModLog(const char* format, ...);
@@ -163,6 +164,11 @@ bool TabletopGodOwnsView();
 bool TabletopGodStep(int zoom, int ground);
 bool TabletopGodZoomSmooth();
 bool TabletopGodZoomHold(float push);
+// tabletop.cpp: the walk with the stick of the hand that does not point. Its
+// rule, its request for the next frame, and its test key.
+int TabletopGodMoveStick();
+bool TabletopGodWalk(const float push[2], const float* aim);
+void TabletopGodMoveStickCycle();
 
 void ControllersPump();
 bool ControllersFarAllowed(const char** why);
@@ -235,7 +241,8 @@ enum FakeInput {
   // different program is now the active one.
   kNoFocus,
   kDeactivate,
-  // The ring: the stick and the trigger of the left hand.
+  // The stick and the trigger of the left hand: the walk with the stick, and
+  // the ring with button_layout=0.
   kLStickLeft,
   kLStickRight,
   kLStickUp,
@@ -254,6 +261,12 @@ enum FakeInput {
   // The frame cost measure: the frames of the word are one scene
   // (frame_profile.cpp). It moves nothing.
   kBench,
+  // The menu button of the left hand.
+  kLMenu,
+  // The test keys of button_layout and of move_stick act on the first frame
+  // of the word.
+  kLayoutKey,
+  kMoveKey,
   kInputCount
 };
 
@@ -266,7 +279,8 @@ const char* const kInputName[kInputCount] = {
     "rot",        "aimfar",     "pull",       "aimcmd",     "aimturn",
     "nofocus",    "deactivate",
     "lstick_left", "lstick_right", "lstick_up", "lstick_down", "ltrigger",
-    "aimtemple",  "gripdip",    "exit",       "bench"};
+    "aimtemple",  "gripdip",    "exit",       "bench",
+    "lmenu",      "layoutkey",  "movekey"};
 
 // The fake hand positions for the word "point", in cm from the head center.
 const int kMaxPoints = 16;
@@ -639,10 +653,11 @@ void FakeHand(int index, bwvr::HandInput* out) {
     out->menu = g_held[kMenu];
   } else {
     out->squeeze = g_held[kLGrip] ? 1.0f : 0.0f;
-    // The face buttons of the left hand: X and Y. Y is the menu button.
+    // The face buttons of the left hand, X and Y, and its menu button.
     out->primary = g_held[kX];
     out->secondary = g_held[kY];
-    // The stick and the trigger of the left hand, for the ring.
+    out->menu = g_held[kLMenu];
+    // The stick and the trigger of the left hand.
     out->trigger = g_held[kLTrigger] ? 1.0f : 0.0f;
     out->stick[0] = (g_held[kLStickRight] ? 1.0f : 0.0f) -
                     (g_held[kLStickLeft] ? 1.0f : 0.0f);
@@ -1034,6 +1049,12 @@ void UpdateScript() {
     if (step.input == kBench && t == step.start) {
       FrameProfileSceneStart(step.frames, g_frame);
     }
+    if (step.input == kLayoutKey && t == step.start) {
+      ControllersButtonLayoutToggle("The word layoutkey");
+    }
+    if (step.input == kMoveKey && t == step.start) {
+      TabletopGodMoveStickCycle();
+    }
     if ((step.input == kNudge || step.input == kSlap) &&
         t == step.start) {
       const float side = step.input == kNudge ? 2.0f : 12.0f;
@@ -1059,7 +1080,8 @@ void UpdateScript() {
         i == kSlap || i == kLPoint || i == kTrace || i == kShot ||
         i == kTouchCreature || i == kRot || i == kAimFar || i == kPull ||
         i == kAimCommand || i == kAimTurn || i == kDeactivate ||
-        i == kAimTemple || i == kExit || i == kBench) {
+        i == kAimTemple || i == kExit || i == kBench || i == kLayoutKey ||
+        i == kMoveKey) {
       continue;
     }
     if (i == kPose2) {
@@ -1441,8 +1463,7 @@ ULONGLONG g_wheel_tick = 0;
 bool g_zoom_blocked = false;  // a push refused during a grab, not back yet
 // The God view: one zoom step for each push of the stick. A push acts once,
 // and the stick must come back before the next one. The other hand's stick
-// has no job: the grip of that hand moves the ground (docs/god-view.md,
-// "5. Moving around: the grab and the mouse").
+// moves the player over the land (PumpWalk).
 bool g_god_zoom_armed = true;
 uint64_t g_god_zooms = 0;
 // The smooth zoom of the God view (god_zoom_smooth=1): the scale changes
@@ -2157,14 +2178,69 @@ void LatchGesture(bool back) {
   g_gesture_why = held ? "the button is down" : why;
 }
 
+// --- the layout of the buttons ---------------------------------------------
+//
+// THE LAYOUT OF THE BUTTONS of the hand that does not point (button_layout,
+// docs/controllers.md, "The layout of the other hand").
+//
+//   1  The menu button of the left controller opens the game menu. The
+//      second face button (Y, or B when the left hand points) opens the ring,
+//      and the first one (X, or A) has no job. The stick does not drive the
+//      ring, so it can move the player (PumpWalk).
+//   0  The second face button opens the game menu, and so does the menu
+//      button of the left controller. The first face button opens the ring,
+//      and the stick can drive the ring (radial_menu_stick).
+//
+// With test_keys=1, Ctrl and the Menu key of the keyboard change it while
+// the game runs (PollLayoutKeys).
+int g_layout = -1;
+
+void LogLayout(const char* by) {
+  const bool keys = IniInt("test_keys", 0) != 0;
+  ModLog("controllers  : %s%sbutton_layout=%d. %s%s", by,
+         by[0] != 0 ? ": " : "", g_layout,
+         g_layout != 0
+             ? "The menu button of the left controller opens the game menu. "
+               "On the hand that does not point, the second face button "
+               "opens the ring (Y, or B when the left hand points), the "
+               "first face button has no job, and the stick does not drive "
+               "the ring"
+             : "On the hand that does not point, the second face button "
+               "opens the game menu (Y, or B when the left hand points), and "
+               "so does the menu button of the left controller. The first "
+               "face button opens the ring, and the stick can drive the ring",
+         keys ? ". Ctrl and the Menu key change it" : "");
+}
+
+int ButtonLayout() {
+  if (g_layout < 0) {
+    g_layout = IniInt("button_layout", 1) != 0 ? 1 : 0;
+    LogLayout("");
+  }
+  return g_layout;
+}
+
+// The profile of a hand: "fake" for the scripted controller, and empty until
+// the runtime tells it.
+const char* HandProfileOf(int index) {
+  if (g_fake.mode != 0) return "fake";
+  return g_screen != nullptr ? g_screen->HandProfile(index) : "";
+}
+
 // --- the menu button (Esc) -------------------------------------------------
 //
-// Y on the left controller sends the game's Esc key, and so does the left
-// menu button when the runtime gives it to the game. For a left handed
-// player the pointing hand is the left one and its Y draws gestures, so the
-// face button of the right hand (B) sends Esc. That is the second face
-// button of the hand that does not point, so it never clashes with the draw
-// button or with the B of the teleport, which are on the pointing hand.
+// The menu button of the left controller sends the game's Esc key. With
+// button_layout=1 it is the one button of the game menu. A Quest gives a
+// program no menu button of the right controller, so a left handed player
+// has the same button: it is on the controller of the pointing hand then. An
+// Index controller has no menu button that a program gets. There the first
+// face button of the hand that does not point (A) sends Esc, because it has
+// no other job.
+//
+// With button_layout=0 the second face button of the hand that does not
+// point sends Esc too: Y on the left controller, or B on the right
+// controller of a left handed player. It never clashes with the draw button
+// or with the B of the teleport, which are on the pointing hand.
 //
 // THE KEY. The game reads the keyboard only from window messages: the window
 // procedure passes WM_KEYDOWN and WM_KEYUP to LHKeyboard::ProcessKeyboard
@@ -2187,6 +2263,11 @@ uint64_t g_esc_sent = 0;
 int g_esc_logs = 0;
 const int kMaxEscLogs = 40;
 bool g_box_before = false;
+// The first face button of the hand that does not point was down on the last
+// frame, while it has no job (button_layout=1).
+bool g_idle_before = false;
+int g_idle_logs = 0;
+const int kMaxIdleLogs = 20;
 
 // Once a frame, from ControllersFrame, so an edge is seen once. A button that
 // is already down when a hand wakes is not a new press.
@@ -2194,13 +2275,32 @@ void LatchEsc() {
   const bwvr::HandInput& left = g_hands[0];
   const bwvr::HandInput& free_hand = g_hands[OtherIndex()];
   const bool active = left.active || free_hand.active;
-  const bool down = (left.active && left.menu) ||
-                    (free_hand.active && free_hand.secondary);
+  // The face button of the game menu, on the hand that does not point.
+  const bool index =
+      strstr(HandProfileOf(OtherIndex()), "index") != nullptr;
+  bool face = false;
+  if (ButtonLayout() == 0) {
+    face = free_hand.secondary;
+  } else if (index) {
+    face = free_hand.primary;
+  }
+  const bool down = (left.active && left.menu) || (free_hand.active && face);
   if (down && !g_esc_before && g_esc_prev_active && active) {
     g_esc_event = true;
   }
   g_esc_before = down;
   g_esc_prev_active = active;
+  // The first face button has no job with button_layout=1. The log says so
+  // for a press, so a log from a headset session shows why nothing happened.
+  const bool idle = ButtonLayout() != 0 && !index && free_hand.active &&
+                    free_hand.primary;
+  if (idle && !g_idle_before && g_idle_logs < kMaxIdleLogs) {
+    ++g_idle_logs;
+    ModLog("controllers  : the first face button of the %s hand is down. It "
+           "has no job with button_layout=1, frame %llu",
+           OtherIndex() == 0 ? "left" : "right", g_frame);
+  }
+  g_idle_before = idle;
 }
 
 void SendEsc(bool down) {
@@ -2820,8 +2920,8 @@ void PumpButtons(ULONGLONG now) {
 //
 // IN THE GOD VIEW (docs/god-view.md) the stick forward and back is one zoom
 // step of the view for each push, not a wheel step. The other hand's stick
-// has no job. The turn goes the same way as with the plain stick, and comfort_camera.cpp
-// gives it to the God view.
+// moves the player over the land (PumpWalk). The turn goes the same way as
+// with the plain stick, and comfort_camera.cpp gives it to the God view.
 //
 // THE SMOOTH ZOOM (god_zoom_smooth=1). The stick forward or back past
 // kStickBack zooms the God view while it is held, and the pump asks the view
@@ -2944,6 +3044,103 @@ void PumpStick(ULONGLONG now) {
   } else {
     g_wheel_tick = 0;
   }
+}
+
+// THE WALK WITH THE STICK (move_stick, docs/god-view.md, "The walk with the
+// stick"). In the God view the stick of the hand that does not point moves
+// the player over the land while it is pushed, and tabletop.cpp makes the
+// move at the next main camera call (TabletopGodWalk). The pump asks the view
+// again on each pass, so the walk stops in the frame in which the stick
+// comes back. The push has the dead zone and the curve of the smooth zoom.
+//
+// The stick walks only while it does not drive the ring (button_layout=1 on
+// a controller with face buttons, or radial_menu_stick=0). The walk is
+// refused while the controllers cannot act, in a dialog box and in the game
+// menu, while a grip holds the world, while the God view does not own the
+// view (the Temple, a story, a cut scene), and while the camera is not the
+// player's. A push that is refused, and a push that was there when the stick
+// got this job, must come back to the middle before it walks. So the player
+// never starts to move with no new push.
+bool g_walk_blocked = false;
+uint64_t g_walk_refused = 0;
+int g_walk_logs = 0;
+const int kMaxWalkLogs = 40;
+
+void PumpWalk() {
+  const int other = OtherIndex();
+  const bwvr::HandInput& hand = g_hands[other];
+  float push[2] = {0.0f, 0.0f};
+  const bool pushed =
+      hand.active && StickLive(hand) &&
+      walk_math::Push(hand.stick[0], hand.stick[1], kStickBack, kStickFull,
+                      push) > 0.0f;
+  if (!pushed) {
+    g_walk_blocked = false;
+    return;
+  }
+  // The walk is off, or the stick belongs to the ring.
+  if (TabletopGodMoveStick() == walk_math::kRuleOff ||
+      RadialMenuStickDrives()) {
+    g_walk_blocked = true;
+    return;
+  }
+  if (g_walk_blocked) return;
+  const char* why = nullptr;
+  if (!Usable()) {
+    why = "the controllers cannot act now";
+  } else if (MenuUp()) {
+    why = "a dialog box is up";
+  } else if (GrabHeld()) {
+    why = "a grip holds the world";
+  } else if (!TabletopGodOwnsView()) {
+    why = "the God view does not own the view now";
+  } else if (!WorldGrabCameraReady()) {
+    why = "the camera is not the player's now";
+  }
+  if (why == nullptr) {
+    // The direction in which the controller of the stick points, flat on the
+    // land, in the room.
+    float rotation[9], translation[3], direction[3], aim[2];
+    bool have_aim = false;
+    if (hand.aim_valid &&
+        HeadPoseToRoom(g_aim_p[other], g_aim_q[other], rotation, translation)) {
+      controller_math::AimDirection(rotation, direction);
+      have_aim = walk_math::AimForward(direction, walk_math::kAimLeast, aim);
+    }
+    if (!TabletopGodWalk(push, have_aim ? aim : nullptr)) {
+      why = "the game does not allow a drag of the land now";
+    }
+  }
+  if (why == nullptr) return;
+  g_walk_blocked = true;
+  ++g_walk_refused;
+  if (g_walk_logs < kMaxWalkLogs) {
+    ++g_walk_logs;
+    ModLog("controllers  : the stick of the other hand does not move you: %s, "
+           "frame %llu", why, g_frame);
+  }
+}
+
+// THE TEST KEYS OF THE LAYOUT AND OF THE WALK (test_keys=1). The Menu key is
+// the key beside the right Ctrl key that opens a context menu. With Ctrl it
+// changes button_layout, and with Shift it changes move_stick. The Menu key
+// alone is the key of one walk for both eyes (stereo.cpp). With Ctrl and
+// Shift it is the key of land_light_eyes (land_light.cpp).
+void PollLayoutKeys() {
+  static int test_keys = -1;
+  if (test_keys < 0) test_keys = IniInt("test_keys", 0) != 0 ? 1 : 0;
+  if (test_keys == 0) return;
+  static bool before[2] = {false, false};
+  const bool menu = (GetAsyncKeyState(VK_APPS) & 0x8000) != 0;
+  const bool ctrl = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
+  const bool shift = (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
+  const bool down[2] = {menu && ctrl && !shift, menu && shift && !ctrl};
+  const bool pressed[2] = {down[0] && !before[0], down[1] && !before[1]};
+  before[0] = down[0];
+  before[1] = down[1];
+  if ((!pressed[0] && !pressed[1]) || !GameInFront()) return;
+  if (pressed[0]) ControllersButtonLayoutToggle("Ctrl and the Menu key");
+  if (pressed[1]) TabletopGodMoveStickCycle();
 }
 
 bool __cdecl h_AnyWindowMessages() {
@@ -3537,6 +3734,7 @@ void ControllersFrame() {
     g_other_before[i] = other[i];
   }
   LatchGesture(back);
+  PollLayoutKeys();
   LatchEsc();
   RadialMenuFrame();
 }
@@ -3619,6 +3817,7 @@ void ControllersHintState(ControllerHintState* out) {
   out->gesture_button = g_gesture.button;
   out->world_grab = g_grab.on && g_grab.hand >= 1;
   out->ring = RadialMenuHintMode();
+  out->layout = ButtonLayout();
   if (g_fake.mode != 0) {
     strcpy_s(out->profile, "fake");
   } else if (g_screen != nullptr) {
@@ -3678,8 +3877,16 @@ bool ControllersRingHand(RingHand* out) {
                 (GameInFront() || ActsBehind()) && !StereoIdle();
   out->dialog = MenuUp();
   out->grab_held = GrabHeld();
+  // A Vive wand, a Windows Mixed Reality controller and the simple controller
+  // have no face buttons.
+  const char* profile = HandProfileOf(OtherIndex());
+  out->face_buttons = strstr(profile, "vive") == nullptr &&
+                      strstr(profile, "microsoft") == nullptr &&
+                      strstr(profile, "simple") == nullptr;
   if (!hand.active) return true;
-  out->button = hand.primary;
+  // The face button of the ring: the second one with button_layout=1, and
+  // the first one with 0.
+  out->button = ButtonLayout() != 0 ? hand.secondary : hand.primary;
   out->stick_click = hand.stick_click;
   out->stick_live = StickLive(hand);
   out->trigger = hand.trigger;
@@ -4244,6 +4451,23 @@ void ControllersCycleOwnerMode() {
          kOwnerModeName[g_owner_mode]);
 }
 
+int ControllersButtonLayout() { return ButtonLayout(); }
+
+// The test key of button_layout. A button that is down now is not a new
+// press for its new job, a ring that is open closes with no choice, and a
+// stick that is pushed must come back before it walks. The hand that does
+// not point gives a long pulse for 1 and a short pulse for 0.
+void ControllersButtonLayoutToggle(const char* by) {
+  if (!g_on) return;
+  g_layout = ButtonLayout() != 0 ? 0 : 1;
+  g_esc_before = true;
+  g_idle_before = true;
+  g_walk_blocked = true;
+  RadialMenuLayoutChanged();
+  ControllersGrabPulse(1, 0.5f, g_layout != 0 ? 0.30f : 0.08f);
+  LogLayout(by);
+}
+
 // Hook the two functions. Only with the controller option on, so with it off
 // the game runs as the plain game.
 void ControllersInstall() {
@@ -4284,6 +4508,7 @@ void ControllersPump() {
   TextClickPump();
   PumpButtons(now);
   PumpStick(now);
+  PumpWalk();
   PumpEsc(now);
   RadialMenuPump(now);
 }

@@ -49,6 +49,11 @@ struct TabletopSettings {
   // Where the game camera stands (docs/god-view.md, "The game camera"): 1
   // over the land point under the head, 0 over the recenter place.
   int god_camera_at = 1;         // god_camera_at: the place of the game camera
+  // The walk with the stick of the hand that does not point (docs/god-view.md,
+  // "The walk with the stick"): 0 is off, 1 moves along the direction of the
+  // head, and 2 along the direction in which that controller points.
+  int move_stick = 1;            // move_stick: 0 off, 1 head, 2 controller
+  int move_stick_speed_cm = 150; // move_stick_speed_cm: a full push, a second
   bool test_keys = false;        // test_keys: Ctrl and Numpad 0 change it
 };
 
@@ -133,6 +138,26 @@ void TabletopGodZoomSmoothToggle();
 // key press, for a desktop run.
 void TabletopGodZoomAboutCycle();
 
+// THE WALK WITH THE STICK (move_stick). TabletopGodMoveStick gives the rule
+// of now: 0 off, 1 the direction of the head, 2 the direction of the
+// controller. It is 0 when the God view is not the play mode.
+//
+// TabletopGodWalk is the request of the stick for the next frame. push is the
+// stick, x to the right and y forward, and its length is the share of the top
+// speed (walk_math::Push). aim is the forward direction of the controller on
+// the land in the room (x and z), or null when that controller has none. The
+// next main camera call uses the request once, for the time of that frame.
+// The stick asks again before each frame while it is pushed, and a frame with
+// no request moves nothing. False when the player does not move: the walk is
+// off, the God view does not own the view, or the game's switch for the drag
+// of the land is off. The push must then come back before it asks again.
+int TabletopGodMoveStick();
+bool TabletopGodWalk(const float push[2], const float* aim);
+
+// The test key of move_stick (Shift and the Menu key, with test_keys=1): the
+// rule goes from 1 to 2 to 0 and back to 1.
+void TabletopGodMoveStickCycle();
+
 // True while the table or the God view is on, also while it stands aside.
 bool TabletopIsOn();
 
@@ -155,6 +180,12 @@ bool TabletopGodTurn(int direction, float degrees);
 // when the God view does not own the view.
 bool TabletopGodGameCamera(float position[3], float focus[3],
                            uint64_t* version);
+
+// True when the view only turned with snap turns since the game camera and
+// the view were last kept as a pair, and turned gives by how much (radians,
+// to the right above 0). GodAfter then turns the game camera about its own
+// focus (god_turn_keeps_focus).
+bool TabletopGodTurnedOnly(float* turned);
 
 // THE GAME PUT ITS OWN CAMERA AT A NEW PLACE (docs/god-view.md, "The place at
 // a camera of the game"). comfort_camera.cpp calls this when the game camera is at rest after a move

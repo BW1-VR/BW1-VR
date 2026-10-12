@@ -531,9 +531,18 @@ The labels come from one function, `BuildWords`. It follows `xr_screen.cpp`
 | --- | --- | --- | --- |
 | jump | A, or X on the left hand | A | none |
 | gesture (`gesture_button`) | B, or Y on the left hand | B | the stick click, or the pad click on Wand (`gesture_button=2`) |
-| menu (the game menu, on the other hand) | Y, or B when the left hand points | B | Menu |
+| menu (the game menu), `button_layout=1` | Menu: the menu button of the left controller | A, on the other hand | Menu |
+| menu, `button_layout=0` | Y, or B when the left hand points | B | Menu |
 | world (the grip of the other hand, with `grab_world`) | Grip | Grip | Grip (not Simple) |
-| ring (the control of the other hand that opens the ring menu) | X, or A when the left hand points | A | the stick, when only the stick opens the ring |
+| ring (the control of the other hand that opens the ring menu), `button_layout=1` | Y, or B when the left hand points | B | the stick, when only the stick opens the ring |
+| ring, `button_layout=0` | X, or A when the left hand points | A | the stick, when only the stick opens the ring |
+
+The words follow the layout of the buttons in use (`button_layout`,
+`controllers.md`, 5.1). The test key of the layout builds the words again, so
+the next card shows the new buttons. The word of the menu button of the left
+controller is on the card of the left hand: the other hand, or the pointing
+hand of a left handed player (`ControllerHintMenuOnPointing`). The cards have
+no line for the jobs of a stick, so the walk with the stick has no line.
 
 The screen edge picture is hidden while the words are on, because it teaches
 the mouse at the edge of the screen. The bubble icon (return address
@@ -560,6 +569,17 @@ names.
   the mod, for example "Push the stick to turn and zoom."
 - Any other line with the whole words "mouse wheel" or "the wheel" gets "stick"
   ("pad" on Wand) in their place. Five lines match.
+- The camera lessons of the tutorial and the hints about them tell of the
+  Move Button at the edge of the screen. In the God view the stick turns, and
+  the head looks up and down (`god-view.md`, section 7, "The turn lesson").
+  The turn lesson line (`HELP_TEXT_FINAL_BEGINNING_44`) gets "Push the stick
+  left or right to turn.", and the turn hint (`HELP_TEXT_NEW_INTERFACE_03`)
+  "You know, Boss, you can turn with the stick." Eight lines about looking up
+  and down get a sentence about the head: the tilt lesson
+  (`HELP_TEXT_FINAL_BEGINNING_50`, "Look up and down with your head."), its
+  hint (`HELP_TEXT_NEW_INTERFACE_04`) and the six hints for a look at the sky
+  (`HELP_TEXT_INTERFACE_LOOK_AT_SKY_01` to `_06`). The voice of the spirits
+  still says the game's own words.
 - The Escape lines (`TUTORIAL_LAND_09`, `_10`, `_40`, `_106`,
   `CITADEL_GUIDE_13`) and "Action Button" stay. The menu button has no job
   there.
@@ -1035,10 +1055,12 @@ it shows at the hand that holds that controller.
   the trigger, the grip, the stick and the face buttons of that hand.
 - The card of the other hand: the prompts for the grip that moves the land
   (`kWordWorld`, only while `grab_world` is on), for the button of the game
-  menu (`kWordMenu`: Y, or B when the left hand points), and for the control of
-  the ring (`kWordRing`: X, or A when the left hand points, or the stick when
-  only the stick opens the ring). The card of that hand does not show while the
-  ring is open.
+  menu (`kWordMenu`: the menu button of the left controller, or Y with
+  `button_layout=0`), and for the control of the ring (`kWordRing`: Y, or X
+  with `button_layout=0`, or the stick when only the stick opens the ring).
+  For a left handed player the menu button is on the controller of the
+  pointing hand, and its prompt is on that card. The card of the other hand
+  does not show while the ring is open.
 - Both cards can show in one frame. Each one is a quad layer of its own with
   its own swapchain (`kCardHintPointing` and `kCardHintOther` in `xr_screen.h`),
   placed by `CardPose` at the wrist of its hand.

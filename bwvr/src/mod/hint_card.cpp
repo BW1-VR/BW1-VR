@@ -496,9 +496,12 @@ int ContextNow() {
   }
 }
 
-// The card of a control: the menu button, the grip that moves the land and
-// the control of the ring are on the controller of the other hand.
+// The card of a control: the button of the game menu, the grip that moves the
+// land and the control of the ring are on the controller of the other hand.
+// The menu button of the left controller is on the pointing hand of a left
+// handed player.
 int WordHand(int word) {
+  if (word == kWordMenu && ControllerHintMenuOnPointing()) return kPointing;
   return word == kWordMenu || word == kWordWorld || word == kWordRing
              ? kOther
              : kPointing;

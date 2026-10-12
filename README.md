@@ -73,8 +73,9 @@ select the build of that commit or pull request, and take the installer from
 | Right stick | Up and down: zoom. Left and right: turn |
 | A | Hold to aim a teleport, let go to go. B cancels |
 | B | Hold and draw a gesture in the air to cast a miracle |
-| X (left) | Hold for a ring menu: Temple, Creature, town, leashes, save |
-| Y (left) | The game menu. In a menu, point with the line and click with the trigger |
+| Left stick | Move over the land, in the direction of your head |
+| Y (left) | Hold for a ring menu: Temple, Creature, town, leashes, save |
+| Menu button (left) | The game menu. In a menu, point with the line and click with the trigger |
 | Trigger, leash on | Point and press to send your Creature there |
 
 The full list is in "Black & White VR Mod readme.txt" in your game folder.

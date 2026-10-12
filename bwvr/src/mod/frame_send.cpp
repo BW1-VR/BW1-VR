@@ -6,15 +6,15 @@
 // so the mod waits for the GPU before the Direct3D 11 device reads a shared
 // texture (gpu_bridge.cpp, "WHY THE FLUSH IS NEEDED").
 //
-//   frame_send=0  The mod waits after each eye pass, and then it copies the
-//                 picture of that eye to the headset. The frame thread does
-//                 no work in the two waits of a frame.
+//   frame_send=0  The default. The mod waits after each eye pass, and then
+//                 it copies the picture of that eye to the headset. The
+//                 frame thread does no work in the two waits of a frame.
 //   frame_send=1  The mod waits one time, after the second eye pass. The GPU
 //                 draws the first eye while the game walks the scene for the
 //                 second eye. Each eye has its own shared texture, so the
 //                 second eye pass does not write the picture of the first.
-//   frame_send=2  The default. As 1, and a second thread does the wait, the
-//                 two copies and xrEndFrame (XrScreen::EndFrameLate). The
+//   frame_send=2  As 1, and a second thread does the wait, the two copies
+//                 and xrEndFrame (XrScreen::EndFrameLate). The
 //                 frame thread goes on with the game and calls xrWaitFrame
 //                 for the next frame. Then it waits until the runtime has
 //                 the frame.

@@ -140,6 +140,38 @@ inline void EyeLumaChecks() {
          static_cast<double>(track.all + track.black + track.flashes), 0, 0);
     Check(track.have, "and the open run stays", track.have ? 1 : 0, 1);
   }
+
+  // A flash of light. In the left eye only it is a run with one eye that is
+  // much darker than the other eye. In both eyes it is no such run, and the
+  // brightest frame of the window has the flash in each eye.
+  {
+    Track one = {}, both = {};
+    Run run = {};
+    int one_eye_runs = 0, both_runs = 0;
+    for (uint64_t f = 0; f < 300; ++f) {
+      const bool flash = f >= 100 && f < 150;
+      const float lit = flash ? 161.0f : 73.0f;
+      if (Step(&one, f, lit, 73.5f, &run) && run.kind == kOneEye) {
+        ++one_eye_runs;
+        Near("the run of the flash in the left eye has 50 frames",
+             static_cast<double>(run.frames), 50, 0);
+        Check(run.left > run.right, "and the left eye is the bright one",
+              run.left, run.right);
+      }
+      if (Step(&both, f, lit, lit + 0.5f, &run) && run.kind == kOneEye) {
+        ++both_runs;
+      }
+    }
+    Near("a flash in the left eye only is one run", one_eye_runs, 1, 0);
+    Near("a flash in both eyes is no run with one dark eye", both_runs, 0, 0);
+    Near("the brightest frame of that window has the flash in the left eye",
+         both.bright_left, 161.0, 0.01);
+    Near("and in the right eye", both.bright_right, 161.5, 0.01);
+    Near("it is the first frame of the flash",
+         static_cast<double>(both.bright_frame), 100, 0);
+    NewWindow(&both);
+    Near("a new window has no brightest frame", both.bright_left, 0.0, 0);
+  }
 }
 
 }  // namespace eye_luma_checks

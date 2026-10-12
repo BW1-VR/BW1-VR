@@ -19,5 +19,14 @@ bool RadialMenuOpen();
 // opens it.
 int RadialMenuHintMode();
 
+// True while the stick of the hand that does not point can open the ring and
+// point in it. The stick then does not move the player (move_stick).
+bool RadialMenuStickDrives();
+
+// controllers.cpp: the layout of the buttons changed (button_layout). A ring
+// that is open closes with no choice, and a button that is down must go up
+// before it opens the ring.
+void RadialMenuLayoutChanged();
+
 // Once a report window.
 void RadialMenuReport();
