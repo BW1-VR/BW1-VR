@@ -58,6 +58,11 @@ The launcher saves your settings, starts the game in the headset,
 and closes. "Play, new game" does the same and starts a new game.
 "Save" keeps your settings and does not start the game.
 
+A new game opens the start dialog of the game. You can play the
+tutorial of the game in VR, but it is made for the mouse and the
+keyboard of the original game. We recommend that you skip it: select
+"Skip straight to the Creature select" in the start dialog.
+
 "Play, no VR" starts the game on the monitor, without the headset.
 The game is full screen, at the size of your desktop, and the mod
 does nothing in it. The launcher closes its window and waits for the

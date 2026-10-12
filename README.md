@@ -84,6 +84,11 @@ entry. Virtual Desktop and SteamVR have one.
 4. In the headset, press a trigger or A to skip the logos. Press F11 on the
    keyboard if the view is not in front of you.
 
+**Skip the tutorial.** You can play the tutorial of the game in VR, but it
+is made for the mouse and the keyboard of the original game. We recommend
+that you skip it. When you start a new game, select "Skip straight to the
+Creature select" in the start dialog.
+
 ### The right controller
 
 The right hand is the Hand. It is where your hand is, at the size of your
