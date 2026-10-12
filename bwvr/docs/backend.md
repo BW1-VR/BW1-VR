@@ -1346,7 +1346,7 @@ change.
 ## One walk for both eyes
 
 `one_walk=1` walks the scene one time a frame, for the left eye, and makes
-the right eye from the same batches (`one_walk.cpp`). The key is 0 by
+the right eye from the same batches (`one_walk.cpp`). The key is 1 by
 default. The launcher shows it as "One scene walk for both eyes (prototype)".
 With `test_keys=1`, the menu key turns it on and off in play.
 
