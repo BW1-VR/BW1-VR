@@ -1286,6 +1286,63 @@ Only a headset session can show what the wait, the copy to the bridge and the
 frame to the runtime cost in a slow frame. Only a person can say if a sound
 that stops sounds the same with `audio_stop_wait` 0 and 1.
 
+### The clock of the game and the hooks of dxwrapper
+
+With `Dd7to9 = 1` dxwrapper runs the Win32 hooks of its copy of DDrawCompat
+(v0.3.2), and its ini cannot turn them off: `DDrawCompat = 0` does not stop
+them (`Dllmain.cpp`, `InstallDd7to9Hooks`). The hooks are in front of
+`GetTickCount`, `timeGetTime`, `PeekMessage`, `GetMessage` and some wait
+functions. Each call asks Windows for the cycle time of the thread
+(`QueryThreadCycleTime`, a call into the kernel), and after 3 million
+cycles of the thread it calls `Sleep(0)` (`WaitFunctions.cpp`,
+`mitigateBusyWaiting`). The current DDrawCompat of its author has no such
+hooks.
+
+The game calls `GetTickCount` in the draw (`fn_00837DF0`, the call at
+`0x00838302`): 1000 to 1250 times in a frame in the six scenes. A sampling
+profile of the frame thread in a run of `bench_run.ps1` with `one_walk=1`
+had 8.3 percent of the samples of the scenes 1 to 5 in that check, nearly
+all of it in the call into the kernel. The same profile, for the parts of
+the frame thread: the game code 23 percent, the NVIDIA driver, `d3d9.dll`
+and the calls into the kernel under them about 45 percent, dxwrapper 7.7
+percent and the mod 7.3 percent.
+
+`tick_direct=1` gives the import slot of `GetTickCount` in `runblack.exe`
+(`0x008A91C4`) a function of the mod (`tick_direct.cpp`). It gives the low
+32 bits of `GetTickCount64`, which is the number of `GetTickCount`, and it
+makes no call into the kernel. The game does not wait for its clock in a
+loop, because the headset paces the frame. The other hooks of dxwrapper
+stay. The log has one line at the start and the count of the calls of each
+report window.
+
+`bench_run.ps1 -Runs 3 -ProfileLevel 2 -Set "one_walk=1;test_frame_rate=240"
+-Set2 "tick_direct=0"`, the mean ms of the work of a frame:
+
+| Scene | `tick_direct=1` | `tick_direct=0` | Less | Spread |
+| --- | --- | --- | --- | --- |
+| 1 | 5.88 | 6.33 | 0.45 (7.1 percent) | 0.04 |
+| 2 | 8.83 | 9.39 | 0.57 (6.0 percent) | 0.09 |
+| 3 | 7.47 | 8.14 | 0.68 (8.3 percent) | 0.13 |
+| 4 | 6.77 | 7.57 | 0.79 (10.4 percent) | 0.04 |
+| 5 | 6.96 | 7.68 | 0.72 (9.4 percent) | 0.09 |
+| 6 | 0.91 | 0.96 | 0.05 | 0.03 |
+
+Each difference of the scenes 1 to 5 is more than two times the spread of
+the runs.
+
+In a headset (Quest 3 through Virtual Desktop, 90 Hz) the five runs of 90 s
+at the door of the Temple (the test save `temple`, a still headset,
+`profile=1`) held 90 frames a second with each value, because that view
+fits in the frame before the change too. The scene walk of the eye pass,
+the median of the windows: 5.15 and 5.55 ms with `tick_direct=1` (and 5.5
+ms in the first half of one more run, whose view changed in its second
+half), and 5.71 and 5.73 ms with `tick_direct=0`. The time went to the wait
+for the headset, and the age of a frame was 6.29 ms against 6.82 and 6.88
+ms. One run with `tick_direct=1` had 81 frames a second, with the frame to
+the runtime at 2.94 ms against 0.09 ms in the others: that is the state of
+the streaming session ("What the scene walk is made of"), and not the
+change.
+
 ## One walk for both eyes
 
 `one_walk=1` walks the scene one time a frame, for the left eye, and makes
@@ -2696,6 +2753,7 @@ keys that the launcher sets.
 | `gpu_bridge` | 1 | The GPU path |
 | `frame_send` | 0 | 0: the mod waits for the GPU after each eye pass. 1: one wait a frame. 2: one wait a frame on a second thread, which also gives the frame to the runtime. See "One wait a frame, and a second thread" |
 | `draw_merge` | 1 | 1: in an eye pass of the scene, a row of draw calls of the game with one state goes to Direct3D as one draw call. 0: each draw call goes as it comes. See "One draw call for a row of draw calls" |
+| `tick_direct` | 1 | 1: the `GetTickCount` of the game goes past the check of busy waiting of dxwrapper. 0: the game calls it through the hooks of dxwrapper. See "The clock of the game and the hooks of dxwrapper" |
 | `draw_merge_test`, `draw_merge_test_frame` | 0, 0 | Test keys of the desktop runs. See the same section |
 | `depth24` | 1 | A 24 bit Z buffer |
 | `near_plane_cm`, `near_plane_cm_16` | 5, 10 | The near plane in the room. 0 keeps the game's |

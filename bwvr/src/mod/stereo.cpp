@@ -208,6 +208,7 @@ void FrameTimePassDone(int eye);
 uint32_t FrameTimeAfterPasses(uint32_t before_passes);
 void FrameTimeToggle(const char* cause);
 void FrameTimeReport();
+void TickDirectReport();
 // eye_clean.cpp: the frame before of each eye.
 void EyeCleanBeginPair();
 void EyeCleanBeforePass(int eye);
@@ -1600,6 +1601,7 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
     PassGuardReport();
     FrameTimersReport(g_frames);
     FrameTimeReport();
+    TickDirectReport();
     EyeLumaReport();
     EyeCleanReport();
     DrawMergeReport();
