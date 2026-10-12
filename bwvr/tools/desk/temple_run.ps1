@@ -86,7 +86,7 @@ foreach ($word in ($Rooms -split '\s+' | Where-Object { $_ })) {
 }
 $enter = ''
 $left = ''
-foreach ($c in ($choices | Sort-Object { $_[0] })) {
+foreach ($c in @($choices | Sort-Object { $_[0] })) {
     $ring = Get-BwvrRingChoice -Slot $c[1] -Frame $c[0] -Button $button
     $enter = "$enter $($ring.Steps)".Trim()
     $left = "$left $($ring.Points)".Trim()

@@ -2383,6 +2383,102 @@ each save.
   in the listing. The traps make each frame longer, so do not read a time from
   such a run.
 
+### The lights on the land in the second eye pass
+
+The game has a list of the lights on the land of one scene walk: 200 lights of
+`0x34` bytes at `0x00FA2920`, and their count at `0x00FA51C0`. `fn_0086CFF0` adds
+one light: a place, a map of values, the size of the map in points of 10 units, a
+strength and a kind. `GLandscape::Draw` uses each light of the list (`fn_005E5830`
+at `0x005E488E`, `fn_0086D360`). `ClearLight` (`0x005E57B0`, `fn_0086D460`) empties
+the list at the end of a scene walk that drew the land (`0x0054E2FA`).
+
+| The code that adds a light | Where in a frame | The light |
+| --- | --- | --- |
+| `fn_00837200`, from `LH3DAtmos::Update3D` (`0x008357C9`) | In the scene walk, before the draw of the land (`0x0054DEC7`). It is a step of the world | The white light of a lightning of a storm. Its map is white, 64 by 64 points (`0x00ED92F0`, `fn_00837110`): the land is white for 320 units round the lightning. The strength starts at 1 or at 0.5 (`fn_00837290`, from `GWeather::Update`), and it falls for 0.8 s (`fn_008372D0`) |
+| `PSysLightMaps::AddDrawing` (`0x006CA6E0`, `fn_006CA280`) | In each scene walk (`0x0054DEAD`) | The light maps of the particles. A particle gives its map to an array when the game draws it (`ParticleLightMap::DrawAt` `0x0067B220`, `RenderParticleMist::DrawAt`, `fn_00731560`). The function adds each map of the array, and then it empties the array (`fn_006CA660`) |
+| `DanceLight::Process` (`0x0050F919`), from `GroupBehaviour::Process` and `Dance::Process` | Not in the scene walk, by the listing | The lights of a dance |
+| `fn_005E25C0` | In each scene walk, from `GLandscape::Draw` | Not known |
+| `GWeather::DrawClouds` (`0x008400C6`) | Not known | A map of kind 2 at a storm cloud |
+
+The first eye pass uses the lights of the list and empties it. So a light that
+comes one time in a frame shows in the first eye pass only, and the land is
+white in the left eye and not in the right eye:
+
+- The second eye pass skips `LH3DAtmos::Update3D`, because it is a step of the
+  world. So it has no light of a lightning of a storm.
+- A light from code before the scene walks is in the list of the first pass
+  only.
+- The call of `PSysLightMaps::AddDrawing` of the first pass empties the array of
+  the particles. The second pass has only the maps that came to the array after
+  that call.
+
+**The lights show in both eyes** (`land_light_eyes=1`, `land_light.cpp`,
+`land_light_math.h`). The mod holds a copy of three groups of lights of the first
+eye pass, and it adds the copies to the list again in the second eye pass:
+
+| The lights of the first eye pass | Where the second eye pass gets the copies |
+| --- | --- |
+| The lights that came to the list after the last eye pass of the frame before | At the start of the pass |
+| The lights that `PSysLightMaps::AddDrawing` adds | After that call, and only when the call of the second pass added no light |
+| The lights that `LH3DAtmos::Update3D` adds | Where the pass skips that step |
+
+No step runs a second time, so nothing moves two times. The second pass draws
+from the list and empties it as the game does. A scene walk with no draw of the
+land does not empty the list. The mod adds nothing while the list still has the
+lights. With `land_light_eyes=0` the second eye pass does not get those lights.
+
+Ctrl, Shift and the Menu key change `land_light_eyes` (`test_keys=1`): a long
+pulse for both eyes and a short pulse for the left eye only. The test key
+`land_light_test=1` adds the light of a lightning at its start, as `fn_00837200`
+adds it, at the place of the Hand, for 150 frames of each 500 frames. The log has
+one line for each run of frames with such lights, and their counts for each
+window. A second line of a window has the count of the light maps that the
+particles added in first eye passes and in second eye passes. In a desktop run
+with the test light and `eye_test_luma=1`, the mean brightness of the eye
+pictures was 162 for the left eye and 73 for the right eye with
+`land_light_eyes=0`, and 162 and 163 with `land_light_eyes=1` [R]. The recipe,
+with each value of the key:
+
+```powershell
+.\bwvr\tools\desk\hand_run.ps1 -Name light0 -Dll <dll> -Kind fixed -Seconds 75 `
+  -Set "eye_test_luma=1;land_light_test=1;land_light_eyes=0;one_walk=0"
+```
+
+The brightness test reads no picture in one walk for both eyes, so the recipe
+has `one_walk=0`.
+
+Open: no desktop run had a real lightning, of a storm or of a miracle. Only the
+test light is shown in a run, and no run had a light map of a particle. Not
+known: which effects have a particle with a light map, and whether the second
+eye pass has such a map by itself. The line of the window in the log of a
+session with such an effect shows it.
+
+### The color over the picture at the end of a frame
+
+`LH3DRender::FinishFrame` draws the color at `0x00FA51D8` over the picture when its
+alpha is not 0, and then it clears the color (`fn_0086FEE0`, called at
+`0x0082F753`, the clear at `0x008701DB`). Each eye pass ends with `FinishFrame`. So
+a color shows in both eyes only when its writer writes it in each eye pass.
+
+| The writer | Where in a frame | In both eyes |
+| --- | --- | --- |
+| `GScript::ProcessFade` (`0x006EB9D0`): the fade of a script (`GScript::SetFade`, `GScript::SetFadeIn`), of the skip of a story (`GGame::ProcessKey`), of a video (`PSysGlobal::StartAVISequence`) and of a new game | `GGame::Process3dEngine` calls it with 1 in each scene walk (`0x0054E2D7`): it writes the color and steps nothing. `GScript::Process` calls it with 0 in the game turn (`0x006EB6E4`, from `GGame::ProcessTurn`): that call steps the alpha | Yes, by the listing |
+| `Temple::UpdateFade` (`0x00794280`, the write at `0x00794361`) | In each scene walk in place of the fade of a script (`0x0054E2DE`), while the numbers at `0x00E06020` and `0x00C2A150` are not the same, or the state at `+0x205A28` of the game is 1 | Yes, with `temple_fade_eyes=1` (`controllers.md`, 11.4) |
+| The front end (`0x0053CD9B`, `FrontEnd::JustDoABox`) and the logo (`RunAlexFX`) | Their own frame loops | They have no eye passes |
+
+With the state 3 at `+0x205A28` the scene walk calls none of the two
+(`0x0054E2AA`). Not known: what that state is. A fade of a script in that state
+has only the write of `GScript::Process` in the game turn. So by the listing it
+shows in the first eye pass only, and only in a frame with a game turn. No run
+reached that state.
+
+`FinishFrame` also draws a white wash of the atmosphere before that color
+(`fn_00836200`, called at `0x0082F74E`). Its strength is the number at `0x00EDC374`,
+0 to 90 of 255. `LH3DAtmos::Update3D` makes it from the number at `0x00EDD388`
+above 0.6, which `GLandAlignement::DrawSky` writes. The number stays between the
+passes, and `LH3DAtmos::Render3D` sets the flag of the draw (`0x00EDD3A4`) in each
+scene walk. So both eyes get it, by the listing. No lightning writes it.
+
 ## Testing without a headset
 
 Most of what goes wrong with head tracking can be seen in a still picture: the sea
@@ -2443,8 +2539,11 @@ by 24 points (`eye_luma_math.h`). The log then has:
   difference,
 - one line for each run of frames in which both eyes are black (below 4). A
   run of 8 frames or less between two frames with a picture is a black flash,
-- one line for each window of 450 frames with the counts and the largest
-  difference between the eyes.
+- one line for each window of 450 frames with the counts, the largest
+  difference between the eyes, and the brightest frame with the number of
+  each eye. A flash of light in one eye is a run of the first kind: the other
+  eye is the darker one. A flash that both eye passes draw is no such run,
+  and the brightest frame has it in each eye.
 
 Each line has the fade of the Temple at the start of the run and after it. The
 read locks the render target, so the key costs frame time: about 1 ms for each
@@ -2494,6 +2593,7 @@ in front. The mod reads the keys and never takes them from the game.
 | Ctrl Numpad Star | `test_keys=1` | In the Temple: the camera of a room is at its rest pose at once when the player comes into the room, or it flies there as in the plain game. A long pulse and a short pulse (`temple_camera_flight`, `controllers.md`, 11.4). Shift must be up. The star key alone is the key of the release at once (`throw.md`) |
 | Shift Numpad Slash | `test_keys=1` | In the Temple: three ways of the view of a room. Each eye pass draws from the head pose of the frame with its roll and its eye, and the head does not turn the camera of the room. Or the same view, and the head turns the camera of the hall when it looks at the pool. Or each eye pass draws from the camera that the game builds in the pass, with no roll and no depth. A long pulse, a pulse of middle length and a short pulse (`temple_view`, `temple_camera_screen`, `controllers.md`, 11.4). Ctrl must be up |
 | Ctrl Shift Numpad Plus | `test_keys=1` | The fade of the Temple shows in both eyes, or in the left eye only. A long pulse and a short pulse (`temple_fade_eyes`, `controllers.md`, 11.4). Ctrl must be up. The plus key and the slash key with no Shift are keys of the throw (`throw.md`) |
+| Ctrl Shift Menu key | `test_keys=1` | The white light of a lightning on the land, and each other light on the land that comes one time in a frame, shows in both eyes, or in the left eye only. A long pulse and a short pulse (`land_light_eyes`, "The lights on the land in the second eye pass") |
 | Ctrl Shift Numpad Star | `test_keys=1` | After the two eye passes the game has the real time of the frame as its frame time, or the number from before the passes. The cameras of the rooms of the Temple and the game camera of the land then move at a different speed. A long pulse and a short pulse (`frame_time_real`, "The delta time after the passes"). Press it with the mouse at rest |
 | Ctrl Page Down | `test_keys=1` | The card says what the opening of the grip does with a tree, or shows the text of the game (`tree_plant_hint`, `grab.md`) |
 | Ctrl Shift Page Down | `test_keys=1` | The roots pile of a tree from a distance stands at the roots, or on the way of the glide (`far_roots_at_tree`, `grab.md`) |
@@ -2612,6 +2712,8 @@ keys that the launcher sets.
 | `profile` | 0 | A test key. 1 is the frame cost measure with a timer on each Direct3D draw call, 2 is the measure with no such timer. See "The frame cost measure" |
 | `draw_probe`, `capture_every_seconds` | 0 | Reports and eye pictures |
 | `eye_test_luma` | 0 | A test key. 1: the log names each run of frames with one dark eye and each run of black frames. See "Testing without a headset" |
+| `land_light_eyes` | 1 | 1: the white light of a lightning on the land, and each other light on the land that comes one time in a frame, shows in both eyes. 0: it shows in the left eye only. See "The lights on the land in the second eye pass" |
+| `land_light_test` | 0 | A test key. 1: the step of the atmosphere adds the light of a lightning at the place of the Hand, for 150 frames of each 500 frames |
 | `fake_head`, `fake_head_yaw`, `fake_head_pitch`, `fake_head_roll`, `fake_head_sweep`, `stereo_headless`, `fov_absolute_deg`, `head_fov_deg` | 0 | See "Testing without a headset" |
 
 ## Ready to hand out

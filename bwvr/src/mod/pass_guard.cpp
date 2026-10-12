@@ -41,6 +41,14 @@ void ThrowPhysicsTurnBegin();
 void ThrowPhysicsTurnEnd();
 // temple.cpp: temple_fade_eyes now.
 bool TempleFadeBothEyes();
+// land_light.cpp: the lights on the land that come one time in a frame go to
+// the second eye pass too (land_light_eyes).
+void LandLightInstall();
+void LandLightEye(int eye);
+void LandLightStepBegin();
+void LandLightStepEnd();
+void LandLightStepSkipped();
+void LandLightReport();
 
 namespace {
 
@@ -217,12 +225,18 @@ void __fastcall h_HandPrepareForDrawing(void* self, void* unused) {
   }
 }
 
+// The step of the atmosphere adds the white light of a lightning to the
+// lights on the land of this scene walk. The second pass skips the step, and
+// it gets the lights that the step added in the first pass (land_light.cpp).
 void __cdecl h_AtmosUpdate3D(float value) {
   if (g_skip_world && InSecondPass()) {
     ++g_world_skipped;
+    LandLightStepSkipped();
     return;
   }
+  LandLightStepBegin();
   o_AtmosUpdate3D(value);
+  LandLightStepEnd();
 }
 
 void __cdecl h_UpdateLiquidParticles(float value) {
@@ -316,7 +330,10 @@ void PassGuardSetOptions(bool skip_hand, bool skip_physics) {
 }
 
 // Called at the start of each eye pass, and with -1 once both are done.
-void PassGuardSetEye(int eye) { g_eye = eye; }
+void PassGuardSetEye(int eye) {
+  g_eye = eye;
+  LandLightEye(eye);
+}
 
 // Ask for the next few Hand positions to be written out.
 void PassGuardLogHand(int count) {
@@ -367,6 +384,7 @@ void PassGuardInstall() {
        "TemporaryShadow::UpdateAll");
   Hook(kTempleUpdateFade, reinterpret_cast<void*>(&h_TempleUpdateFade),
        reinterpret_cast<void**>(&o_TempleUpdateFade), "Temple::UpdateFade");
+  LandLightInstall();
   QueryPerformanceFrequency(&g_frequency);
   Hook(kProcessNetworkPackets,
        reinterpret_cast<void*>(&h_ProcessNetworkPackets),
@@ -388,6 +406,7 @@ void PassGuardReport() {
            "with no time step in %llu passes (temple_fade_eyes=1)",
            g_fade_second);
   }
+  LandLightReport();
   g_fade_second = 0;
   g_world_skipped = 0;
   g_hand_skipped = 0;

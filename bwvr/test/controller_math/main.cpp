@@ -3451,6 +3451,7 @@ void CreatureChecks() {
 #include "pinch_checks.h"
 #include "temple_checks.h"
 #include "eye_luma_checks.h"
+#include "land_light_checks.h"
 #include "tree_plant_checks.h"
 #include "text_click_checks.h"
 #include "script_frame_checks.h"
@@ -3847,6 +3848,7 @@ int main() {
   pinch_checks::PinchChecks();
   temple_checks::TempleChecks();
   eye_luma_checks::EyeLumaChecks();
+  land_light_checks::LandLightChecks();
   tree_plant_checks::TreePlantChecks();
   zoom_checks::ZoomChecks();
   stay_checks::StayChecks();

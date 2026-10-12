@@ -101,6 +101,10 @@ struct Track {
   float most_gap;      // the largest difference between the eyes
   float gap_left, gap_right;
   uint64_t gap_frame;
+  // The brightest frame: the largest sum of the two eyes. A flash of light
+  // that both eye passes draw shows here, with the same number in each eye.
+  float bright_left, bright_right;
+  uint64_t bright_frame;
 };
 
 // One frame. True when a run ended at this frame: `ended` is that run, and
@@ -117,6 +121,11 @@ inline bool Step(Track* t, uint64_t frame, float left, float right,
     t->gap_left = left;
     t->gap_right = right;
     t->gap_frame = frame;
+  }
+  if (t->all == 1 || left + right > t->bright_left + t->bright_right) {
+    t->bright_left = left;
+    t->bright_right = right;
+    t->bright_frame = frame;
   }
   bool out = false;
   if (t->have && kind != t->kind) {
@@ -155,6 +164,8 @@ inline void NewWindow(Track* t) {
   t->most_gap = 0.0f;
   t->gap_left = t->gap_right = 0.0f;
   t->gap_frame = 0;
+  t->bright_left = t->bright_right = 0.0f;
+  t->bright_frame = 0;
 }
 
 }  // namespace eye_luma

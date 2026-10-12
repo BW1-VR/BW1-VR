@@ -851,8 +851,11 @@ does not need them.
   *         The two ways of release (release_at_once).
   Shift /   In the Temple: the three ways of the view of a room
             (temple_view and temple_camera_screen).
-  Shift +   The fade of the Temple in both eyes, or in the left
+  Ctrl Shift +
+            The fade of the Temple in both eyes, or in the left
             eye only (temple_fade_eyes).
+  Shift +   A catch of an object that moves keeps the button of the
+            game down, or lets it go after 167 ms (grip_press_hold).
   8, 2      Turn the pointing line 1 degree up or down.
   4, 6      Turn the pointing line 1 degree to the left or right.
   5         Go to the next preset of the pointing line.

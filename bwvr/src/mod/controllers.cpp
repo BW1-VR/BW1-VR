@@ -3124,7 +3124,8 @@ void PumpWalk() {
 // THE TEST KEYS OF THE LAYOUT AND OF THE WALK (test_keys=1). The Menu key is
 // the key beside the right Ctrl key that opens a context menu. With Ctrl it
 // changes button_layout, and with Shift it changes move_stick. The Menu key
-// alone is the key of one walk for both eyes (stereo.cpp).
+// alone is the key of one walk for both eyes (stereo.cpp). With Ctrl and
+// Shift it is the key of land_light_eyes (land_light.cpp).
 void PollLayoutKeys() {
   static int test_keys = -1;
   if (test_keys < 0) test_keys = IniInt("test_keys", 0) != 0 ? 1 : 0;

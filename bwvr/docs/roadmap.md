@@ -222,6 +222,27 @@ is built, and no test has proven it.
     it (`ui-layer.md`, 18.6).
   - The size of a bubble comes from the depth of the sign in units, with no
     change for the scale of the God view.
+- **B18. A flash of lightning in the left eye only: check it in a
+  headset.** In a headset session the white flashes of the lightning at the
+  end of the quest of the singing stones showed in the left eye only. A
+  lightning of a storm makes the land white with a light on the land, and
+  the game keeps the lights on the land in a list that each scene walk
+  empties. The second eye pass gets each light that it does not add itself
+  (`land_light_eyes=1`, `backend.md`, "The lights on the land in the second
+  eye pass"). A desktop run shows it with the test light
+  (`land_light_test=1`), which is the light of a lightning of a storm. Still
+  open:
+  - No run had a real lightning. Check in a headset that the land is white
+    in both eyes at a lightning of a storm and at the Lightning Bolt
+    miracle. Ctrl, Shift and the Menu key (`test_keys=1`) give the left eye
+    only for a comparison.
+  - Not known: whether the flash of that session was a light on the land.
+    If a flash still shows in one eye, the lines `land light` in the log of
+    that session have the count of the lights of each group at that time. A
+    flash with no such line is not a light on the land. `backend.md`, "The
+    color over the picture at the end of a frame", has the two full screen
+    draws of the end of a frame. The listing shows both in each eye pass on
+    the land.
 
 B1b, B2, B4 and B11 are one package: a thing that is held, thrown, or
 that moves while the Hand takes it.
