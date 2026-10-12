@@ -624,6 +624,9 @@ bool GameHasFocus() {
 //               on (audio_stop_wait, audio_voices.cpp). Windows gives the key
 //               VK_CANCEL for Pause with Ctrl down, so the keys of Pause
 //               alone (throw_physics.cpp) do not see it
+//   Ctrl Shift Semicolon  the copy of the subtitle card is read in a
+//               later frame with no wait, or after the eye passes with a wait
+//               for the GPU (subtitle_read_ahead, ui_panel.cpp)
 //   Ctrl Shift Numpad Star  after the two eye passes the game has the real
 //               time of the frame, or the number from before the passes
 //               (frame_time_real, frame_time.cpp)
@@ -762,6 +765,17 @@ void PollHotkeys() {
   // Kept up to date without focus too, so a key that is already down when
   // the game comes to the front does not count as a new press.
   for (int i = 0; i < kKeys; ++i) down[i] = now[i];
+  // An A/B of the read ahead of the subtitle card (docs/ui-layer.md, "The
+  // subtitle card"). Ctrl Shift Pause is the key of throw_land_rest
+  // (throw_physics.cpp), and the right square bracket is the key of
+  // one_walk_marks, so this key is the semicolon.
+  static bool semicolon_down = false;
+  const bool semicolon_now = (GetAsyncKeyState(VK_OEM_1) & 0x8000) != 0;
+  if (g_test_keys && semicolon_now && !semicolon_down && ctrl && shift &&
+      GameHasFocus()) {
+    UiPanelSubtitleReadAheadToggle("Ctrl, Shift and the semicolon key");
+  }
+  semicolon_down = semicolon_now;
   // An A/B of one walk (docs/backend.md, "One walk for both eyes"). The
   // menu key (VK_APPS) has no action in the game and no other test key.
   static bool menu_down = false;
