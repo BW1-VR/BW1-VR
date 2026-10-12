@@ -1078,8 +1078,8 @@ void BuildControls() {
   }
 
   // The buttons are a block below the last column, as wide as its fields.
-  // The two ways to play in VR are in the first row, "Save" and "Play, no
-  // VR" in the second, and "Support" has the third row to itself. When a
+  // The two ways to play in VR are in the first row, "Save Config" and "Play,
+  // no VR" in the second, and "Support" has the third row to itself. When a
   // column before the last is taller, the block is at the bottom of the
   // window. The buttons are made in the order of the Tab key.
   const int button_h = Scaled(28);
@@ -1104,7 +1104,7 @@ void BuildControls() {
                                WS_CHILD | WS_VISIBLE, right_x, row1_y, half_w,
                                button_h, g_window, reinterpret_cast<HMENU>(2),
                                nullptr, nullptr);
-  HWND save = CreateWindowExA(0, "BUTTON", "Save", WS_CHILD | WS_VISIBLE,
+  HWND save = CreateWindowExA(0, "BUTTON", "Save Config", WS_CHILD | WS_VISIBLE,
                               left_x, row2_y, half_w, button_h, g_window,
                               reinterpret_cast<HMENU>(3), nullptr, nullptr);
   HWND plain = CreateWindowExA(0, "BUTTON", "Play, no VR",

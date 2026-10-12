@@ -56,7 +56,7 @@ HOW TO START
 
 The launcher saves your settings, starts the game in the headset,
 and closes. "Play, new game" does the same and starts a new game.
-"Save" keeps your settings and does not start the game.
+"Save Config" keeps your settings and does not start the game.
 
 A new game opens the start dialog of the game. You can play the
 tutorial of the game in VR, but it is made for the mouse and the

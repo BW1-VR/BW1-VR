@@ -15,10 +15,10 @@ result looks like a bug in the mod.
 
 The window has these buttons: "Play in VR", "Play, new game" (starts the game
 with `-NEWGAME`, on the first island, with no menu), "Play, no VR" (see "The
-game without VR"), "Save" (writes the settings and does not start the game)
-and "Support". The buttons are a block below the table. "Play in VR" and
-"Play, new game" are in the first row, "Save" and "Play, no VR" in the second
-row, and "Support" has the third row to itself.
+game without VR"), "Save Config" (writes the settings and does not start the
+game) and "Support". The buttons are a block below the table. "Play in VR"
+and "Play, new game" are in the first row, "Save Config" and "Play, no VR" in
+the second row, and "Support" has the third row to itself.
 
 The launcher asks Windows for version 6 of the common controls (a manifest
 line at the top of `launcher.cpp`). The controls then have the visual styles
@@ -93,7 +93,7 @@ headset again, so a start of `runblack.exe` without the launcher and a desktop
 test find the values for the headset. It writes them after the end of the
 game, because the game can write its display values when it ends. If the
 launcher stops before the game ends, the values stay until the next "Play in
-VR" or "Save".
+VR" or "Save Config".
 
 With `vr=1`, the mod does not start a headset session in a full screen game.
 The log says so. `vr_full_screen=1` starts one.
