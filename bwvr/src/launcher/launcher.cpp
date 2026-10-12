@@ -163,6 +163,11 @@ const Setting kSettings[] = {
      "In steps: one push of the right stick forward or back is one zoom "
      "step. Smooth: the zoom changes while you hold the stick. It stops when "
      "you let the stick go."},
+    {kValues, "god_zoom_forward_in", "Stick forward",
+     "Zooms out=0|Zooms in=1", 0,
+     "The direction of the zoom on the right stick. Zooms out: push the "
+     "stick forward and the world gets smaller, pull it back and the world "
+     "gets larger. Zooms in is the other way."},
     {kValues, "god_zoom_about", "Center of the zoom",
      "The land you look at=1|The land under you=0|Your Hand=2", 1,
      "The point that stays where it is when you zoom with the stick. The "
@@ -210,7 +215,7 @@ const Setting kSettings[] = {
     //  "Direct hand: the Hand is where your controller is. Stretch your arm to "
     //  "reach far into the world. Pointer: the controller points a ray, and the "
     //  "Hand goes where the ray points."},
-    {kBool, "hand_glow", "Glow at the Hand's point", nullptr, 1,
+    {kBool, "hand_glow", "Glow at the Hand's point", nullptr, 0,
      "A small glow at the tip of the index finger shows the point of the "
      "Hand that picks up and clicks. It shows while a press of the grip "
      "acts on something."},

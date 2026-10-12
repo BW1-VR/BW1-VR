@@ -32,8 +32,8 @@ There is no layout to keep in step and no separate load and save code.
 
 The window sizes itself around the table and starts a new column when one gets
 tall. A heading stays with at least three of its settings. A column has 22
-rows at most. The table of now has 21 rows, so the window has one column, and
-it is as wide as its five buttons. More than 22 rows start a second column.
+rows at most. The table of now has 22 rows, so the window has one column, and
+it is as wide as its five buttons. One more row starts a second column.
 
 There are six kinds of row:
 
@@ -165,6 +165,7 @@ move the camera in steps.
 | Setting | Default | What it does |
 | --- | --- | --- |
 | Turn in steps | 45 degrees | Key `snap_turn`, index 0 to 3: off, 30, 45, 90 degrees. A push of the right stick to the left or the right, a drag sideways with the middle mouse button, or a turn key, turns you in one step. You stay where you are. The middle mouse button does not tilt the camera. Off gives the smooth turn and tilt of the game. |
+| Stick forward | Zooms out | Key `god_zoom_forward_in`, a value. 0 Zooms out: the right stick forward makes the world smaller, and back makes it larger. 1 Zooms in: the other way (`god-view.md`, section 2). |
 | Zoom with the stick | In steps | Key `god_zoom_smooth`, a value. 0 In steps: one push of the right stick forward or back is one zoom step. 1 Smooth: the zoom changes while the stick is held, and it stops when the stick is let go (`god-view.md`, section 2). |
 | Center of the zoom | The land you look at | Key `god_zoom_about`, a value. The point that stays where it is in a zoom with the stick. 1 The land that the head looks at. 0 The land under the head. 2 The Hand's point (`god-view.md`, section 2). |
 | Move with the left stick | Head direction | Key `move_stick`, a value. In the God view the stick of the other hand (the left stick, or the right stick of a left handed player) moves you over the land while you push it, and you stop when you let it go. 1 Head direction: forward is where the head faces. 2 Controller direction: forward is where that controller points. 0 Off: the stick does not move you. A walk with a stick makes some players ill, so the row has Off (`god-view.md`, section 5.7). The key `move_stick_speed_cm` sets the speed, and the launcher has no row for it. |
@@ -174,7 +175,7 @@ move the camera in steps.
 
 | Setting | Default | What it does |
 | --- | --- | --- |
-| Glow at the Hand's point | on | Key `hand_glow`. A small glow at the tip of the index finger shows the point of the Hand that picks up and clicks. It shows while a press of the grip acts on something (`hand-model.md`). |
+| Glow at the Hand's point | off | Key `hand_glow`. A small glow at the tip of the index finger shows the point of the Hand that picks up and clicks. It shows while a press of the grip acts on something (`hand-model.md`). |
 | Grab the world | Grip of the other hand | Key `grab_hand`, a value. 1 Hold the grip of your other hand and move that hand to pull the world. Hold both grips to turn the world and to zoom. 2 Either grip: the grip of the pointing hand also grabs the world when the Hand is empty and not over an object. 0 Off. |
 
 See `controllers.md` for the full controls.

@@ -270,8 +270,8 @@ is built, and no test has proven it.
   makes the point of the right eye from the point of the left eye when one
   walk is on. The Menu key (`test_keys=1`) turns one walk off for a
   comparison. With the glow on the mesh of a target the glow at the Hand's
-  point says little: a default with no glow at the Hand's point is an
-  option (`hand_glow`).
+  point says little, so it is off by default (`hand_glow=0`). The fault
+  is there for a player who turns it on.
 - **B23. The card of a signpost is at a different place in each eye.** In a
   headset session with one walk the text of a signpost was at a different
   place in each eye and hard to read (`bubble_card=1`). In a session with a
@@ -471,6 +471,13 @@ that moves while the Hand takes it.
   the camera of the game at its place and with all its motion, and with no
   cut scene window. The cut scene window stays the default
   (`cutscene-window.md`).
+- **P18. The left hand option of the game.** The game has an option for a
+  left hand. Wanted: the mod reads that option, and with it the left
+  controller is the Hand: the player points, takes and throws with the left
+  hand, and each job of the right controller and of the left controller
+  changes sides (the sticks, the buttons, the hints). Not known: where the
+  game keeps the option, and what the mod does with it now. The mod has the
+  key `controller_hand` for the hand that points.
 - **P5. Hand tracking.** The player plays with the hands and no
   controllers: the Hand follows the real hand and its fingers, one to one,
   as it follows a controller. First find what the headset gives to the

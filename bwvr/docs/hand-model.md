@@ -1206,8 +1206,9 @@ The glow is not drawn when the point is not in front of the near plane, when
 the disc is wholly outside the render, or when the disc would be wider than
 half the render (a hand at the face).
 
-**Keys.** `hand_glow` (1, in the launcher, Controllers group, "Glow at the
-Hand's point"): 0 turns the disc off. `hand_glow_idle` (0): 1 draws the glow
+**Keys.** `hand_glow` (0, in the launcher, Controllers group, "Glow at the
+Hand's point"): 1 turns the disc on. It is off by default, because the mesh
+of a target glows (`target_glow=1`). `hand_glow_idle` (0): 1 draws the glow
 on each frame, also over nothing and while the Hand holds an object. With the
 mouse, with `controller_hand=0` or with `hand_glow=0` the disc draws nothing
 and changes no state.

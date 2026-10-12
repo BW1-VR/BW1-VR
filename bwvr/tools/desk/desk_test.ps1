@@ -80,12 +80,16 @@ try {
     # keys of the registry, and the log names it. The game writes values of
     # the player's profile there by itself (the key bindings, and the
     # alignment each 600 game turns), and a test must not change them.
+    # god_zoom_forward_in=1: the word stick_up of a recipe zooms in. Each
+    # recipe counts on that, and the default of the mod zooms out with the
+    # stick forward.
     $keys = [ordered]@{
         vr = 0; stereo = 1; stereo_headless = 1; fake_head = 1;
         fake_head_yaw = 0; fake_head_pitch = 0; fov_absolute_deg = 110
         pointer_leave_cursor = 1; cursor_trace = 1
         intro_skip_test_frame = 5
         registry_test_guard = 1
+        god_zoom_forward_in = 1
     }
     foreach ($k in $Extra.Keys) { $keys[$k] = $Extra[$k] }
 

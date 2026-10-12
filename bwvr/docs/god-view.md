@@ -186,7 +186,10 @@ is inside the Hand's reach of 5600 (section 8). `god_far_units_per_meter` can
 go up to 8000. A step at a limit does nothing and is logged. From 7.5 to 4000
 is 16 steps.
 
-**The inputs.** The right stick forward zooms in, and back zooms out. With
+**The inputs.** The right stick forward zooms out, and back zooms in
+(`god_zoom_forward_in=0`, "Stick forward" in the launcher). With 1 the stick
+forward zooms in. The desktop test scripts set 1, so the word `stick_up` of a
+recipe zooms in. With
 `god_zoom_smooth=0`, the default, one push past 70 percent is one step. The
 stick must come back below 30 percent before the next push counts. The mouse
 wheel also steps the God view, one step a click, at most one each 150 ms, and
@@ -987,7 +990,7 @@ about 9 degrees (`tabletop.md`, "A spirit at a place of the world"). With
 
 | Input | In the God view |
 | --- | --- |
-| Right stick forward or back | Zoom in or out one step, about the land that the head looks at (`god_zoom_about`). With `god_zoom_smooth=1`, zoom while the stick is held |
+| Right stick forward or back | Zoom out or in one step (`god_zoom_forward_in=1` turns the direction), about the land that the head looks at (`god_zoom_about`). With `god_zoom_smooth=1`, zoom while the stick is held |
 | Right stick left or right | Turn one step about the head |
 | Left stick | Move over the land while it is pushed (`move_stick`, section 5.7) |
 | Left grip | Grab the land: pull to move it across, and up or down |

@@ -147,7 +147,10 @@ are zoomed out, is held between your thumb and your index finger. Set
 hand_pinch=0 in bwvr.ini to hold it in your fist. Set hand_feel=0 for
 fingers that follow the trigger and the grip only.
 
-  Stick up, down      Zoom in or out one step. Push again for the
+  Stick up, down      Zoom out or in one step: up makes the world
+                      smaller, down makes it larger. "Stick forward"
+                      in the launcher turns the direction (key
+                      god_zoom_forward_in). Push again for the
                       next step. The land that you look at stays where
                       it is, and its size changes. In the launcher,
                       "Center of the zoom" chooses a different point
@@ -305,7 +308,7 @@ size of your hand.
                       grip changes its leash. Keep the grip closed,
                       and your Creature stops and stays until you
                       open the grip.
-  Stick up, down      Zoom in or out one step.
+  Stick up, down      Zoom out or in one step.
   Stick left, right   Turn one step.
   A                   Hold it and an arc shows where you will go.
                       Let go to go there. B cancels.
@@ -568,13 +571,14 @@ starts at the first press of the grip on it. Set scroll_reach_cm in
 bwvr.ini to change the 10 cm. Set scroll_click=0 and scroll_draw=0
 to turn off the press on a scroll and the drawing of its halo.
 
-The color of the glow is the color of the grip on the hint cards.
-It is gold when the grip can pick something up or take from a store
-or a field. It is a paler gold when the grip can start a scroll,
-knock on a house or touch your Creature. There is no glow when a
-press does nothing, and none while the Hand holds an object. To turn
-the glow off, clear "Glow at the Hand's point" in the launcher. Set
-hand_glow_idle=1 in bwvr.ini for a glow that shows always.
+A glow at the point of the Hand itself is off. To turn it on, set
+"Glow at the Hand's point" in the launcher. Its color is the color
+of the grip on the hint cards. It is gold when the grip can pick
+something up or take from a store or a field. It is a paler gold
+when the grip can start a scroll, knock on a house or touch your
+Creature. There is no glow when a press does nothing, and none while
+the Hand holds an object. Set hand_glow_idle=1 in bwvr.ini for a glow
+that shows always.
 
 In the God view the quests of the game see where you are. When a
 quest waits for you to come near a thing, your head or a hand must be

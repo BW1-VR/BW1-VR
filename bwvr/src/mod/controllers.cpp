@@ -164,6 +164,7 @@ bool TabletopGodOwnsView();
 bool TabletopGodStep(int zoom, int ground);
 bool TabletopGodZoomSmooth();
 bool TabletopGodZoomHold(float push);
+bool TabletopGodZoomForwardIn();
 // tabletop.cpp: the walk with the stick of the hand that does not point. Its
 // rule, its request for the next frame, and its test key.
 int TabletopGodMoveStick();
@@ -2986,12 +2987,16 @@ void PumpStick(ULONGLONG now) {
     ++g_turns_asked;
     ComfortCameraRequestTurn(hand.stick[0] > 0.0f ? 1 : -1);
   }
+  // THE DIRECTION OF THE ZOOM (god_zoom_forward_in). With 0 the stick forward
+  // zooms out, so the world gets smaller, and the stick back zooms in. With
+  // 1 the stick forward zooms in.
+  const bool zoom_in = (hand.stick[1] > 0.0f) == TabletopGodZoomForwardIn();
   if (smooth) {
-    // Forward zooms in, so the world gets larger. The rate follows the push.
+    // The rate follows the push.
     if (pushed && (was_holding || g_god_zoom_armed)) {
       g_god_zoom_armed = false;
       const float share = zoom_math::StickShare(ay, kStickBack, kStickFull);
-      const bool in = hand.stick[1] > 0.0f;
+      const bool in = zoom_in;
       g_god_zoom_holding = TabletopGodZoomHold(in ? share : -share);
       if (g_god_zoom_holding && !was_holding) {
         ++g_god_holds;
@@ -3007,16 +3012,15 @@ void PumpStick(ULONGLONG now) {
     return;
   }
   if (god) {
-    // Forward zooms in, so the world gets larger.
     if (pushed && g_god_zoom_armed) {
       g_god_zoom_armed = false;
-      if (TabletopGodStep(hand.stick[1] > 0.0f ? 1 : -1, 0)) {
+      if (TabletopGodStep(zoom_in ? 1 : -1, 0)) {
         ++g_god_zooms;
         Pulse(PointingIndex());
         if (g_event_logs < kMaxEventLogs) {
           ++g_event_logs;
           ModLog("controllers  : the stick asks the God view to zoom %s, frame "
-                 "%llu", hand.stick[1] > 0.0f ? "in" : "out", g_frame);
+                 "%llu", zoom_in ? "in" : "out", g_frame);
         }
       }
     }

@@ -3269,6 +3269,10 @@ bool TabletopGodZoomSmooth() {
   return g_installed && g_settings.god && g_settings.god_zoom_smooth != 0;
 }
 
+bool TabletopGodZoomForwardIn() {
+  return g_settings.god_zoom_forward_in != 0;
+}
+
 bool TabletopGodZoomHold(float push) {
   if (!TabletopGodZoomSmooth() || !TabletopGodOwnsView()) return false;
   if (!(push == push) || push == 0.0f) return false;
