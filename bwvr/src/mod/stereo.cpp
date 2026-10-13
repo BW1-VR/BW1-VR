@@ -592,8 +592,8 @@ float FrameSeparation() {
 // its thread. A hook of the messages of that thread sees each key as the game
 // sees it, and keeps the press for the next frame. The state of Shift and
 // Ctrl comes from GetKeyState, which is the state of that message.
-// Shift 8, Shift 9, Shift F, Shift G, Shift H
-static volatile LONG g_shift_key[5] = {0, 0, 0, 0, 0};
+// Shift 8, Shift 9, Shift F, Shift G, Shift H, Shift J
+static volatile LONG g_shift_key[6] = {0, 0, 0, 0, 0, 0};
 static HHOOK g_message_hook = nullptr;
 static bool g_message_hook_tried = false;
 
@@ -606,6 +606,7 @@ static LRESULT CALLBACK KeyMessageHook(int code, WPARAM remove, LPARAM message) 
                       : m->wParam == 'F' ? 2
                       : m->wParam == 'G' ? 3
                       : m->wParam == 'H' ? 4
+                      : m->wParam == 'J' ? 5
                                          : -1;
     if (m->message == WM_KEYDOWN && first && index >= 0 &&
         (GetKeyState(VK_SHIFT) & 0x8000) != 0 &&
@@ -680,6 +681,9 @@ bool GameHasFocus() {
 //               (render_thread_buffers, render_thread.cpp)
 //   Shift H     a batch of one walk is one draw for both eyes, or one draw
 //               for each eye (one_walk_merge, one_walk.cpp)
+//   Shift J     the driver gives the calls of a walk to the GPU each N
+//               draws, or when it wants (gpu_flush,
+//               render_thread.cpp)
 //   Ctrl Shift Numpad Slash  the mod waits for the GPU after each eye pass,
 //               one time a frame, or one time a frame on a second thread
 //               that also gives the frame to the runtime (frame_send,
@@ -835,6 +839,9 @@ void PollHotkeys() {
   }
   if (InterlockedExchange(&g_shift_key[4], 0) != 0) {
     OneWalkMergeToggle("Shift and H");
+  }
+  if (InterlockedExchange(&g_shift_key[5], 0) != 0) {
+    RenderThreadFlushToggle("Shift and J");
   }
   // An A/B of one walk (docs/backend.md, "One walk for both eyes"). The
   // menu key (VK_APPS) has no action in the game and no other test key.

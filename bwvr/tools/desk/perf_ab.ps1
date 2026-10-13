@@ -13,6 +13,8 @@
 #   Scene     the scene walks on the frame thread, ms (profile_sample)
 #   Busy      the render thread busy, ms (render_thread)
 #   Gpu       the scene walks on the GPU, ms (profile_gpu)
+#   GpuDone   the time from the end of a walk until the GPU is done, ms
+#             (profile_gpu)
 #   Same      the calls of a frame that set the value that the device had
 #   Draws     the draws of a frame in the queue of the render thread
 #   BufDraws  the draws from the buffers of the render thread
@@ -85,6 +87,7 @@ function Read-PerfLog([string]$log) {
         Scene    = Get-Median (& $pick 'The scene walks were ([0-9.]+) ms in a frame')
         Busy     = Get-Median (& $pick 'render thread busy ([0-9.]+) ms')
         Gpu      = Get-Median (& $pick 'gpu time     : the scene walks took ([0-9.]+) ms')
+        GpuDone  = Get-Median (& $pick 'the GPU was done ([0-9.]+) ms after')
         Same     = Get-Median (& $pick 'render_thread_filter=\d\. ([0-9]+) calls of a frame set')
         Draws    = Get-Median (& $pick 'records \(([0-9]+) draws\)')
         BufDraws = Get-Median (& $pick 'A frame: ([0-9]+) draws from the buffers')
@@ -120,7 +123,7 @@ for ($r = 1; $r -le $Repeat; ++$r) {
         $rows += $row
     }
 }
-$table = $rows | Format-Table Config, Run, Frame, Scene, Busy, Gpu, Same, Draws, BufDraws, Locks, Failed, Windows, PicSame, PicModes -AutoSize | Out-String
+$table = $rows | Format-Table Config, Run, Frame, Scene, Busy, Gpu, GpuDone, Same, Draws, BufDraws, Locks, Failed, Windows, PicSame, PicModes -AutoSize | Out-String
 $baseText = ($Base.GetEnumerator() | Sort-Object Name | ForEach-Object { "$($_.Name)=$($_.Value)" }) -join ' '
 $text = "DLL $hash, $Seconds s a run, base keys: $baseText`n$table"
 $text | Set-Content -LiteralPath (Join-Path $outDir 'summary.txt') -Encoding utf8

@@ -675,6 +675,39 @@ void Prepare(uint32_t read, uint32_t write) {
   g_ib_at = ib_base + i;
 }
 
+// THE FLUSH (gpu_flush=N). The driver keeps the calls of a walk and gives
+// them to the GPU late, mostly at the end of the walk, so the GPU starts the
+// picture late and the frame waits for it after the walk. Each N draws the
+// thread that makes the draws issues an event query and asks for its data
+// with D3DGETDATA_FLUSH and no wait: the driver gives the GPU the calls so
+// far, and the GPU draws while the walk goes on. With the render thread that
+// is the render thread (Play), with no render thread the frame thread (the
+// RenderThreadOut functions). One thread at a time makes the draws, so the
+// count needs no lock.
+int g_flush_every = 0;  // gpu_flush
+int g_flush_ini = 0;
+IDirect3DQuery9* g_flush_query = nullptr;
+IDirect3DDevice9* g_flush_device = nullptr;
+int g_since_flush = 0;
+volatile LONG g_flushes = 0;
+
+void CountDrawForFlush() {
+  if (g_flush_every <= 0 || ++g_since_flush < g_flush_every) return;
+  g_since_flush = 0;
+  if (g_flush_device != g_device) {
+    if (g_flush_query != nullptr) g_flush_query->Release();
+    g_flush_query = nullptr;
+    g_flush_device = g_device;
+    if (FAILED(g_device->CreateQuery(D3DQUERYTYPE_EVENT, &g_flush_query))) {
+      g_flush_query = nullptr;
+    }
+  }
+  if (g_flush_query == nullptr) return;
+  g_flush_query->Issue(D3DISSUE_END);
+  g_flush_query->GetData(nullptr, 0, D3DGETDATA_FLUSH);
+  InterlockedIncrement(&g_flushes);
+}
+
 uint32_t Play(const uint8_t* at) {
   const Header* h = reinterpret_cast<const Header*>(at);
   const uint8_t* p = at + sizeof(Header);
@@ -858,6 +891,10 @@ uint32_t Play(const uint8_t* at) {
     }
     default:
       break;
+  }
+  if (h->op == kOpDrawPrimitive || h->op == kOpDrawIndexedPrimitive ||
+      h->op == kOpDrawPrimitiveUP || h->op == kOpDrawIndexedPrimitiveUP) {
+    CountDrawForFlush();
   }
   if (FAILED(hr)) InterlockedIncrement(&g_failed_calls);
   return h->bytes;
@@ -2476,6 +2513,81 @@ void StampWalkEnd() {
   g_stamp_at = (g_stamp_at + 1) % kStampSets;
 }
 
+// THE WAIT FOR THE GPU AFTER THE WALK (profile_gpu=1). In a headset the
+// second thread of frame_send=2 waits for the GPU after the walk, and that
+// wait is a part of the frame. A desktop run has no such thread. So after
+// each walk, when each call of the walk went to Direct3D 9, the frame thread
+// issues an event query with D3DGETDATA_FLUSH, and a thread of its own looks
+// at it about each 50 microseconds until the GPU is done. The time from the
+// issue to the end is the wait that a headset would have, less the copy of
+// the eye pictures.
+IDirect3DQuery9* g_done_query = nullptr;
+IDirect3DDevice9* g_done_device = nullptr;
+HANDLE g_done_event = nullptr;
+volatile LONG g_done_pending = 0;
+LARGE_INTEGER g_done_start = {};
+double g_done_ms = 0.0;
+volatile LONG g_done_count = 0;
+volatile LONG g_done_skipped = 0;
+
+DWORD WINAPI DoneThread(LPVOID) {
+  for (;;) {
+    WaitForSingleObject(g_done_event, INFINITE);
+    LARGE_INTEGER now;
+    for (;;) {
+      if (g_done_query->GetData(nullptr, 0, 0) != S_FALSE) break;
+      LARGE_INTEGER until;
+      QueryPerformanceCounter(&until);
+      const LONGLONG step = g_frequency.QuadPart / 20000;  // 50 microseconds
+      do {
+        YieldProcessor();
+        QueryPerformanceCounter(&now);
+      } while (now.QuadPart - until.QuadPart < step);
+    }
+    QueryPerformanceCounter(&now);
+    g_done_ms += 1000.0 * static_cast<double>(now.QuadPart - g_done_start.QuadPart) /
+                 static_cast<double>(g_frequency.QuadPart);
+    InterlockedIncrement(&g_done_count);
+    InterlockedExchange(&g_done_pending, 0);
+  }
+}
+
+void MeasureDoneAfterWalk(IDirect3DDevice9* device) {
+  if (g_profile_gpu == 0 || device == nullptr) return;
+  if (g_done_pending != 0) {
+    InterlockedIncrement(&g_done_skipped);
+    return;
+  }
+  if (g_done_device != device) {
+    if (g_done_query != nullptr) g_done_query->Release();
+    g_done_query = nullptr;
+    g_done_device = device;
+    if (FAILED(device->CreateQuery(D3DQUERYTYPE_EVENT, &g_done_query))) {
+      g_done_query = nullptr;
+    }
+  }
+  if (g_done_query == nullptr) return;
+  if (g_done_event == nullptr) {
+    if (g_frequency.QuadPart == 0) QueryPerformanceFrequency(&g_frequency);
+    g_done_event = CreateEventA(nullptr, FALSE, FALSE, nullptr);
+    HANDLE thread =
+        g_done_event != nullptr
+            ? CreateThread(nullptr, 0, DoneThread, nullptr, 0, nullptr)
+            : nullptr;
+    if (thread == nullptr) {
+      g_done_query->Release();
+      g_done_query = nullptr;
+      return;
+    }
+    CloseHandle(thread);
+  }
+  g_done_query->Issue(D3DISSUE_END);
+  QueryPerformanceCounter(&g_done_start);
+  g_done_query->GetData(nullptr, 0, D3DGETDATA_FLUSH);
+  InterlockedExchange(&g_done_pending, 1);
+  SetEvent(g_done_event);
+}
+
 bool StartWorker() {
   if (g_worker != nullptr) return true;
   g_queue = static_cast<uint8_t*>(VirtualAlloc(
@@ -2559,7 +2671,9 @@ HRESULT RenderThreadOutDrawPrimitive(IDirect3DDevice9* self,
     const ArgDraw a = {type, 0, start, count, 0, 0};
     if (Simple(kOpDrawPrimitive, a)) return D3D_OK;
   }
-  return o_DrawPrimitive(self, type, start, count);
+  const HRESULT hr = o_DrawPrimitive(self, type, start, count);
+  CountDrawForFlush();
+  return hr;
 }
 
 HRESULT RenderThreadOutDrawIndexedPrimitive(IDirect3DDevice9* self,
@@ -2570,8 +2684,10 @@ HRESULT RenderThreadOutDrawIndexedPrimitive(IDirect3DDevice9* self,
     const ArgDraw a = {type, base, min_index, vertices, start, count};
     if (Simple(kOpDrawIndexedPrimitive, a)) return D3D_OK;
   }
-  return o_DrawIndexedPrimitive(self, type, base, min_index, vertices, start,
-                                count);
+  const HRESULT hr = o_DrawIndexedPrimitive(self, type, base, min_index,
+                                            vertices, start, count);
+  CountDrawForFlush();
+  return hr;
 }
 
 HRESULT RenderThreadOutDrawPrimitiveUP(IDirect3DDevice9* self,
@@ -2589,7 +2705,9 @@ HRESULT RenderThreadOutDrawPrimitiveUP(IDirect3DDevice9* self,
     }
     Stop(kDrawPrimitiveUP);
   }
-  return o_DrawPrimitiveUP(self, type, count, vertices, stride);
+  const HRESULT hr = o_DrawPrimitiveUP(self, type, count, vertices, stride);
+  CountDrawForFlush();
+  return hr;
 }
 
 HRESULT RenderThreadOutDrawIndexedPrimitiveUP(
@@ -2617,9 +2735,11 @@ HRESULT RenderThreadOutDrawIndexedPrimitiveUP(
     }
     Stop(kDrawIndexedPrimitiveUP);
   }
-  return o_DrawIndexedPrimitiveUP(self, type, min_index, vertex_count,
-                                  primitive_count, indices, index_format,
-                                  vertices, stride);
+  const HRESULT hr = o_DrawIndexedPrimitiveUP(
+      self, type, min_index, vertex_count, primitive_count, indices,
+      index_format, vertices, stride);
+  CountDrawForFlush();
+  return hr;
 }
 
 // ---------------------------------------------------------------------------
@@ -2668,13 +2788,15 @@ static bool InstallQueued(IDirect3DDevice9* device, bool all) {
 }
 
 void RenderThreadSetOptions(int mode, int test_frame, int lock_free,
-                            int filter, int buffers, int profile_gpu) {
+                            int filter, int buffers, int flush,
+                            int profile_gpu) {
   g_ini_mode = mode == 1 || mode == 2 ? mode : 0;
   g_wanted = g_ini_mode;
   g_test_frame = test_frame > 0 ? test_frame : 0;
   g_lock_free = lock_free != 0;
   g_filter = filter != 0;
   g_buffers = buffers != 0;
+  g_flush_every = g_flush_ini = flush > 0 ? flush : 0;
   g_profile_gpu = profile_gpu != 0 ? 1 : 0;
   ModLog("render thread: render_thread=%d. %s", g_ini_mode,
          ModeName(g_ini_mode));
@@ -2688,6 +2810,17 @@ void RenderThreadFilterToggle(const char* keys) {
          g_filter ? "a call of a walk that sets the value that the device has "
                     "already does not go to Direct3D 9"
                   : "each call of a walk goes to Direct3D 9");
+}
+
+void RenderThreadFlushToggle(const char* keys) {
+  const int on = g_flush_ini > 0 ? g_flush_ini : 128;
+  g_flush_every = g_flush_every > 0 ? 0 : on;
+  ControllersGesturePulse(0.5f, g_flush_every > 0 ? 0.30f : 0.08f);
+  ModLog("test key     : %s, gpu_flush is %d: %s", keys,
+         g_flush_every,
+         g_flush_every > 0 ? "the driver gives the calls to the GPU each N draws"
+                           : "the driver gives the calls to the GPU when it "
+                             "wants");
 }
 
 void RenderThreadBuffersToggle(const char* keys) {
@@ -2734,12 +2867,16 @@ bool RenderThreadFrame(uint64_t frame) {
 void RenderThreadWalk(bool begin) {
   if (!begin) {
     StampWalkEnd();
-    if (!g_recording) return;
-    ViewportPutBack();
-    const uint64_t start = Ticks();
-    Drain();
-    g_end_ticks += Ticks() - start;
-    g_recording = false;
+    if (g_recording) {
+      ViewportPutBack();
+      const uint64_t start = Ticks();
+      Drain();
+      g_end_ticks += Ticks() - start;
+      g_recording = false;
+    }
+    MeasureDoneAfterWalk(
+        static_cast<IDirect3DDevice9*>(GpuBridgeDeviceObject()));
+    g_since_flush = 0;
     return;
   }
   g_mode = 0;
@@ -2788,6 +2925,19 @@ void RenderThreadReport(uint64_t frames) {
            g_gpu_walks, g_gpu_lost);
     g_gpu_ms = 0.0;
     g_gpu_walks = g_gpu_lost = 0;
+  }
+  {
+    const LONG done = InterlockedExchange(&g_done_count, 0);
+    const LONG skipped = InterlockedExchange(&g_done_skipped, 0);
+    const LONG flushes = InterlockedExchange(&g_flushes, 0);
+    if (g_profile_gpu != 0 && frames > 0 && done > 0) {
+      ModLog("gpu time     : the GPU was done %.3f ms after the end of a walk "
+             "(%ld walks, %ld not measured). gpu_flush=%d, %.1f "
+             "flushes in a frame",
+             g_done_ms / done, done, skipped, g_flush_every,
+             static_cast<double>(flushes) / static_cast<double>(frames));
+    }
+    g_done_ms = 0.0;
   }
   if (g_walks == 0 || frames == 0) return;
   {

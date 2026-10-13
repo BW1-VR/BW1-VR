@@ -18,8 +18,14 @@
 // measures the time of each scene walk on the GPU.
 // render_thread_buffers: 1 draws the DrawIndexedPrimitiveUP of a walk from
 // a vertex buffer and an index buffer of the render thread.
+// gpu_flush=N: each N draws of a walk the driver gives the calls
+// so far to the GPU. 0: when the driver wants.
 void RenderThreadSetOptions(int mode, int test_frame, int lock_free,
-                            int filter, int buffers, int profile_gpu);
+                            int filter, int buffers, int flush,
+                            int profile_gpu);
+// The test key: gpu_flush goes between 0 and the value of the ini
+// (or 128).
+void RenderThreadFlushToggle(const char* keys);
 // The test key: render_thread_buffers goes between 1 and 0.
 void RenderThreadBuffersToggle(const char* keys);
 // The test key: render_thread_filter goes between 1 and 0.

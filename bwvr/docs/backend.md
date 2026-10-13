@@ -1196,6 +1196,12 @@ its first walk, so the samples start with the walk after it. The ms of a
 module is then the time that the render thread was in it while the frame
 thread was in a scene walk.
 
+`profile_sample_dump=1` also writes each sample of a report, with the
+modules of the process, to `bwvr-samples.txt` beside `runblack.exe`: a line
+"W frames" starts a report, "M name base size" is a module, and each other
+line is the address of a sample. A script can then give the share of each
+function, with the names of bw1-decomp for the game and a PDB for the mod.
+
 **The watch of the frame thread.** `hang_watch=1` (a test key,
 `hang_watch.cpp`) starts a thread that looks at the count of the frames of
 the scene each second. When the count stays the same for 8 s, it stops the
@@ -1694,6 +1700,35 @@ gpu time     : the scene walks took 2.165 ms in a frame on the GPU, from the fir
 The time is from the first call of a walk to its last on the GPU, so it
 does not count the copy of the eye pictures after the walk. A launcher save
 removes the key.
+
+`profile_gpu=1` also measures the wait for the GPU after the walk. In a
+headset the second thread of `frame_send=2` waits for the GPU after the walk,
+and a desktop run has no such thread. So after each walk, when each call of
+the walk went to Direct3D 9, the frame thread issues an event query with
+`D3DGETDATA_FLUSH`, and a thread of its own looks at it about each 50
+microseconds until the GPU is done:
+
+```
+gpu time     : the GPU was done 1.574 ms after the end of a walk (450 walks, 0 not measured). gpu_flush=128, 8.0 flushes in a frame
+```
+
+### The flush
+
+The driver keeps the calls of a walk and gives them to the GPU late, mostly
+at the end of the walk. So the GPU starts the picture late, and the frame
+waits for it after the walk. `gpu_flush=N` (128 by default) makes the thread
+that makes the draws issue an event query each N draws and ask for its data
+with `D3DGETDATA_FLUSH` and no wait. Then the driver gives the GPU the calls
+so far, and the GPU draws while the walk goes on. With the render thread the
+render thread does it, with no render thread the frame thread does it in the
+`RenderThreadOut` functions. `gpu_flush=0` leaves it to the driver. With
+`test_keys=1`, Shift and J turn it off and on.
+
+A desktop run with `render_thread=1`, 1096 draws in a frame: the GPU is done
+2.98 ms after the walk with no flush, 1.57 ms with a flush each 64 or 128
+draws and 1.63 ms each 256 draws. The copy to the monitor waits for the GPU
+too, so a frame of the desktop run is 5.9 ms in place of 7.5 ms. In a
+headset the gain is in the wait of the second thread of `frame_send=2`.
 
 ### The time
 
@@ -3014,6 +3049,7 @@ in front. The mod reads the keys and never takes them from the game.
 | Shift F | `test_keys=1` | A call of a walk that sets the value that the device has already goes to Direct3D 9 or not. A long pulse and a short pulse (`render_thread_filter`, "The calls that change nothing"). It works only while `render_thread` is 1 or 2 in the ini. It is read as Shift 8. Ctrl must be up |
 | Shift G | `test_keys=1` | The render thread draws from buffers of its own, or gives each `DrawIndexedPrimitiveUP` to Direct3D 9. A long pulse and a short pulse (`render_thread_buffers`, "The buffers of the render thread"). It works only while `render_thread` is 1 in the ini. It is read as Shift 8. Ctrl must be up |
 | Shift H | `test_keys=1` | A batch of one walk is one draw for both eyes, or one draw for each eye, from the next draw. A long pulse and a short pulse (`one_walk_merge`, "One draw for both eyes"). It works only while `render_thread` is 1 or 2 in the ini. It is read as Shift 8. Ctrl must be up |
+| Shift J | `test_keys=1` | The driver gives the calls of a walk to the GPU each N draws, or when it wants. A long pulse and a short pulse (`gpu_flush`, "The flush"). Ctrl must be up |
 | Ctrl Shift Numpad Slash | `test_keys=1` | The mod waits for the GPU after each eye pass, one time a frame, or one time a frame on a second thread that also gives the frame to the runtime. A long pulse, a pulse of middle length and a short pulse (`frame_send`, "One wait a frame, and a second thread"). The slash key with Shift and no Ctrl is a key of the Temple, and with no Shift it is a key of the throw |
 | Menu key | `test_keys=1` | One walk for both eyes on and off (see "One walk for both eyes"). The key beside the right Ctrl key that opens a context menu. Ctrl and Shift must be up |
 | Ctrl Menu key | `test_keys=1` | The layout of the buttons of the hand that does not point. The menu button of the left controller opens the game menu, Y opens the ring and the stick does not drive the ring, or Y opens the game menu and X and the stick open the ring. A long pulse and a short pulse on that hand (`button_layout`, `controllers.md`, 5.1). Shift must be up |
@@ -3120,10 +3156,12 @@ keys that the launcher sets.
 | `render_thread_lock_free` | 1 | 1: the frame thread gets the answers of some calls of a texture with no lock of the device. 0: each goes to Direct3D 9. See "The lock of the device" |
 | `render_thread_filter` | 1 | 1: a call of a walk that sets the value that the device has already does not go to Direct3D 9. 0: each goes. See "The calls that change nothing" |
 | `render_thread_buffers` | 1 | 1: the render thread draws the `DrawIndexedPrimitiveUP` of a walk from buffers of its own. 0: each goes to Direct3D 9 as it is. See "The buffers of the render thread" |
+| `gpu_flush` | 128 | N: each N draws of a walk the driver gives the calls so far to the GPU. 0: when the driver wants. See "The flush" |
 | `profile_gpu` | 0 | A test key. See "The GPU time" |
 | `hang_watch` | 0 | A test key. See "The watch of the frame thread" |
 | `profile_sample` | 0 | A test key. See "Where the time of the scene walk goes" |
 | `profile_sample_thread` | 0 | A test key: 1 takes the samples of `profile_sample` from the render thread. See "Where the time of the scene walk goes" |
+| `profile_sample_dump` | 0 | A test key: 1 writes each sample of `profile_sample` with the modules to `bwvr-samples.txt` beside `runblack.exe`. See "Where the time of the scene walk goes" |
 | `skip_desktop_present` | 1 | See "The copy to the monitor" |
 | `blt_texture_copy` | 1 | 1: the mod makes a copy with a texture and no stretch itself. 0: each copy goes to dxwrapper. See "The copy to the monitor" |
 | `test_frame_rate` | 0 | A test key of the desktop runs: the frame rate of a run with no copy to the monitor. See "The copy to the monitor" |

@@ -185,6 +185,35 @@ void ReadModules() {
   g_module_count = n;
 }
 
+// profile_sample_dump=1 (a test key): each report also appends its modules
+// and each of its samples to bwvr-samples.txt beside runblack.exe, for a
+// script that gives the share of each function. A line "M name base size"
+// is a module, "W frames" starts a report, and each other line is the
+// address of a sample, in hex.
+bool g_dump = false;
+bool g_dumped = false;  // the file of this run is open for appends
+
+void Dump(LONG take, uint64_t frames) {
+  char path[MAX_PATH];
+  const DWORD length = GetModuleFileNameA(nullptr, path, MAX_PATH);
+  if (length == 0 || length >= MAX_PATH) return;
+  char* slash = strrchr(path, '\\');
+  if (slash == nullptr) return;
+  slash[1] = 0;
+  if (strlen(path) + 18 >= MAX_PATH) return;
+  strcat_s(path, "bwvr-samples.txt");
+  FILE* f = nullptr;
+  if (fopen_s(&f, path, g_dumped ? "a" : "w") != 0 || f == nullptr) return;
+  g_dumped = true;
+  fprintf(f, "W %llu\n", frames);
+  for (int m = 0; m < g_module_count; ++m) {
+    fprintf(f, "M %s %08X %08X\n", g_names[m], g_modules[m].base,
+            g_modules[m].size);
+  }
+  for (LONG i = 0; i < take; ++i) fprintf(f, "%08X\n", g_scratch[i]);
+  fclose(f);
+}
+
 // The modules of the system that a wait goes through.
 bool IsSystemModule(int m) {
   if (m < 0) return false;
@@ -276,6 +305,7 @@ void Start() {
   if (g_read) return;
   g_read = true;
   g_interval_us = IniKey("profile_sample", 0);
+  g_dump = IniKey("profile_sample_dump", 0) != 0;
   if (g_interval_us <= 0) {
     g_interval_us = 0;
     return;
@@ -350,6 +380,7 @@ void SceneSampleReport(uint64_t frames, double scene_ms) {
 
   ReadModules();
   const int callers = FindCallers(first, take);
+  if (g_dump) Dump(take, frames);
   // The samples of each module, and of no module.
   uint32_t per_module[kMaxModules + 1];
   ZeroMemory(per_module, sizeof(per_module));
