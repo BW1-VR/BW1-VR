@@ -26,6 +26,7 @@
 #include "../vr/xr_screen.h"
 #include "controllers.h"
 #include "frame_profile.h"
+#include "fast_transform.h"
 #include "render_thread.h"
 #include "tabletop.h"
 #include "far_grab.h"
@@ -510,6 +511,7 @@ int g_render_thread_lock_free = 1;
 int g_render_thread_filter = 1;
 int g_render_thread_buffers = 1;
 int g_render_thread_right_eye = 1;
+int g_fast_transform = 1;
 int g_gpu_flush = 128;
 char g_ab_test[64] = "";
 int g_profile_gpu = 0;
@@ -1300,6 +1302,8 @@ void ReadSettings() {
       GetPrivateProfileIntA("bwvr", "render_thread_right_eye", 1, path) != 0
           ? 1
           : 0;
+  g_fast_transform =
+      GetPrivateProfileIntA("bwvr", "fast_transform", 1, path) != 0 ? 1 : 0;
   GetPrivateProfileStringA("bwvr", "ab_test", "", g_ab_test,
                            sizeof(g_ab_test), path);
   g_profile_gpu =
@@ -1564,6 +1568,8 @@ void StartVrOnce() {
                            g_profile_gpu);
     RenderThreadSetRightEye(g_render_thread_right_eye != 0);
     RenderThreadSetAbTest(g_ab_test);
+    FastTransformSetOptions(g_fast_transform);
+    FastTransformInstall();
     BubbleCardSetOptions(g_bubble_card, g_bubble_card_test,
                          g_bubble_card_test_frame);
     BubbleCardInstall();

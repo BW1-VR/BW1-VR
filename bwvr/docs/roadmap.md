@@ -526,7 +526,10 @@ that moves while the Hand takes it.
     sessions in a headset (the Temple, a story, a load of a saved game), one
     start that stopped at the logos with `gpu_flush=128` (`hang_watch=1`
     shows the place if it comes again), then the default value of
-    `render_thread`. With the render thread, one walk draws most
+    `render_thread`. The two vertex loops of the engine run with SSE, with
+    the bits of the game (`fast_transform`, `backend.md`, "The vertex loops
+    with SSE"): 0.25 ms less of the scene walks in a desktop run. Not run: a
+    headset session with it. With the render thread, one walk draws most
     batches in one draw for both eyes (`one_walk_merge`, `backend.md`, "One
     draw for both eyes"). Before the thread, with one walk, a view of the
     whole island has about 1500 batches and a scene walk of 9.5 to 11 ms,

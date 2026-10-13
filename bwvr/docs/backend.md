@@ -51,6 +51,7 @@ Other docs: `software-tnl.md` (the CPU transform and the camera matrix),
 | `src/mod/near_plane.cpp` | The near plane |
 | `src/mod/frame_timers.cpp`, `eye_capture.cpp`, `draw_probe.cpp` | Timing, eye pictures, draw probe |
 | `src/mod/render_thread.cpp`, `render_thread_ring.h` | The hooks of the Direct3D 9 device, and the render thread (`render_thread`) |
+| `src/mod/fast_transform.cpp`, `fast_transform_math.h` | The two vertex loops of the engine with SSE (`fast_transform`) |
 | `src/mod/scene_sample.cpp`, `scene_sample_math.h` | A test aid: samples of the code of the frame thread in the scene walks, by module (`profile_sample`) |
 | `src/mod/hang_watch.cpp` | A test aid: the place of the frame thread when it makes no frame for 8 s (`hang_watch`) |
 | `src/common/exe_check.h`, `version.h` | The build check and the product name |
@@ -1751,8 +1752,8 @@ render thread does it, with no render thread the frame thread does it in the
 `ab_test=<key>` (a test key) gives each window of 450 frames the other value
 of the key, and the log says it at the end of each window (`ab test`), so a
 session in a headset compares the two with no key. The keys are `gpu_flush`
-(the value of the ini, or 128, and 0) and `render_thread_right_eye` (1 and
-0).
+(the value of the ini, or 128, and 0), `render_thread_right_eye` (1 and 0)
+and `fast_transform` (1 and 0).
 
 A desktop run with `render_thread=1`, 1096 draws in a frame: the GPU is done
 2.98 ms after the walk with no flush, 1.57 ms with a flush each 64 or 128
@@ -1815,6 +1816,49 @@ that made them, the calls of a frame in the queue by kind, the calls that
 set the value that the device had already (see "The calls that change
 nothing"), and the draws from the buffers of the render thread with the
 locks of the buffers (see "The buffers of the render thread").
+
+## The vertex loops with SSE
+
+The engine transforms the vertices of each mesh on the frame thread, one at
+a time, on the x87 unit. Two functions do most of it: `fn_00856D40` (with
+the clip flags) and `fn_0085AB10` (lit from the normal of each vertex). Each
+has a loop with one matrix for the mesh, and a loop with a matrix for each
+group of vertices. The first loop is the hot one. Each vertex is a 3x4
+matrix, the clip flags (`fn_00856D40`), a division for `1/z`, the
+projection to the screen, the clamp to the screen, and the light of the
+normal (`fn_0085AB10`). Each comparison is an `fcomp` and an `fnstsw` with
+a branch.
+
+`fast_transform=1` (the default) makes the loops with one matrix with SSE,
+four vertices at a time (`fast_transform_math.h`). A jump at the start of
+each loop goes to a stub (`fast_transform.cpp`). The stub keeps each
+register, and goes on after the loop of the game when the SSE loop did the
+work.
+
+**The same bits.** Direct3D sets the x87 unit to a precision of 24 bits,
+so the game rounds the result of each operation to a float, as SSE does.
+The SSE loops make the operations of the game in the order of the game, and
+each comparison gives the result of the game for a NaN too. So the results
+have the same bits. The SSE loop runs only while the x87 control word has a
+precision of 24 bits and rounds to the nearest. Else the loop of the game
+runs, and the log says so (`fast transform` lines). In the game MXCSR has
+the flush to zero on (0x9FA3 in a desktop run), and the x87 unit has no such
+flush. So the SSE loop sets MXCSR to round to the nearest with no flush to
+zero while it runs, and puts the value of the game back after it. The checks of `bwvr/test/controller_math`
+make each loop with the x87 code of the game, instruction for instruction,
+for 8 times 4099 vertices with each clip flag, and compare the bits. The
+bits can differ only where a value between two operations is out of the
+range of a float, which the x87 unit keeps.
+
+A desktop run at the start of a new game has about 870 meshes of
+`fn_00856D40` and 250 of `fn_0085AB10` in a frame, with 21700 vertices. The
+scene walks are 2.28 to 2.36 ms in place of 2.50 to 2.65 ms: the game is 0.8
+ms in place of 1.2 ms, and the mod 0.1 ms more. The pictures of frame 3000
+of a run with SSE and of a run on the x87 unit differ as much as the
+pictures of two runs of one mode (0.007 to 0.017 percent of the pixels).
+
+`fast_transform=0` runs the loops of the game. With `test_keys=1`, Shift
+and L turn it off and on.
 
 ## The world around you
 
@@ -3079,13 +3123,14 @@ in front. The mod reads the keys and never takes them from the game.
 | Ctrl Shift Equals | `test_keys=1` | The ears decide the start of the loop of a bulk take, or the game camera decides and the take has no sound in the God view. A long pulse and a short pulse (`audio_take_loop`, `audio.md`, 6.4). The equals key is in the row of digits |
 | Ctrl Shift Minus | `test_keys=1` | The pieces of the stream of a take at a distance go on a curve from the top of the source to the Hand, or they are on the line of the game, from the land under the Hand. A long pulse and a short pulse (`take_stream`, `grab.md`, "The stream of a take at a distance"). The minus key is in the row of digits |
 | Ctrl Shift Left bracket | `test_keys=1` | What marks a target of the Hand steps from 1 to 0 to 2 and back: the glow on the mesh with a halo only for a target whose mesh does not glow, the halo, or the glow and the halo. A long pulse for 1, a short pulse for 0 and a longer pulse for 2 (`target_glow`, `hand-model.md`, "The glow on the mesh of a target"). The left square bracket key is right of the P key on a US keyboard |
-| Shift 8 | `test_keys=1` | The calls of each scene walk go to the render thread, or to Direct3D 9 as they come, from the next scene walk. A long pulse and a short pulse (`render_thread`, "The render thread"). The game uses Shift with 1 to 7 for its bookmarks. A hook of the messages of the game thread reads the key, so a key of a virtual keyboard that goes down and up between two frames counts. For F, G, H, J and K the capital letter alone (a `WM_CHAR` with no Shift) counts too, because a virtual keyboard can send it so Ctrl must be up |
+| Shift 8 | `test_keys=1` | The calls of each scene walk go to the render thread, or to Direct3D 9 as they come, from the next scene walk. A long pulse and a short pulse (`render_thread`, "The render thread"). The game uses Shift with 1 to 7 for its bookmarks. A hook of the messages of the game thread reads the key, so a key of a virtual keyboard that goes down and up between two frames counts. For F, G, H, J, K and L the capital letter alone (a `WM_CHAR` with no Shift) counts too, because a virtual keyboard can send it so Ctrl must be up |
 | Shift 9 | `test_keys=1` | The mod gives the answers of some calls of a texture with no lock of the device, or each call goes to Direct3D 9, from the next call. A long pulse and a short pulse (`render_thread_lock_free`, "The lock of the device"). It works only while `render_thread` is 1 or 2 in the ini. It is read as Shift 8. Ctrl must be up |
 | Shift F | `test_keys=1` | A call of a walk that sets the value that the device has already goes to Direct3D 9 or not. A long pulse and a short pulse (`render_thread_filter`, "The calls that change nothing"). It works only while `render_thread` is 1 or 2 in the ini. It is read as Shift 8. Ctrl must be up |
 | Shift G | `test_keys=1` | The render thread draws from buffers of its own, or gives each `DrawIndexedPrimitiveUP` to Direct3D 9. A long pulse and a short pulse (`render_thread_buffers`, "The buffers of the render thread"). It works only while `render_thread` is 1 in the ini. It is read as Shift 8. Ctrl must be up |
 | Shift H | `test_keys=1` | A batch of one walk is one draw for both eyes, or one draw for each eye, from the next draw. A long pulse and a short pulse (`one_walk_merge`, "One draw for both eyes"). It works only while `render_thread` is 1 or 2 in the ini. It is read as Shift 8. Ctrl must be up |
 | Shift J | `test_keys=1` | The driver gives the calls of a walk to the GPU each N draws, or when it wants. A long pulse and a short pulse (`gpu_flush`, "The flush"). Ctrl must be up |
 | Shift K | `test_keys=1` | The render thread or the frame thread makes the copy of a batch of one walk for the right eye, from the next draw. A long pulse and a short pulse (`render_thread_right_eye`, "The right eye on the render thread"). It works only while `render_thread` is 1 in the ini. Ctrl must be up |
+| Shift L | `test_keys=1` | The two vertex loops of the engine run with SSE or on the x87 unit, from the next mesh. A long pulse and a short pulse (`fast_transform`, "The vertex loops with SSE"). Ctrl must be up |
 | Ctrl Shift Numpad Slash | `test_keys=1` | The mod waits for the GPU after each eye pass, one time a frame, or one time a frame on a second thread that also gives the frame to the runtime. A long pulse, a pulse of middle length and a short pulse (`frame_send`, "One wait a frame, and a second thread"). The slash key with Shift and no Ctrl is a key of the Temple, and with no Shift it is a key of the throw |
 | Menu key | `test_keys=1` | One walk for both eyes on and off (see "One walk for both eyes"). The key beside the right Ctrl key that opens a context menu. Ctrl and Shift must be up |
 | Ctrl Menu key | `test_keys=1` | The layout of the buttons of the hand that does not point. The menu button of the left controller opens the game menu, Y opens the ring and the stick does not drive the ring, or Y opens the game menu and X and the stick open the ring. A long pulse and a short pulse on that hand (`button_layout`, `controllers.md`, 5.1). Shift must be up |
@@ -3194,7 +3239,8 @@ keys that the launcher sets.
 | `render_thread_buffers` | 1 | 1: the render thread draws the `DrawIndexedPrimitiveUP` of a walk from buffers of its own. 0: each goes to Direct3D 9 as it is. See "The buffers of the render thread" |
 | `gpu_flush` | 128 | N: each N draws of a walk the driver gives the calls so far to the GPU. 0: when the driver wants. See "The flush" |
 | `render_thread_right_eye` | 1 | 1: with the render thread, the render thread makes the copy of a batch of one walk for the right eye. 0: the frame thread makes it. See "The right eye on the render thread" |
-| `ab_test` | (empty) | A test key: `gpu_flush` or `render_thread_right_eye` changes at each window of 450 frames. See "The flush" |
+| `ab_test` | (empty) | A test key: `gpu_flush`, `render_thread_right_eye` or `fast_transform` changes at each window of 450 frames. See "The flush" |
+| `fast_transform` | 1 | 1: the two vertex loops of the engine run with SSE, with the bits of the game. 0: on the x87 unit. See "The vertex loops with SSE" |
 | `profile_gpu` | 0 | A test key. See "The GPU time" |
 | `hang_watch` | 0 | A test key. See "The watch of the frame thread" |
 | `profile_sample` | 0 | A test key. See "Where the time of the scene walk goes" |
