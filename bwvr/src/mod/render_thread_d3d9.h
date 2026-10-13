@@ -8,6 +8,7 @@
 #pragma once
 
 #include <d3d9.h>
+#include <stdint.h>
 
 // render_thread.cpp: the hooks of the device. Without `all` only the seven
 // calls of one walk, with `all` each call of the device and the locks of the
@@ -80,3 +81,31 @@ bool RenderThreadOutDrawIndexedBoth(IDirect3DDevice9* self,
                                     const void* indices, D3DFORMAT index_format,
                                     const void* left, const void* right,
                                     UINT stride);
+// THE RIGHT EYE ON THE RENDER THREAD (render_thread_right_eye=1). One record
+// of a triangle list with the left copy only, and room for the right copy.
+// The render thread makes the right copy: each x moves by eye_width, and the
+// x of a world batch also by per_rhw times its rhw (one_walk_math.h,
+// CopyForRightEye). When each copy is in its own half of `game` and the
+// viewport of the right eye, the record is one draw with the viewport over
+// both eyes. Else the render thread draws each copy with the viewport of its
+// eye and puts the viewport over both eyes back. The caller first sets the
+// viewport over both eyes (RenderThreadViewportBoth). False when the walk
+// does not go to the queue, render_thread_right_eye is 0, or a copy is too
+// large for 16-bit indices.
+bool RenderThreadOutDrawBothLater(IDirect3DDevice9* self,
+                                  D3DPRIMITIVETYPE type, UINT min_index,
+                                  UINT vertex_count, UINT primitive_count,
+                                  const void* indices, D3DFORMAT index_format,
+                                  const void* left, UINT stride,
+                                  const D3DVIEWPORT9& game, UINT eye_width,
+                                  float per_rhw);
+// The counts of the right copies that the render thread made since the last
+// call. The render thread writes them, so a count can be one batch late.
+struct RenderThreadRightEyeCounts {
+  uint32_t world;
+  uint32_t flat;
+  uint32_t sky;
+  uint32_t vertices;
+  uint32_t own_halves;  // one draw for both eyes
+};
+void RenderThreadTakeRightEyeCounts(RenderThreadRightEyeCounts* out);

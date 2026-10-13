@@ -48,6 +48,11 @@ void RenderThreadSync();
 void RenderThreadReport(uint64_t frames);
 // The id of the render thread, or 0 before it starts (scene_sample.cpp).
 unsigned long RenderThreadWorkerId();
-// gpu_flush_ab=1 (a test key): each window of the report goes to the other
-// value of gpu_flush.
-void RenderThreadSetFlushAb(bool on);
+// ab_test=<key> (a test key): each window of the report goes to the other
+// value of the key: gpu_flush or render_thread_right_eye.
+void RenderThreadSetAbTest(const char* key);
+// render_thread_right_eye: 1 makes the copy of a batch for the right eye in
+// one walk on the render thread, 0 on the frame thread.
+void RenderThreadSetRightEye(bool on);
+// The test key: render_thread_right_eye goes between 1 and 0.
+void RenderThreadRightEyeToggle(const char* keys);

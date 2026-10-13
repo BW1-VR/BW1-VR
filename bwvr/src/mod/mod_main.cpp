@@ -509,8 +509,9 @@ int g_render_thread_test_frame = 0;
 int g_render_thread_lock_free = 1;
 int g_render_thread_filter = 1;
 int g_render_thread_buffers = 1;
+int g_render_thread_right_eye = 1;
 int g_gpu_flush = 128;
-bool g_gpu_flush_ab = false;
+char g_ab_test[64] = "";
 int g_profile_gpu = 0;
 // A speech bubble of the game as one card (bubble_card.cpp), and its test
 // keys for desktop runs.
@@ -1295,8 +1296,12 @@ void ReadSettings() {
           : 0;
   g_gpu_flush = static_cast<int>(
       GetPrivateProfileIntA("bwvr", "gpu_flush", 128, path));
-  g_gpu_flush_ab =
-      GetPrivateProfileIntA("bwvr", "gpu_flush_ab", 0, path) != 0;
+  g_render_thread_right_eye =
+      GetPrivateProfileIntA("bwvr", "render_thread_right_eye", 1, path) != 0
+          ? 1
+          : 0;
+  GetPrivateProfileStringA("bwvr", "ab_test", "", g_ab_test,
+                           sizeof(g_ab_test), path);
   g_profile_gpu =
       static_cast<int>(GetPrivateProfileIntA("bwvr", "profile_gpu", 0, path));
   g_bubble_card =
@@ -1557,7 +1562,8 @@ void StartVrOnce() {
                            g_render_thread_lock_free, g_render_thread_filter,
                            g_render_thread_buffers, g_gpu_flush,
                            g_profile_gpu);
-    RenderThreadSetFlushAb(g_gpu_flush_ab);
+    RenderThreadSetRightEye(g_render_thread_right_eye != 0);
+    RenderThreadSetAbTest(g_ab_test);
     BubbleCardSetOptions(g_bubble_card, g_bubble_card_test,
                          g_bubble_card_test_frame);
     BubbleCardInstall();

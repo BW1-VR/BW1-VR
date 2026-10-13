@@ -167,6 +167,8 @@ enum Op : uint16_t {
   kOpSetPixelShader,
   kOpSetPixelShaderConstantF,
   kOpIssueQuery,
+  kOpDrawBoth,   // the left copy, the render thread makes the right one
+  kOpDrawApart,  // a kOpDrawBoth whose copies are not each in their half
   kOps
 };
 
@@ -201,6 +203,9 @@ struct ArgDrawIndexedUP {
 struct ArgObject { IUnknown* object; };
 struct ArgConstants { UINT start; UINT count; };
 struct ArgStream { UINT stream; IDirect3DVertexBuffer9* buffer; UINT offset; UINT stride; };
+// After the indices of a kOpDrawBoth: the viewport of the game, the width of
+// an eye, and the move of x for each unit of rhw.
+struct ArgBothTail { D3DVIEWPORT9 game; UINT eye_width; float per_rhw; };
 
 // ---------------------------------------------------------------------------
 // The originals of the hooks.
@@ -581,6 +586,59 @@ void Unbind() {
   g_bound = false;
 }
 
+// THE RIGHT EYE ON THE RENDER THREAD (render_thread_right_eye=1). A
+// kOpDrawBoth has the room of a kOpDrawIndexedPrimitiveUP with two copies,
+// and the frame thread wrote only the left copy and its indices. The render
+// thread writes the right copy after the left one (one_walk_math.h). When
+// each copy is in its own half, it writes the indices of the right copy too,
+// and the record becomes a kOpDrawIndexedPrimitiveUP of both copies, one draw
+// with the viewport over both eyes. Else it becomes a kOpDrawApart. The
+// counts are for the report of one walk (RenderThreadTakeRightEyeCounts).
+bool g_right_eye = true;  // render_thread_right_eye
+volatile LONG g_right_world = 0;
+volatile LONG g_right_flat = 0;
+volatile LONG g_right_sky = 0;
+volatile LONG g_right_vertices = 0;
+volatile LONG g_right_own_halves = 0;
+
+void CompleteBoth(Header* h) {
+  ArgDrawIndexedUP* a = reinterpret_cast<ArgDrawIndexedUP*>(h + 1);
+  uint8_t* left = reinterpret_cast<uint8_t*>(a + 1);
+  const uint32_t copy_bytes = a->vertex_bytes / 2u;
+  const uint32_t count = copy_bytes / a->stride;
+  uint8_t* right = left + copy_bytes;
+  uint8_t* indices = left + ((a->vertex_bytes + 7u) & ~7u);
+  const ArgBothTail* t =
+      reinterpret_cast<const ArgBothTail*>(indices + a->index_bytes);
+  const one_walk_math::BatchKind kind = one_walk_math::CopyForRightEye(
+      left, right, count, a->stride, static_cast<float>(t->eye_width),
+      t->per_rhw);
+  InterlockedIncrement(kind == one_walk_math::kWorld  ? &g_right_world
+                       : kind == one_walk_math::kFlat ? &g_right_flat
+                                                      : &g_right_sky);
+  InterlockedExchangeAdd(&g_right_vertices, static_cast<LONG>(count));
+  if (!one_walk_math::InOwnHalves(
+          left, right, count, a->stride,
+          static_cast<float>(t->game.X + t->game.Width),
+          static_cast<float>(t->game.X + t->eye_width))) {
+    h->op = kOpDrawApart;
+    return;
+  }
+  InterlockedIncrement(&g_right_own_halves);
+  // The indices of the right copy count from the start of the left copy.
+  const uint32_t index_count = a->primitive_count / 2u * 3u;
+  if (a->index_format == D3DFMT_INDEX32) {
+    uint32_t* o = reinterpret_cast<uint32_t*>(indices);
+    for (uint32_t i = 0; i < index_count; ++i) o[index_count + i] = o[i] + count;
+  } else {
+    uint16_t* o = reinterpret_cast<uint16_t*>(indices);
+    for (uint32_t i = 0; i < index_count; ++i) {
+      o[index_count + i] = static_cast<uint16_t>(o[i] + count);
+    }
+  }
+  h->op = kOpDrawIndexedPrimitiveUP;
+}
+
 // Copies the vertices and the indices of the draws in [read, write) to the
 // buffers, and marks each of them in its header (unused is its place in
 // g_prepared, plus 1). A draw that does not fit stays a
@@ -593,6 +651,7 @@ void Prepare(uint32_t read, uint32_t write) {
   int count = 0;
   for (uint32_t at = read; at != write && count < kMaxPrepared;) {
     Header* h = reinterpret_cast<Header*>(g_queue + (at & (kQueueBytes - 1)));
+    if (h->op == kOpDrawBoth) CompleteBoth(h);
     if (h->op == kOpDrawIndexedPrimitiveUP) {
       const ArgDrawIndexedUP* a =
           reinterpret_cast<const ArgDrawIndexedUP*>(h + 1);
@@ -836,6 +895,41 @@ uint32_t Play(const uint8_t* at) {
                                     a->index_format, vertices, a->stride);
       break;
     }
+    case kOpDrawBoth:
+      // Not prepared: the buffers are off, or Prepare stopped before it.
+      CompleteBoth(const_cast<Header*>(h));
+      return Play(at);
+    case kOpDrawApart: {
+      // Each copy with the viewport of its eye. The device has the viewport
+      // over both eyes before and after the record.
+      Unbind();
+      InterlockedIncrement(&g_up_draws);
+      const ArgDrawIndexedUP* a = reinterpret_cast<const ArgDrawIndexedUP*>(p);
+      const uint8_t* left = reinterpret_cast<const uint8_t*>(a + 1);
+      const uint32_t copy_bytes = a->vertex_bytes / 2u;
+      const uint32_t count = copy_bytes / a->stride;
+      const uint8_t* indices = left + ((a->vertex_bytes + 7u) & ~7u);
+      const ArgBothTail* t =
+          reinterpret_cast<const ArgBothTail*>(indices + a->index_bytes);
+      const UINT vertex_count = a->vertex_count - count;
+      const UINT primitive_count = a->primitive_count / 2u;
+      D3DVIEWPORT9 viewport = t->game;
+      o_SetViewport(d, &viewport);
+      hr = o_DrawIndexedPrimitiveUP(d, a->type, a->min_index, vertex_count,
+                                    primitive_count, indices, a->index_format,
+                                    left, a->stride);
+      CountDrawForFlush();
+      viewport.X += t->eye_width;
+      o_SetViewport(d, &viewport);
+      const HRESULT right = o_DrawIndexedPrimitiveUP(
+          d, a->type, a->min_index, vertex_count, primitive_count, indices,
+          a->index_format, left + copy_bytes, a->stride);
+      if (SUCCEEDED(hr)) hr = right;
+      viewport = t->game;
+      viewport.Width = t->eye_width + t->game.Width;
+      o_SetViewport(d, &viewport);
+      break;
+    }
     case kOpSetVertexDeclaration: {
       const ArgObject* a = reinterpret_cast<const ArgObject*>(p);
       hr = o_SetVertexDeclaration(
@@ -893,7 +987,8 @@ uint32_t Play(const uint8_t* at) {
       break;
   }
   if (h->op == kOpDrawPrimitive || h->op == kOpDrawIndexedPrimitive ||
-      h->op == kOpDrawPrimitiveUP || h->op == kOpDrawIndexedPrimitiveUP) {
+      h->op == kOpDrawPrimitiveUP || h->op == kOpDrawIndexedPrimitiveUP ||
+      h->op == kOpDrawApart) {
     CountDrawForFlush();
   }
   if (FAILED(hr)) InterlockedIncrement(&g_failed_calls);
@@ -2915,26 +3010,40 @@ void RenderThreadSync() {
   Stop(kStopSurface);
 }
 
-// gpu_flush_ab=1 (a test key): each window of the report has the other
-// value of gpu_flush, the value of the ini (or 128) and 0, so a session in a
-// headset compares the two with no key.
-static bool g_flush_ab = false;
+// ab_test=<key> (a test key): each window of the report has the other value
+// of the key, so a session in a headset compares the two with no key.
+// g_ab_test: 1 gpu_flush (the value of the ini, or 128, and 0), 2
+// render_thread_right_eye (1 and 0).
+static int g_ab_test = 0;
 
-void RenderThreadSetFlushAb(bool on) {
-  g_flush_ab = on;
-  if (on) {
-    ModLog("gpu flush ab : gpu_flush_ab=1. Each window of 450 frames has the "
-           "other value of gpu_flush: %d and 0",
+void RenderThreadSetAbTest(const char* key) {
+  g_ab_test = strcmp(key, "gpu_flush") == 0                 ? 1
+              : strcmp(key, "render_thread_right_eye") == 0 ? 2
+                                                            : 0;
+  if (g_ab_test == 1) {
+    ModLog("ab test      : ab_test=gpu_flush. Each window of 450 frames has "
+           "the other value of gpu_flush: %d and 0",
            g_flush_ini > 0 ? g_flush_ini : 128);
+  } else if (g_ab_test == 2) {
+    ModLog("ab test      : ab_test=render_thread_right_eye. Each window of 450 "
+           "frames has the other value of render_thread_right_eye: 1 and 0");
+  } else if (key[0] != 0) {
+    ModLog("ab test      : ab_test=%s is not a key that the test knows. The "
+           "keys: gpu_flush, render_thread_right_eye", key);
   }
 }
 
 void RenderThreadReport(uint64_t frames) {
-  if (g_flush_ab && frames > 0) {
+  if (g_ab_test == 1 && frames > 0) {
     const int was = g_flush_every;
     g_flush_every = was > 0 ? 0 : (g_flush_ini > 0 ? g_flush_ini : 128);
-    ModLog("gpu flush ab : the window that ends now had gpu_flush=%d, the next "
+    ModLog("ab test      : the window that ends now had gpu_flush=%d, the next "
            "one has %d", was, g_flush_every);
+  } else if (g_ab_test == 2 && frames > 0) {
+    g_right_eye = !g_right_eye;
+    ModLog("ab test      : the window that ends now had "
+           "render_thread_right_eye=%d, the next one has %d",
+           g_right_eye ? 0 : 1, g_right_eye ? 1 : 0);
   }
   if (g_profile_gpu != 0 && frames > 0 && (g_gpu_walks > 0 || g_gpu_lost > 0)) {
     ModLog("gpu time     : the scene walks took %.3f ms in a frame on the GPU, "
@@ -2972,7 +3081,7 @@ void RenderThreadReport(uint64_t frames) {
         "DrawPrimitiveUP", "DrawIndexedPrimitiveUP", "SetVertexDeclaration",
         "SetFVF", "SetVertexShader", "SetVertexShaderConstantF",
         "SetStreamSource", "SetIndices", "SetPixelShader",
-        "SetPixelShaderConstantF", "IssueQuery"};
+        "SetPixelShaderConstantF", "IssueQuery", "DrawBoth", "DrawApart"};
     const double per = static_cast<double>(frames);
     char line[1024];
     int used = 0;
@@ -3027,7 +3136,8 @@ void RenderThreadReport(uint64_t frames) {
          "for the queue, %ld calls that failed",
          g_mode, g_walks, frames, records / per,
          (g_records[kOpDrawPrimitiveUP] + g_records[kOpDrawIndexedPrimitiveUP] +
-          g_records[kOpDrawPrimitive] + g_records[kOpDrawIndexedPrimitive]) /
+          g_records[kOpDrawPrimitive] + g_records[kOpDrawIndexedPrimitive] +
+          g_records[kOpDrawBoth]) /
              per,
          g_bytes / 1024.0 / per, stops / per, Ms(g_stop_ticks) / per,
          Ms(g_end_ticks) / per, Ms(static_cast<uint64_t>(busy)) / per,
@@ -3127,4 +3237,70 @@ bool RenderThreadOutDrawIndexedBoth(IDirect3DDevice9* self,
   }
   Commit();
   return true;
+}
+
+bool RenderThreadOutDrawBothLater(IDirect3DDevice9* self,
+                                  D3DPRIMITIVETYPE type, UINT min_index,
+                                  UINT vertex_count, UINT primitive_count,
+                                  const void* indices, D3DFORMAT index_format,
+                                  const void* left, UINT stride,
+                                  const D3DVIEWPORT9& game, UINT eye_width,
+                                  float per_rhw) {
+  if (!g_right_eye || !Taking(self) || left == nullptr || indices == nullptr ||
+      type != D3DPT_TRIANGLELIST || stride < 16) {
+    return false;
+  }
+  const uint32_t count = min_index + vertex_count;
+  const bool wide = index_format == D3DFMT_INDEX32;
+  if (!wide && 2u * count > 65536u) return false;
+  const uint32_t index_count = IndexCount(type, primitive_count);
+  const uint32_t copy_bytes = count * stride;
+  const uint32_t vertex_bytes = 2u * copy_bytes;
+  const uint32_t index_bytes = 2u * index_count * (wide ? 4u : 2u);
+  const uint32_t padded = (vertex_bytes + 7u) & ~7u;
+  uint8_t* p = Reserve(kOpDrawBoth, sizeof(ArgDrawIndexedUP) + padded +
+                                        index_bytes + sizeof(ArgBothTail));
+  if (p == nullptr) return false;
+  const ArgDrawIndexedUP a = {type,
+                              min_index,
+                              count + vertex_count,
+                              2u * primitive_count,
+                              index_format,
+                              stride,
+                              vertex_bytes,
+                              index_bytes};
+  memcpy(p, &a, sizeof(a));
+  uint8_t* v = p + sizeof(a);
+  memcpy(v, left, copy_bytes);
+  memcpy(v + padded, indices, index_count * (wide ? 4u : 2u));
+  const ArgBothTail t = {game, eye_width, per_rhw};
+  memcpy(v + padded + index_bytes, &t, sizeof(t));
+  Commit();
+  return true;
+}
+
+void RenderThreadTakeRightEyeCounts(RenderThreadRightEyeCounts* out) {
+  out->world = static_cast<uint32_t>(InterlockedExchange(&g_right_world, 0));
+  out->flat = static_cast<uint32_t>(InterlockedExchange(&g_right_flat, 0));
+  out->sky = static_cast<uint32_t>(InterlockedExchange(&g_right_sky, 0));
+  out->vertices =
+      static_cast<uint32_t>(InterlockedExchange(&g_right_vertices, 0));
+  out->own_halves =
+      static_cast<uint32_t>(InterlockedExchange(&g_right_own_halves, 0));
+}
+
+void RenderThreadSetRightEye(bool on) {
+  g_right_eye = on;
+  ModLog("render thread: render_thread_right_eye=%d. %s", on ? 1 : 0,
+         on ? "The render thread makes the copy of each batch for the right "
+              "eye in one walk, and finds if it is one draw for both eyes"
+            : "The frame thread makes the copy of each batch for the right "
+              "eye in one walk");
+}
+
+void RenderThreadRightEyeToggle(const char* keys) {
+  g_right_eye = !g_right_eye;
+  ControllersGesturePulse(0.5f, g_right_eye ? 0.30f : 0.08f);
+  ModLog("test key     : %s, render_thread_right_eye is %d from the next draw",
+         keys, g_right_eye ? 1 : 0);
 }

@@ -278,17 +278,34 @@ HRESULT STDMETHODCALLTYPE h_DrawIndexedPrimitiveUP(
     const uint32_t count = min_index + vertex_count;
     D3DVIEWPORT9 game;
     DWORD scissor = TRUE;
+    D3DVIEWPORT9 both = {};
     if (SUCCEEDED(self->GetViewport(&game)) &&
         SUCCEEDED(self->GetRenderState(D3DRS_SCISSORTESTENABLE, &scissor)) &&
-        scissor == FALSE && CopyRight(vertices, count, stride, true)) {
+        scissor == FALSE) {
+      both = game;
+      both.Width = g_eye_width + game.Width;
+    }
+    // THE RIGHT EYE ON THE RENDER THREAD (render_thread_right_eye=1). The
+    // queue gets the left copy, and the render thread makes the right copy
+    // and finds if both copies are one draw. This thread then only copies the
+    // vertices of the game one time.
+    if (scissor == FALSE && RenderThreadViewportBoth(self, &both) &&
+        RenderThreadOutDrawBothLater(self, type, min_index, vertex_count,
+                                     primitive_count, indices, index_format,
+                                     vertices, stride, game, g_eye_width,
+                                     PerRhwNow())) {
+      ++g_both_batches;
+      QueryPerformanceCounter(&b);
+      g_right_ticks += b.QuadPart - a.QuadPart;
+      return D3D_OK;
+    }
+    if (scissor == FALSE && CopyRight(vertices, count, stride, true)) {
       ++g_both_batches;
       const bool fits = one_walk_math::InOwnHalves(
           static_cast<const uint8_t*>(vertices), g_scratch, count, stride,
           static_cast<float>(game.X + game.Width),
           static_cast<float>(game.X + g_eye_width));
       if (fits) ++g_own_halves;
-      D3DVIEWPORT9 both = game;
-      both.Width = g_eye_width + game.Width;
       if (fits && RenderThreadViewportBoth(self, &both) &&
           RenderThreadOutDrawIndexedBoth(self, type, min_index, vertex_count,
                                          primitive_count, indices,
@@ -825,9 +842,18 @@ void OneWalkForgetDevice() {
 void OneWalkReport(uint64_t frames) {
   if (g_passes == 0) return;
   const double per = static_cast<double>(g_passes);
+  // The right copies that the render thread made (render_thread_right_eye).
+  RenderThreadRightEyeCounts later;
+  RenderThreadTakeRightEyeCounts(&later);
+  g_world_batches += later.world;
+  g_flat_batches += later.flat;
+  g_sky_batches += later.sky;
+  g_vertices += later.vertices;
+  g_own_halves += later.own_halves;
+  g_merged += later.own_halves;
   ModLog("one walk     : %llu of %llu frames in one walk. A frame: %.0f world "
          "batches, %.0f flat, %.0f sky, %.0f interface for the right eye only, "
-         "%.0f vertices, the right eye %.2f ms",
+         "%.0f vertices, the right eye %.2f ms of the frame thread",
          g_passes, frames, g_world_batches / per, g_flat_batches / per,
          g_sky_batches / per, g_right_only / per, g_vertices / per,
          Ms(g_right_ticks) / per);

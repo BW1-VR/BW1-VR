@@ -518,10 +518,15 @@ that moves while the Hand takes it.
     a frame is 7.5 to 7.7 ms in place of 10.7 to 10.9 ms. In a headset over
     the whole island (with the lock answers only) the scene walk is 5.5 to
     5.9 ms in place of 11.3 ms, and a frame 11 ms in place of 16 to 20 ms.
-    The render thread, which is the driver, sets the time of the walk. Open:
-    a headset session with the filter and the buffers, more sessions in a
-    headset (the Temple, a story, a load of a saved game), then the default
-    value of `render_thread`. With the render thread, one walk draws most
+    The render thread, which is the driver, sets the time of the walk. In a
+    headset (SteamVR, Steam Frame) over the island with the filter, the
+    buffers and one draw for both eyes, the scene walks are 4.5 to 5 ms, and
+    the flush (`gpu_flush`) makes the time from `xrWaitFrame` to the end of
+    `xrEndFrame` 6.3 to 7.4 ms in place of 8.6 to 9.1 ms. Open: more
+    sessions in a headset (the Temple, a story, a load of a saved game), one
+    start that stopped at the logos with `gpu_flush=128` (`hang_watch=1`
+    shows the place if it comes again), then the default value of
+    `render_thread`. With the render thread, one walk draws most
     batches in one draw for both eyes (`one_walk_merge`, `backend.md`, "One
     draw for both eyes"). Before the thread, with one walk, a view of the
     whole island has about 1500 batches and a scene walk of 9.5 to 11 ms,

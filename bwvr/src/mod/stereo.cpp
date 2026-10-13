@@ -592,13 +592,13 @@ float FrameSeparation() {
 //
 // A virtual keyboard can also send a capital letter as the character alone
 // (VK_PACKET), with no Shift. Then only a WM_CHAR of the capital letter
-// comes. So a WM_CHAR of F, G, H or J is the same key, unless the WM_KEYDOWN
+// comes. So a WM_CHAR of F, G, H, J or K is the same key, unless the WM_KEYDOWN
 // of that key came less than 200 ms before it: a real keyboard sends both.
 // The digits have no such second way, because the character of Shift 8 and
 // Shift 9 is not the same on each keyboard layout.
-// Shift 8, Shift 9, Shift F, Shift G, Shift H, Shift J
-static volatile LONG g_shift_key[6] = {0, 0, 0, 0, 0, 0};
-static DWORD g_shift_key_at[6] = {0, 0, 0, 0, 0, 0};
+// Shift 8, Shift 9, Shift F, Shift G, Shift H, Shift J, Shift K
+static volatile LONG g_shift_key[7] = {0, 0, 0, 0, 0, 0, 0};
+static DWORD g_shift_key_at[7] = {0, 0, 0, 0, 0, 0, 0};
 static HHOOK g_message_hook = nullptr;
 static bool g_message_hook_tried = false;
 
@@ -609,6 +609,7 @@ static int ShiftKeyIndex(WPARAM key) {
          : key == 'G' ? 3
          : key == 'H' ? 4
          : key == 'J' ? 5
+         : key == 'K' ? 6
                       : -1;
 }
 
@@ -698,6 +699,9 @@ bool GameHasFocus() {
 //   Shift J     the driver gives the calls of a walk to the GPU each N
 //               draws, or when it wants (gpu_flush,
 //               render_thread.cpp)
+//   Shift K     the render thread or the frame thread makes the copy of a
+//               batch of one walk for the right eye
+//               (render_thread_right_eye, render_thread.cpp)
 //   Ctrl Shift Numpad Slash  the mod waits for the GPU after each eye pass,
 //               one time a frame, or one time a frame on a second thread
 //               that also gives the frame to the runtime (frame_send,
@@ -856,6 +860,9 @@ void PollHotkeys() {
   }
   if (InterlockedExchange(&g_shift_key[5], 0) != 0) {
     RenderThreadFlushToggle("Shift and J");
+  }
+  if (InterlockedExchange(&g_shift_key[6], 0) != 0) {
+    RenderThreadRightEyeToggle("Shift and K");
   }
   // An A/B of one walk (docs/backend.md, "One walk for both eyes"). The
   // menu key (VK_APPS) has no action in the game and no other test key.
