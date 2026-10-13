@@ -380,18 +380,37 @@ that moves while the Hand takes it.
   Creature command. The screen test offers an object to the pick by its base
   point (12 degrees), so a tall tree that the ray crosses only at its crown,
   far from its base, is a candidate only when the draw offers it by the pixel.
-  The log of the grab from a distance has room for 200 lines in a session
-  (`kMaxLogs` in `far_grab.cpp`), so a long headset session has no line of a
-  new target after that.
 
-  From a headset session, to do:
-  - **The Creature is hard to choose.** Trees, signposts and other things
-    took the halo when the aim was at the Creature. Check the rank and the
-    cone of the Creature in the choice.
-  - **A miracle is hard to choose, and a signpost wins too often.** In the
-    quest of the tutorial in which the player takes miracles out of a pit,
-    the signpost near them took the halo again and again. Wanted: a higher
-    rank for a miracle, and a lower rank for a signpost.
+  The Creature, a miracle and a signpost in the aim (`far_grab_creature`,
+  `far_grab_miracle`, `far_grab_sign`, `grab.md`, "The cone and the
+  choice"): the aim measures your Creature by its body, a miracle that the
+  Hand can take is in the first rank, and a signpost is in the last rank.
+  The math checks and desktop runs show the rules, with a miracle beside a
+  signpost and with a thing of no rank beside the Creature. No run had a
+  tree or a signpost beside the Creature, a large Creature, or a miracle of
+  a quest. Check in a headset:
+  - the aim on the body of your Creature gives it the halo with a tree or a
+    signpost beside it, and a tree beside it is still easy to take,
+  - a miracle beside a signpost takes the halo, and it keeps it,
+  - a signpost is still easy to choose with the aim on it.
+
+  A signpost and the Creature at the Hand (`hand_sign_last`,
+  `hand_wide_creature`, `grab.md`, "The rule of the choice" and "Near
+  objects win"): a signpost that the Hand's point is not in comes last, it
+  does not turn the grab from a distance off, and the Creature has the wide
+  reach of 15 cm. The math checks and desktop runs show the rules. No run
+  had a miracle in the wide reach beside a signpost, or a grip that stays
+  closed on the Creature in the wide reach. Check in a headset:
+  - a miracle or the Creature beside a signpost is the target of the grip,
+    and the aim keeps its target with the hand beside a signpost,
+  - a signpost is still easy to tap: with the Hand's point in it, or with
+    no other target in reach and no target of the aim,
+  - the grip on the Creature from 4 to 15 cm: the leash click, and the start
+    of the Creature state with the hand that far from the body.
+
+  The far grab is still off while the Hand's point is 10 cm or less from a
+  tree or a house (`grab.md`, "Near objects win"). So the aim has no target
+  there, the Creature too.
 - **P2. The stay of the Creature: test it in the headset.** A grip from a
   distance that stays closed on the Creature makes it stop and stay until
   the grip opens. A short grip changes the leash when it opens
@@ -762,6 +781,3 @@ that moves while the Hand takes it.
   from a forest (`forest_take.cpp`). The keys of the keyboard that no code
   of the game or of the mod reads are few: a new test key needs a search
   first (`backend.md`, the hotkey table).
-- **R11. The log of the far grab stops in a long session.** The far grab
-  writes 200 lines at most, so in a long session only its report counters
-  stay.

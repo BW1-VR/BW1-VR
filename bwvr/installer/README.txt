@@ -545,6 +545,15 @@ An object that you can hold, for example a rock, is also taken from
 farther: up to 15 cm from your finger tip, when no other object that a
 press acts on is nearer. The halo shows which object it is. Set
 hand_wide_pick_cm in bwvr.ini to change the distance (0 turns it off).
+Your Creature has this longer reach too. Set hand_wide_creature=0 in
+bwvr.ini to give it the reach of 4 cm only.
+
+A wooden signpost comes last at your Hand. When a miracle, your
+Creature or a different object is in reach, the grip acts on that
+object and not on the signpost beside it. To read a signpost, put the
+glow of your Hand on it. With no other target in reach, the signpost is
+the target from 10 cm. Set hand_sign_last=0 in bwvr.ini for a signpost
+that comes first as each other scroll does.
 
 An object that moves, for example a rock that falls, can be taken from
 farther: the faster it moves, the longer the reach, up to 8 cm more.
@@ -632,11 +641,22 @@ about 9 degrees away from it. So a tree beside it does not take the
 halo back when your hand shakes. With no living thing near the line,
 a small object comes before a large one that stands behind it.
 
+A miracle in a bubble on the land comes first too, as a living thing
+does. A wooden signpost comes last: it takes the halo only when you
+point straight at it and at no other target, or when no other target is
+near the line of your hand. So a signpost beside a miracle or beside
+your Creature does not take the halo from it. Your Creature takes the
+halo when you point at each part of its body, from its feet to its
+head.
+
 Set far_grab_stay=0 in bwvr.ini if a living thing must not keep the
 halo past its own 6 degrees. Set far_grab_choice=1 for a choice with
 no ranks, in which a villager only scores better than a tree. Set
 far_grab_choice=0 to choose by one point of the object. The values 3
-and 4 give each object a ball of one size for its class.
+and 4 give each object a ball of one size for its class. Set
+far_grab_miracle=0 if a miracle must have no rank, far_grab_sign=0 if a
+signpost must come first as each other scroll does, and
+far_grab_creature=0 to choose your Creature by the point at its feet.
 
 A far object must be near you: at most 2 m of your room from your
 head, along the floor. Set far_grab_max_m in bwvr.ini to change this
@@ -675,7 +695,9 @@ that a press acts on, there is no far target and no halo, and the grip
 of the pointing hand does not grab the world. So the grip acts only on
 the object at your Hand. The far targets come back when your Hand is
 more than 15 cm from each such object. Set far_grab_near_cm and
-far_grab_near_out_cm in bwvr.ini to change the two distances.
+far_grab_near_out_cm in bwvr.ini to change the two distances. A signpost
+beside your Hand does not turn the far targets off: you can point past
+it at your Creature or at a different object.
 
 
 HOLD, RELEASE AND THROW

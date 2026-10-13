@@ -206,8 +206,11 @@ inline controller_math::FarScore BallScore(const float origin[3],
 
 // THE SCORE OF ONE CANDIDATE WITH EACH VALUE OF far_grab_choice, before the
 // bias of value 1. point is true for a candidate that keeps the point with
-// each value: a forest, a scroll and the Creature. near_deg gets the angle
-// that gives the order in the first rank.
+// each value: a forest and a scroll. The Creature has the body of a living
+// thing: base is the land under its body bone, with the height and the
+// radius of its capsule. With far_grab_creature=0 the Creature keeps the
+// point of its mesh. near_deg gets the angle that gives the order in the
+// first rank.
 inline controller_math::FarScore ChoiceScore(
     int choice, const ChoiceSizes& sizes, const float origin[3],
     const float direction[3], const float base[3], float height, float radius,
@@ -235,7 +238,8 @@ inline controller_math::FarScore ChoiceScore(
 // THE RANKS AND THE TARGET THAT STAYS (PickRanked).
 //
 // THE FIRST RANK (far_grab_choice=2 and 4). A candidate of the first class (a
-// living thing, and a scroll) is in the first rank while its te is at or
+// living thing, a scroll of a quest and a miracle, see ClassOf) is in the
+// first rank while its te is at or
 // below first_deg. A candidate of the first rank wins over each candidate
 // that is not in it, also over a tree whose body the ray crosses. In the
 // first rank the candidate nearest to the ray wins (near_deg). When the first
@@ -301,6 +305,10 @@ enum Why {
   kWhyRank = 4,   // the first rank: a living thing in its cone
   kWhyNearest = 5,  // the nearest to the ray of two or more in the first rank
   kWhyHeld = 6,   // a living target that keeps the halo past its cone
+  kWhyLastOn = 7,   // a signpost: the aim is on it and on no other candidate
+  kWhyNotLast = 8,  // the plain rule, and a signpost that has the halo as a
+                    // scroll of the first rank comes last
+  kWhyMiracle = 9,  // the first rank: a miracle in its cone
   kWhyPlain = -1  // PickRanked: the plain rule decided (see WhyWinner)
 };
 
@@ -370,6 +378,127 @@ inline int PickRanked(const controller_math::FarScore* s,
                                         rule.keep_deg, rule.switch_deg);
 }
 
+// THE CLASSES OF THE RANKS (ClassOf, PickClassed).
+//
+//   kClassPlain  a thing with no rank: a tree, a rock, a pile, a forest.
+//   kClassFirst  a thing of the first rank: a living thing, a scroll of a
+//                quest, and a miracle that the Hand can take.
+//   kClassLast   a signpost.
+//
+// A signpost is a scroll of the kind "did you know": the wooden sign with a
+// text of the help system. It stands beside the things that it tells about,
+// and the player goes to it only to read it. A miracle is a bubble on the
+// land that the player takes to cast it. It is small, and the game puts it
+// beside a signpost in the tutorial.
+//
+// sign_last (far_grab_sign) puts a signpost in the last class. With 0 it is a
+// scroll of the first class. miracle_first (far_grab_miracle) puts a miracle
+// in the first class. With 0 it is a plain thing. The two classes need a
+// choice with ranks. A choice with no ranks has the first class of a living
+// thing and of a scroll for the stay rule, and no other class.
+const int kClassPlain = 0;
+const int kClassFirst = 1;
+const int kClassLast = 2;
+
+inline int ClassOf(bool ranks, bool living, bool scroll, bool sign,
+                   bool miracle, bool sign_last, bool miracle_first) {
+  if (ranks && scroll && sign && sign_last) return kClassLast;
+  if (living || scroll) return kClassFirst;
+  if (ranks && miracle && miracle_first) return kClassFirst;
+  return kClassPlain;
+}
+
+// THE BIAS OF A SCROLL IN THE PLAIN SCORE. A scroll is rare, and trees stand
+// all around it. So a scroll in the cone scores kTouchBiasDeg better than its
+// angle. A signpost of the last class does not.
+const float kTouchBiasDeg = 3.0f;
+inline float TouchBias(bool scroll, int cls) {
+  return scroll && cls != kClassLast ? kTouchBiasDeg : 0.0f;
+}
+
+// THE LAST RANK. A candidate of the last class takes the halo in two cases
+// only:
+//
+//   - No other candidate is a target: PickRanked gives none for the others.
+//   - The aim is on it and on no other candidate. The aim is on a candidate
+//     when its te is 0: the ray is in its body, with the least cover.
+//
+// In each other case the other candidates decide, as if the candidate of the
+// last class was not there. So it has no rank in its cone, it does not keep
+// the halo past its body, and each thing that the ray crosses comes before
+// it.
+//
+// For the target of now the aim stays on it to kLastStayDeg. So a hand at the
+// edge of a body does not move the halo to and fro.
+const float kLastStayDeg = 1.0f;
+
+inline bool AimOn(const controller_math::FarScore& s, bool is_current) {
+  return s.valid && s.te <= (is_current ? kLastStayDeg : 0.0f);
+}
+
+// The target among the candidates with their classes (cls). work and first
+// have room for count entries: the function writes them, and the caller does
+// not read them. The other arguments and the answer are those of PickRanked.
+// why gets kWhyLastOn when a candidate of the last class won with the aim on
+// it. It gets kWhyNotLast when the plain rule decided among the others, and
+// the candidate of the last class has the halo with far_grab_sign=0.
+inline int PickClassed(const controller_math::FarScore* s,
+                       const float* near_deg, const int* cls, int count,
+                       int current, const StayRule& rule,
+                       controller_math::FarScore* work, bool* first,
+                       int* why = nullptr) {
+  bool any_last = false;
+  for (int i = 0; i < count; ++i) {
+    work[i] = s[i];
+    first[i] = cls[i] == kClassFirst;
+    if (cls[i] == kClassLast) {
+      any_last = true;
+      work[i].valid = false;
+    }
+  }
+  const bool current_last =
+      current >= 0 && current < count && cls[current] == kClassLast;
+  int why_other = kWhyPlain;
+  const int other = PickRanked(work, near_deg, first, count,
+                               current_last ? -1 : current, rule, &why_other);
+  if (why != nullptr) *why = why_other;
+  if (!any_last) return other;
+  // The best one of the last class, by the plain rule among them.
+  for (int i = 0; i < count; ++i) {
+    work[i] = s[i];
+    if (cls[i] != kClassLast) work[i].valid = false;
+  }
+  const int last = controller_math::FarPickTarget(
+      work, count, current_last ? current : -1, rule.select_deg,
+      rule.keep_deg, rule.switch_deg);
+  if (last < 0) return other;
+  if (other < 0) {
+    if (why != nullptr) *why = kWhyPlain;
+    return last;
+  }
+  bool on_other = false;
+  for (int i = 0; i < count; ++i) {
+    if (cls[i] != kClassLast && AimOn(s[i], i == current)) on_other = true;
+  }
+  if (AimOn(s[last], last == current) && !on_other) {
+    if (why != nullptr) *why = kWhyLastOn;
+    return last;
+  }
+  // The reason, for the log. When the plain rule decided among the others,
+  // the reason is the last class only if the candidate of the last class has
+  // the halo as a candidate of the first class.
+  if (why != nullptr && why_other == kWhyPlain) {
+    for (int i = 0; i < count; ++i) {
+      work[i] = s[i];
+      first[i] = cls[i] != kClassPlain;
+    }
+    const int as_first =
+        PickRanked(work, near_deg, first, count, current, rule, nullptr);
+    if (as_first >= 0 && cls[as_first] == kClassLast) *why = kWhyNotLast;
+  }
+  return other;
+}
+
 // The index of the candidate that comes second: the lowest ranked score among
 // the valid candidates in the cone, less the winner. -1 for none.
 inline int RunnerUp(const controller_math::FarScore* ranked, int count,
@@ -415,6 +544,13 @@ inline const char* WhyWords(int why) {
     case kWhyNearest: return "the nearest to the ray of the living things";
     case kWhyHeld:
       return "a living thing keeps the halo while the aim is near it";
+    case kWhyLastOn:
+      return "the aim is on the signpost and on no other target";
+    case kWhyNotLast:
+      return "a signpost comes after each other target";
+    case kWhyMiracle:
+      return "a miracle in its cone comes before a signpost and before each "
+             "thing that is not living";
   }
   return "";
 }

@@ -804,7 +804,6 @@ void* g_haptic_choice = nullptr;
 ULONGLONG g_haptic_target_tick = 0;
 uint64_t g_haptic_release_frame = 0;
 float g_stroke_path_cm = 0.0f;
-const float kFarTouchBiasDeg = 3.0f;
 // far_grab_choice (far_choice_math.h). The class of each candidate, the
 // score with no bias, and the text of the second candidate for the log. For
 // the ranks: whether the candidate is of the first class (a living thing, a
@@ -813,6 +812,28 @@ bool g_far_living[kMaxFarScores];
 controller_math::FarScore g_far_raw[kMaxFarScores];
 bool g_far_first[kMaxFarScores];
 float g_far_near[kMaxFarScores];
+// THE CLASSES OF THE RANKS (far_choice_math.h, ClassOf and PickClassed): the
+// class of each candidate, whether it is a signpost or a miracle, and the
+// room that PickClassed works in.
+int g_far_class[kMaxFarScores];
+bool g_far_signs[kMaxFarScores];
+bool g_far_miracles[kMaxFarScores];
+controller_math::FarScore g_far_work[kMaxFarScores];
+// far_grab_sign: 1 puts a signpost in the last rank. far_grab_miracle: 1 puts
+// a miracle that the Hand can take in the first rank. far_grab_creature: 1
+// measures your Creature by its body and takes it from the game.
+bool g_far_sign_last = true;
+bool g_far_miracle_first = true;
+bool g_far_creature_body = true;
+// YOUR CREATURE AS A FAR CANDIDATE (far_grab_creature=1). The candidate that
+// stands for it when the draw did not offer it, the te that the point of its
+// mesh gives (less than 0 when the draw did not offer it), and the lines of
+// the log so far.
+Candidate g_far_own = {};
+float g_far_own_point_te = -1.0f;
+float g_far_own_point[3] = {0.0f, 0.0f, 0.0f};
+int g_far_own_logs = 0;
+const int kMaxFarOwnLogs = 60;
 char g_far_runner[160];
 const char* g_far_why = nullptr;
 bool g_choice_key_down = false;
@@ -948,6 +969,14 @@ bool g_catch_key_down = false;
 int g_wide_cm = near_math::kWideCm;       // hand_wide_pick_cm
 bool g_wide_key_down = false;
 bool g_choice_wide = false;               // the choice is a wide pick
+// hand_sign_last: at the Hand a signpost that the point is not in comes last
+// (near_math::SignOut). hand_wide_creature: the Creature has the wide reach.
+// g_choice_last: the choice of this frame is such a signpost.
+bool g_sign_last = true;
+bool g_creature_wide = true;
+bool g_choice_last = false;
+int g_sign_way_logs = 0;
+const int kMaxSignWayLogs = 40;
 float g_choice_wide_cm = 0.0f;            // and the wide reach that it had
 void* g_wide_logged = nullptr;
 uint64_t g_catch_picks = 0;  // choices that the extra reach made, this window
@@ -4251,6 +4280,7 @@ void Choose() {
   const bool was_blocked = g_near_blocked;
   g_near_blocked = false;
   g_choice_wide = false;
+  g_choice_last = false;
   if (!g_active || g_face == nullptr || !HandEmpty()) return;
   // In the Creature state the pick keeps the Creature (KeepCreature).
   if (State(g_hand) == kStateCreature) return;
@@ -4292,6 +4322,7 @@ void Choose() {
       g_near_rule ? near_math::CmToUnits(static_cast<float>(g_wide_cm), units)
                   : 0.0f;
   void* wide_object = nullptr;
+  int wide_kind = near_math::kHold;
   float wide_position[3] = {0, 0, 0};
   near_math::Gap wide_gap = {1e30f, 1e30f};
   Measured wide_measured = {};
@@ -4333,7 +4364,13 @@ void Choose() {
       // near_math::BeatsTarget. The Creature is a choice too.
       Measured m;
       Measure(c, kind, &m);
-      if (m.target.gap.gap < nearest) {
+      // A SIGNPOST THAT THE POINT IS NOT IN COMES LAST (near_math::SignOut,
+      // rule 6). It is no near object: it does not stop the wide pick, and it
+      // does not turn the grab from a distance off.
+      m.target.last = near_math::SignOut(
+          g_sign_last, m.target.scroll && ScrollType(c.object) == kScrollSilver,
+          m.target.gap.gap, touch);
+      if (!m.target.last && m.target.gap.gap < nearest) {
         nearest = m.target.gap.gap;
         g_near_object = c.object;
       }
@@ -4343,10 +4380,14 @@ void Choose() {
         g_any_kind = kind;
       }
       if (!(m.target.gap.gap < (m.target.scroll ? scroll_reach : c_reach))) {
-        if (kind == near_math::kHold && !m.target.scroll &&
-            m.target.gap.gap < c_wide &&
+        // The wide reach: an object that the Hand can hold, and the Creature
+        // (hand_wide_creature).
+        if ((kind == near_math::kHold ||
+             (kind == near_math::kCreature && g_creature_wide)) &&
+            !m.target.scroll && m.target.gap.gap < c_wide &&
             (wide_object == nullptr || m.target.gap.gap < wide_gap.gap)) {
           wide_object = c.object;
+          wide_kind = kind;
           wide_gap = m.target.gap;
           wide_measured = m;
           wide_own = c_wide;
@@ -4421,12 +4462,14 @@ void Choose() {
     chosen_reach = c_reach;
     chosen_speed = c_reach > reach ? ObjectSpeedNow(c) : 0.0f;
   }
-  if (g_choice == nullptr && wide_object != nullptr &&
+  // A signpost of rule 6 is the choice only when no object is in the wide
+  // reach: nearest does not count such a signpost.
+  if ((g_choice == nullptr || chosen.target.last) && wide_object != nullptr &&
       near_math::WidePick(wide_gap.gap, reach, wide_own, nearest, eps)) {
     g_choice = wide_object;
     chosen = wide_measured;
     best = wide_gap;
-    best_kind = near_math::kHold;
+    best_kind = wide_kind;
     for (int k = 0; k < 3; ++k) g_choice_position[k] = wide_position[k];
     g_choice_gap = wide_gap.gap;
     chosen_reach = wide_own;
@@ -4455,6 +4498,18 @@ void Choose() {
   } else if (g_choice == nullptr) {
     g_wide_logged = nullptr;
     g_wide_catch_logged = nullptr;
+  }
+  // A SIGNPOST OF RULE 6 GIVES WAY TO THE AIM (near_math::SignGivesWay). It is
+  // no choice while the aim has a target at a distance from the last frame.
+  // FarSelect runs with such a choice, and it takes the choice away in the
+  // frame in which the aim gets its target.
+  g_choice_last = g_choice != nullptr && chosen.target.last;
+  if (near_math::SignGivesWay(g_choice_last,
+                              g_far_ready && g_far_ray && FarGrabOn() &&
+                                  FarGrabTargetObject() != nullptr)) {
+    g_choice = nullptr;
+    best_kind = near_math::kNone;
+    g_choice_last = false;
   }
   // While a choice stands, the table hook keeps each other object from the
   // game's pick, the Creature too. A house beside the Creature must not do
@@ -4773,6 +4828,26 @@ bool IsScroll(void* object) {
   return strcmp(ClassName(object), "ScriptHighlight") == 0;
 }
 
+// A SIGNPOST: a scroll of the kind "did you know", the wooden sign with a
+// text of the help system. The test is the game's own
+// (ScriptHighlight::IsDidYouKnow 0x0070AC20: the info of the scroll is entry
+// 1 of the table at 0x00D96390) [V]. The caller has tested that the object is
+// a scroll.
+bool IsSignpost(void* scroll) { return ScrollType(scroll) == kScrollSilver; }
+
+// A MIRACLE ON THE LAND THAT THE HAND CAN TAKE: a one-off seed
+// (docs/miracles.md), by the class name of the RTTI. The game makes it from a
+// reward or a dispenser, and the scripts of the tutorial put it on the land.
+bool IsMiracleSeed(void* object) {
+  return strcmp(ClassName(object), "OneOffSpellSeed") == 0;
+}
+
+// A candidate of FarSelect by its index: a candidate of the draw, or after
+// them your Creature when the draw did not offer it (g_far_own).
+const Candidate& FarAt(int index) {
+  return index < g_candidate_count ? g_candidates[index] : g_far_own;
+}
+
 // A LIVING THING FOR THE BIAS OF far_grab_choice=1: a Creature, an animal, or
 // an object of the class Villager, found by the class name. A quest character
 // is a SpecialVillager, so this test does not know it. The test key
@@ -4874,7 +4949,8 @@ void FarSelect() {
     }
     return;
   }
-  if (g_choice != nullptr || g_near_blocked) {
+  // A signpost of rule 6 at the Hand does not stop the aim (g_choice_last).
+  if ((g_choice != nullptr && !g_choice_last) || g_near_blocked) {
     FarGrabNoTarget();
     return;
   }
@@ -4898,9 +4974,52 @@ void FarSelect() {
                   ? sizes.ball_living_deg
                   : sizes.ball_other_deg)
            : 0.0f);
-  for (int i = 0; i < g_candidate_count && count < kMaxFarScores; ++i) {
-    const Candidate& c = g_candidates[i];
-    const float hand_m = Distance(c.position, g_target) / g_far_units;
+  // YOUR CREATURE BY ITS BODY (far_grab_creature=1). The mod knows the body of
+  // your Creature with no draw: the capsule of the choice at the Hand
+  // (CreatureBody), from the land under its body bone up to 1.1 S, with its 2D
+  // radius. The aim measures the Creature by that body, as it measures each
+  // living thing. The point of the mesh of the Creature is at its feet. With
+  // the point as the measure, the aim on the head of the Creature is out of
+  // the cone of a living thing when the Creature is near or large, and a tree
+  // behind it has the halo. The draw offers an object by that point too. So
+  // the Creature is a candidate also when the draw did not offer it.
+  void* own = nullptr;
+  controller_math::Capsule own_body = {};
+  bool own_offered = false;
+  if (g_far_creature_body && fair && g_far_leash) {
+    const uint8_t* local = static_cast<const uint8_t*>(LocalPlayer());
+    void* mine = local != nullptr
+                     ? *reinterpret_cast<void* const*>(local + kPlayerCreature)
+                     : nullptr;
+    if (mine != nullptr && LeashKind(mine) != near_math::kLeashNone &&
+        CreatureBody(mine, &own_body)) {
+      own = mine;
+    }
+  }
+  for (int i = 0; own != nullptr && i < g_candidate_count; ++i) {
+    if (g_candidates[i].object == own) own_offered = true;
+  }
+  if (own != nullptr && !own_offered) {
+    g_far_own.object = own;
+    g_far_own.model = nullptr;
+    for (int k = 0; k < 3; ++k) g_far_own.position[k] = own_body.base[k];
+  }
+  g_far_own_point_te = -1.0f;
+  const int total =
+      g_candidate_count + (own != nullptr && !own_offered ? 1 : 0);
+  for (int i = 0; i < total && count < kMaxFarScores; ++i) {
+    const Candidate& c = FarAt(i);
+    // The base of the body: the point of the object, or the land under the
+    // body bone of your Creature. The distance from the Hand's point is to the
+    // point of the object, or to the middle of the body of your Creature.
+    const bool by_body = own != nullptr && c.object == own;
+    float base[3] = {c.position[0], c.position[1], c.position[2]};
+    float from[3] = {c.position[0], c.position[1], c.position[2]};
+    if (by_body) {
+      for (int k = 0; k < 3; ++k) base[k] = from[k] = own_body.base[k];
+      from[1] += 0.5f * own_body.height;
+    }
+    const float hand_m = Distance(from, g_target) / g_far_units;
     // NO BAND WITH NO TARGET. The cone leaves out an object whose point is
     // less than kFarMinHandM (35 cm) from the Hand's point. With the rule of
     // the near objects, the Hand takes only what is 4 cm from its point, so
@@ -4913,19 +5032,22 @@ void FarSelect() {
     // A first cut with no radius: te with a radius is never more than it. The
     // choice by the body cuts with a radius that holds the whole body.
     float body_radius = 0.0f, body_height = 0.0f;
-    if (fair) {
+    if (by_body) {
+      body_radius = own_body.radius;
+      body_height = own_body.height;
+    } else if (fair) {
       body_radius = Radius2D(c.object);
       body_height = FarBodyHeight(c.object, body_radius);
     }
     const controller_math::FarScore rough = controller_math::FarConeScore(
-        g_far_origin, g_far_direction, c.position,
+        g_far_origin, g_far_direction, base,
         fair ? far_choice_math::CutRadius(body_height, body_radius) : 0.0f,
         score_m);
     if (!rough.valid || rough.te > cut_deg) continue;
     // THE RANGE: at most far_grab_max_m meters of the room from the head,
     // along the floor.
     if (!controller_math::FarInRange(
-            controller_math::FarFloorMeters(g_far_eye, c.position, g_far_units),
+            controller_math::FarFloorMeters(g_far_eye, base, g_far_units),
             FarGrabMaxMeters(), c.object == current)) {
       ++g_far_out_of_range;
       continue;
@@ -4992,13 +5114,24 @@ void FarSelect() {
     const bool by_bias = choice == far_choice_math::kChoiceBias;
     bool living = may_live && !by_bias && FarLiving(c.object, choice);
     // The choice measures the angle to the upright body of an object, or to
-    // its ball. A forest, a scroll and the Creature keep the point: a forest
-    // is a field of trees, a scroll floats, and the body of the Creature is
-    // found by its bone.
+    // its ball. A forest and a scroll keep the point: a forest is a field of
+    // trees, and a scroll floats. Your Creature has the body of its capsule.
+    // With far_grab_creature=0, and when the mod does not know that body, the
+    // Creature keeps the point of its mesh.
     float near_deg = 0.0f;
     controller_math::FarScore s = far_choice_math::ChoiceScore(
-        choice, sizes, g_far_origin, g_far_direction, c.position, body_height,
-        radius, living, forest || touch || creature, score_m, &near_deg);
+        choice, sizes, g_far_origin, g_far_direction, base, body_height,
+        radius, living, forest || touch || (creature && !by_body), score_m,
+        &near_deg);
+    if (by_body && own_offered) {
+      // What the point of the mesh gives, for the log line of the Creature.
+      const controller_math::FarScore point = controller_math::FarConeScore(
+          g_far_origin, g_far_direction, c.position, Radius2D(c.object),
+          controller_math::FarScoreMeters(
+              Distance(c.position, g_target) / g_far_units));
+      g_far_own_point_te = point.valid ? point.te : 180.0f;
+      for (int k = 0; k < 3; ++k) g_far_own_point[k] = c.position[k];
+    }
     if (!s.valid || s.te > keep) continue;
     if (fair && forest) s.score += far_choice_math::SizePenalty(radius, 0.0f);
     if (may_live && by_bias) living = FarLiving(c.object, choice);
@@ -5007,12 +5140,24 @@ void FarSelect() {
     if (living && by_bias) {
       s.score = far_choice_math::RankedScore(s.score, true);
     }
-    // A scroll is rare, and trees stand all around it. So a scroll in the
-    // cone scores kFarTouchBiasDeg better than its angle. With ranks it is in
-    // the first rank, as a living thing is: the character of a quest stands
-    // under his scroll, and the nearest of the two to the ray wins.
-    if (touch) s.score -= kFarTouchBiasDeg;
-    g_far_first[count] = living || (fair && touch);
+    // THE CLASS FOR THE RANKS (far_choice_math.h, ClassOf). A scroll of a
+    // quest is in the first rank, as a living thing is: the character of a
+    // quest stands under his scroll, and the nearest of the two to the ray
+    // wins. A miracle that the Hand can take is in the first rank too
+    // (far_grab_miracle). A signpost is in the last rank (far_grab_sign).
+    const bool sign = touch && IsSignpost(c.object);
+    const bool miracle =
+        !creature && !bulk && !touch && !forest && IsMiracleSeed(c.object);
+    const int cls = far_choice_math::ClassOf(
+        far_choice_math::ChoiceRanks(choice), living, fair && touch, sign,
+        miracle, g_far_sign_last, g_far_miracle_first);
+    // A scroll in the cone scores better than its angle, and a signpost of
+    // the last rank does not (TouchBias).
+    s.score -= far_choice_math::TouchBias(touch, cls);
+    g_far_class[count] = cls;
+    g_far_signs[count] = sign;
+    g_far_miracles[count] = miracle;
+    g_far_first[count] = cls == far_choice_math::kClassFirst;
     g_far_near[count] = near_deg;
     g_far_scores[count] = s;
     g_far_which[count] = i;
@@ -5028,18 +5173,19 @@ void FarSelect() {
   // it, and the draw offers every object in the frustum. So the winner is
   // tested against the land, and a hidden one is out for this frame. The test
   // costs 24 land heights, so it runs for the winners only.
-  // THE RANKS AND THE TARGET THAT STAYS (far_choice_math.h, PickRanked).
+  // THE RANKS AND THE TARGET THAT STAYS (far_choice_math.h, PickRanked), with
+  // the classes of the candidates (PickClassed).
   const far_choice_math::StayRule stay_rule = far_choice_math::MakeStayRule(
       choice, sizes.living_deg, FarGrabStay(), FarGrabStayDeg(),
       FarGrabSelectDeg(), keep, controller_math::kFarSwitchDeg);
   int pick = -1;
   int why_pick = far_choice_math::kWhyPlain;
   for (int tries = 0; tries < 12; ++tries) {
-    pick = far_choice_math::PickRanked(g_far_scores, g_far_near, g_far_first,
-                                       count, current_index, stay_rule,
-                                       &why_pick);
+    pick = far_choice_math::PickClassed(g_far_scores, g_far_near, g_far_class,
+                                        count, current_index, stay_rule,
+                                        g_far_work, g_far_first, &why_pick);
     if (pick < 0) break;
-    const Candidate& w = g_candidates[g_far_which[pick]];
+    const Candidate& w = FarAt(g_far_which[pick]);
     if (FarVisible(w.position, g_far_radius[pick])) break;
     ++g_far_hidden;
     g_far_scores[pick].valid = false;
@@ -5066,38 +5212,45 @@ void FarSelect() {
              "%p, scored %d, frame %llu", g_far_debug_object, found, e.valid,
              e.te, e.score, Holdable(d.object, status),
              FarVisible(d.position, Radius2D(d.object)),
-             pick >= 0 ? g_candidates[g_far_which[pick]].object : nullptr,
-             count, g_frame);
+             pick >= 0 ? FarAt(g_far_which[pick]).object : nullptr, count,
+             g_frame);
     }
   }
   if (pick < 0) {
     FarGrabNoTarget();
     return;
   }
-  const Candidate& c = g_candidates[g_far_which[pick]];
+  const Candidate& c = FarAt(g_far_which[pick]);
   // WHY THIS TARGET, for the log of a new target: the second best candidate
   // of the cone and the reason (far_choice_math.h, WhyWinner). A candidate
   // that a hill hides is out of the list. The rank and the hold give their
   // own reason (PickRanked).
   const int runner =
       far_choice_math::RunnerUp(g_far_scores, count, pick, FarGrabSelectDeg());
-  const int why =
+  int why =
       runner < 0 ? far_choice_math::kWhyOnly
       : why_pick != far_choice_math::kWhyPlain
             ? why_pick
             : far_choice_math::WhyWinner(g_far_raw, g_far_scores, g_far_living,
                                          count, pick, current_index,
                                          FarGrabSelectDeg());
+  // A miracle that has the halo by its rank.
+  if (why == far_choice_math::kWhyRank && g_far_miracles[pick]) {
+    why = far_choice_math::kWhyMiracle;
+  }
   g_far_why = far_choice_math::WhyWords(why);
   g_far_runner[0] = 0;
   if (runner >= 0) {
-    const Candidate& r = g_candidates[g_far_which[runner]];
+    const Candidate& r = FarAt(g_far_which[runner]);
     char runner_name[48];
     strcpy_s(runner_name, ClassName(r.object));
     _snprintf_s(g_far_runner, sizeof(g_far_runner), _TRUNCATE,
                 ". The second one is %p (%s%s) at %.1f degrees, score %.2f "
                 "against %.2f", r.object, runner_name,
-                g_far_living[runner] ? ", living" : "",
+                g_far_living[runner]     ? ", living"
+                : g_far_signs[runner]    ? ", a signpost"
+                : g_far_miracles[runner] ? ", a miracle"
+                                         : "",
                 g_far_scores[runner].te, g_far_scores[runner].score,
                 g_far_scores[pick].score);
   }
@@ -5107,6 +5260,34 @@ void FarSelect() {
   out.object = c.object;
   strcpy_s(g_far_name, ClassName(c.object));
   out.name = g_far_name;
+  out.sign = g_far_signs[pick];
+  // YOUR CREATURE BY ITS BODY (far_grab_creature=1): one line for each time
+  // that it becomes the target, with what the point of its mesh gives.
+  if (own != nullptr && c.object == own && c.object != current &&
+      g_far_own_logs < kMaxFarOwnLogs) {
+    ++g_far_own_logs;
+    char by_point[200];
+    if (own_offered) {
+      _snprintf_s(by_point, sizeof(by_point), _TRUNCATE,
+                  "The point of its mesh is at %.1f %.1f %.1f, %.1f units "
+                  "below the middle of the body, and by that point the aim is "
+                  "%.1f degrees from the Creature (far_grab_creature=0)",
+                  g_far_own_point[0], g_far_own_point[1], g_far_own_point[2],
+                  own_body.base[1] + 0.5f * own_body.height -
+                      g_far_own_point[1],
+                  g_far_own_point_te);
+    } else {
+      strcpy_s(by_point, "The draw did not offer it, so with "
+                         "far_grab_creature=0 it is no target");
+    }
+    ModLog("far grab    : your Creature %p is the target by its body: the "
+           "land under its body bone at %.1f %.1f %.1f, %.1f units tall, a "
+           "radius of %.2f. The aim is %.1f degrees from the line of the "
+           "body, and %.1f past its cover. %s, frame %llu", c.object,
+           own_body.base[0], own_body.base[1], own_body.base[2],
+           own_body.height, own_body.radius, g_far_near[pick],
+           g_far_scores[pick].te, by_point, g_frame);
+  }
   // THE HOLD (far_grab_stay=1): one line for each target that keeps the halo
   // past its cone, or against a different thing with a lower score.
   if (c.object != current) g_far_hold_logged = nullptr;
@@ -5149,6 +5330,29 @@ void FarSelect() {
   }
   // The leash click has no test of the influence (fn_005D06E0).
   if (out.leash != 0) out.inside = true;
+  // THE AIM HAS ITS TARGET, so a signpost of rule 6 is no choice at the Hand
+  // from this frame (near_math::SignGivesWay). The grip acts on the far
+  // target.
+  if (g_choice_last) {
+    if (g_sign_way_logs < kMaxSignWayLogs) {
+      ++g_sign_way_logs;
+      ModLog("hand pick    : the signpost %p is %.1f cm of the room from the "
+             "Hand's point, and the point is not in it. The aim has the "
+             "target %p (%s), so the signpost is no target now "
+             "(hand_sign_last=1), frame %llu", g_choice,
+             g_choice_gap / g_far_units * 100.0f, c.object, g_far_name,
+             g_frame);
+    }
+    g_choice = nullptr;
+    g_choice_take = false;
+    g_choice_tap = false;
+    g_choice_click = false;
+    g_choice_kind = near_math::kNone;
+    g_choice_acts = false;
+    g_choice_touched = false;
+    g_choice_table = nullptr;
+    g_choice_last = false;
+  }
   FarGrabSelect(out);
 }
 
@@ -6680,6 +6884,48 @@ void InstallNear() {
          g_far_leash ? "Your Creature in the aim is a target of the leash: "
                        "the grip sends the leash click, and no press"
                      : "The Creature is no far target");
+  // THE CLASSES OF THE RANKS and the body of the Creature (docs/grab.md, "The
+  // cone and the choice").
+  g_far_creature_body = IniKey("far_grab_creature", 1) != 0;
+  g_far_miracle_first = IniKey("far_grab_miracle", 1) != 0;
+  g_far_sign_last = IniKey("far_grab_sign", 1) != 0;
+  ModLog("far grab    : far_grab_creature=%d. %s", g_far_creature_body ? 1 : 0,
+         g_far_creature_body
+             ? "The aim measures your Creature by its body, as it measures "
+               "each living thing: the line from the land under its body "
+               "bone to its top, with its radius. The Creature is a "
+               "candidate also when the draw did not offer it"
+             : "The aim measures your Creature by the point of its mesh, "
+               "which is at its feet, and only when the draw offered it");
+  ModLog("far grab    : far_grab_miracle=%d. %s. far_grab_sign=%d. %s. The two "
+         "keys act with ranks (far_grab_choice 2 and 4)",
+         g_far_miracle_first ? 1 : 0,
+         g_far_miracle_first
+             ? "A miracle that the Hand can take (OneOffSpellSeed) is in the "
+               "first rank, as a living thing is"
+             : "A miracle that the Hand can take has no rank",
+         g_far_sign_last ? 1 : 0,
+         g_far_sign_last
+             ? "A signpost is in the last rank: it takes the halo only when "
+               "the aim is on it and on no other target, or when no other "
+               "target is in the cone"
+             : "A signpost is a scroll of the first rank");
+  g_sign_last = IniKey("hand_sign_last", 1) != 0;
+  g_creature_wide = IniKey("hand_wide_creature", 1) != 0;
+  ModLog("hand pick    : hand_sign_last=%d. %s. hand_wide_creature=%d. %s",
+         g_sign_last ? 1 : 0,
+         g_sign_last
+             ? "At the Hand a signpost that the point is not in comes last: "
+               "each other object in its reach and each object in the wide "
+               "reach comes before it, it does not turn the grab from a "
+               "distance off, and it is no target while the aim has a target"
+             : "At the Hand a signpost is a scroll as each other scroll",
+         g_creature_wide ? 1 : 0,
+         g_creature_wide
+             ? "The Creature has the wide reach of an object that the Hand "
+               "can hold (hand_wide_pick_cm), when no object that a press "
+               "acts on is nearer"
+             : "The reach of the Creature at the Hand is hand_pick_cm");
   CreatureStayInstall();
   g_creature_bone = IniKey("creature_bone", 1) != 0;
   ModLog("hand creature: creature_bone=%d. %s", g_creature_bone ? 1 : 0,
@@ -9119,10 +9365,14 @@ bool HandDirectSeekFarPoint(float out[3]) {
   // The test keys of the choice of a far target (docs/grab.md, "The cone and
   // the choice"). far_test_aim_class=1 aims at the nearest villager, 2 at the
   // nearest living thing, 3 at the nearest rock, 4 at your Creature, 5 at
-  // the nearest tree, 6 at the nearest Creature that is not your Creature and
-  // 7 at the nearest quest character (a SpecialVillager),
-  // at the middle of its body. far_test_aim_toward=1 then
-  // turns the aim toward the nearest tree, and 2 toward the nearest rock (20
+  // the nearest tree, 6 at the nearest Creature that is not your Creature, 7
+  // at the nearest quest character (a SpecialVillager) and 8 at the nearest
+  // miracle that the Hand can take,
+  // at the middle of its body. far_test_aim_up_pct gives a different height
+  // on the body, in percent of its height: 100 is the top. The body of your
+  // Creature is its capsule. far_test_aim_toward=1 then
+  // turns the aim toward the nearest tree, 2 toward the nearest rock and 3
+  // toward the nearest signpost (20
   // units or less from it), by far_test_aim_blend_pct percent of the way from
   // the body to the base of that object. So a run can point a little off a
   // living thing toward a tree, with the same aim for both choices.
@@ -9138,6 +9388,13 @@ bool HandDirectSeekFarPoint(float out[3]) {
   static const int aim_toward = TestKey("far_test_aim_toward");
   static const int aim_blend = TestKey("far_test_aim_blend_pct");
   static const int aim_pair = TestKey("far_test_aim_pair");
+  static const int aim_up = TestKey("far_test_aim_up_pct");
+  const char* toward_word = aim_toward == 3 ? "signpost" : "tree";
+  const auto toward_is = [&](void* object) {
+    return aim_toward == 1   ? IsTreeObject(object)
+           : aim_toward == 3 ? IsScroll(object) && IsSignpost(object)
+                             : strcmp(ClassName(object), "Rock") == 0;
+  };
   if (g_far_blend_count < 0) {
     g_far_blend_count = 0;
     char path[MAX_PATH], text[128] = "";
@@ -9180,10 +9437,7 @@ bool HandDirectSeekFarPoint(float out[3]) {
   for (int i = 0; pair && i < g_candidate_count && toward_count < 512; ++i) {
     void* object = g_candidates[i].object;
     if (IsForest(object)) continue;
-    if (aim_toward == 1 ? IsTreeObject(object)
-                        : strcmp(ClassName(object), "Rock") == 0) {
-      toward_list[toward_count++] = i;
-    }
+    if (toward_is(object)) toward_list[toward_count++] = i;
   }
   float best_meters = 0.0f;
   int class_counts[4] = {0, 0, 0, 0};  // villagers, living, rocks, trees
@@ -9239,6 +9493,7 @@ bool HandDirectSeekFarPoint(float out[3]) {
           (aim_class == 4 && (!IsCreatureObject(c.object) ||
                               LeashKind(c.object) == near_math::kLeashNone)) ||
           (aim_class == 5 && !IsTreeObject(c.object)) ||
+          (aim_class == 8 && !IsMiracleSeed(c.object)) ||
           (aim_class == 6 && (!IsCreatureObject(c.object) ||
                               IsOwnCreature(c.object)))) {
         continue;
@@ -9321,16 +9576,24 @@ bool HandDirectSeekFarPoint(float out[3]) {
            "Hand, at %.1f %.1f %.1f", best_object, ClassName(best_object),
            best_meters, out[0], out[1], out[2]);
     if (aim_class != 0) {
-      // The middle of the body, and then the turn toward a tree.
-      out[1] += 0.5f * FarBodyHeight(best_object, Radius2D(best_object));
+      // The middle of the body, or the height of far_test_aim_up_pct, and
+      // then the turn toward a tree. The body of your Creature is its
+      // capsule.
+      const float up = aim_up != 0 ? aim_up * 0.01f : 0.5f;
+      controller_math::Capsule capsule;
+      if (aim_class == 4 && CreatureBody(best_object, &capsule)) {
+        for (int k = 0; k < 3; ++k) out[k] = capsule.base[k];
+        out[1] += up * capsule.height;
+      } else {
+        out[1] += up * FarBodyHeight(best_object, Radius2D(best_object));
+      }
       void* tree = nullptr;
       float tree_gap = 20.0f;
       for (int i = 0; aim_toward != 0 && i < g_candidate_count; ++i) {
         const Candidate& c = g_candidates[i];
         if (c.object == best_object || IsForest(c.object) ||
             (kept_tree != nullptr && c.object != kept_tree) ||
-            (aim_toward == 1 ? !IsTreeObject(c.object)
-                             : strcmp(ClassName(c.object), "Rock") != 0)) {
+            !toward_is(c.object)) {
           continue;
         }
         const float dx = c.position[0] - out[0], dz = c.position[2] - out[2];
@@ -9361,18 +9624,18 @@ bool HandDirectSeekFarPoint(float out[3]) {
       }
       ModLog("far grab    : test: aimfar takes the body of the %s %p (%d "
              "villagers, %d living things and %d rocks among the candidates "
-             "past the least distance). %s. The aim point is %.1f %.1f %.1f",
+             "past the least distance). %s %s %s. The aim point is %.1f %.1f "
+             "%.1f",
              ClassName(best_object), best_object, class_counts[0],
-             class_counts[1], class_counts[2],
-             tree != nullptr ? "A tree stands near it, and the aim turns "
-                               "toward it"
-                             : "No tree stands near it, or the aim does not "
-                               "turn",
+             class_counts[1], class_counts[2], tree != nullptr ? "A" : "No",
+             toward_word,
+             tree != nullptr ? "stands near it, and the aim turns toward it"
+                             : "stands near it, or the aim does not turn",
              out[0], out[1], out[2]);
       if (tree != nullptr) {
-        ModLog("far grab    : test: the tree %p is %.1f units from the body, "
+        ModLog("far grab    : test: the %s %p is %.1f units from the body, "
                "and the aim turns %d percent of the way toward its base",
-               tree, tree_gap, blend);
+               toward_word, tree, tree_gap, blend);
       }
     }
   }

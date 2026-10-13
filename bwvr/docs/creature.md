@@ -1196,6 +1196,13 @@ and `PumpHold` (`far_grab.cpp`) and `hint_card.cpp`. The pure rules are
   comes back from an object). The Creature of a different player is no
   target. A Creature that the game would not leash is no target. The halo is
   the halo of each far target.
+- The aim measures your Creature by its body, as it measures each living
+  thing: the capsule of the choice at the Hand, from the land under the body
+  bone up to `1.1 S`, with the 2D radius. `FarSelect` takes the Creature from
+  the game, so it is a candidate also when the draw did not offer it
+  (`far_grab_creature=1`, `grab.md`, "The cone and the choice"). In its cone
+  of 4 degrees the Creature comes before a tree, a rock and a signpost, and it
+  keeps the halo to 7 degrees.
 - The card of the hand shows "Grip Put the leash on", "Grip Take the leash
   off" or "Grip Take the leash back". A second line shows "Grip hold Make it
   stay" (section 5.3).
@@ -1250,6 +1257,7 @@ that is not the player's, with each state of the leash. The test key
 | Key | Default | Meaning |
 | --- | --- | --- |
 | `far_leash` | 1 | Your Creature in the aim is a target of the leash and of the stay. 0 takes the Creature out of the far targets |
+| `far_grab_creature` | 1 | 1: the aim measures your Creature by its body and takes it from the game. 0: by the point of its mesh, at its feet, and only when the draw offered it |
 | `creature_hold_stay` | 1 | See section 5.3. 0: the leash click goes out at the close of the grip, and no grip makes the Creature stay |
 | `far_test_creature` | 0 | A test key. 1: only your Creature is a far target, and the word `aimfar` aims at it |
 

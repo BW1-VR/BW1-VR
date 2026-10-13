@@ -496,10 +496,37 @@ struct Target {
   bool scroll;
   bool loose;   // a tree, a forest, a building or a bulk source
   bool outer;   // a scroll past the reach of the pick, in its longer reach
+  bool last;    // a signpost that the point is not in (SignOut)
 };
 
-// The rule that a target comes under, 1 to 5. The lower one wins.
+// A SIGNPOST COMES LAST AT THE HAND (hand_sign_last=1). A signpost is a scroll
+// of the kind "did you know". It stands beside the things that it tells
+// about, and its reach as a scroll is longer than the reach of each other
+// object. So it took the grip from a miracle or from the Creature beside it,
+// and it turned the grab from a distance off. A signpost that the Hand's
+// point is not in (the gap is more than the touch) comes under rule 6:
+//
+//   6. Last, a signpost that the point is not in. It is the target only when
+//      no other body is in its reach, no object is in the wide reach, and the
+//      aim has no target at a distance.
+//
+// Such a signpost is no near object: it does not stop the wide pick of an
+// object that is farther from the point, and it does not turn the grab from
+// a distance off. A signpost that the point is in is a body that the point
+// touches, under rule 1, as each other scroll.
+inline bool SignOut(bool sign_last, bool sign, float gap, float touch) {
+  return sign_last && sign && !(gap <= touch);
+}
+
+// The choice at the Hand gives way to the aim: a signpost of rule 6 is no
+// target while the aim has a target at a distance.
+inline bool SignGivesWay(bool last, bool far_target) {
+  return last && far_target;
+}
+
+// The rule that a target comes under, 1 to 6. The lower one wins.
 inline int TargetRule(const Target& t, float touch) {
+  if (t.last) return 6;
   const bool touched = t.gap.gap <= touch;
   if (touched && !t.loose) return 1;
   if (t.scroll) return t.outer ? 5 : 2;
@@ -693,7 +720,11 @@ inline bool BoneSane(float dx, float dz, float size) {
 // on is nearer than it (nearest is the least gap of them, the Creature too).
 // The wide reach is at least the gap at which the far grab comes back, so each
 // gap has a target. An object inside the reach of the pick is chosen by the
-// plain rules, and wins over a wide one.
+// plain rules, and wins over a wide one. A signpost of rule 6 is not such an
+// object: it does not count for nearest, and a wide one wins over it. The
+// Creature has the wide reach too (hand_wide_creature=1): the far grab is off
+// while the Hand's point is near it, so without the wide reach it is no
+// target from the reach of the pick to that gap.
 const int kWideCm = 15;  // hand_wide_pick_cm
 
 inline bool WidePick(float gap, float reach, float wide_reach, float nearest,
