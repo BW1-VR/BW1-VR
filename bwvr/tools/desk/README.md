@@ -97,6 +97,7 @@ calls it. It keeps these rules, and a new script must keep them too:
 | `hand_run.ps1`, `village_run.ps1`, `temple_run.ps1`, `miracle_run.ps1` | Runs for the near hand, the village, the Temple and miracles. See "The scripts of one area" |
 | `intro_run.ps1` | The Lionhead logo in stereo, with a picture of each eye each few seconds. The run does not skip the logos. See "The logos" |
 | `bench_run.ps1` | The frame cost measure: six still scenes, the numbers of each scene, the spread of some runs, and the comparison of two builds or of two sets of keys. See "The frame cost measure" |
+| `perf_ab.ps1` | Some sets of ini keys with one build: a table of the frame time, the render thread, the GPU time and, with `-Pictures`, the pictures of two modes. See "A comparison of sets of keys" |
 
 The scripted controller is driven by ini keys: `fake_controller_script` (words
 such as `point@400+1`, `grip@3100+101`, `trigger@440+8`: the word, the frame
@@ -297,6 +298,31 @@ Rules for a measure:
 
 The last line is `BENCH DONE`, or `BENCH STOPPED at <run>` when a run was not
 made.
+
+## A comparison of sets of keys
+
+`perf_ab.ps1` runs one build with some sets of ini keys, one desktop run for
+each set, and prints a table of the median of the windows of 450 frames of
+each run: the frame time, the scene walks on the frame thread, the render
+thread, the GPU time, the calls that change nothing, the draws, the draws
+from the buffers of the render thread, the calls that failed. It needs no
+test save: each run is the start of a new game. The default base keys are
+`one_walk=1`, `fake_controller=1`, `test_keys=0`, `profile_sample=250` and
+`profile_gpu=1` (`docs/backend.md`, "The render thread").
+
+```powershell
+.\bwvr\tools\desk\perf_ab.ps1 -Name rt -Dll .\bwvr\build\src\mod\Release\ddraw.dll -Repeat 2 -Configs @(
+    @{ name = 'off'; keys = @{ render_thread = 0 } },
+    @{ name = 'on';  keys = @{ render_thread = 1 } })
+```
+
+`-Pictures` adds `render_thread_test_frame=3000` to each run. Then only the
+windows before frame 3000 count, and the table also has the percent of the
+pixels that differ in the left eye: between frames 3000 and 3001 (one
+mode), and between frames 3001 and 3002 (the mode of the ini and mode 0).
+When the two numbers are close, the two modes give the same picture. Each
+run goes through `desk_run.ps1`, so it waits for the idle time as each run
+does. The table is also in `desk-perf-<Name>\summary.txt`.
 
 ## A fast start
 
