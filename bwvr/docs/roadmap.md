@@ -510,12 +510,17 @@ that moves while the Hand takes it.
   - **A render thread for the Direct3D calls.** The Direct3D draw calls are
     3.3 to 4.8 ms of a frame in scenes 1 to 5, and the game makes 3200 to 5400
     state calls in a frame. A thread that gets a record of these calls and
-    gives them to Direct3D takes that time off the frame thread. With two
-    scene walks this is the largest gain that is left. Not built, and not
-    planned in detail. The hard parts: a texture that the game writes in the
-    middle of a scene walk, a state that the game reads back, the draws of
-    the mod itself, and the order of each call. With the merge of draw calls
-    the thread has less work. In a headset with one walk, a view of the
+    gives them to Direct3D takes that time off the frame thread. The thread
+    is built as a test key (`render_thread`, `backend.md`, "The render
+    thread"). In a desktop run it takes the driver off the frame thread, and
+    with the answers of the calls of a texture that take no lock
+    (`render_thread_lock_free`) a frame is 8.7 ms in place of 11.2 ms. In a
+    headset over the whole island the scene walk is 5.5 to 5.9 ms in place
+    of 11.3 ms, and a frame 11 ms in place of 16 to 20 ms. The render
+    thread, which is the driver, then sets the time of the walk. Open: more
+    sessions in a headset (the Temple, a story, a load of a saved game),
+    then the default value of `render_thread`. Before the thread, with one
+    walk, a view of the
     whole island has about 1500 batches and a scene walk of 9.5 to 11 ms,
     and the runtime then shows 45 frames a second. Of that walk about 6 ms
     are Direct3D 9, the driver of AMD and the kernel, and less than 3 ms are

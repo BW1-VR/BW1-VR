@@ -44,9 +44,9 @@
 #include <stdint.h>
 
 #include "../common/bw_addresses.h"
-#include "MinHook.h"
 #include "one_walk.h"
 #include "one_walk_math.h"
+#include "render_thread_d3d9.h"
 
 extern void ModLog(const char* format, ...);
 // draw_merge.cpp: the batch of the merge goes to Direct3D now.
@@ -56,42 +56,6 @@ void* GpuBridgeDeviceObject();
 void GpuBridgeOwnDepth(bool on);
 
 namespace {
-
-// Slots of IDirect3DDevice9. The order is fixed by the interface.
-const int kSlotSetRenderTarget = 37;
-const int kSlotSetDepthStencil = 39;
-const int kSlotClear = 43;
-const int kSlotDrawPrimitive = 81;
-const int kSlotDrawIndexedPrimitive = 82;
-const int kSlotDrawPrimitiveUP = 83;
-const int kSlotDrawIndexedPrimitiveUP = 84;
-
-typedef HRESULT(STDMETHODCALLTYPE* SetRenderTargetFn)(IDirect3DDevice9*, DWORD,
-                                                      IDirect3DSurface9*);
-typedef HRESULT(STDMETHODCALLTYPE* SetDepthStencilFn)(IDirect3DDevice9*,
-                                                      IDirect3DSurface9*);
-typedef HRESULT(STDMETHODCALLTYPE* ClearFn)(IDirect3DDevice9*, DWORD,
-                                            const D3DRECT*, DWORD, D3DCOLOR,
-                                            float, DWORD);
-typedef HRESULT(STDMETHODCALLTYPE* DrawPrimitiveFn)(IDirect3DDevice9*,
-                                                    D3DPRIMITIVETYPE, UINT,
-                                                    UINT);
-typedef HRESULT(STDMETHODCALLTYPE* DrawIndexedPrimitiveFn)(
-    IDirect3DDevice9*, D3DPRIMITIVETYPE, INT, UINT, UINT, UINT, UINT);
-typedef HRESULT(STDMETHODCALLTYPE* DrawPrimitiveUPFn)(IDirect3DDevice9*,
-                                                      D3DPRIMITIVETYPE, UINT,
-                                                      const void*, UINT);
-typedef HRESULT(STDMETHODCALLTYPE* DrawIndexedPrimitiveUPFn)(
-    IDirect3DDevice9*, D3DPRIMITIVETYPE, UINT, UINT, UINT, const void*,
-    D3DFORMAT, const void*, UINT);
-
-SetRenderTargetFn o_SetRenderTarget = nullptr;
-SetDepthStencilFn o_SetDepthStencil = nullptr;
-ClearFn o_Clear = nullptr;
-DrawPrimitiveFn o_DrawPrimitive = nullptr;
-DrawIndexedPrimitiveFn o_DrawIndexedPrimitive = nullptr;
-DrawPrimitiveUPFn o_DrawPrimitiveUP = nullptr;
-DrawIndexedPrimitiveUPFn o_DrawIndexedPrimitiveUP = nullptr;
 
 bool g_wanted = false;     // one_walk in bwvr.ini, or the test key
 bool g_check = false;      // one_walk_check in bwvr.ini
@@ -267,16 +231,16 @@ HRESULT STDMETHODCALLTYPE h_DrawIndexedPrimitiveUP(
     UINT vertex_count, UINT primitive_count, const void* indices,
     D3DFORMAT index_format, const void* vertices, UINT stride) {
   if (!InWide(self)) {
-    return o_DrawIndexedPrimitiveUP(self, type, min_index, vertex_count,
-                                    primitive_count, indices, index_format,
-                                    vertices, stride);
+    return RenderThreadOutDrawIndexedPrimitiveUP(
+        self, type, min_index, vertex_count, primitive_count, indices,
+        index_format, vertices, stride);
   }
   const int mode = g_mode;
   HRESULT hr = S_OK;
   if (mode != kOneWalkRightOnly) {
-    hr = o_DrawIndexedPrimitiveUP(self, type, min_index, vertex_count,
-                                  primitive_count, indices, index_format,
-                                  vertices, stride);
+    hr = RenderThreadOutDrawIndexedPrimitiveUP(
+        self, type, min_index, vertex_count, primitive_count, indices,
+        index_format, vertices, stride);
   }
   if (mode == kOneWalkLeftOnly) {
     ++g_left_only;
@@ -294,7 +258,7 @@ HRESULT STDMETHODCALLTYPE h_DrawIndexedPrimitiveUP(
     if (mode == kOneWalkRightOnly) ++g_right_only;
     Saved saved;
     MoveRight(self, &saved);
-    const HRESULT right = o_DrawIndexedPrimitiveUP(
+    const HRESULT right = RenderThreadOutDrawIndexedPrimitiveUP(
         self, type, min_index, vertex_count, primitive_count, indices,
         index_format, g_scratch, stride);
     PutBack(self, saved);
@@ -310,12 +274,14 @@ HRESULT STDMETHODCALLTYPE h_DrawPrimitiveUP(IDirect3DDevice9* self,
                                             UINT primitive_count,
                                             const void* vertices, UINT stride) {
   if (!InWide(self)) {
-    return o_DrawPrimitiveUP(self, type, primitive_count, vertices, stride);
+    return RenderThreadOutDrawPrimitiveUP(self, type, primitive_count, vertices,
+                                          stride);
   }
   const int mode = g_mode;
   HRESULT hr = S_OK;
   if (mode != kOneWalkRightOnly) {
-    hr = o_DrawPrimitiveUP(self, type, primitive_count, vertices, stride);
+    hr = RenderThreadOutDrawPrimitiveUP(self, type, primitive_count, vertices,
+                                        stride);
   }
   if (mode == kOneWalkLeftOnly) {
     ++g_left_only;
@@ -334,8 +300,8 @@ HRESULT STDMETHODCALLTYPE h_DrawPrimitiveUP(IDirect3DDevice9* self,
     if (mode == kOneWalkRightOnly) ++g_right_only;
     Saved saved;
     MoveRight(self, &saved);
-    const HRESULT right =
-        o_DrawPrimitiveUP(self, type, primitive_count, g_scratch, stride);
+    const HRESULT right = RenderThreadOutDrawPrimitiveUP(
+        self, type, primitive_count, g_scratch, stride);
     PutBack(self, saved);
     if (mode == kOneWalkRightOnly) hr = right;
   }
@@ -351,7 +317,7 @@ HRESULT STDMETHODCALLTYPE h_DrawPrimitive(IDirect3DDevice9* self,
                                           D3DPRIMITIVETYPE type, UINT start,
                                           UINT count) {
   if (InWide(self)) ++g_buffer_draws;
-  return o_DrawPrimitive(self, type, start, count);
+  return RenderThreadOutDrawPrimitive(self, type, start, count);
 }
 
 HRESULT STDMETHODCALLTYPE h_DrawIndexedPrimitive(IDirect3DDevice9* self,
@@ -360,8 +326,8 @@ HRESULT STDMETHODCALLTYPE h_DrawIndexedPrimitive(IDirect3DDevice9* self,
                                                  UINT vertices, UINT start,
                                                  UINT count) {
   if (InWide(self)) ++g_buffer_draws;
-  return o_DrawIndexedPrimitive(self, type, base, min_index, vertices, start,
-                                count);
+  return RenderThreadOutDrawIndexedPrimitive(self, type, base, min_index,
+                                             vertices, start, count);
 }
 
 // A clear respects the viewport, which is the left half. The right half gets
@@ -369,10 +335,12 @@ HRESULT STDMETHODCALLTYPE h_DrawIndexedPrimitive(IDirect3DDevice9* self,
 HRESULT STDMETHODCALLTYPE h_Clear(IDirect3DDevice9* self, DWORD count,
                                   const D3DRECT* rects, DWORD flags,
                                   D3DCOLOR color, float z, DWORD stencil) {
-  if (!InWide(self)) return o_Clear(self, count, rects, flags, color, z, stencil);
+  if (!InWide(self)) {
+    return RenderThreadOutClear(self, count, rects, flags, color, z, stencil);
+  }
   HRESULT hr = S_OK;
   if (g_mode != kOneWalkRightOnly) {
-    hr = o_Clear(self, count, rects, flags, color, z, stencil);
+    hr = RenderThreadOutClear(self, count, rects, flags, color, z, stencil);
   }
   if (g_mode == kOneWalkLeftOnly) return hr;
   ++g_clears;
@@ -390,7 +358,8 @@ HRESULT STDMETHODCALLTYPE h_Clear(IDirect3DDevice9* self, DWORD count,
   }
   Saved saved;
   MoveRight(self, &saved);
-  const HRESULT right = o_Clear(self, use_count, use, flags, color, z, stencil);
+  const HRESULT right =
+      RenderThreadOutClear(self, use_count, use, flags, color, z, stencil);
   PutBack(self, saved);
   return g_mode == kOneWalkRightOnly ? right : hr;
 }
@@ -412,7 +381,7 @@ HRESULT STDMETHODCALLTYPE h_SetRenderTarget(IDirect3DDevice9* self,
       ++g_late_swaps;
     }
   }
-  const HRESULT hr = o_SetRenderTarget(self, index, surface);
+  const HRESULT hr = RenderThreadOutSetRenderTarget(self, index, surface);
   if (index == 0 && self == g_device && SUCCEEDED(hr)) g_bound = surface;
   return hr;
 }
@@ -427,40 +396,15 @@ HRESULT STDMETHODCALLTYPE h_SetDepthStencil(IDirect3DDevice9* self,
       surface = g_last_game_depth;
     }
   }
-  return o_SetDepthStencil(self, surface);
+  return RenderThreadOutSetDepthStencil(self, surface);
 }
 
-bool HookSlot(void** vtable, int slot, void* replacement, void** original) {
-  void* target = vtable[slot];
-  if (MH_CreateHook(target, replacement, original) != MH_OK) return false;
-  return MH_EnableHook(target) == MH_OK;
-}
-
+// The hooks of the seven calls are in render_thread.cpp. They call the
+// OneWalkOn functions below.
 bool Install(IDirect3DDevice9* device) {
   if (g_hooked) return true;
   if (g_hook_failed) return false;
-  void** vtable = *reinterpret_cast<void***>(device);
-  bool ok = true;
-  ok &= HookSlot(vtable, kSlotSetRenderTarget,
-                 reinterpret_cast<void*>(&h_SetRenderTarget),
-                 reinterpret_cast<void**>(&o_SetRenderTarget));
-  ok &= HookSlot(vtable, kSlotSetDepthStencil,
-                 reinterpret_cast<void*>(&h_SetDepthStencil),
-                 reinterpret_cast<void**>(&o_SetDepthStencil));
-  ok &= HookSlot(vtable, kSlotClear, reinterpret_cast<void*>(&h_Clear),
-                 reinterpret_cast<void**>(&o_Clear));
-  ok &= HookSlot(vtable, kSlotDrawPrimitive,
-                 reinterpret_cast<void*>(&h_DrawPrimitive),
-                 reinterpret_cast<void**>(&o_DrawPrimitive));
-  ok &= HookSlot(vtable, kSlotDrawIndexedPrimitive,
-                 reinterpret_cast<void*>(&h_DrawIndexedPrimitive),
-                 reinterpret_cast<void**>(&o_DrawIndexedPrimitive));
-  ok &= HookSlot(vtable, kSlotDrawPrimitiveUP,
-                 reinterpret_cast<void*>(&h_DrawPrimitiveUP),
-                 reinterpret_cast<void**>(&o_DrawPrimitiveUP));
-  ok &= HookSlot(vtable, kSlotDrawIndexedPrimitiveUP,
-                 reinterpret_cast<void*>(&h_DrawIndexedPrimitiveUP),
-                 reinterpret_cast<void**>(&o_DrawIndexedPrimitiveUP));
+  const bool ok = RenderThreadInstall(device, false);
   ModLog("one walk     : 7 Direct3D 9 calls hooked %s", ok ? "ok" : "FAILED");
   if (!ok) {
     g_hook_failed = true;
@@ -551,6 +495,54 @@ double Ms(uint64_t ticks) {
 
 }  // namespace
 
+// The seven calls, from the hooks of render_thread.cpp.
+HRESULT OneWalkOnSetRenderTarget(IDirect3DDevice9* self, DWORD index,
+                                 IDirect3DSurface9* surface) {
+  return h_SetRenderTarget(self, index, surface);
+}
+
+HRESULT OneWalkOnSetDepthStencil(IDirect3DDevice9* self,
+                                 IDirect3DSurface9* surface) {
+  return h_SetDepthStencil(self, surface);
+}
+
+HRESULT OneWalkOnClear(IDirect3DDevice9* self, DWORD count,
+                       const D3DRECT* rects, DWORD flags, D3DCOLOR color,
+                       float z, DWORD stencil) {
+  return h_Clear(self, count, rects, flags, color, z, stencil);
+}
+
+HRESULT OneWalkOnDrawPrimitive(IDirect3DDevice9* self, D3DPRIMITIVETYPE type,
+                               UINT start, UINT count) {
+  return h_DrawPrimitive(self, type, start, count);
+}
+
+HRESULT OneWalkOnDrawIndexedPrimitive(IDirect3DDevice9* self,
+                                      D3DPRIMITIVETYPE type, INT base,
+                                      UINT min_index, UINT vertices,
+                                      UINT start, UINT count) {
+  return h_DrawIndexedPrimitive(self, type, base, min_index, vertices, start,
+                                count);
+}
+
+HRESULT OneWalkOnDrawPrimitiveUP(IDirect3DDevice9* self, D3DPRIMITIVETYPE type,
+                                 UINT count, const void* vertices,
+                                 UINT stride) {
+  return h_DrawPrimitiveUP(self, type, count, vertices, stride);
+}
+
+HRESULT OneWalkOnDrawIndexedPrimitiveUP(IDirect3DDevice9* self,
+                                        D3DPRIMITIVETYPE type, UINT min_index,
+                                        UINT vertex_count,
+                                        UINT primitive_count,
+                                        const void* indices,
+                                        D3DFORMAT index_format,
+                                        const void* vertices, UINT stride) {
+  return h_DrawIndexedPrimitiveUP(self, type, min_index, vertex_count,
+                                  primitive_count, indices, index_format,
+                                  vertices, stride);
+}
+
 void OneWalkSetWanted(bool on) {
   g_wanted = on;
   ModLog("one walk     : %s (one_walk=%d)", on
@@ -601,9 +593,11 @@ bool OneWalkBeginPass(float separation) {
   g_saved_max_x = max_screen[0];
   g_max_moved = g_saved_max_x > 0.0f;
   if (g_max_moved) max_screen[0] = g_saved_max_x + 0.5f * g_eye_width;
-  o_SetRenderTarget(device, 0, g_wide);
+  RenderThreadOutSetRenderTarget(device, 0, g_wide);
   g_bound = g_wide;
-  if (g_wide_depth != nullptr) o_SetDepthStencil(device, g_wide_depth);
+  if (g_wide_depth != nullptr) {
+    RenderThreadOutSetDepthStencil(device, g_wide_depth);
+  }
   // THE FRAME BEFORE. The game draws each frame over the frame before
   // (eye_clean.cpp). The wide target keeps the picture of each eye in its
   // half from one frame to the next, so each eye has its own frame before.
@@ -615,7 +609,8 @@ bool OneWalkBeginPass(float separation) {
         D3DCLEAR_TARGET | (g_wide_depth != nullptr ? D3DCLEAR_ZBUFFER : 0);
     D3DVIEWPORT9 all = {0, 0, g_eye_width * 2, g_eye_height, 0.0f, 1.0f};
     device->SetViewport(&all);
-    o_Clear(device, 0, nullptr, clear, D3DCOLOR_ARGB(255, 0, 0, 0), 1.0f, 0);
+    RenderThreadOutClear(device, 0, nullptr, clear, D3DCOLOR_ARGB(255, 0, 0, 0),
+                         1.0f, 0);
   }
   ++g_passes;
   return true;
@@ -630,8 +625,8 @@ void OneWalkEndPass() {
     g_max_moved = false;
   }
   if (g_device != nullptr) {
-    o_SetRenderTarget(g_device, 0, g_game_target);
-    o_SetDepthStencil(g_device, g_game_depth);
+    RenderThreadOutSetRenderTarget(g_device, 0, g_game_target);
+    RenderThreadOutSetDepthStencil(g_device, g_game_depth);
     g_bound = g_game_target;
   }
   if (g_game_target != nullptr) g_game_target->Release();

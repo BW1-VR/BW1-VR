@@ -55,6 +55,7 @@
 #include "MinHook.h"
 #include "../common/bw_addresses.h"
 #include "draw_merge_math.h"
+#include "render_thread.h"
 
 extern void ModLog(const char* format, ...);
 // draw_probe.cpp: the hooks of the device, and the draw call of a batch.
@@ -144,11 +145,13 @@ void DrawMergeFlush();
 namespace {
 
 // The calls of a surface that read or write pixels, or that change how a
-// texture draws. The batch goes out before each of them.
+// texture draws. The batch goes out before each of them, and the render
+// thread makes each call of the walk before them (render_thread.cpp).
 HRESULT WINAPI h_Blt(IDirectDrawSurface7* self, LPRECT destination,
                      IDirectDrawSurface7* source, LPRECT source_rect,
                      DWORD flags, LPDDBLTFX fx) {
   DrawMergeFlush();
+  RenderThreadSync();
   return o_Blt(self, destination, source, source_rect, flags, fx);
 }
 
@@ -156,29 +159,34 @@ HRESULT WINAPI h_BltFast(IDirectDrawSurface7* self, DWORD x, DWORD y,
                          IDirectDrawSurface7* source, LPRECT source_rect,
                          DWORD flags) {
   DrawMergeFlush();
+  RenderThreadSync();
   return o_BltFast(self, x, y, source, source_rect, flags);
 }
 
 HRESULT WINAPI h_GetDC(IDirectDrawSurface7* self, HDC* dc) {
   DrawMergeFlush();
+  RenderThreadSync();
   return o_GetDC(self, dc);
 }
 
 HRESULT WINAPI h_Lock(IDirectDrawSurface7* self, LPRECT rect,
                       LPDDSURFACEDESC2 desc, DWORD flags, HANDLE event) {
   DrawMergeFlush();
+  RenderThreadSync();
   return o_Lock(self, rect, desc, flags, event);
 }
 
 HRESULT WINAPI h_SetColorKey(IDirectDrawSurface7* self, DWORD flags,
                              LPDDCOLORKEY key) {
   DrawMergeFlush();
+  RenderThreadSync();
   return o_SetColorKey(self, flags, key);
 }
 
 HRESULT WINAPI h_SetPalette(IDirectDrawSurface7* self,
                             LPDIRECTDRAWPALETTE palette) {
   DrawMergeFlush();
+  RenderThreadSync();
   return o_SetPalette(self, palette);
 }
 
@@ -395,6 +403,10 @@ bool DrawMergeTake(void* self, D3DPRIMITIVETYPE type, DWORD fvf,
   }
   return true;
 }
+
+// True when the hooks of the surface calls are in (render_thread.cpp needs
+// their stops).
+bool DrawMergeSurfaceHooked() { return g_installed; }
 
 // Gives the batch to Direct3D as one draw call. Each hook of a call that
 // changes what a draw call does calls this first.

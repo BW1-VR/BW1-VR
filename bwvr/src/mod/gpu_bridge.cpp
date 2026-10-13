@@ -59,6 +59,7 @@
 #include <string.h>
 
 #include "MinHook.h"
+#include "render_thread.h"
 #include "ui_panel.h"
 
 extern void ModLog(const char* format, ...);
@@ -479,6 +480,9 @@ HRESULT STDMETHODCALLTYPE h_CreateDepth(IDirect3DDevice9* self, UINT width,
                                         DWORD quality, BOOL discard,
                                         IDirect3DSurface9** out,
                                         HANDLE* shared) {
+  // A new surface in a scene walk: each call of the walk goes to Direct3D 9
+  // first (render_thread.cpp).
+  RenderThreadSync();
   if (g_making_own_depth) {
     return o_CreateDepth(self, width, height, format, multisample, quality,
                          discard, out, shared);

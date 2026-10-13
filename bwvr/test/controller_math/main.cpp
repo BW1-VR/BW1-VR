@@ -3558,6 +3558,7 @@ void CreatureChecks() {
 #include "blt_copy_checks.h"
 #include "target_glow_checks.h"
 #include "scene_sample_checks.h"
+#include "render_thread_checks.h"
 
 int main() {
   const float eye[3] = {120.0f, 45.0f, -300.0f};
@@ -3960,6 +3961,7 @@ int main() {
   take_stream_checks::TakeStreamChecks();
   target_glow_checks::TargetGlowChecks();
   scene_sample_checks::SceneSampleChecks();
+  render_thread_checks::RenderThreadChecks();
 
   printf("\n%d checks, %d failed\n", g_checks, g_failures);
   return g_failures == 0 ? 0 : 1;

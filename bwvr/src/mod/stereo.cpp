@@ -67,6 +67,7 @@
 #include "bubble_card.h"
 #include "cutscene_window.h"
 #include "frame_profile.h"
+#include "render_thread.h"
 #include "scene_sample.h"
 #include "ui_panel.h"
 
@@ -582,6 +583,30 @@ float FrameSeparation() {
   return separation;
 }
 
+// THE KEYS OF A VIRTUAL KEYBOARD. The keyboard of Virtual Desktop can send a
+// key down and up at once, between two frames, so GetAsyncKeyState in a
+// frame does not see it. The game reads its keys from the window messages of
+// its thread. A hook of the messages of that thread sees each key as the game
+// sees it, and keeps the press for the next frame. The state of Shift and
+// Ctrl comes from GetKeyState, which is the state of that message.
+static volatile LONG g_shift_digit[2] = {0, 0};  // Shift 8, Shift 9
+static HHOOK g_message_hook = nullptr;
+static bool g_message_hook_tried = false;
+
+static LRESULT CALLBACK KeyMessageHook(int code, WPARAM remove, LPARAM message) {
+  if (code == HC_ACTION && remove == PM_REMOVE) {
+    const MSG* m = reinterpret_cast<const MSG*>(message);
+    const bool first = (m->lParam & (1 << 30)) == 0;  // not a repeat
+    if (m->message == WM_KEYDOWN && first &&
+        (m->wParam == '8' || m->wParam == '9') &&
+        (GetKeyState(VK_SHIFT) & 0x8000) != 0 &&
+        (GetKeyState(VK_CONTROL) & 0x8000) == 0) {
+      InterlockedExchange(&g_shift_digit[m->wParam - '8'], 1);
+    }
+  }
+  return CallNextHookEx(g_message_hook, code, remove, message);
+}
+
 // A key pressed in another program is not for the game. GetAsyncKeyState
 // reads the keyboard of the whole system, so the mod reads its keys only
 // while a window of this process is in front.
@@ -633,6 +658,11 @@ bool GameHasFocus() {
 //               (eye_clean, eye_clean.cpp)
 //   Shift Delete  a speech bubble of the game is one card at the depth of its
 //               sign, or it is drawn as before (bubble_card, bubble_card.cpp)
+//   Shift 8     the calls of each scene walk go to the render thread, or to
+//               Direct3D 9 as they come (render_thread, render_thread.cpp)
+//   Shift 9     the answers of some calls of a texture with no lock of the
+//               device go on and off (render_thread_lock_free,
+//               render_thread.cpp)
 //   Ctrl Shift Numpad Slash  the mod waits for the GPU after each eye pass,
 //               one time a frame, or one time a frame on a second thread
 //               that also gives the frame to the runtime (frame_send,
@@ -763,6 +793,23 @@ void PollHotkeys() {
   // Kept up to date without focus too, so a key that is already down when
   // the game comes to the front does not count as a new press.
   for (int i = 0; i < kKeys; ++i) down[i] = now[i];
+  // An A/B of the render thread (docs/backend.md, "The render thread"), and
+  // of the answers with no lock of the device ("The lock of the device"):
+  // Shift 8 and Shift 9, from the hook of the messages. The game uses Shift
+  // with 1 to 7 for its bookmarks, and no key with 8 or 9.
+  if (g_test_keys && !g_message_hook_tried) {
+    g_message_hook_tried = true;
+    g_message_hook =SetWindowsHookExA(WH_GETMESSAGE, KeyMessageHook, nullptr,
+                                       GetCurrentThreadId());
+    ModLog("test key     : the hook of the messages for Shift 8 and Shift 9 "
+           "%s", g_message_hook != nullptr ? "is in" : "FAILED");
+  }
+  if (InterlockedExchange(&g_shift_digit[0], 0) != 0) {
+    RenderThreadToggle("Shift and 8");
+  }
+  if (InterlockedExchange(&g_shift_digit[1], 0) != 0) {
+    RenderThreadLockFreeToggle("Shift and 9");
+  }
   // An A/B of one walk (docs/backend.md, "One walk for both eyes"). The
   // menu key (VK_APPS) has no action in the game and no other test key.
   static bool menu_down = false;
@@ -1085,6 +1132,9 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
   // The merge of draw calls: its hooks at the first frame of the scene, and
   // the pictures of its test.
   if (DrawMergeFrame(ControllersFrameCount())) EyeCaptureArmNow(g_frames + 1);
+  if (RenderThreadFrame(ControllersFrameCount())) {
+    EyeCaptureArmNow(g_frames + 1);
+  }
   const bool capture_frame = EyeCaptureWanted(g_frames + 1);
   UiPanelBeginFrame(to_headset, to_headset && g_screen->projection() && !flat,
                     g_frames + 1, capture_frame);
@@ -1310,10 +1360,14 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
     }
     // The merge of draw calls takes the draw calls of the scene walk only.
     DrawMergePass(true);
+    // The calls of the walk to Direct3D 9 can go to the render thread. The
+    // end waits until each of them went to Direct3D 9.
+    RenderThreadWalk(true);
     o_Process3dEngine(self, unused);
     // The targets get the color of the game back (target_glow.cpp).
     TargetGlowPassDone();
     DrawMergePass(false);
+    RenderThreadWalk(false);
     if (walk_wide) {
       EyeCleanOneWalkAfter();
       OneWalkEndPass();
@@ -1620,6 +1674,7 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
     ModLog("rest of frame: %.2f ms outside the scene walk entirely",
            Ms(g_after_hook_ticks));
     SceneSampleReport(g_timed_now, Ms(g_scene_ticks));
+    RenderThreadReport(g_timed_now);
     PresentWatchReport(g_timed_now);
     {
       const float inverse_z = UiDepthWorldInverseZ();

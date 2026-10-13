@@ -26,6 +26,7 @@
 #include "../vr/xr_screen.h"
 #include "controllers.h"
 #include "frame_profile.h"
+#include "render_thread.h"
 #include "tabletop.h"
 #include "far_grab.h"
 #include "take_stream.h"
@@ -495,6 +496,10 @@ int g_frame_send = 0;
 int g_draw_merge = 1;
 int g_draw_merge_test = 0;
 int g_draw_merge_test_frame = 0;
+// The render thread (render_thread.cpp), and its test key for desktop runs.
+int g_render_thread = 0;
+int g_render_thread_test_frame = 0;
+int g_render_thread_lock_free = 1;
 // A speech bubble of the game as one card (bubble_card.cpp), and its test
 // keys for desktop runs.
 int g_bubble_card = 1;
@@ -1258,6 +1263,14 @@ void ReadSettings() {
       GetPrivateProfileIntA("bwvr", "draw_merge_test", 0, path));
   g_draw_merge_test_frame = static_cast<int>(
       GetPrivateProfileIntA("bwvr", "draw_merge_test_frame", 0, path));
+  g_render_thread = static_cast<int>(
+      GetPrivateProfileIntA("bwvr", "render_thread", 0, path));
+  g_render_thread_test_frame = static_cast<int>(
+      GetPrivateProfileIntA("bwvr", "render_thread_test_frame", 0, path));
+  g_render_thread_lock_free =
+      GetPrivateProfileIntA("bwvr", "render_thread_lock_free", 1, path) != 0
+          ? 1
+          : 0;
   g_bubble_card =
       GetPrivateProfileIntA("bwvr", "bubble_card", 1, path) != 0 ? 1 : 0;
   g_bubble_card_test =
@@ -1511,6 +1524,8 @@ void StartVrOnce() {
     FrameSendSetOptions(g_frame_send);
     DrawMergeSetOptions(g_draw_merge, g_draw_merge_test,
                         g_draw_merge_test_frame);
+    RenderThreadSetOptions(g_render_thread, g_render_thread_test_frame,
+                           g_render_thread_lock_free);
     BubbleCardSetOptions(g_bubble_card, g_bubble_card_test,
                          g_bubble_card_test_frame);
     BubbleCardInstall();
@@ -1880,9 +1895,11 @@ void EarlyHooks() {
     return;
   }
   // With frame_send=2 a second thread makes calls on the device of the
-  // backend. The test key can choose that value in a session.
+  // backend, and the render thread is a second thread too. A test key can
+  // choose each of them in a session.
   GpuBridgeWantTwoThreads(
       GetPrivateProfileIntA("bwvr", "frame_send", 0, path) == 2 ||
+      GetPrivateProfileIntA("bwvr", "render_thread", 0, path) != 0 ||
       GetPrivateProfileIntA("bwvr", "test_keys", 0, path) != 0);
   GpuBridgeSetEnabled(true);
   GpuBridgeInstall();

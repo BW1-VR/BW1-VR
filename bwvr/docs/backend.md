@@ -50,6 +50,7 @@ Other docs: `software-tnl.md` (the CPU transform and the camera matrix),
 | `src/mod/spirit_anchor.cpp` | The advisors |
 | `src/mod/near_plane.cpp` | The near plane |
 | `src/mod/frame_timers.cpp`, `eye_capture.cpp`, `draw_probe.cpp` | Timing, eye pictures, draw probe |
+| `src/mod/render_thread.cpp`, `render_thread_ring.h` | The hooks of the Direct3D 9 device, and the render thread (`render_thread`) |
 | `src/mod/scene_sample.cpp`, `scene_sample_math.h` | A test aid: samples of the code of the frame thread in the scene walks, by module (`profile_sample`) |
 | `src/common/exe_check.h`, `version.h` | The build check and the product name |
 
@@ -1179,6 +1180,15 @@ holds the frame thread, so the walks of such a run are that much longer. An
 address in `ntdll.dll` or `win32u.dll` is mostly a call of the kernel: the
 driver in the kernel, or a wait. A save of the launcher removes the key.
 
+Each sample also has a copy of the top 384 bytes of the stack. For the
+samples in `ntdll.dll` the log has two more lines: the return addresses with
+the most samples, first the first one outside the modules of the system,
+then the first one that is also outside `d3d9.dll` and the mod. So these
+lines name the code that waits, and the code of the game or of dxwrapper
+that called it. A return address is a value on the stack with a call just
+before it in its module (`scene_sample_math.h`). An old value on the stack
+can look like one.
+
 **The split in a headset.** SteamVR with a Steam Frame, Ryzen 9 7950X3D,
 Radeon RX 7900 XTX, a render of 3304 by 2644 with 4x multisampling,
 `one_walk=1`, `frame_send=2`, `profile_sample=250`. The ms are of one frame,
@@ -1517,6 +1527,111 @@ The scene time of one walk holds the copies for the right eye, 0.29 to
 `one_walk_check=1`: on a frame that saves pictures, the right eye also gets
 its own walk, and its picture is saved as `walk2` beside the right eye of one
 walk.
+
+## The render thread
+
+`render_thread=1` gives the calls of each scene walk from dxwrapper to
+Direct3D 9 to a thread of their own (`render_thread.cpp`). The key is 0 by
+default. "Where the time of the scene walk goes" has why: over the whole
+island about 6 ms of the walk are Direct3D 9, the driver and the kernel.
+
+### How it works
+
+| Part | What |
+| --- | --- |
+| The hooks | `render_thread.cpp` has the hooks of the Direct3D 9 device. The seven calls of one walk come to its hooks first, and one walk gives its calls to the `RenderThreadOut` functions. So one walk runs on the frame thread, before the record |
+| The record | In a scene walk on the frame thread, a call that sets a state, binds a texture, a target, a buffer or a shader, clears, starts or ends a scene, or draws writes a record to a queue of 64 MiB and returns `D3D_OK`. A record has a copy of each array of the call (the vertices and the indices of a draw, the rects of a clear). A resource in a record has a reference until the call was made |
+| The render thread | It reads the queue in order and makes the calls. It sleeps when the queue is empty |
+| The stops | Each other call of the device, a lock of a texture, a surface or a buffer of Direct3D 9, the issue of a query, a DirectDraw call of a surface that reads or writes pixels (`Blt`, `BltFast`, `GetDC`, `Lock`, `SetColorKey`, `SetPalette`), a new depth surface, and the end of the walk wait until the render thread made each call before them. A thunk of machine code on each other call of the device does that stop |
+| The reads | A read of the format, the viewport, the scissor rect, a render state, a texture, a stage state, a sampler state, a target or the depth surface gives the value that the walk set. The start of each walk reads each of these values one time, while the queue is empty |
+| The device | With `render_thread` 1 or 2 in the ini the mod asks for a device that permits calls from two threads, as for `frame_send=2` |
+
+So each call has the state and the place in the order that it has with no
+render thread, and the pictures are the same. The render thread waits for
+the hooks of the surface calls of `draw_merge.cpp`, so it needs
+`draw_merge=1`.
+
+`render_thread=2` is a test of the record and of the stops: the records go
+to Direct3D 9 on the frame thread at each stop and at the end of the walk.
+With `test_keys=1`, Shift and 8 turn the render thread off and on from the
+next scene walk. `render_thread_test_frame=N` gives the frames N and N+1
+the mode of the ini and N+2 and N+3 the mode 0, each with a picture of each
+eye. The run needs a scripted controller (`fake_controller=1`), because N is
+a frame of the controllers.
+
+### The lock of the device
+
+A device that permits calls from two threads has a lock. Each call of
+Direct3D 9 takes it, also a call of a resource: `GetType`, `QueryInterface`,
+`AddRef` and `Release`. The render thread holds the lock in each call that
+it makes. So a call of the frame thread that takes the lock waits for the
+call of the render thread to end, which is about one draw.
+
+At each `SetTexture` and in each loop over the stages, dxwrapper calls such
+calls on the texture. `render_thread_lock_free=1` (the default) gives these
+answers with no lock:
+
+| Call | Where dxwrapper calls it | What the mod does |
+| --- | --- | --- |
+| `GetType` | `dxwrapper.dll+0x21367`, `+0x23987` | The type of a class of texture is fixed. The mod knows the vtable of each class of texture from a texture of each kind that it makes, and gives the type of that class. An object of another class goes to Direct3D 9 |
+| `QueryInterface` for `IUnknown` | `+0x29203` | The `IUnknown` of a texture is the texture itself. The mod checks that on each class |
+| `QueryInterface`, then `Release` | `+0x29203`, `+0x2921A` | A pair with nothing between: no reference, no lock |
+| `AddRef`, then `Release` | `+0x292AF`, `+0x292B5` | A pair on one object: no reference, no lock. When the `Release` is of another object, the mod makes the `AddRef` first |
+| `GetTexture`, then `Release` | `+0x2396B`, `+0x23A8E` | The texture that the walk set, with no reference. The object of dxwrapper for the texture has a reference, so the texture lives between the two calls |
+
+The mod knows a pair by the return address of each call, on the same thread
+and object. Before the hooks go in, the mod compares the bytes of dxwrapper
+at each pair with the bytes of the pinned release of dxwrapper. When they
+are different, the pairs go to Direct3D 9. The count of references of each
+texture is the same as with Direct3D 9. One difference: `GetType` of
+Direct3D 9 gives 0 when the device is gone, and the hook gives the type.
+`render_thread_lock_free=0` gives each of these calls to Direct3D 9. With
+`test_keys=1`, Shift and 9 turn the answers on and off.
+
+### The time
+
+A desktop run at the start of a new game: a render of 3304 by 2644 with 4x
+multisampling, `one_walk=1`, `fake_controller=1`, `profile_sample=250`. The
+ms are of one frame, each a mean of 450 frames. The columns of
+`render_thread=1` are two runs of one build, and each run has the frames of
+`render_thread=0` after its test frame:
+
+| | `render_thread=0` | `render_thread=1`, `render_thread_lock_free=0` | `render_thread=1`, `render_thread_lock_free=1` |
+| --- | --- | --- | --- |
+| The scene walks on the frame thread | 5.4 to 5.6 ms | 4.5 to 4.6 ms | 3.0 to 3.05 ms |
+| `AMDXN32.DLL` on the frame thread | 2.2 ms | 0 ms | 0 ms |
+| `ntdll.dll` on the frame thread | 0.8 to 0.9 ms | 2.1 ms | 0.9 to 1.0 ms |
+| The render thread busy | | 3.2 to 3.3 ms | 2.75 to 2.8 ms |
+| The frame time of the game | 11.1 to 11.4 ms | 10.3 to 10.5 ms | 8.7 to 8.8 ms |
+
+With `render_thread_lock_free=0` the frame thread waits about 1.5 ms in a
+frame for the lock of the device (see "The lock of the device"). With
+`render_thread_lock_free=1` that wait is gone. Most of the time of
+`ntdll.dll` is then the wait at the end of the walk, until the render thread
+made each call. So the render thread, which is the driver, sets the time of
+the walk now. The pictures of the test frames of the two modes differ as much
+as two frames of one mode (0.006 to 0.008 percent of the pixels).
+
+**In a headset.** SteamVR 2.18.3 with a Steam Frame, a render of 3304 by
+2644 with 4x multisampling, `one_walk=1`, `frame_send=2`,
+`profile_sample=250`. A view of the whole island has 3000 to 3350 draws in a
+frame. The ms are of one frame, each a mean of 450 frames, with the test
+keys in one session. The frame is the time from the end of `xrWaitFrame` to
+the end of `xrEndFrame`:
+
+| | `render_thread=0` | `render_thread=1`, `render_thread_lock_free=0` | `render_thread=1`, `render_thread_lock_free=1` |
+| --- | --- | --- | --- |
+| The scene walks on the frame thread | 11.3 to 11.4 ms | 8.8 ms | 5.5 to 5.9 ms |
+| The render thread busy | | 5.7 ms | 4.6 to 5.1 ms |
+| The frame | 16.4 to 19.9 ms | 13.9 ms | 10.9 to 11.5 ms |
+
+### The log
+
+Each 450 frames: the records, the draws and the KiB of a frame, the stops
+and their time, the wait at the end of the walks, the busy time of the
+render thread, the waits for room in the queue, the calls too large for the
+queue, and the calls that failed. A second line gives the stops by the call
+that made them.
 
 ## The world around you
 
@@ -2781,6 +2896,8 @@ in front. The mod reads the keys and never takes them from the game.
 | Ctrl Shift Equals | `test_keys=1` | The ears decide the start of the loop of a bulk take, or the game camera decides and the take has no sound in the God view. A long pulse and a short pulse (`audio_take_loop`, `audio.md`, 6.4). The equals key is in the row of digits |
 | Ctrl Shift Minus | `test_keys=1` | The pieces of the stream of a take at a distance go on a curve from the top of the source to the Hand, or they are on the line of the game, from the land under the Hand. A long pulse and a short pulse (`take_stream`, `grab.md`, "The stream of a take at a distance"). The minus key is in the row of digits |
 | Ctrl Shift Left bracket | `test_keys=1` | What marks a target of the Hand steps from 1 to 0 to 2 and back: the glow on the mesh with a halo only for a target whose mesh does not glow, the halo, or the glow and the halo. A long pulse for 1, a short pulse for 0 and a longer pulse for 2 (`target_glow`, `hand-model.md`, "The glow on the mesh of a target"). The left square bracket key is right of the P key on a US keyboard |
+| Shift 8 | `test_keys=1` | The calls of each scene walk go to the render thread, or to Direct3D 9 as they come, from the next scene walk. A long pulse and a short pulse (`render_thread`, "The render thread"). The game uses Shift with 1 to 7 for its bookmarks. A hook of the messages of the game thread reads the key, so a key of a virtual keyboard that goes down and up between two frames counts. Ctrl must be up |
+| Shift 9 | `test_keys=1` | The mod gives the answers of some calls of a texture with no lock of the device, or each call goes to Direct3D 9, from the next call. A long pulse and a short pulse (`render_thread_lock_free`, "The lock of the device"). It works only while `render_thread` is 1 or 2 in the ini. It is read as Shift 8. Ctrl must be up |
 | Ctrl Shift Numpad Slash | `test_keys=1` | The mod waits for the GPU after each eye pass, one time a frame, or one time a frame on a second thread that also gives the frame to the runtime. A long pulse, a pulse of middle length and a short pulse (`frame_send`, "One wait a frame, and a second thread"). The slash key with Shift and no Ctrl is a key of the Temple, and with no Shift it is a key of the throw |
 | Menu key | `test_keys=1` | One walk for both eyes on and off (see "One walk for both eyes"). The key beside the right Ctrl key that opens a context menu. Ctrl and Shift must be up |
 | Ctrl Menu key | `test_keys=1` | The layout of the buttons of the hand that does not point. The menu button of the left controller opens the game menu, Y opens the ring and the stick does not drive the ring, or Y opens the game menu and X and the stick open the ring. A long pulse and a short pulse on that hand (`button_layout`, `controllers.md`, 5.1). Shift must be up |
@@ -2882,6 +2999,9 @@ keys that the launcher sets.
 | `bubble_card` | 1 | 1: a speech bubble of the game is one flat card at the depth of its sign. 0: it is drawn as the game and the interface depth make it in each eye pass. See `ui-layer.md`, section 18 |
 | `bubble_card_test`, `bubble_card_test_frame` | 0, 0 | Test keys of the desktop runs. See the same section |
 | `one_walk`, `one_walk_check` | 1, 0 | See "One walk for both eyes" |
+| `render_thread`, `render_thread_test_frame` | 0, 0 | See "The render thread" |
+| `render_thread_lock_free` | 1 | 1: the frame thread gets the answers of some calls of a texture with no lock of the device. 0: each goes to Direct3D 9. See "The lock of the device" |
+| `profile_sample` | 0 | A test key. See "Where the time of the scene walk goes" |
 | `skip_desktop_present` | 1 | See "The copy to the monitor" |
 | `blt_texture_copy` | 1 | 1: the mod makes a copy with a texture and no stretch itself. 0: each copy goes to dxwrapper. See "The copy to the monitor" |
 | `test_frame_rate` | 0 | A test key of the desktop runs: the frame rate of a run with no copy to the monitor. See "The copy to the monitor" |

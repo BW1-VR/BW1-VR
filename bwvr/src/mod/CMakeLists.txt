@@ -28,6 +28,7 @@ add_library(bwvr_mod SHARED
     tick_direct.cpp
     frame_profile.cpp
     scene_sample.cpp
+    render_thread.cpp
     frame_time.cpp
     fov.cpp
     input_watch.cpp

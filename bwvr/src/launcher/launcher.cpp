@@ -646,6 +646,7 @@ const char* const kRetiredKeys[] = {
     "spawn_test_toggle", "spawn_test_x", "spawn_test_z",
     "spirit_point_world_test", "spirit_world_size_test",
     "subtitle_card_test", "subtitle_selftest", "profile_sample",
+    "render_thread_test_frame",
     "temple_test_camera_trace",
     "temple_test_click_frame", "temple_test_door_on",
     "temple_test_enter_frame", "temple_test_flight_frame",

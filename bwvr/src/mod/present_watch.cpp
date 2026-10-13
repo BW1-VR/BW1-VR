@@ -35,6 +35,7 @@
 #include "../common/bw_addresses.h"
 #include "blt_copy_math.h"
 #include "frame_profile.h"
+#include "render_thread.h"
 
 extern void ModLog(const char* format, ...);
 // draw_merge.cpp: the batch of the merge of draw calls goes to Direct3D
@@ -362,6 +363,7 @@ HRESULT WINAPI h_Blt(IDirectDrawSurface7* self, LPRECT destination,
                      IDirectDrawSurface7* source, LPRECT source_rect,
                      DWORD flags, LPDDBLTFX fx) {
   DrawMergeFlush();
+  RenderThreadSync();
   HRESULT copied = DD_OK;
   if (g_texture_copy && TextureCopy(self, destination, source, source_rect,
                                     flags, fx, _ReturnAddress(), &copied)) {
@@ -406,6 +408,7 @@ HRESULT WINAPI h_Blt(IDirectDrawSurface7* self, LPRECT destination,
 HRESULT WINAPI h_Flip(IDirectDrawSurface7* self, IDirectDrawSurface7* target,
                       DWORD flags) {
   DrawMergeFlush();
+  RenderThreadSync();
   LARGE_INTEGER before, after;
   QueryPerformanceCounter(&before);
   const HRESULT hr = o_Flip(self, target, flags);
