@@ -647,7 +647,7 @@ const char* const kRetiredKeys[] = {
     "spirit_point_world_test", "spirit_world_size_test",
     "subtitle_card_test", "subtitle_selftest", "profile_sample",
     "profile_sample_thread", "profile_sample_dump", "profile_gpu",
-    "hang_watch",
+    "hang_watch", "gpu_flush_ab",
     "render_thread_test_frame",
     "temple_test_camera_trace",
     "temple_test_click_frame", "temple_test_door_on",

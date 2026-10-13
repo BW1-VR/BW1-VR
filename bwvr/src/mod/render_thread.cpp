@@ -2915,7 +2915,27 @@ void RenderThreadSync() {
   Stop(kStopSurface);
 }
 
+// gpu_flush_ab=1 (a test key): each window of the report has the other
+// value of gpu_flush, the value of the ini (or 128) and 0, so a session in a
+// headset compares the two with no key.
+static bool g_flush_ab = false;
+
+void RenderThreadSetFlushAb(bool on) {
+  g_flush_ab = on;
+  if (on) {
+    ModLog("gpu flush ab : gpu_flush_ab=1. Each window of 450 frames has the "
+           "other value of gpu_flush: %d and 0",
+           g_flush_ini > 0 ? g_flush_ini : 128);
+  }
+}
+
 void RenderThreadReport(uint64_t frames) {
+  if (g_flush_ab && frames > 0) {
+    const int was = g_flush_every;
+    g_flush_every = was > 0 ? 0 : (g_flush_ini > 0 ? g_flush_ini : 128);
+    ModLog("gpu flush ab : the window that ends now had gpu_flush=%d, the next "
+           "one has %d", was, g_flush_every);
+  }
   if (g_profile_gpu != 0 && frames > 0 && (g_gpu_walks > 0 || g_gpu_lost > 0)) {
     ModLog("gpu time     : the scene walks took %.3f ms in a frame on the GPU, "
            "from the first call of a walk to its last (%.3f ms for one walk). "

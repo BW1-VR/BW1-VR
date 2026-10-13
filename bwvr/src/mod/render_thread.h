@@ -48,3 +48,6 @@ void RenderThreadSync();
 void RenderThreadReport(uint64_t frames);
 // The id of the render thread, or 0 before it starts (scene_sample.cpp).
 unsigned long RenderThreadWorkerId();
+// gpu_flush_ab=1 (a test key): each window of the report goes to the other
+// value of gpu_flush.
+void RenderThreadSetFlushAb(bool on);

@@ -1722,7 +1722,10 @@ with `D3DGETDATA_FLUSH` and no wait. Then the driver gives the GPU the calls
 so far, and the GPU draws while the walk goes on. With the render thread the
 render thread does it, with no render thread the frame thread does it in the
 `RenderThreadOut` functions. `gpu_flush=0` leaves it to the driver. With
-`test_keys=1`, Shift and J turn it off and on.
+`test_keys=1`, Shift and J turn it off and on. `gpu_flush_ab=1` (a test
+key) gives each window of 450 frames the other value, the value of the ini
+(or 128) and 0, and the log says it at the end of each window, so a session
+in a headset compares the two with no key.
 
 A desktop run with `render_thread=1`, 1096 draws in a frame: the GPU is done
 2.98 ms after the walk with no flush, 1.57 ms with a flush each 64 or 128
@@ -3157,6 +3160,7 @@ keys that the launcher sets.
 | `render_thread_filter` | 1 | 1: a call of a walk that sets the value that the device has already does not go to Direct3D 9. 0: each goes. See "The calls that change nothing" |
 | `render_thread_buffers` | 1 | 1: the render thread draws the `DrawIndexedPrimitiveUP` of a walk from buffers of its own. 0: each goes to Direct3D 9 as it is. See "The buffers of the render thread" |
 | `gpu_flush` | 128 | N: each N draws of a walk the driver gives the calls so far to the GPU. 0: when the driver wants. See "The flush" |
+| `gpu_flush_ab` | 0 | A test key: 1 changes `gpu_flush` at each window of 450 frames. See "The flush" |
 | `profile_gpu` | 0 | A test key. See "The GPU time" |
 | `hang_watch` | 0 | A test key. See "The watch of the frame thread" |
 | `profile_sample` | 0 | A test key. See "Where the time of the scene walk goes" |
