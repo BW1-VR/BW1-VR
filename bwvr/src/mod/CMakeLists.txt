@@ -75,6 +75,7 @@ add_library(bwvr_mod SHARED
     near_plane.cpp
     net_check.cpp
     dx_check.cpp
+    hang_watch.cpp
     gesture_air.cpp
     audio_listener.cpp
     audio_rolloff.cpp

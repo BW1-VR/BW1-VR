@@ -512,22 +512,29 @@ that moves while the Hand takes it.
     state calls in a frame. A thread that gets a record of these calls and
     gives them to Direct3D takes that time off the frame thread. The thread
     is built as a test key (`render_thread`, `backend.md`, "The render
-    thread"). In a desktop run it takes the driver off the frame thread, and
-    with the answers of the calls of a texture that take no lock
-    (`render_thread_lock_free`) a frame is 8.7 ms in place of 11.2 ms. In a
-    headset over the whole island the scene walk is 5.5 to 5.9 ms in place
-    of 11.3 ms, and a frame 11 ms in place of 16 to 20 ms. The render
-    thread, which is the driver, then sets the time of the walk. Open: more
-    sessions in a headset (the Temple, a story, a load of a saved game),
-    then the default value of `render_thread`. Before the thread, with one
-    walk, a view of the
-    whole island has about 1500 batches and a scene walk of 9.5 to 11 ms,
+    thread"). In a desktop run it takes the driver off the frame thread.
+    With the answers of the calls of a texture that take no lock, the drop
+    of the calls that change nothing and the buffers of the render thread,
+    a frame is 7.5 to 7.7 ms in place of 10.7 to 10.9 ms. In a headset over
+    the whole island (with the lock answers only) the scene walk is 5.5 to
+    5.9 ms in place of 11.3 ms, and a frame 11 ms in place of 16 to 20 ms.
+    The render thread, which is the driver, sets the time of the walk. Open:
+    a headset session with the filter and the buffers, more sessions in a
+    headset (the Temple, a story, a load of a saved game), then the default
+    value of `render_thread`. An idea that is not built: one walk sets the
+    viewport two times for each batch (the right half, then back). With the
+    order of the two eyes changed from batch to batch, one change of the
+    viewport for each batch is enough. Before the thread, with one walk, a
+    view of the whole island has about 1500 batches and a scene walk of 9.5 to 11 ms,
     and the runtime then shows 45 frames a second. Of that walk about 6 ms
     are Direct3D 9, the driver of AMD and the kernel, and less than 3 ms are
     the game (`profile_sample`, `backend.md`, "Where the time of the scene
     walk goes"). So the thread takes the calls of dxwrapper to Direct3D 9,
     not the calls of the game to dxwrapper. For 90 frames a second the scene
-    walk must be under about 6 ms, because the GPU needs 3 to 4 ms after it.
+    walk must be under about 6 ms, because the frame waits 3 to 4 ms for the
+    GPU after it. Most of that wait is the driver, which gives the calls to
+    the GPU late: the GPU works about 2 ms on the walks of a frame
+    (`profile_gpu`).
     DXVK in place of the Direct3D 9 of Windows halves the time of Direct3D 9
     and the driver, but the share of the GPU bridge to Direct3D 11 fails with
     it.

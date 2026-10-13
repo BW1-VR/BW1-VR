@@ -166,6 +166,7 @@ enum Op : uint16_t {
   kOpSetIndices,
   kOpSetPixelShader,
   kOpSetPixelShaderConstantF,
+  kOpIssueQuery,
   kOps
 };
 
@@ -284,6 +285,10 @@ SetConstantsFn o_SetPixelShaderConstantF = nullptr;
 int g_ini_mode = 0;          // render_thread
 int g_test_frame = 0;        // render_thread_test_frame
 bool g_lock_free = true;     // render_thread_lock_free
+bool g_filter = true;        // render_thread_filter
+// The calls of a walk that set the value that the device has already, by
+// kind. With render_thread_filter=1 they do not go to Direct3D 9.
+uint64_t g_same[kOps] = {0};
 int g_wanted = 0;            // the mode for the next walk
 int g_mode = 0;              // the mode of this walk
 bool g_seven = false;        // the hooks of one walk are in
@@ -318,6 +323,20 @@ __declspec(align(64)) volatile LONG g_line_end = 0;
 const int kKeptStages = 16;
 const int kKeptStageStates = 33;   // D3DTSS_CONSTANT is 32
 const int kKeptSamplerStates = 14; // D3DSAMP_DMAPOFFSET is 13
+const int kKeptTransforms = 14;
+
+// The place of a matrix in Kept::transform, or -1 for a matrix that is not
+// kept: view 0, projection 1, the texture matrices 2 to 9, the world
+// matrices 0 to 3 at 10 to 13.
+int TransformSlot(D3DTRANSFORMSTATETYPE state) {
+  const int s = static_cast<int>(state);
+  if (s == D3DTS_VIEW) return 0;
+  if (s == D3DTS_PROJECTION) return 1;
+  if (s >= D3DTS_TEXTURE0 && s <= D3DTS_TEXTURE7) return 2 + s - D3DTS_TEXTURE0;
+  if (s >= 256 && s < 260) return 10 + s - 256;  // D3DTS_WORLDMATRIX(0..3)
+  return -1;
+}
+
 struct Kept {
   bool fvf_ok;
   DWORD fvf;
@@ -337,6 +356,10 @@ struct Kept {
   DWORD stage[kKeptStages][kKeptStageStates];
   uint8_t sampler_ok[kKeptStages][kKeptSamplerStates];
   DWORD sampler[kKeptStages][kKeptSamplerStates];
+  // The matrices that the walk set: view, projection, the 8 texture
+  // matrices and the first 4 world matrices (TransformSlot).
+  uint8_t transform_ok[kKeptTransforms];
+  D3DMATRIX transform[kKeptTransforms];
 };
 Kept g_kept;
 
@@ -394,6 +417,7 @@ void ResetKept() {
   memset(g_kept.texture_ok, 0, sizeof(g_kept.texture_ok));
   memset(g_kept.stage_ok, 0, sizeof(g_kept.stage_ok));
   memset(g_kept.sampler_ok, 0, sizeof(g_kept.sampler_ok));
+  memset(g_kept.transform_ok, 0, sizeof(g_kept.transform_ok));
 }
 
 // At the start of a walk the queue is empty, so a read of Direct3D 9 gives
@@ -472,6 +496,179 @@ void Drop(IUnknown* object) {
 }
 
 // Makes the call of one record. Gives the bytes of the record.
+// ---------------------------------------------------------------------------
+// THE BUFFERS (render_thread_buffers=1). Each draw of a walk is a
+// DrawIndexedPrimitiveUP. Direct3D 9 copies the vertices and the indices of
+// each one to a buffer of its own, with a lock for each draw. The render
+// thread can see the records that wait in the queue. So it copies the
+// vertices and the 16-bit indices of all of them to a vertex buffer and an
+// index buffer of its own, with one lock of each buffer, and draws each one
+// with DrawIndexedPrimitive from there. The place of a vertex block is a
+// multiple of its stride, so BaseVertexIndex finds it.
+//
+// After a DrawIndexedPrimitiveUP the device has no vertex buffer on stream 0
+// and no index buffer. The render thread puts that state back before the
+// queue is empty, and before a record that sets a stream or the indices or
+// draws from a buffer. A Reset of the device needs each buffer of the
+// default pool to be released, so a Reset releases them first.
+
+const UINT kVertexBufferBytes = 16u << 20;
+const UINT kIndexBufferBytes = 4u << 20;
+const int kMaxPrepared = 8192;
+
+struct Prepared {
+  INT base_vertex;
+  UINT start_index;
+};
+bool g_buffers = true;  // render_thread_buffers
+IDirect3DVertexBuffer9* g_vb = nullptr;
+IDirect3DIndexBuffer9* g_ib = nullptr;
+IDirect3DDevice9* g_buffers_device = nullptr;
+bool g_buffers_failed = false;
+UINT g_vb_at = 0;  // the first free byte
+UINT g_ib_at = 0;
+bool g_bound = false;      // our buffers are on stream 0 and the indices
+UINT g_bound_stride = 0;
+Prepared g_prepared[kMaxPrepared];
+// For the report, written by the render thread.
+volatile LONG g_buffer_draws = 0;
+volatile LONG g_up_draws = 0;
+volatile LONG g_buffer_locks = 0;
+
+void ReleaseBuffers() {
+  if (g_vb != nullptr) g_vb->Release();
+  if (g_ib != nullptr) g_ib->Release();
+  g_vb = nullptr;
+  g_ib = nullptr;
+  g_buffers_device = nullptr;
+  g_bound = false;
+  g_vb_at = g_ib_at = 0;
+}
+
+bool MakeBuffers(IDirect3DDevice9* d) {
+  if (g_buffers_device == d && g_vb != nullptr) return true;
+  ReleaseBuffers();
+  if (g_buffers_failed) return false;
+  if (FAILED(d->CreateVertexBuffer(kVertexBufferBytes,
+                                   D3DUSAGE_DYNAMIC | D3DUSAGE_WRITEONLY, 0,
+                                   D3DPOOL_DEFAULT, &g_vb, nullptr)) ||
+      FAILED(d->CreateIndexBuffer(kIndexBufferBytes,
+                                  D3DUSAGE_DYNAMIC | D3DUSAGE_WRITEONLY,
+                                  D3DFMT_INDEX16, D3DPOOL_DEFAULT, &g_ib,
+                                  nullptr))) {
+    ReleaseBuffers();
+    g_buffers_failed = true;
+    ModLog("render thread: render_thread_buffers=1, but the buffers could not "
+           "be made. Each draw goes to Direct3D 9 as it is");
+    return false;
+  }
+  g_buffers_device = d;
+  return true;
+}
+
+// The state that a DrawIndexedPrimitiveUP leaves: no buffer on stream 0, no
+// indices.
+void Unbind() {
+  if (!g_bound) return;
+  o_SetStreamSource(g_device, 0, nullptr, 0, 0);
+  o_SetIndices(g_device, nullptr);
+  g_bound = false;
+}
+
+// Copies the vertices and the indices of the draws in [read, write) to the
+// buffers, and marks each of them in its header (unused is its place in
+// g_prepared, plus 1). A draw that does not fit stays a
+// DrawIndexedPrimitiveUP. The render thread owns these records.
+void Prepare(uint32_t read, uint32_t write) {
+  if (!g_buffers || g_mode != 1 || g_device == nullptr) return;
+  if (!MakeBuffers(g_device)) return;
+  // The bytes that the draws need, in the order of the queue.
+  UINT vb_need = 0, ib_need = 0;
+  int count = 0;
+  for (uint32_t at = read; at != write && count < kMaxPrepared;) {
+    Header* h = reinterpret_cast<Header*>(g_queue + (at & (kQueueBytes - 1)));
+    if (h->op == kOpDrawIndexedPrimitiveUP) {
+      const ArgDrawIndexedUP* a =
+          reinterpret_cast<const ArgDrawIndexedUP*>(h + 1);
+      if (a->index_format == D3DFMT_INDEX16 && a->stride != 0) {
+        const UINT start = (vb_need + a->stride - 1) / a->stride * a->stride;
+        vb_need = start + a->vertex_bytes;
+        ib_need += (a->index_bytes + 3u) & ~3u;
+        ++count;
+      }
+    }
+    at += h->bytes;
+  }
+  // A lock for one or a few draws costs more than it saves.
+  if (count < 8) return;
+  if (vb_need > kVertexBufferBytes || ib_need > kIndexBufferBytes) return;
+  // The copies go after the last ones, with no overwrite, or to the start of
+  // the buffer with a discard. A change of the stride can add up to one
+  // stride of room, so the room left must hold more than vb_need. The lock
+  // is from the first free byte to the end of the buffer.
+  DWORD vb_flags = D3DLOCK_NOOVERWRITE, ib_flags = D3DLOCK_NOOVERWRITE;
+  UINT vb_base = g_vb_at;
+  if (vb_base + vb_need + vb_need / 8u + 65536u > kVertexBufferBytes) {
+    vb_base = 0;
+    vb_flags = D3DLOCK_DISCARD;
+  }
+  UINT ib_base = (g_ib_at + 3u) & ~3u;
+  if (ib_base + ib_need > kIndexBufferBytes) {
+    ib_base = 0;
+    ib_flags = D3DLOCK_DISCARD;
+  }
+  uint8_t* vb_data = nullptr;
+  uint8_t* ib_data = nullptr;
+  const UINT vb_lock = kVertexBufferBytes - vb_base;
+  if (FAILED(g_vb->Lock(vb_base, vb_lock, reinterpret_cast<void**>(&vb_data),
+                        vb_flags))) {
+    return;
+  }
+  if (FAILED(g_ib->Lock(ib_base, ib_need, reinterpret_cast<void**>(&ib_data),
+                        ib_flags))) {
+    g_vb->Unlock();
+    return;
+  }
+  InterlockedIncrement(&g_buffer_locks);
+  UINT v = 0, i = 0;
+  int n = 0;
+  bool full = false;
+  for (uint32_t at = read; at != write && n < count;) {
+    Header* h = reinterpret_cast<Header*>(g_queue + (at & (kQueueBytes - 1)));
+    if (h->op == kOpDrawIndexedPrimitiveUP) {
+      const ArgDrawIndexedUP* a =
+          reinterpret_cast<const ArgDrawIndexedUP*>(h + 1);
+      if (a->index_format == D3DFMT_INDEX16 && a->stride != 0) {
+        // The block starts at a multiple of the stride from the start of
+        // the buffer.
+        const UINT absolute = vb_base + v;
+        const UINT start =
+            (absolute + a->stride - 1) / a->stride * a->stride;
+        if (start + a->vertex_bytes > vb_base + vb_lock) {
+          full = true;
+        }
+        if (!full) {
+          const uint8_t* vertices = reinterpret_cast<const uint8_t*>(a + 1);
+          const uint8_t* indices = vertices + ((a->vertex_bytes + 7u) & ~7u);
+          memcpy(vb_data + (start - vb_base), vertices, a->vertex_bytes);
+          memcpy(ib_data + i, indices, a->index_bytes);
+          g_prepared[n].base_vertex = static_cast<INT>(start / a->stride);
+          g_prepared[n].start_index = (ib_base + i) / 2u;
+          h->unused = static_cast<uint16_t>(n + 1);
+          v = start + a->vertex_bytes - vb_base;
+          i += (a->index_bytes + 3u) & ~3u;
+        }
+        ++n;
+      }
+    }
+    at += h->bytes;
+  }
+  g_vb->Unlock();
+  g_ib->Unlock();
+  g_vb_at = vb_base + v;
+  g_ib_at = ib_base + i;
+}
+
 uint32_t Play(const uint8_t* at) {
   const Header* h = reinterpret_cast<const Header*>(at);
   const uint8_t* p = at + sizeof(Header);
@@ -558,22 +755,41 @@ uint32_t Play(const uint8_t* at) {
       hr = o_SetScissorRect(d, reinterpret_cast<const RECT*>(p));
       break;
     case kOpDrawPrimitive: {
+      Unbind();
       const ArgDraw* a = reinterpret_cast<const ArgDraw*>(p);
       hr = o_DrawPrimitive(d, a->type, a->a, a->b);
       break;
     }
     case kOpDrawIndexedPrimitive: {
+      Unbind();
       const ArgDraw* a = reinterpret_cast<const ArgDraw*>(p);
       hr = o_DrawIndexedPrimitive(d, a->type, a->base, a->a, a->b, a->c, a->d);
       break;
     }
     case kOpDrawPrimitiveUP: {
+      Unbind();
       const ArgDrawUP* a = reinterpret_cast<const ArgDrawUP*>(p);
       hr = o_DrawPrimitiveUP(d, a->type, a->count, a + 1, a->stride);
       break;
     }
     case kOpDrawIndexedPrimitiveUP: {
       const ArgDrawIndexedUP* a = reinterpret_cast<const ArgDrawIndexedUP*>(p);
+      if (h->unused != 0) {
+        const Prepared& b = g_prepared[h->unused - 1];
+        if (!g_bound || g_bound_stride != a->stride) {
+          o_SetStreamSource(d, 0, g_vb, 0, a->stride);
+          g_bound_stride = a->stride;
+        }
+        if (!g_bound) o_SetIndices(d, g_ib);
+        g_bound = true;
+        hr = o_DrawIndexedPrimitive(d, a->type, b.base_vertex, a->min_index,
+                                    a->vertex_count, b.start_index,
+                                    a->primitive_count);
+        InterlockedIncrement(&g_buffer_draws);
+        break;
+      }
+      Unbind();
+      InterlockedIncrement(&g_up_draws);
       const uint8_t* vertices = reinterpret_cast<const uint8_t*>(a + 1);
       const uint8_t* indices = vertices + ((a->vertex_bytes + 7u) & ~7u);
       hr = o_DrawIndexedPrimitiveUP(d, a->type, a->min_index, a->vertex_count,
@@ -591,6 +807,11 @@ uint32_t Play(const uint8_t* at) {
     case kOpSetFVF:
       hr = o_SetFVF(d, *reinterpret_cast<const DWORD*>(p));
       break;
+    case kOpIssueQuery: {
+      const ArgObject* a = reinterpret_cast<const ArgObject*>(p);
+      hr = static_cast<IDirect3DQuery9*>(a->object)->Issue(D3DISSUE_END);
+      break;
+    }
     case kOpSetVertexShader: {
       const ArgObject* a = reinterpret_cast<const ArgObject*>(p);
       hr = o_SetVertexShader(d, static_cast<IDirect3DVertexShader9*>(a->object));
@@ -604,12 +825,14 @@ uint32_t Play(const uint8_t* at) {
       break;
     }
     case kOpSetStreamSource: {
+      Unbind();
       const ArgStream* a = reinterpret_cast<const ArgStream*>(p);
       hr = o_SetStreamSource(d, a->stream, a->buffer, a->offset, a->stride);
       Drop(a->buffer);
       break;
     }
     case kOpSetIndices: {
+      Unbind();
       const ArgObject* a = reinterpret_cast<const ArgObject*>(p);
       hr = o_SetIndices(d, static_cast<IDirect3DIndexBuffer9*>(a->object));
       Drop(a->object);
@@ -677,14 +900,28 @@ DWORD WINAPI Worker(LPVOID) {
     // of what was written, and the count of the writer is read again only
     // then: each read of a count of the other core moves its cache line.
     const uint64_t start = Ticks();
+    // The buffers take the draws of [read, write) before they play. A new
+    // part of the queue is prepared only when the part before it has
+    // played, because the marks of the records point into g_prepared.
+    Prepare(read, write);
     while (read != write) {
       int played = 0;
       while (read != write && played < 64) {
         read += Play(g_queue + (read & (kQueueBytes - 1)));
         ++played;
       }
+      if (read == write) {
+        const uint32_t next = LoadIndex(&g_write);
+        if (next == write) {
+          // The queue is empty: the device gets the state that it has with
+          // no buffers before a stop can see it.
+          Unbind();
+        } else {
+          Prepare(write, next);
+          write = next;
+        }
+      }
       StoreIndex(&g_read, read);
-      if (read == write) write = LoadIndex(&g_write);
     }
     InterlockedExchangeAdd64(&g_busy_ticks,
                              static_cast<LONG64>(Ticks() - start));
@@ -916,16 +1153,33 @@ HRESULT STDMETHODCALLTYPE h_SetTransform(IDirect3DDevice9* self,
                                          D3DTRANSFORMSTATETYPE state,
                                          const D3DMATRIX* matrix) {
   if (Taking(self) && matrix != nullptr) {
+    const int slot = TransformSlot(state);
+    if (slot >= 0 && g_kept.transform_ok[slot] &&
+        memcmp(&g_kept.transform[slot], matrix, sizeof(D3DMATRIX)) == 0) {
+      ++g_same[kOpSetTransform];
+      if (g_filter) return D3D_OK;
+    }
     ArgTransform a;
     a.state = state;
     a.matrix = *matrix;
-    if (Simple(kOpSetTransform, a)) return D3D_OK;
+    if (Simple(kOpSetTransform, a)) {
+      if (slot >= 0) {
+        g_kept.transform[slot] = *matrix;
+        g_kept.transform_ok[slot] = 1;
+      }
+      return D3D_OK;
+    }
   }
   return o_SetTransform(self, state, matrix);
 }
 
 HRESULT STDMETHODCALLTYPE h_SetViewport(IDirect3DDevice9* self,
                                         const D3DVIEWPORT9* viewport) {
+  if (Taking(self) && viewport != nullptr && g_kept.viewport_ok &&
+      memcmp(&g_kept.viewport, viewport, sizeof(D3DVIEWPORT9)) == 0) {
+    ++g_same[kOpSetViewport];
+    if (g_filter) return D3D_OK;
+  }
   if (Taking(self) && viewport != nullptr &&
       Simple(kOpSetViewport, *viewport)) {
     g_kept.viewport = *viewport;
@@ -997,6 +1251,11 @@ HRESULT STDMETHODCALLTYPE h_SetRenderState(IDirect3DDevice9* self,
                                            D3DRENDERSTATETYPE state,
                                            DWORD value) {
   if (Taking(self)) {
+    if (static_cast<DWORD>(state) < 256 && g_kept.state_ok[state] &&
+        g_kept.state[state] == value) {
+      ++g_same[kOpSetRenderState];
+      if (g_filter) return D3D_OK;
+    }
     const ArgState a = {static_cast<DWORD>(state), value, 0};
     if (Simple(kOpSetRenderState, a)) {
       if (static_cast<DWORD>(state) < 256) {
@@ -1032,6 +1291,11 @@ HRESULT STDMETHODCALLTYPE h_GetRenderState(IDirect3DDevice9* self,
 HRESULT STDMETHODCALLTYPE h_SetTexture(IDirect3DDevice9* self, DWORD stage,
                                        IDirect3DBaseTexture9* texture) {
   if (Taking(self)) {
+    if (stage < static_cast<DWORD>(kKeptStages) && g_kept.texture_ok[stage] &&
+        g_kept.texture[stage] == texture) {
+      ++g_same[kOpSetTexture];
+      if (g_filter) return D3D_OK;
+    }
     const ArgTexture a = {stage, texture};
     Hold(texture);
     if (Simple(kOpSetTexture, a)) {
@@ -1084,6 +1348,12 @@ HRESULT STDMETHODCALLTYPE h_SetTextureStageState(
     IDirect3DDevice9* self, DWORD stage, D3DTEXTURESTAGESTATETYPE type,
     DWORD value) {
   if (Taking(self)) {
+    if (stage < static_cast<DWORD>(kKeptStages) &&
+        static_cast<int>(type) < kKeptStageStates &&
+        g_kept.stage_ok[stage][type] && g_kept.stage[stage][type] == value) {
+      ++g_same[kOpSetTextureStageState];
+      if (g_filter) return D3D_OK;
+    }
     const ArgState a = {stage, static_cast<DWORD>(type), value};
     if (Simple(kOpSetTextureStageState, a)) {
       if (stage < static_cast<DWORD>(kKeptStages) &&
@@ -1123,6 +1393,13 @@ HRESULT STDMETHODCALLTYPE h_SetSamplerState(IDirect3DDevice9* self,
                                             D3DSAMPLERSTATETYPE type,
                                             DWORD value) {
   if (Taking(self)) {
+    if (sampler < static_cast<DWORD>(kKeptStages) &&
+        static_cast<int>(type) < kKeptSamplerStates &&
+        g_kept.sampler_ok[sampler][type] &&
+        g_kept.sampler[sampler][type] == value) {
+      ++g_same[kOpSetSamplerState];
+      if (g_filter) return D3D_OK;
+    }
     const ArgState a = {sampler, static_cast<DWORD>(type), value};
     if (Simple(kOpSetSamplerState, a)) {
       if (sampler < static_cast<DWORD>(kKeptStages) &&
@@ -1242,6 +1519,10 @@ HRESULT STDMETHODCALLTYPE h_SetVertexDeclaration(
 }
 
 HRESULT STDMETHODCALLTYPE h_SetFVF(IDirect3DDevice9* self, DWORD fvf) {
+  if (Taking(self) && g_kept.fvf_ok && g_kept.fvf == fvf) {
+    ++g_same[kOpSetFVF];
+    if (g_filter) return D3D_OK;
+  }
   if (Taking(self) && Simple(kOpSetFVF, fvf)) {
     g_kept.fvf = fvf;
     g_kept.fvf_ok = true;
@@ -1369,9 +1650,16 @@ bool ChangesStates(int which) {
 }
 
 void __cdecl OtherCall(int which) {
-  if (!g_recording || GetCurrentThreadId() != g_frame_thread) return;
-  Stop(which);
-  if (ChangesStates(which)) ResetKept();
+  const DWORD thread = GetCurrentThreadId();
+  if (g_recording && thread == g_frame_thread) {
+    Stop(which);
+    if (ChangesStates(which)) ResetKept();
+  }
+  // A Reset needs each buffer of the default pool to be released. The render
+  // thread is idle here: the queue is empty after the stop, or no walk runs.
+  if ((which == 16 || which == 132) && thread != g_worker_id) {
+    ReleaseBuffers();
+  }
 }
 
 const int kThunkBytes = 32;
@@ -1414,7 +1702,7 @@ bool HookStop(void* target, int which, bool* already) {
     *already = true;
     return true;
   }
-  if (status == MH_OK) status = MH_EnableHook(target);
+  if (status == MH_OK) status = MH_QueueEnableHook(target);
   if (status != MH_OK) return false;
   ++g_thunk_count;
   return true;
@@ -1422,7 +1710,7 @@ bool HookStop(void* target, int which, bool* already) {
 
 bool HookTyped(void** vtable, int slot, void* hook, void** original) {
   MH_STATUS status = MH_CreateHook(vtable[slot], hook, original);
-  if (status == MH_OK) status = MH_EnableHook(vtable[slot]);
+  if (status == MH_OK) status = MH_QueueEnableHook(vtable[slot]);
   return status == MH_OK;
 }
 
@@ -1848,7 +2136,7 @@ bool HookEachClass(IDirect3DResource9* const* textures, int count, int slot,
     if (made >= kMaxTypeHooks ||
         MH_CreateHook(code, hooks[made],
                       reinterpret_cast<void**>(&originals[made])) != MH_OK ||
-        MH_EnableHook(code) != MH_OK) {
+        MH_QueueEnableHook(code) != MH_OK) {
       return false;
     }
     ++made;
@@ -1966,7 +2254,7 @@ void InstallGetType(IDirect3DDevice9* device) {
     if (hooked >= kMaxTypeHooks ||
         MH_CreateHook(code[i], kGetTypeHooks[hooked],
                       reinterpret_cast<void**>(&o_GetType[hooked])) != MH_OK ||
-        MH_EnableHook(code[i]) != MH_OK) {
+        MH_QueueEnableHook(code[i]) != MH_OK) {
       ok = false;
       break;
     }
@@ -2000,7 +2288,7 @@ void InstallGetType(IDirect3DDevice9* device) {
         MH_CreateHook(query, kQueryInterfaceHooks[query_hooks],
                       reinterpret_cast<void**>(
                           &o_QueryInterface[query_hooks])) != MH_OK ||
-        MH_EnableHook(query) != MH_OK) {
+        MH_QueueEnableHook(query) != MH_OK) {
       identity = false;
       break;
     }
@@ -2066,6 +2354,88 @@ void InstallGetType(IDirect3DDevice9* device) {
            "FAILED or a class has two types. %d hooks are in", hooked);
   }
   for (int i = 0; i < count; ++i) probes[i]->Release();
+}
+
+// ---------------------------------------------------------------------------
+// THE GPU TIME (profile_gpu=1, a test key). A timestamp query at the start
+// and at the end of each scene walk gives the time that the GPU took for
+// the walk, from its first call to its last. With the render thread the
+// queries go in the queue, so they have their place in the order of the
+// calls. The mod reads a pair four walks later, with no flush and no wait.
+// A pair that is not ready then is lost.
+
+const int kStampSets = 4;
+struct StampSet {
+  IDirect3DQuery9* begin;
+  IDirect3DQuery9* end;
+  IDirect3DQuery9* frequency;
+  bool issued;
+};
+int g_profile_gpu = 0;
+bool g_stamps_failed = false;
+StampSet g_stamps[kStampSets] = {};
+int g_stamp_at = 0;
+IDirect3DDevice9* g_stamp_device = nullptr;
+double g_gpu_ms = 0.0;
+uint64_t g_gpu_walks = 0;
+uint64_t g_gpu_lost = 0;
+
+void IssueStamp(IDirect3DQuery9* query) {
+  if (g_recording) {
+    const ArgObject a = {query};
+    if (Simple(kOpIssueQuery, a)) return;
+    Stop(kStopQueryIssue);
+  }
+  query->Issue(D3DISSUE_END);
+}
+
+// Reads the set of four walks before, and gives its queries to this walk.
+// The queue is empty here.
+void StampWalkBegin(IDirect3DDevice9* device) {
+  if (g_profile_gpu == 0 || g_stamps_failed || device == nullptr) return;
+  if (device != g_stamp_device) {
+    for (StampSet& s : g_stamps) {
+      if (s.begin != nullptr) s.begin->Release();
+      if (s.end != nullptr) s.end->Release();
+      if (s.frequency != nullptr) s.frequency->Release();
+      s = StampSet();
+    }
+    g_stamp_device = device;
+    for (StampSet& s : g_stamps) {
+      if (FAILED(device->CreateQuery(D3DQUERYTYPE_TIMESTAMP, &s.begin)) ||
+          FAILED(device->CreateQuery(D3DQUERYTYPE_TIMESTAMP, &s.end)) ||
+          FAILED(device->CreateQuery(D3DQUERYTYPE_TIMESTAMPFREQ,
+                                     &s.frequency))) {
+        g_stamps_failed = true;
+        ModLog("render thread: profile_gpu=1, but the device has no "
+               "timestamp queries");
+        return;
+      }
+    }
+  }
+  StampSet& s = g_stamps[g_stamp_at];
+  if (s.issued) {
+    UINT64 a = 0, b = 0, f = 0;
+    if (s.begin->GetData(&a, sizeof(a), 0) == S_OK &&
+        s.end->GetData(&b, sizeof(b), 0) == S_OK &&
+        s.frequency->GetData(&f, sizeof(f), 0) == S_OK && f != 0 && b >= a) {
+      g_gpu_ms += 1000.0 * static_cast<double>(b - a) / static_cast<double>(f);
+      ++g_gpu_walks;
+    } else {
+      ++g_gpu_lost;
+    }
+  }
+  s.issued = true;
+  IssueStamp(s.frequency);
+  IssueStamp(s.begin);
+}
+
+void StampWalkEnd() {
+  if (g_profile_gpu == 0 || g_stamps_failed || g_stamp_device == nullptr) {
+    return;
+  }
+  IssueStamp(g_stamps[g_stamp_at].end);
+  g_stamp_at = (g_stamp_at + 1) % kStampSets;
 }
 
 bool StartWorker() {
@@ -2216,7 +2586,20 @@ HRESULT RenderThreadOutDrawIndexedPrimitiveUP(
 
 // ---------------------------------------------------------------------------
 
+// The hooks are queued in MinHook and go in at the end with one
+// MH_ApplyQueued. Each MH_EnableHook stops each thread of the process for a
+// moment, and over a hundred of them take seconds when the window of the
+// game is not in front. MH_ApplyQueued stops no thread when nothing is
+// queued, so the call in each walk costs little.
+static bool InstallQueued(IDirect3DDevice9* device, bool all);
+
 bool RenderThreadInstall(IDirect3DDevice9* device, bool all) {
+  const bool ok = InstallQueued(device, all);
+  MH_ApplyQueued();
+  return ok;
+}
+
+static bool InstallQueued(IDirect3DDevice9* device, bool all) {
   if (device == nullptr) return false;
   if (g_device != nullptr && device != g_device) {
     // A new device of the same class has the same code, so the hooks stay.
@@ -2246,13 +2629,37 @@ bool RenderThreadInstall(IDirect3DDevice9* device, bool all) {
   return true;
 }
 
-void RenderThreadSetOptions(int mode, int test_frame, int lock_free) {
+void RenderThreadSetOptions(int mode, int test_frame, int lock_free,
+                            int filter, int buffers, int profile_gpu) {
   g_ini_mode = mode == 1 || mode == 2 ? mode : 0;
   g_wanted = g_ini_mode;
   g_test_frame = test_frame > 0 ? test_frame : 0;
   g_lock_free = lock_free != 0;
+  g_filter = filter != 0;
+  g_buffers = buffers != 0;
+  g_profile_gpu = profile_gpu != 0 ? 1 : 0;
   ModLog("render thread: render_thread=%d. %s", g_ini_mode,
          ModeName(g_ini_mode));
+}
+
+void RenderThreadFilterToggle(const char* keys) {
+  g_filter = !g_filter;
+  ControllersGesturePulse(0.5f, g_filter ? 0.30f : 0.08f);
+  ModLog("test key     : %s, render_thread_filter is %d: %s", keys,
+         g_filter ? 1 : 0,
+         g_filter ? "a call of a walk that sets the value that the device has "
+                    "already does not go to Direct3D 9"
+                  : "each call of a walk goes to Direct3D 9");
+}
+
+void RenderThreadBuffersToggle(const char* keys) {
+  g_buffers = !g_buffers;
+  ControllersGesturePulse(0.5f, g_buffers ? 0.30f : 0.08f);
+  ModLog("test key     : %s, render_thread_buffers is %d: %s", keys,
+         g_buffers ? 1 : 0,
+         g_buffers ? "the render thread draws from buffers of its own"
+                   : "the render thread gives each DrawIndexedPrimitiveUP to "
+                     "Direct3D 9");
 }
 
 void RenderThreadLockFreeToggle(const char* keys) {
@@ -2288,6 +2695,7 @@ bool RenderThreadFrame(uint64_t frame) {
 
 void RenderThreadWalk(bool begin) {
   if (!begin) {
+    StampWalkEnd();
     if (!g_recording) return;
     const uint64_t start = Ticks();
     Drain();
@@ -2296,10 +2704,12 @@ void RenderThreadWalk(bool begin) {
     return;
   }
   g_mode = 0;
-  if (g_wanted == 0) return;
   IDirect3DDevice9* device =
       static_cast<IDirect3DDevice9*>(GpuBridgeDeviceObject());
-  if (device == nullptr) return;
+  if (g_wanted == 0 || device == nullptr) {
+    StampWalkBegin(device);
+    return;
+  }
   if (!DrawMergeSurfaceHooked()) {
     if (!g_said_no_surface) {
       g_said_no_surface = true;
@@ -2307,9 +2717,13 @@ void RenderThreadWalk(bool begin) {
              "draw_merge.cpp (draw_merge=1), because a write of a texture "
              "must stop the queue");
     }
+    StampWalkBegin(device);
     return;
   }
-  if (!RenderThreadInstall(device, true)) return;
+  if (!RenderThreadInstall(device, true)) {
+    StampWalkBegin(device);
+    return;
+  }
   g_mode = g_wanted;
   g_frame_thread = GetCurrentThreadId();
   ReadAll(device);
@@ -2317,6 +2731,7 @@ void RenderThreadWalk(bool begin) {
   // The queue is empty here: the end of each walk waits for it.
   InterlockedExchange(&g_worker_on, g_mode == 1 ? 1 : 0);
   g_recording = true;
+  StampWalkBegin(device);
 }
 
 void RenderThreadSync() {
@@ -2325,7 +2740,70 @@ void RenderThreadSync() {
 }
 
 void RenderThreadReport(uint64_t frames) {
+  if (g_profile_gpu != 0 && frames > 0 && (g_gpu_walks > 0 || g_gpu_lost > 0)) {
+    ModLog("gpu time     : the scene walks took %.3f ms in a frame on the GPU, "
+           "from the first call of a walk to its last (%.3f ms for one walk). "
+           "%llu walks measured, %llu not ready four walks later",
+           g_gpu_ms / static_cast<double>(frames),
+           g_gpu_walks > 0 ? g_gpu_ms / static_cast<double>(g_gpu_walks) : 0.0,
+           g_gpu_walks, g_gpu_lost);
+    g_gpu_ms = 0.0;
+    g_gpu_walks = g_gpu_lost = 0;
+  }
   if (g_walks == 0 || frames == 0) return;
+  {
+    // The calls by kind, and the calls that set the value that the device
+    // has already.
+    static const char* const kNames[kOps] = {
+        "wrap", "SetRenderTarget", "SetDepthStencil", "BeginScene",
+        "EndScene", "Clear", "SetTransform", "SetViewport", "SetMaterial",
+        "SetLight", "LightEnable", "SetClipPlane", "SetRenderState",
+        "SetTexture", "SetTextureStageState", "SetSamplerState",
+        "SetScissorRect", "DrawPrimitive", "DrawIndexedPrimitive",
+        "DrawPrimitiveUP", "DrawIndexedPrimitiveUP", "SetVertexDeclaration",
+        "SetFVF", "SetVertexShader", "SetVertexShaderConstantF",
+        "SetStreamSource", "SetIndices", "SetPixelShader",
+        "SetPixelShaderConstantF", "IssueQuery"};
+    const double per = static_cast<double>(frames);
+    char line[1024];
+    int used = 0;
+    uint64_t shown[kOps] = {0};
+    memcpy(shown, g_records, sizeof(shown));
+    for (int k = 0; k < 12; ++k) {
+      int best = -1;
+      for (int i = 1; i < kOps; ++i) {
+        if (shown[i] > 0 && (best < 0 || shown[i] > shown[best])) best = i;
+      }
+      if (best < 0) break;
+      used += sprintf_s(line + used, sizeof(line) - used, "%s%s %.0f",
+                        k == 0 ? "" : ", ", kNames[best], shown[best] / per);
+      shown[best] = 0;
+    }
+    ModLog("render thread: the calls of a frame in the queue by kind: %s", line);
+    uint64_t same = 0;
+    for (int i = 0; i < kOps; ++i) same += g_same[i];
+    ModLog("render thread: render_thread_filter=%d. %.0f calls of a frame set "
+           "the value that the device had already (SetRenderState %.0f, "
+           "SetTextureStageState %.0f, SetSamplerState %.0f, SetTexture %.0f, "
+           "SetFVF %.0f, SetViewport %.0f, SetTransform %.0f)%s",
+           g_filter ? 1 : 0, same / per, g_same[kOpSetRenderState] / per,
+           g_same[kOpSetTextureStageState] / per,
+           g_same[kOpSetSamplerState] / per, g_same[kOpSetTexture] / per,
+           g_same[kOpSetFVF] / per, g_same[kOpSetViewport] / per,
+           g_same[kOpSetTransform] / per,
+           g_filter ? ". They did not go to Direct3D 9" : "");
+    memset(g_same, 0, sizeof(g_same));
+    const LONG buffer_draws = InterlockedExchange(&g_buffer_draws, 0);
+    const LONG up_draws = InterlockedExchange(&g_up_draws, 0);
+    const LONG locks = InterlockedExchange(&g_buffer_locks, 0);
+    if (g_buffers || buffer_draws > 0) {
+      ModLog("render thread: render_thread_buffers=%d. A frame: %.0f draws "
+             "from the buffers of the render thread, %.0f "
+             "DrawIndexedPrimitiveUP, %.1f locks of the buffers",
+             g_buffers ? 1 : 0, buffer_draws / per, up_draws / per,
+             locks / per);
+    }
+  }
   uint64_t records = 0;
   for (int i = 0; i < kOps; ++i) records += g_records[i];
   uint64_t stops = 0;
@@ -2370,3 +2848,5 @@ void RenderThreadReport(uint64_t frames) {
   memset(g_stops, 0, sizeof(g_stops));
   g_bytes = g_stop_ticks = g_end_ticks = g_full_waits = g_too_large = 0;
 }
+
+unsigned long RenderThreadWorkerId() { return g_worker_id; }

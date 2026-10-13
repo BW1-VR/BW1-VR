@@ -272,6 +272,9 @@ void EyeLumaReport();
 // temple.cpp: before the scene walk of a frame in the Temple.
 void TempleBeforeScene();
 
+// hang_watch.cpp: the watch of the frame thread (hang_watch, a test key).
+void HangWatchFrame();
+
 namespace {
 
 // GGame::Process3dEngine is __thiscall with no arguments, so the object
@@ -589,7 +592,8 @@ float FrameSeparation() {
 // its thread. A hook of the messages of that thread sees each key as the game
 // sees it, and keeps the press for the next frame. The state of Shift and
 // Ctrl comes from GetKeyState, which is the state of that message.
-static volatile LONG g_shift_digit[2] = {0, 0};  // Shift 8, Shift 9
+// Shift 8, Shift 9, Shift F, Shift G
+static volatile LONG g_shift_key[4] = {0, 0, 0, 0};
 static HHOOK g_message_hook = nullptr;
 static bool g_message_hook_tried = false;
 
@@ -597,11 +601,15 @@ static LRESULT CALLBACK KeyMessageHook(int code, WPARAM remove, LPARAM message) 
   if (code == HC_ACTION && remove == PM_REMOVE) {
     const MSG* m = reinterpret_cast<const MSG*>(message);
     const bool first = (m->lParam & (1 << 30)) == 0;  // not a repeat
-    if (m->message == WM_KEYDOWN && first &&
-        (m->wParam == '8' || m->wParam == '9') &&
+    const int index = m->wParam == '8'   ? 0
+                      : m->wParam == '9' ? 1
+                      : m->wParam == 'F' ? 2
+                      : m->wParam == 'G' ? 3
+                                         : -1;
+    if (m->message == WM_KEYDOWN && first && index >= 0 &&
         (GetKeyState(VK_SHIFT) & 0x8000) != 0 &&
         (GetKeyState(VK_CONTROL) & 0x8000) == 0) {
-      InterlockedExchange(&g_shift_digit[m->wParam - '8'], 1);
+      InterlockedExchange(&g_shift_key[index], 1);
     }
   }
   return CallNextHookEx(g_message_hook, code, remove, message);
@@ -663,6 +671,12 @@ bool GameHasFocus() {
 //   Shift 9     the answers of some calls of a texture with no lock of the
 //               device go on and off (render_thread_lock_free,
 //               render_thread.cpp)
+//   Shift F     a call of a walk that sets the value that the device has
+//               already goes to Direct3D 9 or not (render_thread_filter,
+//               render_thread.cpp)
+//   Shift G     the render thread draws from buffers of its own, or gives
+//               each DrawIndexedPrimitiveUP to Direct3D 9
+//               (render_thread_buffers, render_thread.cpp)
 //   Ctrl Shift Numpad Slash  the mod waits for the GPU after each eye pass,
 //               one time a frame, or one time a frame on a second thread
 //               that also gives the frame to the runtime (frame_send,
@@ -804,11 +818,17 @@ void PollHotkeys() {
     ModLog("test key     : the hook of the messages for Shift 8 and Shift 9 "
            "%s", g_message_hook != nullptr ? "is in" : "FAILED");
   }
-  if (InterlockedExchange(&g_shift_digit[0], 0) != 0) {
+  if (InterlockedExchange(&g_shift_key[0], 0) != 0) {
     RenderThreadToggle("Shift and 8");
   }
-  if (InterlockedExchange(&g_shift_digit[1], 0) != 0) {
+  if (InterlockedExchange(&g_shift_key[1], 0) != 0) {
     RenderThreadLockFreeToggle("Shift and 9");
+  }
+  if (InterlockedExchange(&g_shift_key[2], 0) != 0) {
+    RenderThreadFilterToggle("Shift and F");
+  }
+  if (InterlockedExchange(&g_shift_key[3], 0) != 0) {
+    RenderThreadBuffersToggle("Shift and G");
   }
   // An A/B of one walk (docs/backend.md, "One walk for both eyes"). The
   // menu key (VK_APPS) has no action in the game and no other test key.
@@ -941,6 +961,7 @@ void FrameFunction(int index, void (*function)()) {
 
 void __fastcall Process3dEngineBody(void* self, void* unused) {
   PollHotkeys();
+  HangWatchFrame();
   const bool to_headset = g_screen != nullptr && g_screen->running() &&
                           g_screen->eyes() > 1;
   if (!g_enabled || !g_stereo_on || (!to_headset && !g_headless)) {
