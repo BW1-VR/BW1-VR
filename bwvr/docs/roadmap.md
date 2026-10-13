@@ -317,20 +317,38 @@ is built, and no test has proven it.
   depth is the depth of the inside of the window. Wanted: the cut scene
   plays inside the window, and the advisors have a depth between the
   player and the window.
-- **B30. The Creature does not take food from the Hand with the leash
-  on.** In a headset session the Creature was on the leash. The player took
-  a pig and opened the grip to give it to the Creature, as in the game. The
-  Creature did not take it: it stood there and pointed at things. Some more
-  tries had the same result. With the leash shaken off, the Creature took
-  the pig after two or three tries. The cause is not known. To find: what
-  the game needs for the gift of food (the place of the Hand, the leash, the
-  state of the Creature), and what the mod sends when the grip opens with
-  the leash on the Hand.
-- **B31. With the leash on, the Hand cannot take some objects at a
-  distance.** In a headset session with the Creature on the leash, a grip
-  at a distance did not take some objects. Wanted: with the leash on, the
-  targets of a Creature command keep their teal halo, and the grip still
-  takes each object that is in reach of the grab at a distance.
+- **B30. The gift of an object to the Creature: check it in a headset.**
+  An object in the Hand that the player lets go at the Creature is a gift,
+  with the leash on and with no leash. The gift goes on while the hand is at
+  the Creature (`creature_gift=1`), and a Creature that is the target of
+  the object stays the target to 6 cm (`hold_creature_stay=1`,
+  `creature.md`, section 2.9). Desktop runs show a pig that the Creature
+  takes with the leash on, and the game that ends the same gift with
+  `creature_gift=0` (`creature_recipe.ps1 -Kind gift` in
+  `bwvr/tools/desk`). Check in a headset, with a real hand:
+  - The Creature takes a pig at the first opening of the grip, with the
+    leash on and with no leash.
+  - A move of the hand away from the Creature keeps the object in the Hand.
+  - 20 cm (`creature_gift_cm`) is a good reach, and the halo on the
+    Creature is steady while the hand is at it.
+- **B31. With the leash on, a grip at a distance takes nothing from some
+  objects.** The grab at a distance has no test of the leash: with the
+  leash on it takes each object in its range. Three rules stop a grip
+  there, and the halo does not tell them apart:
+  - The target of a Creature command has its halo to 10 m of the room from
+    the head (`creature_command_max_m`), and the grab at a distance takes an
+    object to 2 m (`far_grab_max_m`). So a tree at 2.2 m has the halo of a
+    command, and a grip on it takes nothing.
+  - The game does not let the Hand take the object that holds a tied
+    leash. A press on that object is a press for the leash (hand mode
+    `0x20`), at the Hand and from a distance.
+  - Near objects win (`grab.md`): an object that a press acts on near the
+    Hand's point turns the grab at a distance off. A Creature on the leash
+    comes to the Hand, so this happens more often with the leash on.
+
+  To decide: a halo or a line of the card that shows which objects the
+  grip takes, a longer range of the grab while the leash is on, or no
+  change.
 
 B1b, B2, B4 and B11 are one package: a thing that is held, thrown, or
 that moves while the Hand takes it.

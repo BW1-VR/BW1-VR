@@ -2355,7 +2355,8 @@ rules in `village_math.h`.
 object of the pick record of now (`GInterface+0x3C8`). When it is a Creature that
 says yes to the object in the Hand, the Hand keeps it at `CHand+0x49B4` for 1100
 ms (the timer at `0x00D13F3C`). So the record must hold the Creature before the
-press.
+press. What the game does after the press, and how it ends a gift, is in
+`creature.md`, section 1.8.
 
 **What each object goes onto** (`ValidToApplyThisToObject` of its class):
 
@@ -2433,6 +2434,12 @@ takes most objects. For these two the Hand's point, or the object in the Hand, m
 be in the body. So a villager that the player sets down beside the altar is no
 sacrifice, and a Creature that stands near the Hand does not take the wood.
 
+**A Creature that is the target stays the target** (`hold_creature_stay=1`,
+`HoldReachNow`). A Creature that was the target in the last frame has the reach of
+each other thing, `hold_target_cm`. Its body is small and it moves, so with no stay
+the halo comes and goes while the hand is almost still. The gift itself is in
+`creature.md`, section 2.9.
+
 **The record, the halo and the card.** `VillageKeepRecord` puts the target in the
 next pick record after each eye pass, before each interface step and before each
 press. The target has the gold halo of a target of the grip (`VillageHalo`,
@@ -2469,6 +2476,7 @@ the target at the next close and opening of the grip.
 | --- | --- | --- |
 | `hold_target` | 1 | 0: the pick record of an object in the Hand is the object behind the pixel of the Hand's point |
 | `hold_target_cm` | 6 | The reach of a thing, from the Hand's point or from the object in the Hand to its body, in cm of the room. 1 to 50 |
+| `hold_creature_stay` | 1 | 1: a Creature that is the target stays the target to `hold_target_cm` from its body. 0: a Creature is the target only with the Hand's point or the object in its body |
 
 `scaffold_join` and `scaffold_join_cm` are second names of the two keys. The mod
 reads them when `hold_target` and `hold_target_cm` are not in the file. The keys
@@ -2503,24 +2511,26 @@ times the game put an object on a thing. The tag `hand press` has "the grip pres
 with ... in the Hand. The pick record holds ...".
 
 The math test (`village_checks.h`): the choice with the two gaps, the reach, no
-reach for the altar and for a Creature, and the line of the card for each pair of
-the tables above.
+reach for the altar and for a Creature, the reach of a Creature that was the target,
+and the line of the card for each pair of the tables above.
 
 Desktop runs (the God view, `village_run.ps1`) have shown wood at the Village Store,
 a tree at the Village Store (the card says "Open to give the tree as wood", and the
 store has more wood after the opening), two scaffolds, wood at the Workshop, wood at
 a building site and a scaffold, and a villager at a tree and at the Village Store.
+Desktop runs of `creature_recipe.ps1 -Kind gift` have shown an animal given to a
+Creature (`creature.md`, section 6.2).
 
 **Not run on the desktop:** food, an animal and a crop at a store (the same
-code with a different class), the altar and a sacrifice, a teleport, an object given
-to a Creature, a thing outside the influence (the red halo and its line), a villager
-at a field, at a building site and at the Workshop, and a scaffold that the Workshop
-makes.
+code with a different class), the altar and a sacrifice, a teleport, a thing outside
+the influence (the red halo and its line), a villager at a field, at a building site
+and at the Workshop, and a scaffold that the Workshop makes.
 
 **Needs the headset.** Whether 6 cm is the right reach for a store and a scaffold.
 Whether the halo of a large thing (the Village Store has a body of 15 units, 35 cm of
 the room) reads as "the wood goes here". Whether a player gives an object to the
-Creature with no effort when the object must be in its body.
+Creature with no effort: the Creature becomes the target in its body, and it stays
+the target to 6 cm.
 
 **Limits.** The draw offers a thing only when the point of its mesh is near the Hand.
 A very large building with its point far from the Hand's point can be no target, and

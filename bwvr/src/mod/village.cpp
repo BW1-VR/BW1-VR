@@ -39,6 +39,14 @@
 //   does. So the release acts on it, as a release with the pointer on it does
 //   in the plain game. With 0 the record has the object behind the pixel of
 //   the Hand's point.
+// - creature_gift=1: while a Creature takes an object from the Hand, the gift
+//   goes on while the Hand's point is at the Creature. The game ends a gift
+//   when its Hand is far from the hand-over point of the Creature, and it
+//   brings the Hand of the mouse to that point. The Hand of the mod stays at
+//   the real hand (village_math.h, "The gift to a Creature"). With 0 the
+//   test of the game decides.
+// - hold_creature_stay=1: a Creature that is the target of the object in the
+//   Hand stays the target to hold_target_cm from its body.
 // - Each change goes to the log with the tag "village".
 // - Test keys for the desktop runs (the launcher removes them):
 //   village_test_site, village_test_miracles, village_test_chants,
@@ -47,6 +55,7 @@
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#include <intrin.h>
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -77,6 +86,7 @@ bool HandDirectConeBody(int index, const float point[3], float* gap,
 bool HandDirectTakeRuns();
 float HandDirectRoomUnits();
 const char* HandDirectClass(void* object);
+bool HandDirectCreatureBody(void* creature, float out[3]);
 // miracle.cpp
 const char* MiracleSeedName(int type);
 
@@ -105,6 +115,27 @@ const int kHandRowNow = 0x4860;      // the screen row of the pointer, this fram
 const int kHandRowLast = 0x4868;     // and of the last frame
 const int kHandState = 0x4878;
 const int kHandHeld = 0x4904;        // the object in the Hand
+// THE GIFT TO A CREATURE [V]. The handler of packet 0x1F (fn_005DA2D0) writes
+// the Creature that takes the object to +0x49BC, and its LH3DCreature to
+// +0x49B8. The take of the Creature (0x00487C3C) and the handler of packet
+// 0x52 (0x0063DB23) clear +0x49BC.
+const int kHandGiftBody = 0x49B8;    // the LH3DCreature
+const int kHandGiftCreature = 0x49BC;
+const int kBodySize = 0x90;          // LH3DCreature: the size of the Creature
+// GGame, thiscall (int packet, int index of an object), ret 8: it sends the
+// packet. HandStateHolding::Update calls it with packet 0x52 at 0x005B424C
+// when its Hand is too far from the hand-over point.
+const uintptr_t kSendIndexPacket = 0x00550C80;
+const uint8_t kSendIndexPacketBytes[10] = {0x8B, 0x44, 0x24, 0x08, 0x53,
+                                           0x8B, 0x5C, 0x24, 0x08, 0x56};
+const int kPacketGiftEnd = 0x52;
+const uintptr_t kGiftEndReturn = 0x005B4251;
+// The hand-over point of a Creature, thiscall on the LH3DCreature (float
+// out[3], int flag, float angle), ret 0xC. Only HandStateHolding::Update
+// calls it (0x005B3D5F), with the flag 1.
+const uintptr_t kHandOverPoint = 0x00480810;
+const uint8_t kHandOverPointBytes[7] = {0x83, 0xEC, 0x34, 0x56,
+                                        0x8B, 0xF1, 0xE8};
 const int32_t kStateTotem = 5;
 const int32_t kStateHolding = 4;
 // Object::ValidToApplyThisToObject, a vtable slot (GInterfaceStatus*,
@@ -305,7 +336,14 @@ typedef void*(__fastcall* BuiltSiteFn)(void* heart, void* unused,
                                        const void* at, const void* info,
                                        void* citadel, void* tribe);
 
+typedef void(__fastcall* SendIndexPacketFn)(void* game, void* unused,
+                                            int packet, int index);
+typedef void(__fastcall* HandOverPointFn)(void* body, void* unused,
+                                          float* out, int toward, float angle);
+
 TotemUpdateFn o_TotemUpdate = nullptr;
+SendIndexPacketFn o_SendIndexPacket = nullptr;
+HandOverPointFn o_HandOverPoint = nullptr;
 
 // --- the keys ---------------------------------------------------------------
 
@@ -313,12 +351,16 @@ struct Settings {
   bool totem = true;       // totem_hand
   bool join = true;        // hold_target
   float join_cm = 6.0f;    // hold_target_cm: the reach of a thing
+  bool creature_stay = true;  // hold_creature_stay
+  bool gift = true;        // creature_gift: the test of the mod for a gift
+  float gift_cm = 20.0f;   // creature_gift_cm: the reach of that test
   bool test_keys = false;  // test_keys: Ctrl and numpad 4 change totem_hand,
                            // Ctrl and numpad 2 change hold_target
 };
 Settings g_settings;
 bool g_ready = false;
 bool g_hooked = false;
+bool g_gift_hooked = false;   // the hook of the packet of the end of a gift
 uint64_t g_frame = 0;
 
 // The test keys of the desktop runs. village_test_site is a frame: at that
@@ -397,6 +439,11 @@ uint64_t g_charge_ends = 0;
 uint64_t g_join_frames = 0;       // frames with a target of a scaffold
 uint64_t g_join_puts = 0;         // the mod put it in the pick record
 uint64_t g_applies = 0;           // the game put an object on a thing
+uint64_t g_join_stays = 0;        // frames with a Creature kept past its body
+uint64_t g_gift_starts = 0;       // gifts to a Creature that the game started
+uint64_t g_gift_taken = 0;        // the Creature took the object
+uint64_t g_gift_ended = 0;        // the game ended the gift
+uint64_t g_gift_back = 0;         // ends of the game that the mod held back
 
 bool Log() {
   if (g_logs >= kMaxLogs) return false;
@@ -601,6 +648,259 @@ void __fastcall h_TotemUpdate(void* self, void* unused, float seconds,
   o_TotemUpdate(self, unused, seconds, matrix);
 }
 
+// --- the gift of an object to a Creature --------------------------------------
+//
+// village_math.h, "The gift to a Creature", has what the game does. The hooks
+// run in HandStateHolding::Update, on each call while a gift runs. They store
+// only the facts of one gift for the log.
+
+struct Gift {
+  void* creature;      // CHand+0x49BC in the last frame: a gift runs
+  void* held;          // the object of the gift
+  char name[48];       // its class
+  uint64_t frame;      // the frame of the start
+  ULONGLONG ms;        // the time of the start
+  uint64_t held_back;  // ends of the game that the mod held back
+  bool said_back;      // the first of them has its line
+  bool end_went;       // packet 0x52 went to the game
+  bool closing;        // the game cleared the gift with no packet 0x52
+  uint64_t close_frame;
+};
+Gift g_gift = {};
+// The lines of the gifts have their own count, so that the lines of the
+// targets do not use it.
+const int kMaxGiftLogs = 160;
+int g_gift_logs = 0;
+
+bool GiftLog() {
+  if (g_gift_logs >= kMaxGiftLogs) return false;
+  ++g_gift_logs;
+  return true;
+}
+
+// The hand-over point of the game's last call, for the log.
+float g_gift_over[3] = {0.0f, 0.0f, 0.0f};
+uint64_t g_gift_over_frame = 0;
+
+struct GiftFacts {
+  float units;       // world units in a meter of the room
+  float size;        // the size of the Creature
+  float from_body;   // the Hand's point to the body of the Creature, in units
+  float from_over;   // the Hand of the game to the hand-over point, or -1
+};
+
+float Cm(float units_of_world, float units_per_meter) {
+  return units_per_meter > 0.0f ? units_of_world / units_per_meter * 100.0f
+                                : 0.0f;
+}
+
+// The facts of the gift that runs. False when the mod cannot measure the
+// Hand's point against the body of the Creature.
+bool GiftMeasure(const uint8_t* hand, GiftFacts* f) {
+  f->units = HandDirectRoomUnits();
+  f->size = 0.0f;
+  f->from_body = 0.0f;
+  f->from_over = -1.0f;
+  void* creature = *reinterpret_cast<void* const*>(hand + kHandGiftCreature);
+  const uint8_t* body =
+      *reinterpret_cast<uint8_t* const*>(hand + kHandGiftBody);
+  if (creature == nullptr || body == nullptr ||
+      IsBadReadPtr(body, kBodySize + 4)) {
+    return false;
+  }
+  f->size = *reinterpret_cast<const float*>(body + kBodySize);
+  const float* at = reinterpret_cast<const float*>(hand + kHandPosition);
+  if (g_gift_over_frame + 1 >= ControllersFrameCount()) {
+    const float dx = at[0] - g_gift_over[0], dy = at[1] - g_gift_over[1],
+                dz = at[2] - g_gift_over[2];
+    f->from_over = sqrtf(dx * dx + dy * dy + dz * dz);
+  }
+  float point[3], place[3];
+  if (!HandDirectRealPoint(point) ||
+      !HandDirectCreatureBody(creature, place)) {
+    return false;
+  }
+  const float dx = point[0] - place[0], dy = point[1] - place[1],
+              dz = point[2] - place[2];
+  f->from_body = sqrtf(dx * dx + dy * dy + dz * dz);
+  return true;
+}
+
+// The start of a gift, one line. The hook of the packet and the watch of
+// the frame call it, and the first call of a gift has the line.
+void GiftSeeStart(const uint8_t* hand) {
+  void* creature = *reinterpret_cast<void* const*>(hand + kHandGiftCreature);
+  if (creature == nullptr || creature == g_gift.creature) return;
+  void* held = *reinterpret_cast<void* const*>(hand + kHandHeld);
+  const uint64_t frame = ControllersFrameCount();
+  g_gift = {};
+  g_gift.creature = creature;
+  g_gift.held = held;
+  strcpy_s(g_gift.name, held != nullptr ? HandDirectClass(held) : "object");
+  g_gift.frame = frame;
+  g_gift.ms = GetTickCount64();
+  ++g_gift_starts;
+  if (!GiftLog()) return;
+  GiftFacts f;
+  const bool known = GiftMeasure(hand, &f);
+  char rule[240];
+  if (g_settings.gift) {
+    sprintf_s(rule, "creature_gift=1: the gift goes on while the Hand's point "
+                    "is %.1f cm or less from the body of the Creature "
+                    "(creature_gift_cm=%.0f)",
+              Cm(village_math::GiftReach(f.size, f.units, g_settings.gift_cm),
+                 f.units),
+              g_settings.gift_cm);
+  } else {
+    strcpy_s(rule, "creature_gift=0: the test of the game decides");
+  }
+  char over[120];
+  if (f.from_over >= 0.0f) {
+    sprintf_s(over, "The Hand of the game is %.1f cm from the hand-over point",
+              Cm(f.from_over, f.units));
+  } else {
+    strcpy_s(over, "The game did not give the hand-over point yet");
+  }
+  ModLog("village      : a gift starts: the Creature %p starts to take the %s "
+         "%p from the Hand (the handler of packet 0x1F). The Hand's point is "
+         "%.1f cm of the room from the body of the Creature%s. %s, and the "
+         "test of the game takes %.1f cm (15 times the size %.2f). %s, frame "
+         "%llu", creature, g_gift.name, held, Cm(f.from_body, f.units),
+         known ? "" : " (not known)", over,
+         Cm(village_math::GiftGameReach(f.size), f.units), f.size, rule,
+         frame);
+}
+
+// The game asks for the end of the gift (packet 0x52 from
+// HandStateHolding::Update). True: the mod holds the packet back.
+bool GiftEndHeldBack() {
+  uint8_t* face = Face();
+  const uint8_t* hand =
+      face != nullptr ? *reinterpret_cast<uint8_t* const*>(face + kFaceHand)
+                      : nullptr;
+  if (hand == nullptr) return false;
+  GiftSeeStart(hand);
+  GiftFacts f;
+  const bool known = GiftMeasure(hand, &f);
+  const float reach =
+      village_math::GiftReach(f.size, f.units, g_settings.gift_cm);
+  const uint64_t frame = ControllersFrameCount();
+  if (g_settings.gift && known &&
+      village_math::GiftStays(f.from_body, f.size, f.units,
+                              g_settings.gift_cm)) {
+    ++g_gift.held_back;
+    ++g_gift_back;
+    if (!g_gift.said_back && GiftLog()) {
+      ModLog("village      : the game asks for the end of the gift: its Hand "
+             "is %.1f cm of the room from the hand-over point of the Creature, "
+             "and its test takes %.1f cm (15 times the size %.2f). The Hand's "
+             "point is %.1f cm from the body of the Creature, in the reach of "
+             "%.1f cm, so the mod holds packet 0x52 back and the gift goes on "
+             "(creature_gift=1, creature_gift_cm=%.0f), frame %llu",
+             Cm(f.from_over, f.units),
+             Cm(village_math::GiftGameReach(f.size), f.units), f.size,
+             Cm(f.from_body, f.units), Cm(reach, f.units), g_settings.gift_cm,
+             frame);
+    }
+    g_gift.said_back = true;
+    return true;
+  }
+  if (!g_gift.end_went && GiftLog()) {
+    char why[200];
+    if (!g_settings.gift) {
+      strcpy_s(why, "The test of the game decides (creature_gift=0)");
+    } else if (!known) {
+      strcpy_s(why, "The mod cannot measure the Hand's point against the body "
+                    "of the Creature now, so the test of the game decides");
+    } else {
+      sprintf_s(why, "The Hand's point is past the reach of %.1f cm from the "
+                     "body of the Creature (creature_gift=1, "
+                     "creature_gift_cm=%.0f)",
+                Cm(reach, f.units), g_settings.gift_cm);
+    }
+    ModLog("village      : the game asks for the end of the gift: its Hand is "
+           "%.1f cm of the room from the hand-over point of the Creature, and "
+           "its test takes %.1f cm (15 times the size %.2f). The Hand's point "
+           "is %.1f cm from the body of the Creature. %s. Packet 0x52 goes: "
+           "the Creature ends its action, and the object stays in the Hand. "
+           "The mod held the end back %llu times before, frame %llu",
+           Cm(f.from_over, f.units),
+           Cm(village_math::GiftGameReach(f.size), f.units), f.size,
+           Cm(f.from_body, f.units), why, g_gift.held_back, frame);
+  }
+  g_gift.end_went = true;
+  return false;
+}
+
+void __fastcall h_SendIndexPacket(void* game, void* unused, int packet,
+                                  int index) {
+  if (g_ready && packet == kPacketGiftEnd &&
+      reinterpret_cast<uintptr_t>(_ReturnAddress()) == kGiftEndReturn &&
+      GiftEndHeldBack()) {
+    return;
+  }
+  o_SendIndexPacket(game, unused, packet, index);
+}
+
+void __fastcall h_HandOverPoint(void* body, void* unused, float* out,
+                                int toward, float angle) {
+  o_HandOverPoint(body, unused, out, toward, angle);
+  if (out == nullptr) return;
+  for (int i = 0; i < 3; ++i) g_gift_over[i] = out[i];
+  g_gift_over_frame = ControllersFrameCount();
+}
+
+// The end of a gift, one line. Once a frame. The take of the Creature and
+// the handler of packet 0x52 clear the Creature of the gift. The game also
+// clears it for a Creature that does not live.
+void WatchGift(const uint8_t* hand) {
+  GiftSeeStart(hand);
+  void* creature = *reinterpret_cast<void* const*>(hand + kHandGiftCreature);
+  void* held = *reinterpret_cast<void* const*>(hand + kHandHeld);
+  if (g_gift.creature == nullptr) return;
+  const unsigned long long ms = GetTickCount64() - g_gift.ms;
+  if (creature != nullptr) return;
+  if (g_gift.end_went) {
+    ++g_gift_ended;
+    if (GiftLog()) {
+      ModLog("village      : the gift is over, %llu ms after its start: the "
+             "game ended it (packet 0x52), and the %s %p is %s. The mod held "
+             "the end back %llu times, frame %llu", ms, g_gift.name,
+             g_gift.held,
+             held == g_gift.held ? "in the Hand still" : "not in the Hand",
+             g_gift.held_back, g_frame);
+    }
+    g_gift.creature = nullptr;
+    return;
+  }
+  if (!g_gift.closing) {
+    g_gift.closing = true;
+    g_gift.close_frame = g_frame;
+  }
+  if (held != g_gift.held) {
+    ++g_gift_taken;
+    if (GiftLog()) {
+      ModLog("village      : the Creature %p took the %s %p from the Hand, "
+             "%llu ms after the start of the gift. The mod held the end of "
+             "the game back %llu times, frame %llu", g_gift.creature,
+             g_gift.name, g_gift.held, ms, g_gift.held_back, g_frame);
+    }
+    g_gift.creature = nullptr;
+    return;
+  }
+  // The object leaves the Hand some frames after the take. An object that
+  // stays was not taken.
+  if (g_frame < g_gift.close_frame + 120) return;
+  ++g_gift_ended;
+  if (GiftLog()) {
+    ModLog("village      : the gift is over with no packet 0x52, and the %s "
+           "%p is in the Hand still, 120 frames later. The mod held the end "
+           "back %llu times, frame %llu", g_gift.name, g_gift.held,
+           g_gift.held_back, g_frame);
+  }
+  g_gift.creature = nullptr;
+}
+
 // --- what the log said last ---------------------------------------------------
 
 struct TotemSeen {
@@ -657,6 +957,39 @@ void LogHoldKey(const char* from) {
          g_settings.join_cm, g_frame);
 }
 
+// The two hooks of the gift. With no hook of the packet the test of the game
+// decides.
+void InstallGift() {
+  if (SameBytes(kSendIndexPacket, kSendIndexPacketBytes,
+                sizeof(kSendIndexPacketBytes))) {
+    void* target = reinterpret_cast<void*>(kSendIndexPacket);
+    MH_STATUS status =
+        MH_CreateHook(target, &h_SendIndexPacket,
+                      reinterpret_cast<void**>(&o_SendIndexPacket));
+    if (status == MH_OK) status = MH_EnableHook(target);
+    g_gift_hooked = status == MH_OK;
+    ModLog("hooks        : the packet with the index of an object at 0x%08X "
+           "%s", static_cast<unsigned>(kSendIndexPacket),
+           g_gift_hooked ? "ok" : "FAILED");
+  } else {
+    ModLog("village      : the function at 0x%08X does not have the bytes of "
+           "the disassembly, so the mod does not hook it",
+           static_cast<unsigned>(kSendIndexPacket));
+  }
+  if (!g_gift_hooked) g_settings.gift = false;
+  if (SameBytes(kHandOverPoint, kHandOverPointBytes,
+                sizeof(kHandOverPointBytes))) {
+    void* target = reinterpret_cast<void*>(kHandOverPoint);
+    MH_STATUS status =
+        MH_CreateHook(target, &h_HandOverPoint,
+                      reinterpret_cast<void**>(&o_HandOverPoint));
+    if (status == MH_OK) status = MH_EnableHook(target);
+    ModLog("hooks        : the hand-over point of a Creature at 0x%08X %s",
+           static_cast<unsigned>(kHandOverPoint),
+           status == MH_OK ? "ok" : "FAILED");
+  }
+}
+
 void Init() {
   if (g_ready) return;
   g_ready = true;
@@ -669,6 +1002,11 @@ void Init() {
       IniInt("hold_target_cm", IniInt("scaffold_join_cm", 6)));
   if (g_settings.join_cm < 1.0f) g_settings.join_cm = 1.0f;
   if (g_settings.join_cm > 50.0f) g_settings.join_cm = 50.0f;
+  g_settings.creature_stay = IniInt("hold_creature_stay", 1) != 0;
+  g_settings.gift = IniInt("creature_gift", 1) != 0;
+  g_settings.gift_cm = static_cast<float>(IniInt("creature_gift_cm", 20));
+  if (g_settings.gift_cm < 0.0f) g_settings.gift_cm = 0.0f;
+  if (g_settings.gift_cm > 100.0f) g_settings.gift_cm = 100.0f;
   g_settings.test_keys = IniInt("test_keys", 0) != 0;
   char text[160];
   IniText("village_test_chants", text, sizeof(text));
@@ -724,8 +1062,27 @@ void Init() {
            "the disassembly, so the mod does not hook it and the game moves "
            "the totem with the screen rows of the pointer");
   }
+  InstallGift();
   LogKeys("totem_hand");
   LogHoldKey("hold_target");
+  ModLog("village      : hold_creature_stay=%d. %s",
+         g_settings.creature_stay ? 1 : 0,
+         g_settings.creature_stay
+             ? "A Creature that is the target of the object in the Hand stays "
+               "the target to hold_target_cm from its body"
+             : "A Creature is the target of the object in the Hand only while "
+               "the Hand's point or the object is in its body");
+  ModLog("village      : creature_gift=%d. %s (creature_gift_cm=%.0f)",
+         g_settings.gift ? 1 : 0,
+         g_settings.gift
+             ? "While a Creature takes an object from the Hand, the gift goes "
+               "on while the Hand's point is at the Creature: 15 times the "
+               "size of the Creature and creature_gift_cm of the room from "
+               "its body. The mod holds back the end that the game asks for "
+               "when its Hand is far from the hand-over point of the Creature"
+             : "The game ends a gift to a Creature when its Hand is more than "
+               "15 times the size of the Creature from the hand-over point",
+         g_settings.gift_cm);
   if (g_settings.test_keys) {
     ModLog("keys         : Ctrl with numpad 4 changes totem_hand between 1 "
            "and 0, and Ctrl with numpad 2 changes hold_target (test_keys=1)");
@@ -1463,6 +1820,8 @@ void VillageSelect() {
   float held_at[3];
   PlaceOf(static_cast<uint8_t*>(held), held_at, nullptr);
   float best = 1e30f;
+  // The target is a Creature that is past its body.
+  bool stays = false;
   const int count = HandDirectConeCount();
   for (int i = 0; i < count; ++i) {
     void* object = nullptr;
@@ -1492,11 +1851,16 @@ void VillageSelect() {
         !HandDirectConeBody(i, held_at, &gap_held, other, &r2, &h2)) {
       continue;
     }
-    if (!village_math::HoldTakes(gap_hand, gap_held,
-                                 village_math::HoldReach(onto, reach), best)) {
+    // g_said_join is the target of the last frame here.
+    if (!village_math::HoldTakes(
+            gap_hand, gap_held,
+            village_math::HoldReachNow(onto, reach, object == g_said_join,
+                                       g_settings.creature_stay),
+            best)) {
       continue;
     }
     best = gap_hand < gap_held ? gap_hand : gap_held;
+    stays = best > village_math::HoldReach(onto, reach);
     g_join.held = held;
     g_join.target = object;
     g_join.table = *static_cast<void**>(object);
@@ -1516,6 +1880,7 @@ void VillageSelect() {
   g_join_units = units;
   for (int k = 0; k < 3; ++k) g_join_point[k] = point[k];
   if (g_join.target != nullptr) ++g_join_frames;
+  if (g_join.target != nullptr && stays) ++g_join_stays;
   if (g_join.target != g_said_join) {
     if (Log()) {
       char name[48];
@@ -1626,6 +1991,7 @@ void VillageFrame() {
   WatchIcons(face);
   WatchVillager(hand);
   WatchScaffold(hand);
+  WatchGift(hand);
   const bool totem_state =
       *reinterpret_cast<const int32_t*>(hand + kHandState) == kStateTotem;
   if (totem_state) ++g_frames_totem;
@@ -1863,12 +2229,27 @@ void VillageReport() {
   if (g_join_frames > 0 || g_applies > 0) {
     ModLog("village      : an object in the Hand had a thing to go on on "
            "%llu frames, and the mod put that thing in the pick record %llu "
-           "times. The game put an object on a thing %llu times, this window "
-           "(hold_target=%d)", g_join_frames, g_join_puts, g_applies,
-           g_settings.join ? 1 : 0);
+           "times. On %llu of the frames the thing was a Creature past its "
+           "body (hold_creature_stay=%d). The game put an object on a thing "
+           "%llu times, this window (hold_target=%d)", g_join_frames,
+           g_join_puts, g_join_stays, g_settings.creature_stay ? 1 : 0,
+           g_applies, g_settings.join ? 1 : 0);
     g_join_frames = 0;
     g_join_puts = 0;
+    g_join_stays = 0;
     g_applies = 0;
+  }
+  if (g_gift_starts > 0 || g_gift_taken > 0 || g_gift_ended > 0 ||
+      g_gift_back > 0) {
+    ModLog("village      : %llu gifts to a Creature started. A Creature took "
+           "the object %llu times, and the game ended %llu gifts. The mod "
+           "held the end that the game asked for back on %llu calls, this "
+           "window (creature_gift=%d)", g_gift_starts, g_gift_taken,
+           g_gift_ended, g_gift_back, g_settings.gift ? 1 : 0);
+    g_gift_starts = 0;
+    g_gift_taken = 0;
+    g_gift_ended = 0;
+    g_gift_back = 0;
   }
   if (g_frames_totem == 0 && g_drags == 0 && g_charges == 0 &&
       g_charge_ends == 0) {

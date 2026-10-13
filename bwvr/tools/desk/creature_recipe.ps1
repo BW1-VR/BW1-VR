@@ -11,6 +11,9 @@
 #   creature_recipe.ps1 -Name x8 -Dll <dll> -Kind click -Set "text_click=0"
 #   creature_recipe.ps1 -Name x10 -Dll <dll> -Kind walk
 #   creature_recipe.ps1 -Name x11 -Dll <dll> -Kind walk -Set "creature_command_rule=3"
+#   creature_recipe.ps1 -Name x12 -Dll <dll> -Kind gift
+#   creature_recipe.ps1 -Name x13 -Dll <dll> -Kind gift -Set "creature_gift=0"
+#   creature_recipe.ps1 -Name x14 -Dll <dll> -Kind giftfree
 #
 #   creature_recipe.ps1 -Name x9 -Dll <dll> -Kind leash -NewGame
 #
@@ -73,6 +76,21 @@
 #   door between the grips, so the run does not show a stay that stops a
 #   walk. With creature_hold_stay=0 each close of the grip is a leash click,
 #   and no grip makes the Creature stay.
+# -Kind gift:
+#   The gift of an object to the Creature, with the leash on
+#   (bwvr/docs/creature.md, section 2.9). After two zoom steps in: the grip
+#   from a distance puts the leash on. The Hand's point goes to the nearest object
+#   that the Hand can hold (the place "hold" of seek_plan), and the grip
+#   closes for 200 frames. The hand goes back to its point and then to the
+#   body bone of the Creature (the place "creature"), and the grip opens
+#   there: the first gift. Then the same with a second object, and the Hand's
+#   point goes 9 cm of the room down from the body bone before the grip
+#   opens (the place "down", seek_step_cm=9): the second gift, with the Hand
+#   past the reach of the test of the game. -Set "seek_class=Pig,Pig" gives
+#   a class for each object. With -Set "creature_gift=0" the test of the game
+#   decides.
+# -Kind giftfree:
+#   The same with no leash.
 # -Kind click:
 #   A text that waits for a click (bwvr/docs/controller-hints.md, section
 #   10). At 100 units a meter: the grip from a distance puts the leash on.
@@ -99,6 +117,7 @@
 #   far grab    : the grip opened after ...         a short grip: the leash click
 #   creature stay: ...                              the stay, from start to end
 #   creature cmd : the leash is on / off
+#   village      : ...                              the target of the object in the Hand, and a gift from start to end
 #   text click   : ...                              a wait for a click, from start to end
 #   hint card    : ... the game gives its prompt    the prompt of that wait on the card
 #   haptics      : ...                              the pulses
@@ -172,6 +191,20 @@ if ($Kind -eq 'stay') {
              'aimcmd@1000+1 shot@1010+1 trigger@1020+220 aimturn@1060+1 shot@1100+1 ' +
              'aimcmd@1140+1 shot@1200+1 ' +
              'aimcmd@1300+1 trigger@1320+6 aimcmd@1400+1 trigger@1420+60 shot@1500+1'
+} elseif ($Kind -eq 'gift' -or $Kind -eq 'giftfree') {
+    # The place "hold" needs no class by default: the nearest object that
+    # the Hand can hold. The grip opens 80 frames after the last step of the
+    # hand, so the opening is no throw. Each gift has 300 frames before the
+    # hand moves again.
+    $new = 80
+    $watch = 0
+    $keys = 'seek_step_cm=9;' + $keys.Replace('seek_plan=creature', 'seek_plan=hold,creature,hold,creature,down')
+    $leash = ''
+    if ($Kind -eq 'gift') { $leash = 'aimfar@930+1 grip@950+6 ' }
+    $steps = 'stick_up@800+10 stick_up@830+10 look@860+2700 point@900+1 ' + $leash +
+             'seek@1020+1 grip@1030+200 point@1120+1 seek@1150+1 shot@1540+1 ' +
+             'point@1560+1 seek@1600+1 grip@1610+200 point@1700+1 seek@1720+1 seek@1730+1 ' +
+             'shot@2150+1'
 } elseif ($Kind -eq 'tie') {
     # The second press of the trigger comes 17 frames after the first one: a
     # double press. The walk takes about 1500 frames, so a new game runs
@@ -212,6 +245,12 @@ $pattern = '^hand creature: (the body of|a press|the Creature state|the hand of|
            '^controllers  : the left button press started off view|' +
            '^hand pick    : seek plan: the Creature|' +
            '^haptics      : (\d+ pulses|leash|slap|touch|activate)'
+if ($Kind -eq 'gift' -or $Kind -eq 'giftfree') {
+    $pattern = '^village      : (?!census)|^creature cmd : the leash|^far grab    : (the grip closed|the grip opened)|' +
+               '^hand pick    : (seek|test key seek_plan)|^hand press   : the grip pressed|' +
+               '^grip         : the (pick up is over|grip opens|click to let go|object left)|' +
+               '^hand creature: the body of|^hooks        : the (packet with|hand-over)'
+}
 if ($Kind -eq 'walk') {
     $pattern = '^creature cmd : (creature_command_rule|the leash|the aim is on|the trigger|a double press|test: aimcmd)|' +
                '^far grab    : (the grip closed|the grip opened)|' +

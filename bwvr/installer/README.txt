@@ -775,6 +775,16 @@ grip to stop. A short press of the grip on your Creature changes its
 leash, as a short click with the mouse does. When the interface panel
 is set up, the panel of the Creature shows near the Creature.
 
+To give an object to your Creature, take the object, hold it in the
+body of your Creature and open the grip. Your Creature has a gold halo
+then, and the card says "Grip Open to give it to the Creature". Keep
+your hand near your Creature until it takes the object from your Hand.
+To keep the object, move your hand away before your Creature has it.
+The leash makes no difference. Set creature_gift_cm in bwvr.ini to
+change how far your hand can go from your Creature, in cm (20). Set
+creature_gift=0 in bwvr.ini for the rule of the plain game: your hand
+must stay at the place where your Creature reaches for the object.
+
 To change the leash from a distance, point your hand at your Creature,
 close the grip and open it again at once. The leash changes when the
 grip opens. The card on your hand says what the grip does: put the
