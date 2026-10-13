@@ -88,6 +88,8 @@ void BubbleCardInstall();
 // intro_skip.cpp: a press of a controller button skips the logos at the
 // start of the game. `caller` is the address that called FinishFrame.
 void IntroSkipFrame(uintptr_t caller, bwvr::XrScreen* screen);
+// hang_watch.cpp: the watch of the frame thread (hang_watch, a test key).
+void HangWatchFrame();
 // controllers.cpp
 void ControllerHintsSetOptions(bool on, const char* forced_profile);
 bool ControllerHintsInstall();
@@ -1689,6 +1691,10 @@ void __cdecl h_FinishFrame() {
   // and make the game look hung with no way back.
   PresentWatchSkipDesktop(g_skip_desktop && g_screen != nullptr &&
                           g_screen->running());
+
+  // The watch of the frame thread counts each frame, also of the logos
+  // (hang_watch, a test key).
+  HangWatchFrame();
 
   // The logos at the start of the game end on a press of a controller
   // button. The caller of FinishFrame says which logo plays.

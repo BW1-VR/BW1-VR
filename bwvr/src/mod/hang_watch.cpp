@@ -9,7 +9,7 @@
 // its stack, and lets it go on. Then it writes the
 // address and the return addresses on the stack to the log, by module
 // (scene_sample_math.h). It does that one time for each hang. The count goes
-// up in the frames of the scene only, so a long load or a menu also gives a
+// up at the end of each frame, also of the logos, so a long load also gives a
 // report.
 //
 // The names of the modules are read at the first frame, so the report needs
@@ -175,7 +175,8 @@ DWORD WINAPI WatchThread(LPVOID) {
 
 }  // namespace
 
-// stereo.cpp, on the frame thread, at the start of each frame of the scene.
+// mod_main.cpp, on the frame thread, at the end of each frame (FinishFrame),
+// also of the logos and the intro.
 void HangWatchFrame() {
   if (!g_read) {
     g_read = true;

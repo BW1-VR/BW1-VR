@@ -1203,13 +1203,13 @@ line is the address of a sample. A script can then give the share of each
 function, with the names of bw1-decomp for the game and a PDB for the mod.
 
 **The watch of the frame thread.** `hang_watch=1` (a test key,
-`hang_watch.cpp`) starts a thread that looks at the count of the frames of
-the scene each second. When the count stays the same for 8 s, it stops the
-frame thread for a moment, reads the address of its next instruction and
-the top 4 KiB of its stack, and writes them to the log by module, one time
-for each stop of the count. A long load or a menu also gives such a line.
-The names of the modules are read at the first frame, so the line needs no
-lock of the loader.
+`hang_watch.cpp`) starts a thread that looks at the count of the frames each
+second, also of the logos and the intro. When the count stays the same for
+8 s, it stops the frame thread for a moment, reads the address of its next
+instruction and the top 4 KiB of its stack, and writes them to the log by
+module, one time for each stop of the count. A long load also gives such a
+line. The names of the modules are read at the first frame, so the line
+needs no lock of the loader.
 
 **The split in a headset.** SteamVR with a Steam Frame, Ryzen 9 7950X3D,
 Radeon RX 7900 XTX, a render of 3304 by 2644 with 4x multisampling,

@@ -272,9 +272,6 @@ void EyeLumaReport();
 // temple.cpp: before the scene walk of a frame in the Temple.
 void TempleBeforeScene();
 
-// hang_watch.cpp: the watch of the frame thread (hang_watch, a test key).
-void HangWatchFrame();
-
 namespace {
 
 // GGame::Process3dEngine is __thiscall with no arguments, so the object
@@ -974,7 +971,6 @@ void FrameFunction(int index, void (*function)()) {
 
 void __fastcall Process3dEngineBody(void* self, void* unused) {
   PollHotkeys();
-  HangWatchFrame();
   const bool to_headset = g_screen != nullptr && g_screen->running() &&
                           g_screen->eyes() > 1;
   if (!g_enabled || !g_stereo_on || (!to_headset && !g_headless)) {
