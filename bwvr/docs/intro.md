@@ -24,10 +24,13 @@ from the code and not confirmed by a run.
 - The mod answers the game's check for an internet connection itself, so a PC
   whose Windows service `RasMan` does not answer can start the game
   (`net_check`).
+- The mod answers the game's check for DirectX 7 itself, so the game starts
+  with no administrator rights (`dx_check`).
 
 Source files: `src/mod/intro_vr.cpp` and `intro_motion_math.h` (the stereo
 intro), `src/mod/intro_skip.cpp` and `intro_skip_math.h` (the skip),
-`src/mod/net_check.cpp` (the internet check), with small parts in
+`src/mod/net_check.cpp` (the internet check), `src/mod/dx_check.cpp` (the
+DirectX check), with small parts in
 `head_camera.cpp`, `input_watch.cpp`, `draw_hooks.cpp`, `gpu_bridge.cpp`,
 `stereo.cpp`, `mod_main.cpp` and `controllers.cpp`.
 
@@ -42,6 +45,7 @@ intro), `src/mod/intro_skip.cpp` and `intro_skip_math.h` (the skip),
 | The intro in stereo | The design and the code that is built |
 | The skip | The press that ends the logos and the intro |
 | The internet check | The `RasMan` stop and the answer of the mod (`net_check`) |
+| The DirectX check | The check that stops the game with no administrator rights, and the answer of the mod (`dx_check`) |
 | Open work | What is open |
 
 ## What runs at startup [V]
@@ -709,6 +713,32 @@ connections ... The mod answered: none" and the same for its modems.
 
 **To get a PC out of this state** without the mod: start Windows again, or start
 the service "Remote Access Connection Manager" again as an administrator.
+
+## The DirectX check
+
+At its start the game asks `DSETUP.dll` of its folder for the version of
+DirectX (`DirectXSetupGetVersion`, ordinal 11). When the answer is below
+4.07, it stops with "You need DirectX 7 or greater" (`runblack.exe`
+`0x00641CD8`) [V]. `DSETUP.dll` opens the key
+`HKLM\SOFTWARE\Microsoft\DirectX` with all access to read the version there.
+With no administrator rights Windows refuses that access, also with the
+virtual store of UAC. `DSETUP.dll` then takes the version of the file
+`ddraw.dll` of Windows, which is 4.06. So with no mod the game starts only as
+administrator [V].
+
+Each Windows that runs the mod has DirectX 9, because dxwrapper needs it. So
+the mod gives the answer that Windows gives with administrator rights:
+4.09.00.0904. It puts its own function in the import slot of
+`runblack.exe` for that ordinal, when the mod loads (`dx_check.cpp`). The log
+names the answer:
+
+```
+dx check     : the game asked DSETUP.dll for the version of DirectX. The mod answered 4.09.00.0904 (dx_check=0)
+```
+
+| Key | Default | Effect |
+| --- | --- | --- |
+| `dx_check` | 0 | 0: the mod answers the check. 1: the check goes to `DSETUP.dll`, as in the plain game |
 
 ## Open work
 

@@ -217,6 +217,8 @@ void Depth24SetWanted(bool on);
 void Depth24Install();
 // net_check.cpp: the game's check for an internet connection.
 void NetCheckInstall(bool own_answer);
+// dx_check.cpp: the game's check for DirectX 7.
+void DxCheckInstall(bool own_answer);
 // near_plane.cpp: the near plane of the game camera.
 void NearPlaneSetOptions(int cm_24, int cm_16);
 void NearPlaneInstall();
@@ -461,6 +463,8 @@ float g_head_units_per_meter = 7.5f;
 int g_near_plane_cm = 5;
 // The mod answers the game's check for an internet connection (net_check.cpp).
 bool g_net_check_own = true;
+// The mod answers the game's check for DirectX 7 (dx_check.cpp).
+bool g_dx_check_own = true;
 int g_near_plane_cm_16 = 10;
 bool g_skip_prepare = false;
 bool g_filter_survey = false;
@@ -1874,6 +1878,10 @@ void EarlyHooks() {
   // turned off too.
   g_net_check_own = GetPrivateProfileIntA("bwvr", "net_check", 0, path) == 0;
   NetCheckInstall(g_net_check_own);
+  // The check of the game for DirectX 7 stops the game with no administrator
+  // rights. It comes before the backend loads.
+  g_dx_check_own = GetPrivateProfileIntA("bwvr", "dx_check", 0, path) == 0;
+  DxCheckInstall(g_dx_check_own);
   // On by default: it is the tested path, and it falls back to the readback
   // on its own if the device cannot share a texture.
   const bool wanted =
@@ -1912,6 +1920,7 @@ void Startup() {
   ModLog("");
   // A second try, if LHMultiplayerR.dll was not loaded at the first one.
   NetCheckInstall(g_net_check_own);
+  DxCheckInstall(g_dx_check_own);
 
   ReadSettings();
   // Headless measuring still needs the hooks, even with vr turned off.
