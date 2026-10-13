@@ -60,3 +60,23 @@ HRESULT OneWalkOnDrawIndexedPrimitiveUP(IDirect3DDevice9* self,
                                         const void* indices,
                                         D3DFORMAT index_format,
                                         const void* vertices, UINT stride);
+
+// One draw for both eyes (one_walk_merge, docs/backend.md, "One draw for both
+// eyes"). The device gets the viewport `both` over both eyes, and GetViewport
+// still gives the viewport of the game. False when the walk does not go to
+// the queue.
+bool RenderThreadViewportBoth(IDirect3DDevice9* self,
+                              const D3DVIEWPORT9* both);
+// The device gets the viewport of the game back, if it has the one of both
+// eyes.
+void RenderThreadViewportPutBack(IDirect3DDevice9* self);
+// One record of a triangle list with the left copy and then the right copy
+// of the vertices, and the indices of the right copy moved by the count of a
+// copy. False when the walk does not go to the queue, or a copy is too large
+// for 16-bit indices.
+bool RenderThreadOutDrawIndexedBoth(IDirect3DDevice9* self,
+                                    D3DPRIMITIVETYPE type, UINT min_index,
+                                    UINT vertex_count, UINT primitive_count,
+                                    const void* indices, D3DFORMAT index_format,
+                                    const void* left, const void* right,
+                                    UINT stride);

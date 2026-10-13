@@ -15,6 +15,12 @@ enum OneWalkMode {
 void OneWalkSetWanted(bool on);
 // one_walk_check: a frame that saves pictures also walks the right eye.
 void OneWalkSetCheck(bool on);
+// one_walk_merge: 1 draws a batch whose two copies are in their own halves
+// in one draw for both eyes (with the render thread), 0 in one draw for each
+// eye.
+void OneWalkSetMerge(bool on);
+// The test key: one_walk_merge goes between 1 and 0.
+void OneWalkMergeToggle(const char* keys);
 bool OneWalkCheck();
 // True when one walk is asked for and nothing has failed.
 bool OneWalkWanted();

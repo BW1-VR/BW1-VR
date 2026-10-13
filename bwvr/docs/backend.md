@@ -1470,6 +1470,37 @@ target. dxwrapper binds the game's target again when its own record changes,
 and the interface panel puts back the target it found. The hook on
 `SetRenderTarget` turns the game's target into the wide one in the pass.
 
+### One draw for both eyes
+
+With the render thread (`render_thread` 1 or 2), `one_walk_merge=1` (the
+default) draws most batches in one draw for both eyes. A triangle list whose
+left copy ends at the right edge of the viewport of the left eye, and whose
+right copy starts at the left edge of the viewport of the right eye, needs
+no clip at the edge between the eyes (`one_walk_math::InOwnHalves`). Then one
+draw of both copies, with one viewport from the left edge of the left eye to
+the right edge of the right eye, gives the pixels of the two draws. The
+record of the queue has the left copy, then the right copy, and the indices
+of the right copy moved by the count of a copy
+(`RenderThreadOutDrawIndexedBoth`).
+
+The viewport over both eyes stays on the device while such draws follow each
+other. The render thread keeps the viewport of the game: `GetViewport`
+gives it, and a `SetViewport` of it changes nothing. A draw or a clear of
+one eye, a stop and the end of the walk put the viewport of the game back
+first, and a new render target sets its own (`render_thread.cpp`, "THE
+VIEWPORT OF BOTH EYES"). A batch with the scissor test, a strip or a fan,
+and a batch that crosses the edge between the eyes are drawn one eye at a
+time, as before.
+
+A desktop run of 961 batches in both eyes: 931 are one draw. The draws of a
+frame are 1096 in place of 2028, the calls of `SetViewport` 207 in place of
+2031. The render thread is 1.87 to 1.93 ms in place of 2.41 to 2.49 ms, the
+walks on the GPU 1.03 to 1.06 ms in place of 1.41 to 1.56 ms, and a frame
+7.6 to 7.8 ms in place of 8.1 to 8.4 ms. The pictures of the test frames
+with and with no render thread differ as much as two frames of one mode.
+`one_walk_merge=0` draws each batch one eye at a time. With `test_keys=1`,
+Shift and H turn it on and off.
+
 ### The edge of the right eye
 
 The left eye has nothing past its own right edge. The engine clamps each
@@ -2982,6 +3013,7 @@ in front. The mod reads the keys and never takes them from the game.
 | Shift 9 | `test_keys=1` | The mod gives the answers of some calls of a texture with no lock of the device, or each call goes to Direct3D 9, from the next call. A long pulse and a short pulse (`render_thread_lock_free`, "The lock of the device"). It works only while `render_thread` is 1 or 2 in the ini. It is read as Shift 8. Ctrl must be up |
 | Shift F | `test_keys=1` | A call of a walk that sets the value that the device has already goes to Direct3D 9 or not. A long pulse and a short pulse (`render_thread_filter`, "The calls that change nothing"). It works only while `render_thread` is 1 or 2 in the ini. It is read as Shift 8. Ctrl must be up |
 | Shift G | `test_keys=1` | The render thread draws from buffers of its own, or gives each `DrawIndexedPrimitiveUP` to Direct3D 9. A long pulse and a short pulse (`render_thread_buffers`, "The buffers of the render thread"). It works only while `render_thread` is 1 in the ini. It is read as Shift 8. Ctrl must be up |
+| Shift H | `test_keys=1` | A batch of one walk is one draw for both eyes, or one draw for each eye, from the next draw. A long pulse and a short pulse (`one_walk_merge`, "One draw for both eyes"). It works only while `render_thread` is 1 or 2 in the ini. It is read as Shift 8. Ctrl must be up |
 | Ctrl Shift Numpad Slash | `test_keys=1` | The mod waits for the GPU after each eye pass, one time a frame, or one time a frame on a second thread that also gives the frame to the runtime. A long pulse, a pulse of middle length and a short pulse (`frame_send`, "One wait a frame, and a second thread"). The slash key with Shift and no Ctrl is a key of the Temple, and with no Shift it is a key of the throw |
 | Menu key | `test_keys=1` | One walk for both eyes on and off (see "One walk for both eyes"). The key beside the right Ctrl key that opens a context menu. Ctrl and Shift must be up |
 | Ctrl Menu key | `test_keys=1` | The layout of the buttons of the hand that does not point. The menu button of the left controller opens the game menu, Y opens the ring and the stick does not drive the ring, or Y opens the game menu and X and the stick open the ring. A long pulse and a short pulse on that hand (`button_layout`, `controllers.md`, 5.1). Shift must be up |
@@ -3083,6 +3115,7 @@ keys that the launcher sets.
 | `bubble_card` | 1 | 1: a speech bubble of the game is one flat card at the depth of its sign. 0: it is drawn as the game and the interface depth make it in each eye pass. See `ui-layer.md`, section 18 |
 | `bubble_card_test`, `bubble_card_test_frame` | 0, 0 | Test keys of the desktop runs. See the same section |
 | `one_walk`, `one_walk_check` | 1, 0 | See "One walk for both eyes" |
+| `one_walk_merge` | 1 | 1: with the render thread, a batch whose two copies are in their own halves is one draw for both eyes. 0: one draw for each eye. See "One draw for both eyes" |
 | `render_thread`, `render_thread_test_frame` | 0, 0 | See "The render thread" |
 | `render_thread_lock_free` | 1 | 1: the frame thread gets the answers of some calls of a texture with no lock of the device. 0: each goes to Direct3D 9. See "The lock of the device" |
 | `render_thread_filter` | 1 | 1: a call of a walk that sets the value that the device has already does not go to Direct3D 9. 0: each goes. See "The calls that change nothing" |

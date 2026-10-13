@@ -362,6 +362,11 @@ struct Kept {
   D3DMATRIX transform[kKeptTransforms];
 };
 Kept g_kept;
+// The viewport of one draw for both eyes (THE VIEWPORT OF BOTH EYES): the
+// device has a viewport over both eyes, and g_vp_logical is the viewport of
+// the game, which GetViewport gives.
+bool g_vp_moved = false;
+D3DVIEWPORT9 g_vp_logical = {};
 
 // The thunks of the stops.
 uint8_t* g_thunks = nullptr;
@@ -425,6 +430,7 @@ void ResetKept() {
 // here one time, so a read in the walk needs no stop.
 void ReadAll(IDirect3DDevice9* d) {
   ResetKept();
+  g_vp_moved = false;
   DWORD v = 0;
   if (SUCCEEDED(o_GetFVF(d, &v))) {
     g_kept.fvf = v;
@@ -1027,6 +1033,24 @@ bool Simple(Op op, const T& arg) {
   return true;
 }
 
+// THE VIEWPORT OF BOTH EYES (one_walk_merge, one_walk.cpp). One walk can
+// draw both copies of a batch in one draw, with one viewport over both eyes.
+// The device keeps that viewport while such draws follow each other. The
+// walk keeps the viewport that the game set: GetViewport gives it, and a
+// SetViewport of it changes nothing. A call that needs the viewport of the
+// game puts it back first: a draw or a clear of one eye (one_walk.cpp), a
+// stop, and the end of the walk. A new target sets the viewport itself.
+void ViewportPutBack() {
+  if (!g_vp_moved) return;
+  g_vp_moved = false;
+  if (!Simple(kOpSetViewport, g_vp_logical)) {
+    Stop(kSetViewport);
+    o_SetViewport(g_device, &g_vp_logical);
+  }
+  g_kept.viewport = g_vp_logical;
+  g_kept.viewport_ok = true;
+}
+
 void Hold(IUnknown* object) {
   if (object != nullptr) object->AddRef();
 }
@@ -1052,6 +1076,7 @@ void KeepTarget(DWORD index, IDirect3DSurface9* surface) {
   if (index != 0) return;
   // SetRenderTarget of target 0 sets the viewport and the scissor rect to the
   // whole target.
+  g_vp_moved = false;
   D3DSURFACE_DESC desc;
   if (surface != nullptr && SUCCEEDED(surface->GetDesc(&desc))) {
     const D3DVIEWPORT9 all = {0, 0, desc.Width, desc.Height, 0.0f, 1.0f};
@@ -1175,6 +1200,14 @@ HRESULT STDMETHODCALLTYPE h_SetTransform(IDirect3DDevice9* self,
 
 HRESULT STDMETHODCALLTYPE h_SetViewport(IDirect3DDevice9* self,
                                         const D3DVIEWPORT9* viewport) {
+  if (Taking(self) && viewport != nullptr && g_vp_moved) {
+    if (memcmp(&g_vp_logical, viewport, sizeof(D3DVIEWPORT9)) == 0) {
+      ++g_same[kOpSetViewport];
+      return D3D_OK;
+    }
+    // A new viewport of the game: the device gets it below.
+    g_vp_moved = false;
+  }
   if (Taking(self) && viewport != nullptr && g_kept.viewport_ok &&
       memcmp(&g_kept.viewport, viewport, sizeof(D3DVIEWPORT9)) == 0) {
     ++g_same[kOpSetViewport];
@@ -1191,6 +1224,10 @@ HRESULT STDMETHODCALLTYPE h_SetViewport(IDirect3DDevice9* self,
 
 HRESULT STDMETHODCALLTYPE h_GetViewport(IDirect3DDevice9* self,
                                         D3DVIEWPORT9* viewport) {
+  if (Taking(self) && viewport != nullptr && g_vp_moved) {
+    *viewport = g_vp_logical;
+    return D3D_OK;
+  }
   if (Taking(self) && viewport != nullptr) {
     if (g_kept.viewport_ok) {
       *viewport = g_kept.viewport;
@@ -1652,6 +1689,7 @@ bool ChangesStates(int which) {
 void __cdecl OtherCall(int which) {
   const DWORD thread = GetCurrentThreadId();
   if (g_recording && thread == g_frame_thread) {
+    ViewportPutBack();
     Stop(which);
     if (ChangesStates(which)) ResetKept();
   }
@@ -2697,6 +2735,7 @@ void RenderThreadWalk(bool begin) {
   if (!begin) {
     StampWalkEnd();
     if (!g_recording) return;
+    ViewportPutBack();
     const uint64_t start = Ticks();
     Drain();
     g_end_ticks += Ticks() - start;
@@ -2850,3 +2889,72 @@ void RenderThreadReport(uint64_t frames) {
 }
 
 unsigned long RenderThreadWorkerId() { return g_worker_id; }
+
+bool RenderThreadViewportBoth(IDirect3DDevice9* self,
+                              const D3DVIEWPORT9* both) {
+  if (!Taking(self) || both == nullptr || !g_kept.viewport_ok) return false;
+  if (!g_vp_moved) g_vp_logical = g_kept.viewport;
+  if (memcmp(&g_kept.viewport, both, sizeof(D3DVIEWPORT9)) != 0) {
+    if (!Simple(kOpSetViewport, *both)) return false;
+    g_kept.viewport = *both;
+  }
+  g_vp_moved = memcmp(&g_vp_logical, both, sizeof(D3DVIEWPORT9)) != 0;
+  return true;
+}
+
+void RenderThreadViewportPutBack(IDirect3DDevice9* self) {
+  if (Taking(self)) ViewportPutBack();
+}
+
+bool RenderThreadOutDrawIndexedBoth(IDirect3DDevice9* self,
+                                    D3DPRIMITIVETYPE type, UINT min_index,
+                                    UINT vertex_count, UINT primitive_count,
+                                    const void* indices, D3DFORMAT index_format,
+                                    const void* left, const void* right,
+                                    UINT stride) {
+  if (!Taking(self) || left == nullptr || right == nullptr ||
+      indices == nullptr || type != D3DPT_TRIANGLELIST) {
+    return false;
+  }
+  // The indices count from the start of each copy, so the right copy starts
+  // count vertices after the left one.
+  const uint32_t count = min_index + vertex_count;
+  const bool wide = index_format == D3DFMT_INDEX32;
+  if (!wide && 2u * count > 65536u) return false;
+  const uint32_t index_count = IndexCount(type, primitive_count);
+  const uint32_t copy_bytes = count * stride;
+  const uint32_t vertex_bytes = 2u * copy_bytes;
+  const uint32_t index_bytes = 2u * index_count * (wide ? 4u : 2u);
+  const uint32_t padded = (vertex_bytes + 7u) & ~7u;
+  uint8_t* p = Reserve(kOpDrawIndexedPrimitiveUP,
+                       sizeof(ArgDrawIndexedUP) + padded + index_bytes);
+  if (p == nullptr) return false;
+  const ArgDrawIndexedUP a = {type,
+                              min_index,
+                              count + vertex_count,
+                              2u * primitive_count,
+                              index_format,
+                              stride,
+                              vertex_bytes,
+                              index_bytes};
+  memcpy(p, &a, sizeof(a));
+  uint8_t* v = p + sizeof(a);
+  memcpy(v, left, copy_bytes);
+  memcpy(v + copy_bytes, right, copy_bytes);
+  uint8_t* out = v + padded;
+  if (wide) {
+    const uint32_t* in = static_cast<const uint32_t*>(indices);
+    uint32_t* o = reinterpret_cast<uint32_t*>(out);
+    memcpy(o, in, index_count * 4u);
+    for (uint32_t i = 0; i < index_count; ++i) o[index_count + i] = in[i] + count;
+  } else {
+    const uint16_t* in = static_cast<const uint16_t*>(indices);
+    uint16_t* o = reinterpret_cast<uint16_t*>(out);
+    memcpy(o, in, index_count * 2u);
+    for (uint32_t i = 0; i < index_count; ++i) {
+      o[index_count + i] = static_cast<uint16_t>(in[i] + count);
+    }
+  }
+  Commit();
+  return true;
+}

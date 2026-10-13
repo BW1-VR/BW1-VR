@@ -22,6 +22,9 @@
 // clips them to the viewport, so a triangle at the edge of one eye stays out
 // of the other eye. A change of the viewport costs much less than a change of
 // the render target, and nothing else changes between the two draws.
+// With the render thread, a batch whose two copies are each in their own
+// half is one draw for both eyes (one_walk_merge, ONE DRAW FOR BOTH EYES in
+// h_DrawIndexedPrimitiveUP).
 //
 // THE INTERFACE
 //
@@ -49,6 +52,8 @@
 #include "render_thread_d3d9.h"
 
 extern void ModLog(const char* format, ...);
+// controllers.cpp
+void ControllersGesturePulse(float amplitude, float seconds);
 // draw_merge.cpp: the batch of the merge goes to Direct3D now.
 void DrawMergeFlush();
 // gpu_bridge.cpp
@@ -143,6 +148,12 @@ uint64_t g_not_screen_space = 0;
 uint64_t g_buffer_draws = 0;  // draws from a vertex buffer: no right eye
 uint64_t g_clears = 0;
 uint64_t g_vertices = 0;
+// The batches whose two copies are each in their own half (InOwnHalves),
+// of the batches that one walk drew in both eyes.
+uint64_t g_own_halves = 0;
+uint64_t g_both_batches = 0;
+uint64_t g_merged = 0;  // batches drawn in one draw for both eyes
+bool g_merge = true;    // one_walk_merge
 uint64_t g_right_ticks = 0;
 uint64_t g_target_swaps = 0;
 uint64_t g_late_swaps = 0;
@@ -226,16 +237,87 @@ bool CopyRight(const void* vertices, uint32_t count, UINT stride,
   return true;
 }
 
+// Counts a batch of both eyes, and if its copies are in their own halves.
+// The right copy is in g_scratch.
+void CountOwnHalves(IDirect3DDevice9* self, const void* left, uint32_t count,
+                    UINT stride) {
+  D3DVIEWPORT9 v;
+  if (FAILED(self->GetViewport(&v))) return;
+  ++g_both_batches;
+  if (one_walk_math::InOwnHalves(static_cast<const uint8_t*>(left), g_scratch,
+                                 count, stride,
+                                 static_cast<float>(v.X + v.Width),
+                                 static_cast<float>(v.X + g_eye_width))) {
+    ++g_own_halves;
+  }
+}
+
 HRESULT STDMETHODCALLTYPE h_DrawIndexedPrimitiveUP(
     IDirect3DDevice9* self, D3DPRIMITIVETYPE type, UINT min_index,
     UINT vertex_count, UINT primitive_count, const void* indices,
     D3DFORMAT index_format, const void* vertices, UINT stride) {
   if (!InWide(self)) {
+    RenderThreadViewportPutBack(self);
     return RenderThreadOutDrawIndexedPrimitiveUP(
         self, type, min_index, vertex_count, primitive_count, indices,
         index_format, vertices, stride);
   }
   const int mode = g_mode;
+  // ONE DRAW FOR BOTH EYES (one_walk_merge=1). A triangle list whose left
+  // copy ends at the right edge of the viewport of the left eye, and whose
+  // right copy starts at the left edge of the right eye, needs no clip at the
+  // edge between the eyes. Then one draw with one viewport over both eyes
+  // gives the pixels of the two draws. The viewport over both eyes stays on
+  // the device for the next such draw (render_thread.cpp, THE VIEWPORT OF
+  // BOTH EYES). The scissor rect would need a move for the right eye, so a
+  // draw with the scissor test is drawn one eye at a time.
+  if (mode == kOneWalkBoth && g_merge && type == D3DPT_TRIANGLELIST &&
+      vertices != nullptr && indices != nullptr && ScreenSpace(self, stride)) {
+    LARGE_INTEGER a, b;
+    QueryPerformanceCounter(&a);
+    const uint32_t count = min_index + vertex_count;
+    D3DVIEWPORT9 game;
+    DWORD scissor = TRUE;
+    if (SUCCEEDED(self->GetViewport(&game)) &&
+        SUCCEEDED(self->GetRenderState(D3DRS_SCISSORTESTENABLE, &scissor)) &&
+        scissor == FALSE && CopyRight(vertices, count, stride, true)) {
+      ++g_both_batches;
+      const bool fits = one_walk_math::InOwnHalves(
+          static_cast<const uint8_t*>(vertices), g_scratch, count, stride,
+          static_cast<float>(game.X + game.Width),
+          static_cast<float>(game.X + g_eye_width));
+      if (fits) ++g_own_halves;
+      D3DVIEWPORT9 both = game;
+      both.Width = g_eye_width + game.Width;
+      if (fits && RenderThreadViewportBoth(self, &both) &&
+          RenderThreadOutDrawIndexedBoth(self, type, min_index, vertex_count,
+                                         primitive_count, indices,
+                                         index_format, vertices, g_scratch,
+                                         stride)) {
+        ++g_merged;
+        QueryPerformanceCounter(&b);
+        g_right_ticks += b.QuadPart - a.QuadPart;
+        return D3D_OK;
+      }
+      // One eye at a time, with the copy of the right eye made.
+      RenderThreadViewportPutBack(self);
+      const HRESULT hr = RenderThreadOutDrawIndexedPrimitiveUP(
+          self, type, min_index, vertex_count, primitive_count, indices,
+          index_format, vertices, stride);
+      if (SUCCEEDED(hr)) {
+        Saved saved;
+        MoveRight(self, &saved);
+        RenderThreadOutDrawIndexedPrimitiveUP(
+            self, type, min_index, vertex_count, primitive_count, indices,
+            index_format, g_scratch, stride);
+        PutBack(self, saved);
+      }
+      QueryPerformanceCounter(&b);
+      g_right_ticks += b.QuadPart - a.QuadPart;
+      return hr;
+    }
+  }
+  RenderThreadViewportPutBack(self);
   HRESULT hr = S_OK;
   if (mode != kOneWalkRightOnly) {
     hr = RenderThreadOutDrawIndexedPrimitiveUP(
@@ -255,6 +337,7 @@ HRESULT STDMETHODCALLTYPE h_DrawIndexedPrimitiveUP(
   // The indices count from the start of the array, so the copy starts there.
   const uint32_t count = min_index + vertex_count;
   if (CopyRight(vertices, count, stride, mode == kOneWalkBoth)) {
+    if (mode == kOneWalkBoth) CountOwnHalves(self, vertices, count, stride);
     if (mode == kOneWalkRightOnly) ++g_right_only;
     Saved saved;
     MoveRight(self, &saved);
@@ -273,6 +356,7 @@ HRESULT STDMETHODCALLTYPE h_DrawPrimitiveUP(IDirect3DDevice9* self,
                                             D3DPRIMITIVETYPE type,
                                             UINT primitive_count,
                                             const void* vertices, UINT stride) {
+  RenderThreadViewportPutBack(self);
   if (!InWide(self)) {
     return RenderThreadOutDrawPrimitiveUP(self, type, primitive_count, vertices,
                                           stride);
@@ -297,6 +381,7 @@ HRESULT STDMETHODCALLTYPE h_DrawPrimitiveUP(IDirect3DDevice9* self,
   LARGE_INTEGER a, b;
   QueryPerformanceCounter(&a);
   if (CopyRight(vertices, count, stride, mode == kOneWalkBoth)) {
+    if (mode == kOneWalkBoth) CountOwnHalves(self, vertices, count, stride);
     if (mode == kOneWalkRightOnly) ++g_right_only;
     Saved saved;
     MoveRight(self, &saved);
@@ -316,6 +401,7 @@ HRESULT STDMETHODCALLTYPE h_DrawPrimitiveUP(IDirect3DDevice9* self,
 HRESULT STDMETHODCALLTYPE h_DrawPrimitive(IDirect3DDevice9* self,
                                           D3DPRIMITIVETYPE type, UINT start,
                                           UINT count) {
+  RenderThreadViewportPutBack(self);
   if (InWide(self)) ++g_buffer_draws;
   return RenderThreadOutDrawPrimitive(self, type, start, count);
 }
@@ -325,6 +411,7 @@ HRESULT STDMETHODCALLTYPE h_DrawIndexedPrimitive(IDirect3DDevice9* self,
                                                  INT base, UINT min_index,
                                                  UINT vertices, UINT start,
                                                  UINT count) {
+  RenderThreadViewportPutBack(self);
   if (InWide(self)) ++g_buffer_draws;
   return RenderThreadOutDrawIndexedPrimitive(self, type, base, min_index,
                                              vertices, start, count);
@@ -335,6 +422,7 @@ HRESULT STDMETHODCALLTYPE h_DrawIndexedPrimitive(IDirect3DDevice9* self,
 HRESULT STDMETHODCALLTYPE h_Clear(IDirect3DDevice9* self, DWORD count,
                                   const D3DRECT* rects, DWORD flags,
                                   D3DCOLOR color, float z, DWORD stencil) {
+  RenderThreadViewportPutBack(self);
   if (!InWide(self)) {
     return RenderThreadOutClear(self, count, rects, flags, color, z, stencil);
   }
@@ -752,8 +840,29 @@ void OneWalkReport(uint64_t frames) {
   ModLog("one walk     : %.1f clears and %.1f binds of the game's target "
          "turned wide in a frame, %.0f interface batches for the left eye only",
          g_clears / per, g_target_swaps / per, g_left_only / per);
+  ModLog("one walk     : one_walk_merge=%d. %.0f batches of a frame in both "
+         "eyes, %.0f of them with each copy in its own half, %.0f of them in "
+         "one draw for both eyes",
+         g_merge ? 1 : 0, g_both_batches / per, g_own_halves / per,
+         g_merged / per);
+  g_both_batches = g_own_halves = g_merged = 0;
   g_passes = 0;
   g_world_batches = g_flat_batches = g_sky_batches = 0;
   g_right_only = g_left_only = g_not_screen_space = g_buffer_draws = 0;
   g_clears = g_vertices = g_right_ticks = g_target_swaps = g_late_swaps = 0;
+}
+
+void OneWalkSetMerge(bool on) {
+  g_merge = on;
+  ModLog("one walk     : one_walk_merge=%d. %s", on ? 1 : 0,
+         on ? "A batch whose two copies are in their own halves is one draw "
+              "for both eyes, with the render thread"
+            : "Each batch is one draw for each eye");
+}
+
+void OneWalkMergeToggle(const char* keys) {
+  g_merge = !g_merge;
+  ControllersGesturePulse(0.5f, g_merge ? 0.30f : 0.08f);
+  ModLog("test key     : %s, one_walk_merge is %d from the next draw", keys,
+         g_merge ? 1 : 0);
 }

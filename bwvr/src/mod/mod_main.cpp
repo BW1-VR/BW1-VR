@@ -276,6 +276,7 @@ bool g_freeze_time = true;
 // time for each eye.
 bool g_one_walk = true;
 bool g_one_walk_check = false;
+bool g_one_walk_merge = true;
 bool g_move_camera_point = false;
 // After the two eye passes the game has the real time of the frame as its
 // frame time. 0 gives the number from before the passes. The three test keys
@@ -593,6 +594,8 @@ void ReadSettings() {
   g_one_walk = GetPrivateProfileIntA("bwvr", "one_walk", 1, path) != 0;
   g_one_walk_check =
       GetPrivateProfileIntA("bwvr", "one_walk_check", 0, path) != 0;
+  g_one_walk_merge =
+      GetPrivateProfileIntA("bwvr", "one_walk_merge", 1, path) != 0;
   g_draw_probe = GetPrivateProfileIntA("bwvr", "draw_probe", 0, path) != 0;
   g_ui_accounting =
       GetPrivateProfileIntA("bwvr", "ui_accounting", 0, path) != 0;
@@ -1516,6 +1519,7 @@ void StartVrOnce() {
                         g_frame_time_test_readers,
                         g_frame_time_test_readers_frames);
     OneWalkSetCheck(g_one_walk_check);
+    OneWalkSetMerge(g_one_walk_merge);
     if (g_one_walk) OneWalkSetWanted(true);
     StereoSetHeadless(g_stereo_headless);
     StereoSetProfile(g_profile);
