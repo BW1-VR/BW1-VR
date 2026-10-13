@@ -48,6 +48,35 @@ inline void SceneSampleChecks() {
   Near("each bucket comes when more are asked", TopBuckets(samples, 10, all, 8),
        3, 0);
   Near("no sample gives no bucket", TopBuckets(samples, 0, all, 8), 0, 0);
+  uint32_t exact[5] = {0x00500010u, 0x00500011u, 0x00500010u, 0x00500012u,
+                       0x00500010u};
+  Bucket one[2];
+  Near("a shift of 0 counts each address alone",
+       TopBuckets(exact, 5, one, 2, 0), 2, 0);
+  Check(one[0].first == 0x00500010u && one[0].count == 3,
+        "the address with the most samples is first", 0, 0);
+
+  // The bytes before a return address.
+  const uint8_t near_call[7] = {0x90, 0x90, 0xE8, 0x10, 0x20, 0x30, 0x40};
+  Check(EndsWithCall(near_call), "E8 rel32 is a call", 0, 0);
+  const uint8_t reg_call[7] = {0x90, 0x90, 0x90, 0x90, 0x90, 0xFF, 0xD0};
+  Check(EndsWithCall(reg_call), "FF D0 (call eax) is a call", 0, 0);
+  const uint8_t disp8_call[7] = {0x90, 0x90, 0x90, 0x90, 0xFF, 0x50, 0x08};
+  Check(EndsWithCall(disp8_call), "FF 50 08 (call [eax+8]) is a call", 0, 0);
+  const uint8_t vtable_call[7] = {0x90, 0xFF, 0x90, 0x48, 0x01, 0x00, 0x00};
+  Check(EndsWithCall(vtable_call), "FF 90 disp32 (call [eax+0x148]) is a call",
+        0, 0);
+  const uint8_t sib_call[7] = {0x90, 0x90, 0x90, 0xFF, 0x54, 0x24, 0x08};
+  Check(EndsWithCall(sib_call), "FF 54 24 08 (call [esp+8]) is a call", 0, 0);
+  const uint8_t abs_call[7] = {0x90, 0xFF, 0x15, 0x00, 0x10, 0x40, 0x00};
+  Check(EndsWithCall(abs_call), "FF 15 abs32 (call [import]) is a call", 0, 0);
+  const uint8_t jump[7] = {0x90, 0x90, 0x90, 0x90, 0x90, 0xFF, 0xE0};
+  Check(!EndsWithCall(jump), "FF E0 (jmp eax) is not a call", 0, 0);
+  const uint8_t short_disp[7] = {0x90, 0x90, 0x90, 0xFF, 0x50, 0x08, 0x90};
+  Check(!EndsWithCall(short_disp),
+        "a call that ends one byte early is not a call", 0, 0);
+  const uint8_t data[7] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+  Check(!EndsWithCall(data), "zeros are not a call", 0, 0);
 }
 
 }  // namespace scene_sample_checks

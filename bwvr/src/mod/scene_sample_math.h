@@ -65,19 +65,20 @@ inline int CompareAddress(const void* a, const void* b) {
   return x < y ? -1 : (x > y ? 1 : 0);
 }
 
-// The `want` buckets with the most samples, the most first. `addresses` is
-// sorted here. Gives the count of buckets in `out`.
-inline int TopBuckets(uint32_t* addresses, int count, Bucket* out, int want) {
+// The `want` buckets with the most samples, the most first. A bucket is
+// 1 << `shift` bytes: 0 counts each address alone. `addresses` is sorted
+// here. Gives the count of buckets in `out`.
+inline int TopBuckets(uint32_t* addresses, int count, Bucket* out, int want,
+                      uint32_t shift = kBucketShift) {
   if (count <= 0 || want <= 0) return 0;
   qsort(addresses, static_cast<size_t>(count), sizeof(uint32_t),
         CompareAddress);
   int have = 0;
   int i = 0;
   while (i < count) {
-    const uint32_t first = addresses[i] >> kBucketShift << kBucketShift;
+    const uint32_t first = addresses[i] >> shift << shift;
     uint32_t n = 0;
-    while (i < count &&
-           (addresses[i] >> kBucketShift << kBucketShift) == first) {
+    while (i < count && (addresses[i] >> shift << shift) == first) {
       ++n;
       ++i;
     }
@@ -92,6 +93,39 @@ inline int TopBuckets(uint32_t* addresses, int count, Bucket* out, int want) {
     if (have < want) ++have;
   }
   return have;
+}
+
+// The length of the bytes after the FF of a call through memory or a
+// register (FF /2): the ModRM byte, a SIB byte when there is one, and the
+// displacement. 32-bit addressing only.
+inline int CallOperandBytes(uint8_t modrm, uint8_t sib) {
+  const int mod = modrm >> 6;
+  const int rm = modrm & 7;
+  if (mod == 3) return 1;
+  if (mod == 0) {
+    if (rm == 5) return 5;
+    if (rm == 4) return (sib & 7) == 5 ? 6 : 2;
+    return 1;
+  }
+  const int disp = mod == 1 ? 1 : 4;
+  return 1 + (rm == 4 ? 1 : 0) + disp;
+}
+
+// True when the 7 bytes before a word of the stack end with a call, so the
+// word can be a return address. `before[6]` is the byte just before it. The
+// calls are E8 rel32 and FF /2 of 2 to 7 bytes. A word that only looks like
+// a return address can pass: a stack holds old values too.
+inline bool EndsWithCall(const uint8_t before[7]) {
+  if (before[2] == 0xE8) return true;
+  for (int k = 2; k <= 7; ++k) {
+    const int at = 7 - k;
+    if (before[at] != 0xFF) continue;
+    const uint8_t modrm = before[at + 1];
+    if (((modrm >> 3) & 7) != 2) continue;
+    const uint8_t sib = at + 2 < 7 ? before[at + 2] : 0;
+    if (1 + CallOperandBytes(modrm, sib) == k) return true;
+  }
+  return false;
 }
 
 }  // namespace scene_sample

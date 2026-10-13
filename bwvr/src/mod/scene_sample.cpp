@@ -9,14 +9,17 @@
 //
 // A thread of its own stops the frame thread for a moment each
 // profile_sample microseconds while the frame thread is in a scene walk
-// (SceneSampleWalk), reads the address of its next instruction, and lets it
-// go on. The thread keeps only that address: it calls nothing that can take a
-// lock that the stopped thread holds. Each 450 frames the report gives the
-// share of each module and the buckets of 64 bytes with the most samples
-// (scene_sample_math.h), and the time that the samples held the frame thread.
+// (SceneSampleWalk), reads the address of its next instruction and a copy of
+// the top 384 bytes of its stack, and lets it go on. While the frame thread is
+// stopped, the thread calls nothing that can take a lock that the stopped
+// thread holds. Each 450 frames the report gives the share of each module and
+// the buckets of 64 bytes with the most samples (scene_sample_math.h), and the
+// time that the samples held the frame thread.
 //
 // An address in ntdll.dll or win32u.dll is mostly a call of the kernel: the
-// driver in the kernel, or a wait.
+// driver in the kernel, or a wait. For these samples the report also gives
+// the return addresses on the stack that are not in a module of the system:
+// the code that waits.
 //
 //   profile_sample=0      off (the default)
 //   profile_sample=N      a sample each N microseconds, 100 to 5000
@@ -39,6 +42,12 @@ const int kRing = 1 << 17;          // the samples kept between two reports
 const int kMaxModules = 512;
 const int kTopModules = 8;
 const int kTopBuckets = 16;
+const int kTopCallers = 12;
+// A copy of the top of the stack of each sample, for the callers of a wait in
+// ntdll.dll. The ring of the stacks is smaller than the ring of the
+// addresses: a report has about 20 samples in a frame.
+const int kStackWords = 96;
+const int kStackRing = 1 << 15;
 
 int g_interval_us = 0;             // profile_sample
 bool g_read = false;
@@ -50,6 +59,7 @@ volatile LONG g_in_walk = 0;
 // Written by the thread of the samples, read by the report on the frame
 // thread. The report reads only up to the count it read first.
 uint32_t* g_ring = nullptr;
+uint32_t* g_stacks = nullptr;      // kStackWords for each sample, or zeros
 volatile LONG g_written = 0;       // samples written in all
 LONG g_reported = 0;               // samples that a report took
 volatile LONG64 g_hold_ticks = 0;  // the time that the frame thread was held
@@ -108,14 +118,28 @@ DWORD WINAPI SampleThread(LPVOID) {
     ZeroMemory(&context, sizeof(context));
     context.ContextFlags = CONTEXT_CONTROL;
     const BOOL got = GetThreadContext(g_target, &context);
+    const LONG at = InterlockedCompareExchange(&g_written, 0, 0);
+    uint32_t* stack = g_stacks + (at & (kStackRing - 1)) * kStackWords;
+    // The stack is read while the thread is stopped. ReadProcessMemory takes
+    // no lock of the process, and it fails, with no fault, on a page that is
+    // not there.
+    SIZE_T copied = 0;
+    if (!got || !ReadProcessMemory(GetCurrentProcess(),
+                                   reinterpret_cast<LPCVOID>(context.Esp),
+                                   stack, kStackWords * sizeof(uint32_t),
+                                   &copied)) {
+      copied = 0;
+    }
     ResumeThread(g_target);
     QueryPerformanceCounter(&b);
     InterlockedExchangeAdd64(&g_hold_ticks, b.QuadPart - a.QuadPart);
+    if (copied < kStackWords * sizeof(uint32_t)) {
+      ZeroMemory(stack, kStackWords * sizeof(uint32_t));
+    }
     if (!got) {
       InterlockedIncrement(&g_lost);
       continue;
     }
-    const LONG at = InterlockedCompareExchange(&g_written, 0, 0);
     g_ring[at & (kRing - 1)] = static_cast<uint32_t>(context.Eip);
     InterlockedIncrement(&g_written);
   }
@@ -159,6 +183,93 @@ void ReadModules() {
   g_module_count = n;
 }
 
+// The modules of the system that a wait goes through.
+bool IsSystemModule(int m) {
+  if (m < 0) return false;
+  return _stricmp(g_names[m], "ntdll.dll") == 0 ||
+         _stricmp(g_names[m], "KERNEL32.DLL") == 0 ||
+         _stricmp(g_names[m], "KERNELBASE.dll") == 0 ||
+         _stricmp(g_names[m], "win32u.dll") == 0;
+}
+
+// True when the word is in a module and a call is just before it.
+bool IsReturnAddress(uint32_t word, int m) {
+  if (m < 0 || word - g_modules[m].base < 7) return false;
+  uint8_t before[7];
+  SIZE_T got = 0;
+  if (!ReadProcessMemory(GetCurrentProcess(),
+                         reinterpret_cast<LPCVOID>(word - 7), before,
+                         sizeof(before), &got) ||
+      got != sizeof(before)) {
+    return false;
+  }
+  return scene_sample::EndsWithCall(before);
+}
+
+uint32_t g_caller1[kStackRing];
+uint32_t g_caller2[kStackRing];
+int g_own_module = -1;  // the module of the mod
+
+// For each sample in ntdll.dll of the newest kStackRing samples: the first
+// return address on its stack outside the modules of the system, and the
+// first one that is also outside d3d9.dll and the mod (0 when there is
+// none). Gives the count.
+int FindCallers(LONG first, LONG take) {
+  g_own_module = scene_sample::ModuleOf(
+      static_cast<uint32_t>(reinterpret_cast<uintptr_t>(&FindCallers)),
+      g_modules, g_module_count);
+  int count = 0;
+  const LONG from = take > kStackRing ? take - kStackRing : 0;
+  for (LONG i = from; i < take; ++i) {
+    const int m = scene_sample::ModuleOf(g_scratch[i], g_modules,
+                                         g_module_count);
+    if (m < 0 || _stricmp(g_names[m], "ntdll.dll") != 0) continue;
+    const uint32_t* stack =
+        g_stacks + ((first + i) & (kStackRing - 1)) * kStackWords;
+    uint32_t c1 = 0, c2 = 0;
+    for (int w = 0; w < kStackWords && c2 == 0; ++w) {
+      const int wm =
+          scene_sample::ModuleOf(stack[w], g_modules, g_module_count);
+      if (wm < 0 || IsSystemModule(wm)) continue;
+      if (!IsReturnAddress(stack[w], wm)) continue;
+      if (c1 == 0) c1 = stack[w];
+      if (wm != g_own_module && _stricmp(g_names[wm], "d3d9.dll") != 0) {
+        c2 = stack[w];
+      }
+    }
+    g_caller1[count] = c1;
+    g_caller2[count] = c2;
+    ++count;
+  }
+  return count;
+}
+
+// The return addresses with the most samples, as text. `addresses` is sorted
+// here.
+void CallerList(uint32_t* addresses, int count, LONG take, char* line,
+                size_t size) {
+  scene_sample::Bucket top[kTopCallers];
+  const int got =
+      scene_sample::TopBuckets(addresses, count, top, kTopCallers, 0);
+  int used = 0;
+  line[0] = 0;
+  for (int k = 0; k < got; ++k) {
+    const int m =
+        scene_sample::ModuleOf(top[k].first, g_modules, g_module_count);
+    if (top[k].first == 0) {
+      used += sprintf_s(line + used, size - used, "%snone %.1f%%",
+                        k == 0 ? "" : ", ", 100.0 * top[k].count / take);
+    } else {
+      used += sprintf_s(line + used, size - used, "%s%s+0x%X %.1f%%",
+                        k == 0 ? "" : ", ", m >= 0 ? g_names[m] : "?",
+                        m >= 0 ? top[k].first - g_modules[m].base
+                               : top[k].first,
+                        100.0 * top[k].count / take);
+    }
+    if (used >= static_cast<int>(size) - 80) break;
+  }
+}
+
 void Start() {
   if (g_read) return;
   g_read = true;
@@ -172,6 +283,8 @@ void Start() {
   QueryPerformanceFrequency(&g_frequency);
   g_ring = new uint32_t[kRing];
   g_scratch = new uint32_t[kRing];
+  g_stacks = new uint32_t[kStackRing * kStackWords];
+  ZeroMemory(g_stacks, kStackRing * kStackWords * sizeof(uint32_t));
   g_target = OpenThread(THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT |
                             THREAD_QUERY_INFORMATION,
                         FALSE, GetCurrentThreadId());
@@ -219,6 +332,7 @@ void SceneSampleReport(uint64_t frames, double scene_ms) {
   }
 
   ReadModules();
+  const int callers = FindCallers(first, take);
   // The samples of each module, and of no module.
   uint32_t per_module[kMaxModules + 1];
   ZeroMemory(per_module, sizeof(per_module));
@@ -273,4 +387,17 @@ void SceneSampleReport(uint64_t frames, double scene_ms) {
   }
   ModLog("scene sample : the code with the most samples, in pieces of 64 "
          "bytes: %s", line);
+
+  if (callers > 0) {
+    char first_line[1024];
+    char second_line[1024];
+    CallerList(g_caller1, callers, take, first_line, sizeof(first_line));
+    CallerList(g_caller2, callers, take, second_line, sizeof(second_line));
+    ModLog("scene sample : %d samples in ntdll.dll. The first return address "
+           "on the stack outside ntdll.dll, KERNEL32.DLL, KERNELBASE.dll and "
+           "win32u.dll, in %% of all samples: %s",
+           callers, first_line);
+    ModLog("scene sample : the first return address that is also outside "
+           "d3d9.dll and the mod: %s", second_line);
+  }
 }
