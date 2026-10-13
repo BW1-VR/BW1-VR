@@ -589,26 +589,43 @@ float FrameSeparation() {
 // its thread. A hook of the messages of that thread sees each key as the game
 // sees it, and keeps the press for the next frame. The state of Shift and
 // Ctrl comes from GetKeyState, which is the state of that message.
+//
+// A virtual keyboard can also send a capital letter as the character alone
+// (VK_PACKET), with no Shift. Then only a WM_CHAR of the capital letter
+// comes. So a WM_CHAR of F, G, H or J is the same key, unless the WM_KEYDOWN
+// of that key came less than 200 ms before it: a real keyboard sends both.
+// The digits have no such second way, because the character of Shift 8 and
+// Shift 9 is not the same on each keyboard layout.
 // Shift 8, Shift 9, Shift F, Shift G, Shift H, Shift J
 static volatile LONG g_shift_key[6] = {0, 0, 0, 0, 0, 0};
+static DWORD g_shift_key_at[6] = {0, 0, 0, 0, 0, 0};
 static HHOOK g_message_hook = nullptr;
 static bool g_message_hook_tried = false;
+
+static int ShiftKeyIndex(WPARAM key) {
+  return key == '8'   ? 0
+         : key == '9' ? 1
+         : key == 'F' ? 2
+         : key == 'G' ? 3
+         : key == 'H' ? 4
+         : key == 'J' ? 5
+                      : -1;
+}
 
 static LRESULT CALLBACK KeyMessageHook(int code, WPARAM remove, LPARAM message) {
   if (code == HC_ACTION && remove == PM_REMOVE) {
     const MSG* m = reinterpret_cast<const MSG*>(message);
     const bool first = (m->lParam & (1 << 30)) == 0;  // not a repeat
-    const int index = m->wParam == '8'   ? 0
-                      : m->wParam == '9' ? 1
-                      : m->wParam == 'F' ? 2
-                      : m->wParam == 'G' ? 3
-                      : m->wParam == 'H' ? 4
-                      : m->wParam == 'J' ? 5
-                                         : -1;
+    const int index = ShiftKeyIndex(m->wParam);
+    const bool ctrl = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
     if (m->message == WM_KEYDOWN && first && index >= 0 &&
-        (GetKeyState(VK_SHIFT) & 0x8000) != 0 &&
-        (GetKeyState(VK_CONTROL) & 0x8000) == 0) {
+        (GetKeyState(VK_SHIFT) & 0x8000) != 0 && !ctrl) {
       InterlockedExchange(&g_shift_key[index], 1);
+      g_shift_key_at[index] = GetTickCount();
+    } else if (m->message == WM_CHAR && index >= 2 && !ctrl &&
+               GetTickCount() - g_shift_key_at[index] > 200) {
+      InterlockedExchange(&g_shift_key[index], 1);
+      g_shift_key_at[index] = GetTickCount();
     }
   }
   return CallNextHookEx(g_message_hook, code, remove, message);
