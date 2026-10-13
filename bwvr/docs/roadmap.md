@@ -521,11 +521,10 @@ that moves while the Hand takes it.
     The render thread, which is the driver, sets the time of the walk. Open:
     a headset session with the filter and the buffers, more sessions in a
     headset (the Temple, a story, a load of a saved game), then the default
-    value of `render_thread`. An idea that is not built: one walk sets the
-    viewport two times for each batch (the right half, then back). With the
-    order of the two eyes changed from batch to batch, one change of the
-    viewport for each batch is enough. Before the thread, with one walk, a
-    view of the whole island has about 1500 batches and a scene walk of 9.5 to 11 ms,
+    value of `render_thread`. With the render thread, one walk draws most
+    batches in one draw for both eyes (`one_walk_merge`, `backend.md`, "One
+    draw for both eyes"). Before the thread, with one walk, a view of the
+    whole island has about 1500 batches and a scene walk of 9.5 to 11 ms,
     and the runtime then shows 45 frames a second. Of that walk about 6 ms
     are Direct3D 9, the driver of AMD and the kernel, and less than 3 ms are
     the game (`profile_sample`, `backend.md`, "Where the time of the scene
