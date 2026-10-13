@@ -594,7 +594,11 @@ that moves while the Hand takes it.
     read ahead takes that wait away (`subtitle_read_ahead=1`). Not shown: a
     headset session with `frame_send=2` and the card on, and its frame
     rate against `frame_send=0`. The default 0 came from headset sessions
-    in which the card read had that wait.
+    in which the card read had that wait. A desktop run cannot show it:
+    with no headset the mod makes no wait for the GPU, and no thread has a
+    frame to send, so `bench_run.ps1` gives the same numbers for each value
+    of `frame_send`. The comparison needs two sessions in a headset with
+    `profile=1`, at one place with a still head.
   - **The merge of draw calls in a headset.** The mod gives a row of draw
     calls with one state to Direct3D as one draw call (`draw_merge=1`,
     `backend.md`, "One draw call for a row of draw calls"). Desktop runs of
