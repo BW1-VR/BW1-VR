@@ -1248,13 +1248,10 @@ anisotropic filtering (4 in place of 16) changed none of these numbers. The
 multisampling stayed at 4x in that run: `AntiAliasing = 0` in
 `dxwrapper.ini` did not change it.
 
-**DXVK.** DXVK 3.1.1 as `d3d9.dll` in the game folder runs under dxwrapper,
-but the share of the eye pictures to Direct3D 11 fails ("Failed to open
-shared D3DKMT handle"), and the game closes after the start of the OpenXR
-session. With `gpu_bridge=0` (the pictures through the CPU) and two scene
-walks, Direct3D 9 and the kernel are about 2.9 ms of a frame over the island,
-against about 6 ms for the driver of AMD with one walk. Use of DXVK needs a
-different bridge: an OpenXR session of Vulkan with the images of DXVK.
+**DXVK.** With `gpu_bridge=0` (the pictures through the CPU) and two scene
+walks, Direct3D 9 and the kernel are about 2.9 ms of a frame over the island
+with DXVK, against about 6 ms for the driver of AMD with one walk. "DXVK under
+dxwrapper" has how the mod uses it.
 
 ### Draw calls with one state
 
@@ -1285,6 +1282,13 @@ passes of a frame:
   the place of a render thread.
 - The count does not see a texture that the game writes between two draw
   calls with the same texture.
+- The order of the draws of a walk cannot change much. In a desktop run at
+  the start of a new game, of about 1070 draws in a frame, about 690 have
+  the blend on with a texture that has an alpha channel, about 190 write no
+  depth, and 40 are no triangle list. Each of these keeps its place, so a
+  draw that could move (a Z buffer that it writes, no blend) has a draw
+  that keeps its place about each second draw. dxwrapper sets the depth
+  bias of each draw to -0.
 
 ### One draw call for a row of draw calls
 
@@ -1995,6 +1999,63 @@ D3D7 thread is busy 1.5 to 1.7 ms, the render thread 3.4 to 3.8 ms. The
 hand and the overlay of the mod draw through the queue, with no fault in
 the picture. With `test_keys=1`, Shift and M
 turn it on and off from the next walk.
+
+## DXVK under dxwrapper
+
+`d3d9_backend=1` (`d3d9_backend.cpp`) gives dxwrapper DXVK in place of the
+Direct3D 9 of Windows. DXVK makes the calls of Direct3D 9 into calls of
+Vulkan, and it gives its work to the driver on a thread of its own. The key
+is 0 by default.
+
+**The load.** dxwrapper loads `d3d9.dll` by its name, and the bridge loads it
+before dxwrapper (`GpuBridgeInstall`). Windows gives a module that is loaded
+already to a load by the same name. So the mod loads `dxvk\d3d9.dll` of the
+game folder first, before each other part, and dxwrapper and the bridge get
+DXVK. The mod sets the settings of DXVK in the environment of the process: no
+vertical sync (`d3d9.presentInterval = 0`), no OpenXR or OpenVR of DXVK
+(`DXVK_NO_VR`), and the log and the shader cache of DXVK in the folder
+`dxvk`.
+
+**When the PC can run it.** The mod uses DXVK only when each of these is
+true. Else it uses the Direct3D 9 of Windows, and the log says why:
+
+- the file `dxvk\d3d9.dll` is there,
+- `vulkan-1.dll` is there, its version is 1.3 or later, and a GPU has
+  Vulkan 1.3,
+- the start before did not fail. Before it loads DXVK, the mod writes
+  `dxvk\start-pending.txt`, and the first scene walk deletes it. When the
+  file is there at a start, the start before ended before its first walk.
+  Delete the file to try DXVK again.
+
+**The share of the eye pictures.** The Direct3D 9 of Windows makes each
+shared texture, and the Direct3D 11 of the OpenXR session opens it. DXVK
+cannot give such a texture to the Direct3D 11 of Windows: the game stops in
+the open. So with DXVK, Direct3D 11 makes each shared texture, and DXVK opens
+it with the handle of the kernel (`IDXGIResource::GetSharedHandle`), or else
+with an NT handle. DXVK writes "Failed to open shared D3DKMT handle" to its
+log for each such texture, but the share works. A backend can give `D3D_OK`
+for a share that it did not make, so the bridge checks each way one time:
+Direct3D 9 copies a color into the texture with `StretchRect`, as it copies
+the eye pictures, and Direct3D 11 reads one pixel back. A `ColorFill` does
+not do for the check: DXVK keeps a fill until it uses the texture itself, so
+Direct3D 11 reads the texture with no color. A way that does not carry the
+color is not used, and with no way the pictures go through the CPU. The log names the way (`gpu bridge   : Direct3D
+11 makes each shared texture`).
+
+**The numbers.** A desktop run at the start of a new game, about 1070 draws in
+a frame, `render_thread=1`, on a Radeon RX 7900 XTX:
+
+| | The Direct3D 9 of Windows | DXVK 3.1.1 |
+| --- | --- | --- |
+| The render thread busy in a frame | 2.11 ms | 0.92 to 1.03 ms |
+| The stops in a frame | 0.70 ms | 0.005 ms |
+| The frame (the frame thread sets it on the desktop) | 4.85 to 5.1 ms | 5.0 to 5.2 ms |
+
+The pictures of frame 3001 with DXVK and with Windows differ in 1.7 percent of
+the pixels, a little at edges and in the filter of textures. Not run: a
+session in a headset with DXVK, a PC with two GPUs, a GPU of NVIDIA or Intel.
+The share needs DXVK and the OpenXR session on the same GPU. DXVK takes a
+dedicated GPU before an integrated one.
 
 ## How the threads wait
 
@@ -3441,6 +3502,7 @@ keys that the launcher sets.
 | `gpu_flush` | 128 | N: each N draws of a walk the driver gives the calls so far to the GPU. 0: when the driver wants. See "The flush" |
 | `render_thread_right_eye` | 1 | 1: with the render thread, the render thread makes the copy of a batch of one walk for the right eye. 0: the frame thread makes it. See "The right eye on the render thread" |
 | `ab_test` | (empty) | A test key: `gpu_flush`, `render_thread_right_eye`, `fast_transform`, `d3d7_thread`, `render_thread_late_end` or `thread_wait` changes at each window of 450 frames. See "The flush" |
+| `d3d9_backend` | 0 | 0: dxwrapper draws with the Direct3D 9 of Windows. 1: with DXVK from the folder `dxvk` of the game, when the PC can run it. There is no test key: the choice is made at the start. See "DXVK under dxwrapper" |
 | `thread_wait` | 1 | 1: a thread of the mod that waits spins for a short time that comes from the count of the cores, and then it sleeps, and the second thread of `frame_send` sleeps until the GPU is nearly done. 0: the render thread and the D3D7 thread spin for the whole walk, and the second thread asks the GPU each 50 microseconds. See "How the threads wait" |
 | `test_cores`, `test_smt` | 0, 0 | Test keys: the process runs on that count of physical cores, with one logical core each, or with each logical core (`test_smt=1`). See "How the threads wait" |
 | `render_thread_late_end` | 1 | 1: with `render_thread=1` the end of a walk does not wait for the render thread. 0: it waits. See "The late end of a walk" |

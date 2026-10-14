@@ -552,9 +552,11 @@ that moves while the Hand takes it.
     GPU after it. Most of that wait is the driver, which gives the calls to
     the GPU late: the GPU works about 2 ms on the walks of a frame
     (`profile_gpu`).
-    DXVK in place of the Direct3D 9 of Windows halves the time of Direct3D 9
-    and the driver, but the share of the GPU bridge to Direct3D 11 fails with
-    it.
+    DXVK can take the place of the Direct3D 9 of Windows (`d3d9_backend=1`,
+    `backend.md`, "DXVK under dxwrapper"): the render thread is busy 0.95 ms
+    in place of 2.1 ms in a desktop run, with the same picture. Open: a
+    headset session with it, a GPU of NVIDIA or Intel, a PC with two GPUs,
+    and then the default value. The installer does not ship DXVK yet.
   - **The other render ideas have a small gain.** A projection off the centre
     for each eye: a view of 70 to 98 degrees changes the walk by 4 percent
     (`backend.md`, "A wide view is nearly free"). So a narrower cull saves

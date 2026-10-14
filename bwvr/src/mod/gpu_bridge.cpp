@@ -55,11 +55,14 @@
 // needs the old headers lives in interop_probe.cpp.
 #include <d3d9.h>
 #include <d3d11.h>
+#include <dxgi1_2.h>
 #include <stdint.h>
 #include <string.h>
 
 #include "MinHook.h"
 #include "render_thread.h"
+// d3d9_backend.cpp: true when dxwrapper draws with DXVK.
+bool D3D9BackendDxvk();
 #include "thread_wait.h"
 #include "ui_panel.h"
 
@@ -802,6 +805,214 @@ bool GpuBridgeFullScreen() { return g_full_screen; }
 
 bool GpuBridgeReady() { return g_ready; }
 
+// THE WAYS OF THE SHARE. The Direct3D 9 of Windows makes a shared texture,
+// and Direct3D 11 opens it (kShareFrom9). DXVK cannot give such a texture to
+// the Direct3D 11 of Windows: the game stops in the open. So with DXVK
+// (d3d9_backend.cpp), and when the first way fails, Direct3D 11 makes the
+// texture and Direct3D 9 opens it: with a handle of the kernel
+// (kShareFrom11), and else with an NT handle (kShareFrom11Nt). The first way
+// that works stays for the session.
+enum ShareWay { kShareNone = 0, kShareFrom9, kShareFrom11, kShareFrom11Nt };
+int g_share_way = kShareNone;
+bool g_said_share_way = false;
+
+const char* ShareWayName(int way) {
+  return way == kShareFrom9    ? "Direct3D 9 makes each shared texture"
+         : way == kShareFrom11 ? "Direct3D 11 makes each shared texture, and "
+                                 "Direct3D 9 opens it with a handle of the "
+                                 "kernel"
+                               : "Direct3D 11 makes each shared texture, and "
+                                 "Direct3D 9 opens it with an NT handle";
+}
+
+uint32_t g_share_seen = 0;  // the color that the last check read
+
+// True when a color that Direct3D 9 copies into the texture comes out of
+// the texture of Direct3D 11. A backend can give D3D_OK for a share that it
+// could not make, so the mod checks each way once. The color goes in as the
+// eye pictures do, with StretchRect from a target that has it: DXVK keeps a
+// ColorFill until it uses the texture itself, so Direct3D 11 would read the
+// texture with no color.
+bool ShareCarries(ID3D11Device* d11, IDirect3DTexture9* texture9,
+                  ID3D11Texture2D* texture11) {
+  IDirect3DSurface9* surface = nullptr;
+  if (FAILED(texture9->GetSurfaceLevel(0, &surface))) return false;
+  IDirect3DSurface9* source = nullptr;
+  if (FAILED(g_device_ex->CreateRenderTarget(16, 16, D3DFMT_A8R8G8B8,
+                                             D3DMULTISAMPLE_NONE, 0, FALSE,
+                                             &source, nullptr))) {
+    surface->Release();
+    return false;
+  }
+  const D3DCOLOR mark = D3DCOLOR_ARGB(0xFF, 0x12, 0x9A, 0x56);
+  HRESULT hr = g_device_ex->ColorFill(source, nullptr, mark);
+  const RECT corner = {0, 0, 16, 16};
+  if (SUCCEEDED(hr)) {
+    hr = g_device_ex->StretchRect(source, nullptr, surface, &corner,
+                                  D3DTEXF_NONE);
+  }
+  source->Release();
+  surface->Release();
+  if (FAILED(hr)) return false;
+  // In a walk the fill can wait in the queue of the render thread. The query
+  // comes after it only when the queue is empty.
+  RenderThreadSync();
+  IDirect3DQuery9* query = nullptr;
+  if (SUCCEEDED(g_device_ex->CreateQuery(D3DQUERYTYPE_EVENT, &query))) {
+    query->Issue(D3DISSUE_END);
+    const DWORD start = GetTickCount();
+    while (query->GetData(nullptr, 0, D3DGETDATA_FLUSH) == S_FALSE &&
+           GetTickCount() - start < 500) {
+      Sleep(0);
+    }
+    query->Release();
+  }
+  D3D11_TEXTURE2D_DESC desc = {};
+  desc.Width = 1;
+  desc.Height = 1;
+  desc.MipLevels = 1;
+  desc.ArraySize = 1;
+  desc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+  desc.SampleDesc.Count = 1;
+  desc.Usage = D3D11_USAGE_STAGING;
+  desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+  ID3D11Texture2D* staging = nullptr;
+  if (FAILED(d11->CreateTexture2D(&desc, nullptr, &staging))) return false;
+  ID3D11DeviceContext* context = nullptr;
+  d11->GetImmediateContext(&context);
+  bool carries = false;
+  uint32_t seen = 0;
+  // The other device can see the color a moment later: 20 reads, 5 ms apart.
+  for (int i = 0; i < 20 && context != nullptr && !carries; ++i) {
+    if (i > 0) Sleep(5);
+    const D3D11_BOX box = {0, 0, 0, 1, 1, 1};
+    context->CopySubresourceRegion(staging, 0, 0, 0, 0, texture11, 0, &box);
+    D3D11_MAPPED_SUBRESOURCE mapped;
+    if (SUCCEEDED(context->Map(staging, 0, D3D11_MAP_READ, 0, &mapped))) {
+      seen = *static_cast<const uint32_t*>(mapped.pData);
+      carries = seen == mark;
+      context->Unmap(staging, 0);
+    }
+  }
+  if (context != nullptr) context->Release();
+  staging->Release();
+  g_share_seen = seen;
+  return carries;
+}
+
+// One shared texture of width by height in one way. False with nothing kept
+// when the way does not work.
+bool ShareOneWay(ID3D11Device* d11, int way, UINT width, UINT height,
+                 IDirect3DTexture9** texture9, ID3D11Texture2D** texture11,
+                 HRESULT* result) {
+  *texture9 = nullptr;
+  *texture11 = nullptr;
+  HANDLE shared = nullptr;
+  HRESULT hr = E_FAIL;
+  if (way == kShareFrom9) {
+    hr = g_device_ex->CreateTexture(width, height, 1, D3DUSAGE_RENDERTARGET,
+                                    D3DFMT_A8R8G8B8, D3DPOOL_DEFAULT, texture9,
+                                    &shared);
+    if (SUCCEEDED(hr) && shared != nullptr) {
+      hr = d11->OpenSharedResource(shared, __uuidof(ID3D11Texture2D),
+                                   reinterpret_cast<void**>(texture11));
+    } else if (SUCCEEDED(hr)) {
+      hr = E_FAIL;
+    }
+  } else {
+    D3D11_TEXTURE2D_DESC desc = {};
+    desc.Width = width;
+    desc.Height = height;
+    desc.MipLevels = 1;
+    desc.ArraySize = 1;
+    desc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+    desc.SampleDesc.Count = 1;
+    desc.Usage = D3D11_USAGE_DEFAULT;
+    desc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
+    desc.MiscFlags = way == kShareFrom11
+                         ? D3D11_RESOURCE_MISC_SHARED
+                         : D3D11_RESOURCE_MISC_SHARED |
+                               D3D11_RESOURCE_MISC_SHARED_NTHANDLE;
+    hr = d11->CreateTexture2D(&desc, nullptr, texture11);
+    bool close = false;
+    if (SUCCEEDED(hr) && way == kShareFrom11) {
+      IDXGIResource* resource = nullptr;
+      hr = (*texture11)->QueryInterface(__uuidof(IDXGIResource),
+                                        reinterpret_cast<void**>(&resource));
+      if (SUCCEEDED(hr)) {
+        hr = resource->GetSharedHandle(&shared);
+        resource->Release();
+      }
+    } else if (SUCCEEDED(hr)) {
+      IDXGIResource1* resource = nullptr;
+      hr = (*texture11)->QueryInterface(__uuidof(IDXGIResource1),
+                                        reinterpret_cast<void**>(&resource));
+      if (SUCCEEDED(hr)) {
+        hr = resource->CreateSharedHandle(
+            nullptr, DXGI_SHARED_RESOURCE_READ | DXGI_SHARED_RESOURCE_WRITE,
+            nullptr, &shared);
+        resource->Release();
+        close = SUCCEEDED(hr);
+      }
+    }
+    if (SUCCEEDED(hr) && shared != nullptr) {
+      hr = g_device_ex->CreateTexture(width, height, 1, D3DUSAGE_RENDERTARGET,
+                                      D3DFMT_A8R8G8B8, D3DPOOL_DEFAULT,
+                                      texture9, &shared);
+    } else if (SUCCEEDED(hr)) {
+      hr = E_FAIL;
+    }
+    if (close) CloseHandle(shared);
+  }
+  *result = hr;
+  if (SUCCEEDED(hr) && *texture9 != nullptr && *texture11 != nullptr) {
+    return true;
+  }
+  if (*texture9 != nullptr) (*texture9)->Release();
+  if (*texture11 != nullptr) (*texture11)->Release();
+  *texture9 = nullptr;
+  *texture11 = nullptr;
+  return false;
+}
+
+// One shared texture: the way of the session, or the first way that works
+// and carries a color (ShareCarries).
+bool ShareOne(ID3D11Device* d11, UINT width, UINT height,
+              IDirect3DTexture9** texture9, ID3D11Texture2D** texture11,
+              HRESULT* result) {
+  if (g_share_way != kShareNone) {
+    return ShareOneWay(d11, g_share_way, width, height, texture9, texture11,
+                       result);
+  }
+  for (int way = D3D9BackendDxvk() ? kShareFrom11 : kShareFrom9;
+       way <= kShareFrom11Nt; ++way) {
+    if (ShareOneWay(d11, way, width, height, texture9, texture11, result) &&
+        !ShareCarries(d11, *texture9, *texture11)) {
+      ModLog("gpu bridge   : the share in the way \"%s\" gave no error, but "
+             "a color of Direct3D 9 did not come out in Direct3D 11 (it "
+             "read %08X)",
+             ShareWayName(way), g_share_seen);
+      (*texture9)->Release();
+      (*texture11)->Release();
+      *texture9 = nullptr;
+      *texture11 = nullptr;
+      *result = E_FAIL;
+      continue;
+    }
+    if (*texture9 != nullptr) {
+      g_share_way = way;
+      if (!g_said_share_way) {
+        g_said_share_way = true;
+        ModLog("gpu bridge   : %s", ShareWayName(way));
+      }
+      return true;
+    }
+    ModLog("gpu bridge   : the share in the way \"%s\" failed (0x%08lX)",
+           ShareWayName(way), *result);
+  }
+  return false;
+}
+
 // Builds the shared pair. d3d11_device is the device the OpenXR session was
 // made with, and format is its swapchain format. Returns false, with a
 // reason in the log, if the GPU path cannot be used.
@@ -830,13 +1041,10 @@ bool GpuBridgeStart(void* d3d11_device, uint32_t width, uint32_t height,
   g_resume_wanted = false;
 
   for (int eye = 0; eye < kEyes; ++eye) {
-    HANDLE shared = nullptr;
-    HRESULT hr = g_device_ex->CreateTexture(
-        width, height, 1, D3DUSAGE_RENDERTARGET, D3DFMT_A8R8G8B8,
-        D3DPOOL_DEFAULT, &g_shared[eye], &shared);
-    if (FAILED(hr) || shared == nullptr) {
-      ModLog("gpu bridge   : CreateTexture(shared) failed for eye %d "
-             "(0x%08lX)", eye, hr);
+    HRESULT hr = E_FAIL;
+    if (!ShareOne(d11, width, height, &g_shared[eye], &g_opened[eye], &hr)) {
+      ModLog("gpu bridge   : the shared texture of eye %d failed (0x%08lX)",
+             eye, hr);
       ReleaseShared();
       return false;
     }
@@ -844,14 +1052,6 @@ bool GpuBridgeStart(void* d3d11_device, uint32_t width, uint32_t height,
     if (FAILED(hr)) {
       ModLog("gpu bridge   : GetSurfaceLevel failed for eye %d (0x%08lX)", eye,
              hr);
-      ReleaseShared();
-      return false;
-    }
-    hr = d11->OpenSharedResource(shared, __uuidof(ID3D11Texture2D),
-                                 reinterpret_cast<void**>(&g_opened[eye]));
-    if (FAILED(hr) || g_opened[eye] == nullptr) {
-      ModLog("gpu bridge   : OpenSharedResource failed for eye %d (0x%08lX)",
-             eye, hr);
       ReleaseShared();
       return false;
     }
@@ -867,16 +1067,9 @@ bool GpuBridgeStart(void* d3d11_device, uint32_t width, uint32_t height,
   // The interface panel goes the same way, through a third shared texture.
   // A failure here keeps the interface in the eyes and the eyes on the GPU.
   if (g_panel_wanted && g_panel_share) {
-    HANDLE shared = nullptr;
-    HRESULT hr = g_device_ex->CreateTexture(
-        width, height, 1, D3DUSAGE_RENDERTARGET, D3DFMT_A8R8G8B8,
-        D3DPOOL_DEFAULT, &g_panel_shared, &shared);
-    if (SUCCEEDED(hr) && shared != nullptr) {
+    HRESULT hr = E_FAIL;
+    if (ShareOne(d11, width, height, &g_panel_shared, &g_panel_opened, &hr)) {
       hr = g_panel_shared->GetSurfaceLevel(0, &g_panel_shared_surface);
-    }
-    if (SUCCEEDED(hr) && shared != nullptr) {
-      hr = d11->OpenSharedResource(shared, __uuidof(ID3D11Texture2D),
-                                   reinterpret_cast<void**>(&g_panel_opened));
     }
     if (FAILED(hr) || g_panel_opened == nullptr) {
       ModLog("ui panel     : the panel texture could not be shared (0x%08lX). "

@@ -231,6 +231,8 @@ void NearPlaneInstall();
 // proxy/ddraw_proxy.cpp
 void ProxyForceSystemDDraw();
 void GpuBridgeInstall();
+// d3d9_backend.cpp
+void D3D9BackendLoad(const char* dir, const char* ini);
 void GpuBridgeProbeInterop();
 bool GpuBridgeHasDevice();
 bool GpuBridgeFullScreen();
@@ -1969,6 +1971,9 @@ void EarlyHooks() {
   // rights. It comes before the backend loads.
   g_dx_check_own = GetPrivateProfileIntA("bwvr", "dx_check", 0, path) == 0;
   DxCheckInstall(g_dx_check_own);
+  // Before anything loads d3d9.dll: DXVK in place of the Direct3D 9 of
+  // Windows, when it is wanted and the PC can run it.
+  D3D9BackendLoad(g_dir, path);
   // On by default: it is the tested path, and it falls back to the readback
   // on its own if the device cannot share a texture.
   const bool wanted =

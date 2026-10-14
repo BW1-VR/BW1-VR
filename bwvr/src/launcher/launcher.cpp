@@ -102,6 +102,15 @@ const Setting kSettings[] = {
      "before they change to simpler ones or disappear. Further costs more "
      "frame time in busy places."},
 
+    {kGroup, nullptr, "Performance", nullptr, 0, nullptr},
+    {kBool, "d3d9_backend", "Draw with Vulkan (DXVK)", nullptr, 0,
+     "The game draws through DXVK and Vulkan in place of the Direct3D 9 of "
+     "Windows. This takes about half of the time of the driver off each "
+     "frame. The mod uses it only when your GPU has Vulkan 1.3 and the file "
+     "dxvk\\d3d9.dll is in the game folder. Else, and when a start with it "
+     "fails, the game draws as before. The change counts from the next "
+     "start."},
+
     {kGroup, nullptr, "View", nullptr, 0, nullptr},
     {kValues, "play_mode", "Play mode",
      "God view=4|Stereoscopic window=1|Tabletop (test)=3", 4,

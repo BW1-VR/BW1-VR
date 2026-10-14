@@ -75,6 +75,9 @@
 #include "scene_sample.h"
 #include "ui_panel.h"
 
+// d3d9_backend.cpp: the start with DXVK did not fail.
+void D3D9BackendConfirm();
+
 extern void ModLog(const char* format, ...);
 
 const void* FrameSourceGrab(int* pitch);
@@ -1450,6 +1453,8 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
     if (!s_frame_thread_added) {
       s_frame_thread_added = true;
       ThreadLoadAddThis("frame thread");
+      // The start with DXVK did not fail (d3d9_backend.cpp).
+      D3D9BackendConfirm();
     }
     D3D7CountWalk(true);
     o_Process3dEngine(self, unused);
