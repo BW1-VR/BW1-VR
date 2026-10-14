@@ -1033,7 +1033,8 @@ first line of the log gives the build of the mod.
 
 To report a fault:
 
-1. Open the Issues page of the project on GitHub.
+1. Open the Issues page of the project on GitHub:
+   https://github.com/BW1-VR/BW1-VR/issues
 2. Select "New issue", and fill in the form.
 3. Attach bwvr.log and each bwvr-old file of the same day.
 4. Write what you did, what you expected and what happened.
@@ -1043,6 +1044,11 @@ The log holds:
   - the settings that the mod read,
   - the hooks that went in, and the hooks that failed,
   - the frame rate reports, and a count of the frames.
+
+To ask a question or to talk with other players, join the Discord
+server of the mod:
+
+  https://discord.gg/FTn8y4eypU
 
 
 HOW TO REMOVE IT

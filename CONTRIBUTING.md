@@ -17,7 +17,6 @@ them come from a lesson that cost time.
    game outside the repo. The folders `local/` and `media/` are not tracked,
    and `bwvr/tools/check_repo.ps1` stops a commit that holds a game file. It
    runs as a git hook (after `.\dev.ps1 setup`) and on GitHub.
-2. **Do not share builds or the repo** with a person outside the group.
 
 ## Build the mod
 
@@ -81,8 +80,7 @@ folder is easier for development.
 5. Buck merges. `main` must always build and pass the tests, because a
    release is a build of `main`.
 
-Do not push to `main` directly. GitHub does not enforce this on a private
-repo of this kind, so it is a rule between us.
+Do not push to `main` directly. Open a pull request.
 
 To test one change before a release has it, open [Actions](../../actions),
 select the build of that commit or pull request, and take the installer from
