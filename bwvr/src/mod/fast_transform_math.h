@@ -139,11 +139,37 @@ struct Wide {
   }
 };
 
-// x = ((m6 z + m3 y) + m0 x) + m9
-// y = ((m1 x + m7 z) + m4 y) + m10
-// z = ((m2 x + m8 z) + m5 y) + m11
-inline Camera Transform(const Wide& w, __m128 x, __m128 y, __m128 z) {
+// The order of the additions of the matrix.
+enum Order {
+  // x = ((m6 z + m3 y) + m0 x) + m9
+  // y = ((m1 x + m7 z) + m4 y) + m10
+  // z = ((m2 x + m8 z) + m5 y) + m11
+  kMeshOrder,
+  // The loop of fn_0084BA90 with a matrix for each group of vertices:
+  // x = ((m6 z + m0 x) + m3 y) + m9
+  // y = ((m4 y + m1 x) + m7 z) + m10
+  // z = ((m5 y + m2 x) + m8 z) + m11
+  kGroupOrder,
+};
+
+inline Camera Transform(const Wide& w, __m128 x, __m128 y, __m128 z,
+                        Order order = kMeshOrder) {
   Camera out;
+  if (order == kGroupOrder) {
+    out.x = _mm_add_ps(
+        _mm_add_ps(_mm_add_ps(_mm_mul_ps(w.m[6], z), _mm_mul_ps(x, w.m[0])),
+                   _mm_mul_ps(w.m[3], y)),
+        w.m[9]);
+    out.y = _mm_add_ps(
+        _mm_add_ps(_mm_add_ps(_mm_mul_ps(w.m[4], y), _mm_mul_ps(x, w.m[1])),
+                   _mm_mul_ps(w.m[7], z)),
+        w.m[10]);
+    out.z = _mm_add_ps(
+        _mm_add_ps(_mm_add_ps(_mm_mul_ps(w.m[5], y), _mm_mul_ps(w.m[2], x)),
+                   _mm_mul_ps(w.m[8], z)),
+        w.m[11]);
+    return out;
+  }
   out.x = _mm_add_ps(
       _mm_add_ps(_mm_add_ps(_mm_mul_ps(w.m[6], z), _mm_mul_ps(y, w.m[3])),
                  _mm_mul_ps(x, w.m[0])),
@@ -172,16 +198,24 @@ struct Screen {
   __m128 x, y, z, rhw;
 };
 
-// r = 1 / z, x = (r x + 1) half_x, w = near r, z = 1 - w. The y of the
-// screen is half_y - (half_y y) r (TransformClip, y_first false) or
-// half_y - (y r) half_y (TransformLit, y_first true).
-inline Screen Project(const Wide& w, const Camera& v, bool y_first) {
+// The order of the product of the y of the screen.
+enum YOrder {
+  kHalfYThenR,  // (half_y y) r, fn_00856D40
+  kYRThenHalf,  // (y r) half_y, fn_0085AB10
+  kHalfRThenY,  // (half_y r) y, fn_0084BA90
+};
+
+// r = 1 / z, x = (r x + 1) half_x, w = near r, z = 1 - w, and the y of the
+// screen is half_y minus the product of half_y, y and r.
+inline Screen Project(const Wide& w, const Camera& v, YOrder y_order) {
   const __m128 r = _mm_div_ps(w.one, v.z);
   Screen s;
   s.x = Clamp(_mm_mul_ps(_mm_add_ps(_mm_mul_ps(r, v.x), w.one), w.half_x),
               w.max_x);
-  const __m128 scaled = y_first ? _mm_mul_ps(_mm_mul_ps(v.y, r), w.half_y)
-                                : _mm_mul_ps(_mm_mul_ps(w.half_y, v.y), r);
+  const __m128 scaled =
+      y_order == kYRThenHalf  ? _mm_mul_ps(_mm_mul_ps(v.y, r), w.half_y)
+      : y_order == kHalfRThenY ? _mm_mul_ps(_mm_mul_ps(w.half_y, r), v.y)
+                               : _mm_mul_ps(_mm_mul_ps(w.half_y, v.y), r);
   s.y = Clamp(_mm_sub_ps(w.half_y, scaled), w.max_y);
   s.rhw = _mm_mul_ps(w.near_plane, r);
   s.z = _mm_sub_ps(w.one, s.rhw);
@@ -190,71 +224,9 @@ inline Screen Project(const Wide& w, const Camera& v, bool y_first) {
 
 }  // namespace detail
 
-// fn_00856D40, the path with one matrix. For each vertex: the camera space
-// point, the clip flags (0x20 nearer than the near plane, 0x10 right of the
-// view and else 8 left of it, 4 below and else 2 above), and for a vertex
-// with no flag the point on the screen. A vertex with a flag keeps its camera
-// x, y and z at offsets 0, 4 and 12, and the value at offset 8 does not
-// change. Each vertex gets the color, the specular color and the u and v of
-// its input.
-inline void TransformClip(const Consts& c, const uint8_t* in, uint32_t count,
-                          uint8_t* out, uint32_t* flags) {
-  using namespace detail;
-  const Wide w(c);
-  const __m128 sign = _mm_set1_ps(-0.0f);
-  const __m128i bit20 = _mm_set1_epi32(0x20), bit10 = _mm_set1_epi32(0x10);
-  const __m128i bit08 = _mm_set1_epi32(0x08), bit04 = _mm_set1_epi32(0x04);
-  const __m128i bit02 = _mm_set1_epi32(0x02);
-  // The lane of z in a row, for the value at offset 8 that stays.
-  const __m128 lane2 = _mm_castsi128_ps(_mm_set_epi32(0, -1, 0, 0));
-  auto block = [&](const uint8_t* src, uint8_t* dst, uint32_t* f4) {
-    const Columns in4 = Load4(src, false);
-    const Camera v = Transform(w, in4.x, in4.y, in4.z);
-    const __m128 neg_z = _mm_xor_ps(v.z, sign);
-    const __m128 nearer = _mm_cmpnge_ps(v.z, w.near_plane);
-    const __m128 right = _mm_cmpgt_ps(v.x, v.z);
-    const __m128 left = _mm_andnot_ps(right, _mm_cmpgt_ps(neg_z, v.x));
-    const __m128 below = _mm_cmpgt_ps(v.y, v.z);
-    const __m128 above = _mm_andnot_ps(below, _mm_cmpgt_ps(neg_z, v.y));
-    const __m128i f = _mm_or_si128(
-        _mm_or_si128(_mm_and_si128(_mm_castps_si128(nearer), bit20),
-                     _mm_and_si128(_mm_castps_si128(right), bit10)),
-        _mm_or_si128(
-            _mm_and_si128(_mm_castps_si128(left), bit08),
-            _mm_or_si128(_mm_and_si128(_mm_castps_si128(below), bit04),
-                         _mm_and_si128(_mm_castps_si128(above), bit02))));
-    _mm_storeu_si128(reinterpret_cast<__m128i*>(f4), f);
-    const int clipped = ~_mm_movemask_ps(
-        _mm_castsi128_ps(_mm_cmpeq_epi32(f, _mm_setzero_si128())));
-    Screen s = Project(w, v, false);
-    _MM_TRANSPOSE4_PS(s.x, s.y, s.z, s.rhw);
-    const __m128 projected[4] = {s.x, s.y, s.z, s.rhw};
-    __m128 cx = v.x, cy = v.y, cz = v.z, cw = v.z;
-    _MM_TRANSPOSE4_PS(cx, cy, cz, cw);
-    const __m128 camera[4] = {cx, cy, cz, cw};
-    for (int i = 0; i < 4; ++i) {
-      float* row = reinterpret_cast<float*>(dst + i * kStride);
-      if (clipped & (1 << i)) {
-        // x, y, the value at offset 8 as it was, z.
-        const __m128 old = _mm_loadu_ps(row);
-        _mm_storeu_ps(row, _mm_or_ps(_mm_andnot_ps(lane2, camera[i]),
-                                     _mm_and_ps(lane2, old)));
-      } else {
-        _mm_storeu_ps(row, projected[i]);
-      }
-      StoreTail(dst + i * kStride, c.color, c.specular, src + i * kStride);
-    }
-  };
-  uint32_t base = 0;
-  for (; base + 4 <= count; base += 4) {
-    block(in + base * kStride, out + base * kStride, flags + base);
-  }
-  Rest(in, count, base, out, flags, block);
-}
-
-// The brightness of TransformLit from the light value i (the dot product of
-// the normal and the light, times 255, rounded to the nearest whole number),
-// and the color of the vertex from the color of the mesh.
+// The brightness of a lit vertex from the light value i (the dot product
+// of the normal and the light, times 255, rounded to the nearest whole
+// number), and the color of the vertex from the color of the mesh.
 inline uint32_t LitColor(int32_t i, const Light& l) {
   // The game multiplies with imul and shifts with sar: a product of 32 bits
   // that wraps, and a shift that keeps the sign.
@@ -271,40 +243,123 @@ inline uint32_t LitColor(int32_t i, const Light& l) {
   return ((rb | g | b) >> 8) | (l.color & 0xFF000000u);
 }
 
-// fn_0085AB10, the path with one matrix. Each vertex
-// is projected, with no clip flags, and lit by its normal (offsets 20, 24
-// and 28 of the input): i = ((l2 nz + l0 nx) + l1 ny) 255.
-inline void TransformLit(const Consts& c, const Light& l, const uint8_t* in,
-                         uint32_t count, uint8_t* out) {
-  using namespace detail;
+namespace detail {
+
+// One loop of the engine. kClip: the clip flags, and a vertex with a flag
+// keeps its camera x, y and z at offsets 0, 4 and 12, and the value at
+// offset 8 does not change. Else each vertex is projected. kLit: the color is
+// lit by the normal (offsets 20, 24 and 28 of the input) with
+// i = ((l2 nz + l0 nx) + l1 ny) 255, else it is the color of Consts.
+template <bool kClip, bool kLit>
+void TransformMesh(const Consts& c, const Light* l, Order order,
+                   YOrder y_order, const uint8_t* in, uint32_t count,
+                   uint8_t* out, uint32_t* flags) {
   const Wide w(c);
-  const __m128 l0 = _mm_set1_ps(l.direction[0]);
-  const __m128 l1 = _mm_set1_ps(l.direction[1]);
-  const __m128 l2 = _mm_set1_ps(l.direction[2]);
+  const __m128 sign = _mm_set1_ps(-0.0f);
+  const __m128i bit20 = _mm_set1_epi32(0x20), bit10 = _mm_set1_epi32(0x10);
+  const __m128i bit08 = _mm_set1_epi32(0x08), bit04 = _mm_set1_epi32(0x04);
+  const __m128i bit02 = _mm_set1_epi32(0x02);
+  // The lane of z in a row, for the value at offset 8 that stays.
+  const __m128 lane2 = _mm_castsi128_ps(_mm_set_epi32(0, -1, 0, 0));
+  const __m128 l0 = _mm_set1_ps(kLit ? l->direction[0] : 0.0f);
+  const __m128 l1 = _mm_set1_ps(kLit ? l->direction[1] : 0.0f);
+  const __m128 l2 = _mm_set1_ps(kLit ? l->direction[2] : 0.0f);
   const __m128 full = _mm_set1_ps(255.0f);
-  auto block = [&](const uint8_t* src, uint8_t* dst, uint32_t*) {
-    const Columns in4 = Load4(src, true);
-    const Camera v = Transform(w, in4.x, in4.y, in4.z);
-    const __m128 dot = _mm_mul_ps(
-        _mm_add_ps(_mm_add_ps(_mm_mul_ps(l2, in4.nz), _mm_mul_ps(l0, in4.nx)),
-                   _mm_mul_ps(l1, in4.ny)),
-        full);
-    int32_t level[4];
-    _mm_storeu_si128(reinterpret_cast<__m128i*>(level), _mm_cvtps_epi32(dot));
-    Screen s = Project(w, v, true);
+  auto block = [&](const uint8_t* src, uint8_t* dst, uint32_t* f4) {
+    (void)f4;  // no flags with kClip false
+    const Columns in4 = Load4(src, kLit);
+    const Camera v = Transform(w, in4.x, in4.y, in4.z, order);
+    int32_t level[4] = {0, 0, 0, 0};
+    if constexpr (kLit) {
+      const __m128 dot = _mm_mul_ps(
+          _mm_add_ps(
+              _mm_add_ps(_mm_mul_ps(l2, in4.nz), _mm_mul_ps(l0, in4.nx)),
+              _mm_mul_ps(l1, in4.ny)),
+          full);
+      _mm_storeu_si128(reinterpret_cast<__m128i*>(level),
+                       _mm_cvtps_epi32(dot));
+    }
+    int clipped = 0;
+    if constexpr (kClip) {
+      const __m128 neg_z = _mm_xor_ps(v.z, sign);
+      const __m128 nearer = _mm_cmpnge_ps(v.z, w.near_plane);
+      const __m128 right = _mm_cmpgt_ps(v.x, v.z);
+      const __m128 left = _mm_andnot_ps(right, _mm_cmpgt_ps(neg_z, v.x));
+      const __m128 below = _mm_cmpgt_ps(v.y, v.z);
+      const __m128 above = _mm_andnot_ps(below, _mm_cmpgt_ps(neg_z, v.y));
+      const __m128i f = _mm_or_si128(
+          _mm_or_si128(_mm_and_si128(_mm_castps_si128(nearer), bit20),
+                       _mm_and_si128(_mm_castps_si128(right), bit10)),
+          _mm_or_si128(
+              _mm_and_si128(_mm_castps_si128(left), bit08),
+              _mm_or_si128(_mm_and_si128(_mm_castps_si128(below), bit04),
+                           _mm_and_si128(_mm_castps_si128(above), bit02))));
+      _mm_storeu_si128(reinterpret_cast<__m128i*>(f4), f);
+      clipped = ~_mm_movemask_ps(
+          _mm_castsi128_ps(_mm_cmpeq_epi32(f, _mm_setzero_si128())));
+    }
+    Screen s = Project(w, v, y_order);
     _MM_TRANSPOSE4_PS(s.x, s.y, s.z, s.rhw);
     const __m128 projected[4] = {s.x, s.y, s.z, s.rhw};
+    __m128 cx = v.x, cy = v.y, cz = v.z, cw = v.z;
+    if constexpr (kClip) {
+      _MM_TRANSPOSE4_PS(cx, cy, cz, cw);
+    }
+    const __m128 camera[4] = {cx, cy, cz, cw};
     for (int i = 0; i < 4; ++i) {
-      _mm_storeu_ps(reinterpret_cast<float*>(dst + i * kStride), projected[i]);
-      StoreTail(dst + i * kStride, LitColor(level[i], l), c.specular,
-                src + i * kStride);
+      float* row = reinterpret_cast<float*>(dst + i * kStride);
+      if ((clipped & (1 << i)) != 0) {
+        // x, y, the value at offset 8 as it was, z.
+        const __m128 old = _mm_loadu_ps(row);
+        _mm_storeu_ps(row, _mm_or_ps(_mm_andnot_ps(lane2, camera[i]),
+                                     _mm_and_ps(lane2, old)));
+      } else {
+        _mm_storeu_ps(row, projected[i]);
+      }
+      StoreTail(dst + i * kStride, kLit ? LitColor(level[i], *l) : c.color,
+                c.specular, src + i * kStride);
     }
   };
   uint32_t base = 0;
   for (; base + 4 <= count; base += 4) {
-    block(in + base * kStride, out + base * kStride, nullptr);
+    block(in + base * kStride, out + base * kStride,
+          kClip ? flags + base : nullptr);
   }
-  Rest(in, count, base, out, nullptr, block);
+  Rest(in, count, base, out, kClip ? flags : nullptr, block);
+}
+
+}  // namespace detail
+
+// fn_00856D40, the path with one matrix: the clip flags (0x20 nearer than
+// the near plane, 0x10 right of the view and else 8 left of it, 4 below and
+// else 2 above), the point on the screen of a vertex with no flag, and the
+// color of the mesh.
+inline void TransformClip(const Consts& c, const uint8_t* in, uint32_t count,
+                          uint8_t* out, uint32_t* flags) {
+  detail::TransformMesh<true, false>(c, nullptr, detail::kMeshOrder,
+                                     detail::kHalfYThenR, in, count, out,
+                                     flags);
+}
+
+// fn_0085AB10, the path with one matrix: no clip flags, each vertex is
+// projected and lit.
+inline void TransformLit(const Consts& c, const Light& l, const uint8_t* in,
+                         uint32_t count, uint8_t* out) {
+  detail::TransformMesh<false, true>(c, &l, detail::kMeshOrder,
+                                     detail::kYRThenHalf, in, count, out,
+                                     nullptr);
+}
+
+// fn_0084BA90: the clip flags and the light. `group` is the loop with a
+// matrix for each group of vertices (Consts::m is the matrix of the group,
+// and Light::direction the light of the group), else the loop with one
+// matrix.
+inline void TransformLitClip(const Consts& c, const Light& l, bool group,
+                             const uint8_t* in, uint32_t count, uint8_t* out,
+                             uint32_t* flags) {
+  detail::TransformMesh<true, true>(
+      c, &l, group ? detail::kGroupOrder : detail::kMeshOrder,
+      detail::kHalfRThenY, in, count, out, flags);
 }
 
 }  // namespace fast_transform_math

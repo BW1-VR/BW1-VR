@@ -1820,17 +1820,21 @@ locks of the buffers (see "The buffers of the render thread").
 ## The vertex loops with SSE
 
 The engine transforms the vertices of each mesh on the frame thread, one at
-a time, on the x87 unit. Two functions do most of it: `fn_00856D40` (with
-the clip flags) and `fn_0085AB10` (lit from the normal of each vertex). Each
-has a loop with one matrix for the mesh, and a loop with a matrix for each
-group of vertices. The first loop is the hot one. Each vertex is a 3x4
+a time, on the x87 unit. Three functions do most of it: `fn_00856D40` (with
+the clip flags), `fn_0085AB10` (lit from the normal of each vertex) and
+`fn_0084BA90` (both). Each has a loop with one matrix for the mesh, and a
+loop with a matrix for each group of vertices. In `fn_00856D40` and
+`fn_0085AB10` the loop with one matrix is the hot one, in `fn_0084BA90`
+(the meshes of people and of the Creature) both loops are hot. Each vertex is a 3x4
 matrix, the clip flags (`fn_00856D40`), a division for `1/z`, the
 projection to the screen, the clamp to the screen, and the light of the
 normal (`fn_0085AB10`). Each comparison is an `fcomp` and an `fnstsw` with
 a branch.
 
-`fast_transform=1` (the default) makes the loops with one matrix with SSE,
-four vertices at a time (`fast_transform_math.h`). A jump at the start of
+`fast_transform=1` (the default) makes these four loops with SSE, four
+vertices at a time (`fast_transform_math.h`). The loops differ in the order
+of the additions of the matrix and in the order of the product of the y of
+the screen, and the SSE loop has each order. A jump at the start of
 each loop goes to a stub (`fast_transform.cpp`). The stub keeps each
 register, and goes on after the loop of the game when the SSE loop did the
 work.
@@ -1845,8 +1849,9 @@ runs, and the log says so (`fast transform` lines). In the game MXCSR has
 the flush to zero on (0x9FA3 in a desktop run), and the x87 unit has no such
 flush. So the SSE loop sets MXCSR to round to the nearest with no flush to
 zero while it runs, and puts the value of the game back after it. The checks of `bwvr/test/controller_math`
-make each loop with the x87 code of the game, instruction for instruction,
-for 8 times 4099 vertices with each clip flag, and compare the bits. The
+make each of the four loops with the x87 code of the game, instruction for
+instruction, for 8 times 4099 vertices with each clip flag and for meshes of
+1 to 7 vertices, and compare the bits. The
 bits can differ only where a value between two operations is out of the
 range of a float, which the x87 unit keeps.
 
@@ -1856,6 +1861,10 @@ scene walks are 2.28 to 2.36 ms in place of 2.50 to 2.65 ms: the game is 0.8
 ms in place of 1.2 ms, and the mod 0.1 ms more. The pictures of frame 3000
 of a run with SSE and of a run on the x87 unit differ as much as the
 pictures of two runs of one mode (0.007 to 0.017 percent of the pixels).
+With the loops of `fn_0084BA90` too (32 meshes and 113 groups a frame at
+the start of a new game): the scene walks 2.50 ms in place of 2.64 ms, and
+frame 3000 and 3001 of a run with SSE and of a run on the x87 unit have the
+same pixels.
 
 `fast_transform=0` runs the loops of the game. With `test_keys=1`, Shift
 and L turn it off and on.

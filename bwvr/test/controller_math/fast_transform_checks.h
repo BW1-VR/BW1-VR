@@ -172,6 +172,49 @@ inline void RefClip(const Consts* c, const uint8_t* vertex, uint8_t* result,
   }
 }
 
+// 0x0085AC3B to 0x0085AC95 (and 0x0084BBC0 to 0x0084BC1D): the color from
+// the level of the light.
+inline uint32_t RefDiffuse(int32_t level, const Light* l) {
+  const int32_t ambient = l->ambient;
+  const uint32_t color = l->color;
+  uint32_t diffuse = 0;
+  __asm {
+    mov eax, level
+    test eax, eax
+    jge d_lit
+    mov eax, ambient
+    jmp d_color
+  d_lit:
+    mov edx, ambient
+    mov eax, 0xff
+    sub eax, edx
+    imul eax, level
+    sar eax, 8
+    add eax, edx
+  d_color:
+    mov esi, color
+    and esi, 0xff0000
+    imul esi, eax
+    and esi, 0xff0000ff
+    mov edx, color
+    and edx, 0xff00
+    imul edx, eax
+    and edx, 0xff0000
+    or edx, esi
+    mov esi, color
+    and esi, 0xff
+    imul esi, eax
+    and esi, 0xff00
+    or edx, esi
+    shr edx, 8
+    mov eax, color
+    and eax, 0xff000000
+    or edx, eax
+    mov diffuse, edx
+  }
+  return diffuse;
+}
+
 // fn_0085AB10 from 0x0085ABAF to 0x0085AD4F, one vertex. The game has the
 // output at ecx + 4. Here ecx is the output.
 inline void RefLit(const Consts* c, const Light* l, const uint8_t* vertex,
@@ -283,44 +326,223 @@ inline void RefLit(const Consts* c, const Light* l, const uint8_t* vertex,
     fstp dword ptr [ecx + 8]
     fstp st(0)
   }
-  // 0x0085AC3B to 0x0085AC95: the color from the level.
-  const int32_t ambient = l->ambient;
-  const uint32_t color = l->color;
-  uint32_t diffuse = 0;
-  __asm {
-    mov eax, level
-    test eax, eax
-    jge l_lit
-    mov eax, ambient
-    jmp l_color
-  l_lit:
-    mov edx, ambient
-    mov eax, 0xff
-    sub eax, edx
-    imul eax, level
-    sar eax, 8
-    add eax, edx
-  l_color:
-    mov esi, color
-    and esi, 0xff0000
-    imul esi, eax
-    and esi, 0xff0000ff
-    mov edx, color
-    and edx, 0xff00
-    imul edx, eax
-    and edx, 0xff0000
-    or edx, esi
-    mov esi, color
-    and esi, 0xff
-    imul esi, eax
-    and esi, 0xff00
-    or edx, esi
-    shr edx, 8
-    mov eax, color
-    and eax, 0xff000000
-    or edx, eax
-    mov diffuse, edx
+  const uint32_t diffuse = RefDiffuse(level, l);
+  memcpy(result + 16, &diffuse, 4);
+}
+
+// fn_0084BA90, one vertex: the loop with one matrix from 0x0084BB33 to
+// 0x0084BD40 (group false), or the loop with a matrix for each group from
+// 0x0084BE97 to 0x0084C099 (group true: Consts::m is the matrix of the
+// group). The game has the output at ecx + 4 or at edi. Here ecx is the
+// output.
+inline void RefLitClip(const Consts* c, const Light* l, bool group,
+                       const uint8_t* vertex, uint8_t* result,
+                       uint32_t* flags) {
+  const float one = 1.0f, zero = 0.0f, full = 255.0f;
+  const float* dir = l->direction;
+  float rounded = 0.0f;
+  int32_t level = 0;
+  if (!group) {
+    __asm {
+      mov ebx, c
+      mov esi, vertex
+      mov ecx, result
+      fld dword ptr [ebx + 0x18]
+      fmul dword ptr [esi + 8]
+      fld dword ptr [ebx + 0xc]
+      fmul dword ptr [esi + 4]
+      faddp st(1), st
+      fld dword ptr [esi]
+      fmul dword ptr [ebx]
+      faddp st(1), st
+      fadd dword ptr [ebx + 0x24]
+      fstp dword ptr [ecx]
+      fld dword ptr [ebx + 0x1c]
+      fmul dword ptr [esi + 8]
+      fld dword ptr [ebx + 4]
+      fmul dword ptr [esi]
+      faddp st(1), st
+      fld dword ptr [ebx + 0x10]
+      fmul dword ptr [esi + 4]
+      faddp st(1), st
+      fadd dword ptr [ebx + 0x28]
+      fstp dword ptr [ecx + 4]
+      fld dword ptr [ebx + 0x20]
+      fmul dword ptr [esi + 8]
+      fld dword ptr [ebx + 8]
+      fmul dword ptr [esi]
+      faddp st(1), st
+      fld dword ptr [ebx + 0x14]
+      fmul dword ptr [esi + 4]
+      faddp st(1), st
+      fadd dword ptr [ebx + 0x2c]
+      fstp dword ptr [ecx + 0xc]
+    }
+  } else {
+    __asm {
+      mov ebx, c
+      mov esi, vertex
+      mov ecx, result
+      fld dword ptr [ebx + 0x18]
+      fmul dword ptr [esi + 8]
+      fld dword ptr [esi]
+      fmul dword ptr [ebx]
+      faddp st(1), st
+      fld dword ptr [ebx + 0xc]
+      fmul dword ptr [esi + 4]
+      faddp st(1), st
+      fadd dword ptr [ebx + 0x24]
+      fstp dword ptr [ecx]
+      fld dword ptr [ebx + 0x10]
+      fmul dword ptr [esi + 4]
+      fld dword ptr [esi]
+      fmul dword ptr [ebx + 4]
+      faddp st(1), st
+      fld dword ptr [ebx + 0x1c]
+      fmul dword ptr [esi + 8]
+      faddp st(1), st
+      fadd dword ptr [ebx + 0x28]
+      fstp dword ptr [ecx + 4]
+      fld dword ptr [ebx + 0x14]
+      fmul dword ptr [esi + 4]
+      fld dword ptr [ebx + 8]
+      fmul dword ptr [esi]
+      faddp st(1), st
+      fld dword ptr [ebx + 0x20]
+      fmul dword ptr [esi + 8]
+      faddp st(1), st
+      fadd dword ptr [ebx + 0x2c]
+      fstp dword ptr [ecx + 0xc]
+    }
   }
+  __asm {
+    mov ebx, c
+    mov esi, vertex
+    mov ecx, result
+    mov edi, flags
+    mov edx, [ebx + 0x48]
+    mov [ecx + 0x14], edx
+    mov edx, dir
+    fld dword ptr [edx + 8]
+    fmul dword ptr [esi + 0x1c]
+    fld dword ptr [edx]
+    fmul dword ptr [esi + 0x14]
+    faddp st(1), st
+    fld dword ptr [edx + 4]
+    fmul dword ptr [esi + 0x18]
+    faddp st(1), st
+    fmul full
+    fstp rounded
+    fld rounded
+    fistp level
+    mov edx, [esi + 0xc]
+    mov [ecx + 0x18], edx
+    mov edx, [esi + 0x10]
+    mov [ecx + 0x1c], edx
+    fld dword ptr [ecx + 0xc]
+    fcomp dword ptr [ebx + 0x30]
+    fnstsw ax
+    test ah, 1
+    je k_far
+    mov dword ptr [edi], 0x20
+    jmp k_x
+  k_far:
+    mov dword ptr [edi], 0
+  k_x:
+    fld dword ptr [ecx]
+    fcomp dword ptr [ecx + 0xc]
+    fnstsw ax
+    test ah, 0x41
+    jne k_x_left
+    mov eax, [edi]
+    or eax, 0x10
+    jmp k_x_store
+  k_x_left:
+    fld dword ptr [ecx + 0xc]
+    fchs
+    fcomp dword ptr [ecx]
+    fnstsw ax
+    test ah, 0x41
+    jne k_y
+    mov eax, [edi]
+    or eax, 8
+  k_x_store:
+    mov [edi], eax
+  k_y:
+    fld dword ptr [ecx + 4]
+    fcomp dword ptr [ecx + 0xc]
+    fnstsw ax
+    test ah, 0x41
+    jne k_y_up
+    mov eax, [edi]
+    or eax, 4
+    jmp k_y_store
+  k_y_up:
+    fld dword ptr [ecx + 0xc]
+    fchs
+    fcomp dword ptr [ecx + 4]
+    fnstsw ax
+    test ah, 0x41
+    jne k_flags
+    mov eax, [edi]
+    or eax, 2
+  k_y_store:
+    mov [edi], eax
+  k_flags:
+    cmp dword ptr [edi], 0
+    jne k_done
+    fld one
+    fdiv dword ptr [ecx + 0xc]
+    fst dword ptr [ecx + 0xc]
+    fmul dword ptr [ecx]
+    fadd one
+    fmul dword ptr [ebx + 0x34]
+    fst dword ptr [ecx]
+    fcomp zero
+    fnstsw ax
+    test ah, 1
+    je k_sx_top
+    mov dword ptr [ecx], 0
+    jmp k_sy
+  k_sx_top:
+    fld dword ptr [ecx]
+    fcomp dword ptr [ebx + 0x3c]
+    fnstsw ax
+    test ah, 0x41
+    jne k_sy
+    mov eax, [ebx + 0x3c]
+    mov [ecx], eax
+  k_sy:
+    fld dword ptr [ebx + 0x38]
+    fmul dword ptr [ecx + 0xc]
+    fmul dword ptr [ecx + 4]
+    fsubr dword ptr [ebx + 0x38]
+    fst dword ptr [ecx + 4]
+    fcomp zero
+    fnstsw ax
+    test ah, 1
+    je k_sy_top
+    mov dword ptr [ecx + 4], 0
+    jmp k_depth
+  k_sy_top:
+    fld dword ptr [ecx + 4]
+    fcomp dword ptr [ebx + 0x40]
+    fnstsw ax
+    test ah, 0x41
+    jne k_depth
+    mov eax, [ebx + 0x40]
+    mov [ecx + 4], eax
+  k_depth:
+    fld dword ptr [ebx + 0x30]
+    fmul dword ptr [ecx + 0xc]
+    fst dword ptr [ecx + 0xc]
+    fld one
+    fsub st, st(1)
+    fstp dword ptr [ecx + 8]
+    fstp st(0)
+  k_done:
+  }
+  const uint32_t diffuse = RefDiffuse(level, l);
   memcpy(result + 16, &diffuse, 4);
 }
 
@@ -394,6 +616,7 @@ inline void FastTransformChecks() {
   static uint32_t want_flags[kCount];
   static uint32_t got_flags[kCount];
   int clip_diff = 0, lit_diff = 0, flag_counts[6] = {0, 0, 0, 0, 0, 0};
+  int lit_clip_diff[2] = {0, 0};
   int projected = 0;
   for (int round = 0; round < 8; ++round) {
     Consts c;
@@ -436,6 +659,22 @@ inline void FastTransformChecks() {
     for (uint32_t i = 0; i < kCount; ++i) {
       if (memcmp(want + i * 32, got + i * 32, 32) != 0) ++lit_diff;
     }
+    for (int group = 0; group < 2; ++group) {
+      memset(want, 0xC3, sizeof(want));
+      memset(got, 0xC3, sizeof(got));
+      for (uint32_t i = 0; i < kCount; ++i) {
+        RefLitClip(&c, &l, group != 0, in + i * 32, want + i * 32,
+                   &want_flags[i]);
+      }
+      fast_transform_math::TransformLitClip(c, l, group != 0, in, kCount, got,
+                                            got_flags);
+      for (uint32_t i = 0; i < kCount; ++i) {
+        if (memcmp(want + i * 32, got + i * 32, 32) != 0 ||
+            want_flags[i] != got_flags[i]) {
+          ++lit_clip_diff[group];
+        }
+      }
+    }
   }
   // Meshes of 1 to 7 vertices: each count of vertices after the blocks of 4.
   int small_diff = 0;
@@ -459,6 +698,15 @@ inline void FastTransformChecks() {
     }
     fast_transform_math::TransformLit(c, l, in, small, got);
     if (memcmp(want, got, 8 * 32) != 0) ++small_diff;
+    for (uint32_t i = 0; i < small; ++i) {
+      RefLitClip(&c, &l, true, in + i * 32, want + i * 32, &want_flags[i]);
+    }
+    fast_transform_math::TransformLitClip(c, l, true, in, small, got,
+                                          got_flags);
+    if (memcmp(want, got, 8 * 32) != 0 ||
+        memcmp(want_flags, got_flags, small * 4) != 0) {
+      ++small_diff;
+    }
   }
   _controlfp_s(&now, saved, _MCW_PC | _MCW_RC);
   Near("meshes of 1 to 7 vertices with other bits, and other bytes past "
@@ -476,6 +724,12 @@ inline void FastTransformChecks() {
   Near("TransformLit: vertices with other bits than the x87 code of the "
        "game, of 8 times 4099",
        lit_diff, 0, 0);
+  Near("TransformLitClip with one matrix: vertices with other bits than the "
+       "x87 code of the game, of 8 times 4099",
+       lit_clip_diff[0], 0, 0);
+  Near("TransformLitClip with a matrix for each group: vertices with other "
+       "bits than the x87 code of the game, of 8 times 4099",
+       lit_clip_diff[1], 0, 0);
 }
 
 }  // namespace fast_transform_checks
