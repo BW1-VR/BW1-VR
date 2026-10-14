@@ -56,6 +56,7 @@
 #include "render_thread.h"
 #include "render_thread_d3d9.h"
 #include "render_thread_ring.h"
+#include "thread_id.h"
 
 extern void ModLog(const char* format, ...);
 // gpu_bridge.cpp
@@ -495,10 +496,10 @@ void ReadAll(IDirect3DDevice9* d) {
 // True when this call is a call of the walk that the queue takes.
 bool Taking(IDirect3DDevice9* self) {
   return g_recording && self == g_device &&
-         GetCurrentThreadId() == g_frame_thread;
+         ThisThreadId() == g_frame_thread;
 }
 
-bool OnWorker() { return g_worker_id != 0 && GetCurrentThreadId() == g_worker_id; }
+bool OnWorker() { return g_worker_id != 0 && ThisThreadId() == g_worker_id; }
 
 // ---------------------------------------------------------------------------
 // The calls of a record.
@@ -1820,7 +1821,7 @@ bool ChangesStates(int which) {
 }
 
 void __cdecl OtherCall(int which) {
-  const DWORD thread = GetCurrentThreadId();
+  const DWORD thread = ThisThreadId();
   if (g_recording && thread == g_frame_thread) {
     ViewportPutBack();
     Stop(which);
@@ -2261,13 +2262,13 @@ template <int N>
 ULONG STDMETHODCALLTYPE h_Release(IUnknown* self) {
   void* from = _ReturnAddress();
   if (from == g_outer_release_return && g_outer_object != nullptr &&
-      g_outer_thread == GetCurrentThreadId()) {
+      g_outer_thread == ThisThreadId()) {
     IUnknown* object = g_outer_object;
     g_outer_object = nullptr;
     if (object == self) return 1;  // dxwrapper does not read the count
     object->AddRef();
   }
-  if (g_pair_object != nullptr && g_pair_thread == GetCurrentThreadId() &&
+  if (g_pair_object != nullptr && g_pair_thread == ThisThreadId() &&
       (from == g_pair_release_return[0] || from == g_pair_release_return[1])) {
     IUnknown* object = g_pair_object;
     g_pair_object = nullptr;
@@ -3007,7 +3008,7 @@ void RenderThreadWalk(bool begin) {
 }
 
 void RenderThreadSync() {
-  if (!g_recording || GetCurrentThreadId() != g_frame_thread) return;
+  if (!g_recording || ThisThreadId() != g_frame_thread) return;
   Stop(kStopSurface);
 }
 

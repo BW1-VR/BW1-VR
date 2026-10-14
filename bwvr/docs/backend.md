@@ -1860,6 +1860,16 @@ pictures of two runs of one mode (0.007 to 0.017 percent of the pixels).
 `fast_transform=0` runs the loops of the game. With `test_keys=1`, Shift
 and L turn it off and on.
 
+## The calls of Direct3D 7 in a walk
+
+`d3d7_count=1` (a test key, `d3d7_count.cpp`) counts each call of a method
+of the Direct3D 7 device and of the DirectDraw surfaces in the scene walks.
+Each entry of the two tables of methods of dxwrapper goes to a thunk that
+adds 1 to the count of its method and jumps to the function of the entry.
+The tables are shared by each object of the class, and a hook of MinHook in
+a function stays. The log gives the calls of a frame in the walks for each
+method with calls (`d3d7 count` lines).
+
 ## The world around you
 
 The mod submits the world as an `XrCompositionLayerProjection`. It is a promise:
@@ -3240,6 +3250,7 @@ keys that the launcher sets.
 | `gpu_flush` | 128 | N: each N draws of a walk the driver gives the calls so far to the GPU. 0: when the driver wants. See "The flush" |
 | `render_thread_right_eye` | 1 | 1: with the render thread, the render thread makes the copy of a batch of one walk for the right eye. 0: the frame thread makes it. See "The right eye on the render thread" |
 | `ab_test` | (empty) | A test key: `gpu_flush`, `render_thread_right_eye` or `fast_transform` changes at each window of 450 frames. See "The flush" |
+| `d3d7_count` | 0 | A test key. See "The calls of Direct3D 7 in a walk" |
 | `fast_transform` | 1 | 1: the two vertex loops of the engine run with SSE, with the bits of the game. 0: on the x87 unit. See "The vertex loops with SSE" |
 | `profile_gpu` | 0 | A test key. See "The GPU time" |
 | `hang_watch` | 0 | A test key. See "The watch of the frame thread" |

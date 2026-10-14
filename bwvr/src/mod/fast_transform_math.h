@@ -123,36 +123,47 @@ struct Camera {
   __m128 x, y, z;  // camera space
 };
 
+// The values of Consts in each lane, made one time for a mesh. In 32-bit
+// code there are 8 SSE registers, so the loop reads them from memory.
+struct Wide {
+  __m128 m[12];
+  __m128 near_plane, half_x, half_y, max_x, max_y, one;
+  explicit Wide(const Consts& c) {
+    for (int i = 0; i < 12; ++i) m[i] = _mm_set1_ps(c.m[i]);
+    near_plane = _mm_set1_ps(c.near_plane);
+    half_x = _mm_set1_ps(c.half_x);
+    half_y = _mm_set1_ps(c.half_y);
+    max_x = _mm_set1_ps(c.max_x);
+    max_y = _mm_set1_ps(c.max_y);
+    one = _mm_set1_ps(1.0f);
+  }
+};
+
 // x = ((m6 z + m3 y) + m0 x) + m9
 // y = ((m1 x + m7 z) + m4 y) + m10
 // z = ((m2 x + m8 z) + m5 y) + m11
-inline Camera Transform(const Consts& c, __m128 x, __m128 y, __m128 z) {
+inline Camera Transform(const Wide& w, __m128 x, __m128 y, __m128 z) {
   Camera out;
   out.x = _mm_add_ps(
-      _mm_add_ps(_mm_add_ps(_mm_mul_ps(_mm_set1_ps(c.m[6]), z),
-                            _mm_mul_ps(y, _mm_set1_ps(c.m[3]))),
-                 _mm_mul_ps(x, _mm_set1_ps(c.m[0]))),
-      _mm_set1_ps(c.m[9]));
+      _mm_add_ps(_mm_add_ps(_mm_mul_ps(w.m[6], z), _mm_mul_ps(y, w.m[3])),
+                 _mm_mul_ps(x, w.m[0])),
+      w.m[9]);
   out.y = _mm_add_ps(
-      _mm_add_ps(_mm_add_ps(_mm_mul_ps(_mm_set1_ps(c.m[1]), x),
-                            _mm_mul_ps(_mm_set1_ps(c.m[7]), z)),
-                 _mm_mul_ps(y, _mm_set1_ps(c.m[4]))),
-      _mm_set1_ps(c.m[10]));
+      _mm_add_ps(_mm_add_ps(_mm_mul_ps(w.m[1], x), _mm_mul_ps(w.m[7], z)),
+                 _mm_mul_ps(y, w.m[4])),
+      w.m[10]);
   out.z = _mm_add_ps(
-      _mm_add_ps(_mm_add_ps(_mm_mul_ps(_mm_set1_ps(c.m[2]), x),
-                            _mm_mul_ps(_mm_set1_ps(c.m[8]), z)),
-                 _mm_mul_ps(y, _mm_set1_ps(c.m[5]))),
-      _mm_set1_ps(c.m[11]));
+      _mm_add_ps(_mm_add_ps(_mm_mul_ps(w.m[2], x), _mm_mul_ps(w.m[8], z)),
+                 _mm_mul_ps(y, w.m[5])),
+      w.m[11]);
   return out;
 }
 
 // A screen value of the game: 0 when it is below 0 or a NaN, the limit when
 // it is above the limit.
-inline __m128 Clamp(__m128 v, float limit) {
-  const __m128 zero = _mm_setzero_ps();
-  const __m128 top = _mm_set1_ps(limit);
-  const __m128 low = _mm_cmpnge_ps(v, zero);   // C0: below, or a NaN
-  const __m128 high = _mm_cmpgt_ps(v, top);    // not C0 and not C3
+inline __m128 Clamp(__m128 v, __m128 top) {
+  const __m128 low = _mm_cmpnge_ps(v, _mm_setzero_ps());  // C0: below, NaN
+  const __m128 high = _mm_cmpgt_ps(v, top);  // not C0 and not C3
   v = _mm_or_ps(_mm_andnot_ps(high, v), _mm_and_ps(high, top));
   return _mm_andnot_ps(low, v);
 }
@@ -164,19 +175,16 @@ struct Screen {
 // r = 1 / z, x = (r x + 1) half_x, w = near r, z = 1 - w. The y of the
 // screen is half_y - (half_y y) r (TransformClip, y_first false) or
 // half_y - (y r) half_y (TransformLit, y_first true).
-inline Screen Project(const Consts& c, const Camera& v, bool y_first) {
-  const __m128 one = _mm_set1_ps(1.0f);
-  const __m128 hy = _mm_set1_ps(c.half_y);
-  const __m128 r = _mm_div_ps(one, v.z);
+inline Screen Project(const Wide& w, const Camera& v, bool y_first) {
+  const __m128 r = _mm_div_ps(w.one, v.z);
   Screen s;
-  s.x = Clamp(_mm_mul_ps(_mm_add_ps(_mm_mul_ps(r, v.x), one),
-                         _mm_set1_ps(c.half_x)),
-              c.max_x);
-  const __m128 scaled = y_first ? _mm_mul_ps(_mm_mul_ps(v.y, r), hy)
-                                : _mm_mul_ps(_mm_mul_ps(hy, v.y), r);
-  s.y = Clamp(_mm_sub_ps(hy, scaled), c.max_y);
-  s.rhw = _mm_mul_ps(_mm_set1_ps(c.near_plane), r);
-  s.z = _mm_sub_ps(one, s.rhw);
+  s.x = Clamp(_mm_mul_ps(_mm_add_ps(_mm_mul_ps(r, v.x), w.one), w.half_x),
+              w.max_x);
+  const __m128 scaled = y_first ? _mm_mul_ps(_mm_mul_ps(v.y, r), w.half_y)
+                                : _mm_mul_ps(_mm_mul_ps(w.half_y, v.y), r);
+  s.y = Clamp(_mm_sub_ps(w.half_y, scaled), w.max_y);
+  s.rhw = _mm_mul_ps(w.near_plane, r);
+  s.z = _mm_sub_ps(w.one, s.rhw);
   return s;
 }
 
@@ -192,7 +200,7 @@ inline Screen Project(const Consts& c, const Camera& v, bool y_first) {
 inline void TransformClip(const Consts& c, const uint8_t* in, uint32_t count,
                           uint8_t* out, uint32_t* flags) {
   using namespace detail;
-  const __m128 near_plane = _mm_set1_ps(c.near_plane);
+  const Wide w(c);
   const __m128 sign = _mm_set1_ps(-0.0f);
   const __m128i bit20 = _mm_set1_epi32(0x20), bit10 = _mm_set1_epi32(0x10);
   const __m128i bit08 = _mm_set1_epi32(0x08), bit04 = _mm_set1_epi32(0x04);
@@ -201,9 +209,9 @@ inline void TransformClip(const Consts& c, const uint8_t* in, uint32_t count,
   const __m128 lane2 = _mm_castsi128_ps(_mm_set_epi32(0, -1, 0, 0));
   auto block = [&](const uint8_t* src, uint8_t* dst, uint32_t* f4) {
     const Columns in4 = Load4(src, false);
-    const Camera v = Transform(c, in4.x, in4.y, in4.z);
+    const Camera v = Transform(w, in4.x, in4.y, in4.z);
     const __m128 neg_z = _mm_xor_ps(v.z, sign);
-    const __m128 nearer = _mm_cmpnge_ps(v.z, near_plane);
+    const __m128 nearer = _mm_cmpnge_ps(v.z, w.near_plane);
     const __m128 right = _mm_cmpgt_ps(v.x, v.z);
     const __m128 left = _mm_andnot_ps(right, _mm_cmpgt_ps(neg_z, v.x));
     const __m128 below = _mm_cmpgt_ps(v.y, v.z);
@@ -218,7 +226,7 @@ inline void TransformClip(const Consts& c, const uint8_t* in, uint32_t count,
     _mm_storeu_si128(reinterpret_cast<__m128i*>(f4), f);
     const int clipped = ~_mm_movemask_ps(
         _mm_castsi128_ps(_mm_cmpeq_epi32(f, _mm_setzero_si128())));
-    Screen s = Project(c, v, false);
+    Screen s = Project(w, v, false);
     _MM_TRANSPOSE4_PS(s.x, s.y, s.z, s.rhw);
     const __m128 projected[4] = {s.x, s.y, s.z, s.rhw};
     __m128 cx = v.x, cy = v.y, cz = v.z, cw = v.z;
@@ -269,20 +277,21 @@ inline uint32_t LitColor(int32_t i, const Light& l) {
 inline void TransformLit(const Consts& c, const Light& l, const uint8_t* in,
                          uint32_t count, uint8_t* out) {
   using namespace detail;
+  const Wide w(c);
   const __m128 l0 = _mm_set1_ps(l.direction[0]);
   const __m128 l1 = _mm_set1_ps(l.direction[1]);
   const __m128 l2 = _mm_set1_ps(l.direction[2]);
   const __m128 full = _mm_set1_ps(255.0f);
   auto block = [&](const uint8_t* src, uint8_t* dst, uint32_t*) {
     const Columns in4 = Load4(src, true);
-    const Camera v = Transform(c, in4.x, in4.y, in4.z);
+    const Camera v = Transform(w, in4.x, in4.y, in4.z);
     const __m128 dot = _mm_mul_ps(
         _mm_add_ps(_mm_add_ps(_mm_mul_ps(l2, in4.nz), _mm_mul_ps(l0, in4.nx)),
                    _mm_mul_ps(l1, in4.ny)),
         full);
     int32_t level[4];
     _mm_storeu_si128(reinterpret_cast<__m128i*>(level), _mm_cvtps_epi32(dot));
-    Screen s = Project(c, v, true);
+    Screen s = Project(w, v, true);
     _MM_TRANSPOSE4_PS(s.x, s.y, s.z, s.rhw);
     const __m128 projected[4] = {s.x, s.y, s.z, s.rhw};
     for (int i = 0; i < 4; ++i) {

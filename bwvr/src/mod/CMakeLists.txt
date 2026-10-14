@@ -30,6 +30,7 @@ add_library(bwvr_mod SHARED
     scene_sample.cpp
     render_thread.cpp
     fast_transform.cpp
+    d3d7_count.cpp
     frame_time.cpp
     fov.cpp
     input_watch.cpp

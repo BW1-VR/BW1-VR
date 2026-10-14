@@ -45,6 +45,7 @@
 #include <windows.h>
 #include <d3d9.h>
 #include <stdint.h>
+#include <string.h>
 
 #include "../common/bw_addresses.h"
 #include "one_walk.h"
@@ -107,11 +108,21 @@ float PerRhwNow() {
     g_per_rhw = g_held_shift;
     return g_per_rhw;
   }
+  // The four inputs change seldom in a walk, so the last result is kept with
+  // them.
+  static float s_inputs[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+  static float s_result = 0.0f;
   const bw::tech::InfoTransform* info =
       reinterpret_cast<const bw::tech::InfoTransform*>(bw::tech::kInfoTransform);
-  const float near_plane = *reinterpret_cast<const float*>(bw::tech::kNearPlane);
-  g_per_rhw = one_walk_math::ShiftPerRhw(info->inv_half_tan_fov_x, g_separation,
-                                         info->half_res_x, near_plane);
+  const float inputs[4] = {
+      info->inv_half_tan_fov_x, g_separation, info->half_res_x,
+      *reinterpret_cast<const float*>(bw::tech::kNearPlane)};
+  if (memcmp(inputs, s_inputs, sizeof(inputs)) != 0) {
+    memcpy(s_inputs, inputs, sizeof(inputs));
+    s_result = one_walk_math::ShiftPerRhw(inputs[0], inputs[1], inputs[2],
+                                          inputs[3]);
+  }
+  g_per_rhw = s_result;
   return g_per_rhw;
 }
 
@@ -157,6 +168,24 @@ bool g_merge = true;    // one_walk_merge
 uint64_t g_right_ticks = 0;
 uint64_t g_target_swaps = 0;
 uint64_t g_late_swaps = 0;
+
+// The time of the work of the right eye on the frame thread, measured for
+// one draw in 16: two reads of the clock for each draw cost a part of what
+// they measure.
+uint32_t g_timed_draws = 0;
+struct RightTime {
+  LARGE_INTEGER start;
+  bool on;
+  RightTime() : on((++g_timed_draws & 15u) == 0) {
+    if (on) QueryPerformanceCounter(&start);
+  }
+  ~RightTime() {
+    if (!on) return;
+    LARGE_INTEGER end;
+    QueryPerformanceCounter(&end);
+    g_right_ticks += 16 * (end.QuadPart - start.QuadPart);
+  }
+};
 
 bool EnsureScratch(size_t bytes) {
   if (bytes <= g_scratch_size) return true;
@@ -273,8 +302,7 @@ HRESULT STDMETHODCALLTYPE h_DrawIndexedPrimitiveUP(
   // draw with the scissor test is drawn one eye at a time.
   if (mode == kOneWalkBoth && g_merge && type == D3DPT_TRIANGLELIST &&
       vertices != nullptr && indices != nullptr && ScreenSpace(self, stride)) {
-    LARGE_INTEGER a, b;
-    QueryPerformanceCounter(&a);
+    RightTime timer;
     const uint32_t count = min_index + vertex_count;
     D3DVIEWPORT9 game;
     DWORD scissor = TRUE;
@@ -295,8 +323,6 @@ HRESULT STDMETHODCALLTYPE h_DrawIndexedPrimitiveUP(
                                      vertices, stride, game, g_eye_width,
                                      PerRhwNow())) {
       ++g_both_batches;
-      QueryPerformanceCounter(&b);
-      g_right_ticks += b.QuadPart - a.QuadPart;
       return D3D_OK;
     }
     if (scissor == FALSE && CopyRight(vertices, count, stride, true)) {
@@ -312,8 +338,6 @@ HRESULT STDMETHODCALLTYPE h_DrawIndexedPrimitiveUP(
                                          index_format, vertices, g_scratch,
                                          stride)) {
         ++g_merged;
-        QueryPerformanceCounter(&b);
-        g_right_ticks += b.QuadPart - a.QuadPart;
         return D3D_OK;
       }
       // One eye at a time, with the copy of the right eye made.
@@ -329,8 +353,6 @@ HRESULT STDMETHODCALLTYPE h_DrawIndexedPrimitiveUP(
             index_format, g_scratch, stride);
         PutBack(self, saved);
       }
-      QueryPerformanceCounter(&b);
-      g_right_ticks += b.QuadPart - a.QuadPart;
       return hr;
     }
   }
@@ -349,8 +371,7 @@ HRESULT STDMETHODCALLTYPE h_DrawIndexedPrimitiveUP(
     ++g_not_screen_space;
     return hr;
   }
-  LARGE_INTEGER a, b;
-  QueryPerformanceCounter(&a);
+  RightTime timer;
   // The indices count from the start of the array, so the copy starts there.
   const uint32_t count = min_index + vertex_count;
   if (CopyRight(vertices, count, stride, mode == kOneWalkBoth)) {
@@ -364,8 +385,6 @@ HRESULT STDMETHODCALLTYPE h_DrawIndexedPrimitiveUP(
     PutBack(self, saved);
     if (mode == kOneWalkRightOnly) hr = right;
   }
-  QueryPerformanceCounter(&b);
-  g_right_ticks += b.QuadPart - a.QuadPart;
   return hr;
 }
 
@@ -395,8 +414,7 @@ HRESULT STDMETHODCALLTYPE h_DrawPrimitiveUP(IDirect3DDevice9* self,
   const uint32_t count =
       one_walk_math::VertexCount(static_cast<int>(type), primitive_count);
   if (count == 0) return hr;
-  LARGE_INTEGER a, b;
-  QueryPerformanceCounter(&a);
+  RightTime timer;
   if (CopyRight(vertices, count, stride, mode == kOneWalkBoth)) {
     if (mode == kOneWalkBoth) CountOwnHalves(self, vertices, count, stride);
     if (mode == kOneWalkRightOnly) ++g_right_only;
@@ -407,8 +425,6 @@ HRESULT STDMETHODCALLTYPE h_DrawPrimitiveUP(IDirect3DDevice9* self,
     PutBack(self, saved);
     if (mode == kOneWalkRightOnly) hr = right;
   }
-  QueryPerformanceCounter(&b);
-  g_right_ticks += b.QuadPart - a.QuadPart;
   return hr;
 }
 

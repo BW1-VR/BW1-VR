@@ -67,6 +67,7 @@
 #include "bubble_card.h"
 #include "cutscene_window.h"
 #include "frame_profile.h"
+#include "d3d7_count.h"
 #include "fast_transform.h"
 #include "render_thread.h"
 #include "scene_sample.h"
@@ -1424,10 +1425,12 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
     // The calls of the walk to Direct3D 9 can go to the render thread. The
     // end waits until each of them went to Direct3D 9.
     RenderThreadWalk(true);
+    D3D7CountWalk(true);
     o_Process3dEngine(self, unused);
     // The targets get the color of the game back (target_glow.cpp).
     TargetGlowPassDone();
     DrawMergePass(false);
+    D3D7CountWalk(false);
     RenderThreadWalk(false);
     if (walk_wide) {
       EyeCleanOneWalkAfter();
@@ -1738,6 +1741,7 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
     // Before the report of the render thread, which changes the key of
     // ab_test for the next window.
     FastTransformReport(g_timed_now);
+    D3D7CountReport(g_timed_now);
     RenderThreadReport(g_timed_now);
     PresentWatchReport(g_timed_now);
     {

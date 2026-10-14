@@ -56,6 +56,7 @@
 #include "../common/bw_addresses.h"
 #include "draw_merge_math.h"
 #include "render_thread.h"
+#include "thread_id.h"
 
 extern void ModLog(const char* format, ...);
 // draw_probe.cpp: the hooks of the device, and the draw call of a batch.
@@ -367,7 +368,7 @@ bool DrawMergeTake(void* self, D3DPRIMITIVETYPE type, DWORD fvf,
   const uint32_t stride = draw_merge::Stride(fvf);
   const uint32_t corners = draw_merge::WholeTriangles(
       indices != nullptr ? index_count : vertex_count);
-  if (GetCurrentThreadId() != g_thread || from < g_game_first ||
+  if (ThisThreadId() != g_thread || from < g_game_first ||
       from >= g_game_last || type != D3DPT_TRIANGLELIST ||
       vertices == nullptr || stride == 0 || corners == 0) {
     DrawMergeFlush();
