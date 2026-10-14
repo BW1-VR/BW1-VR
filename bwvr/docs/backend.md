@@ -2106,11 +2106,24 @@ more. Now it is a test: `vk_scene=1` (0 is the default).
 
 **The shadow test.** With `d3d7_thread=1` the D3D7 thread gives each call
 of its queue to dxwrapper as before, and also to the Vulkan renderer. The
-renderer draws the left eye into an image of its own. The picture of the
-game stays the one of dxwrapper. `vk_scene_test_frame=N` writes the image of
-frame N to `bwvr-vk-left-NNNNN.bmp` beside `runblack.exe`, so a desktop run
-with `render_thread_test_frame=N` compares it with the picture of
-Direct3D 9.
+renderer draws both eyes into an image of its own, with a layer for each
+eye. The picture of the game stays the one of dxwrapper.
+`vk_scene_test_frame=N` writes the images of frame N to
+`bwvr-vk-left-NNNNN.bmp` and `bwvr-vk-right-NNNNN.bmp` beside `runblack.exe`,
+so a desktop run with `render_thread_test_frame=N` compares them with the
+pictures of Direct3D 9.
+
+**Both eyes.** In one walk the game draws the left eye. Each draw goes to
+both layers of the target at once (multiview, a feature of each GPU with
+Vulkan 1.1), and the vertex shader moves each vertex of the right eye by
+`per_rhw * rhw`, as one walk moves the copy of the right eye
+(`one_walk_math.h`). A batch where each vertex has an rhw of 1 (flat) or a z
+of 1 or more (at infinity) does not move. A batch of the interface for one
+eye only (`OneWalkModeNow`) goes to that layer only: the shader puts its
+vertices of the other eye outside the clip space. With no one walk the walk
+draws the left layer only. The hand, the halos and the overlays of the mod
+draw with `DrawPrimitive` of Direct3D 7 in the walk, in the format of the
+game, so they come to the renderer as the draws of the game do.
 
 **Vulkan.** The mod loads `vulkan-1.dll` at run time, so the DLL of the mod
 has no import of Vulkan. It needs Vulkan 1.3 (dynamic rendering,
@@ -2143,14 +2156,16 @@ and its next use reads it again. The game has 117 textures of 256 by 256 in
 A4R4G4B4 and 2 in X1R5G5B5 at the start of a new game.
 
 **The numbers.** A desktop run at the start of a new game: the renderer draws
-each of the 1066 draws of a frame, with 94 textures, 3 pipelines and 2
-samplers, and the frames stay at 5.0 ms with both renderers. The image of
-the left eye of frame 3000 and the picture of Direct3D 9 differ by more than
-24 levels in 0.2 percent of the pixels of the upper half (the sky and the
-hills), 0.5 percent of the land and 2.3 percent of the sea. The sea of
-Direct3D 9 shows more of the reflected sky: the cause is not found yet. The
-draws of the sea are the sky dome (depth test always, no blend) and then the
-sea (289 vertices, the blend of source alpha, the alpha of its texture).
+each of the 1067 draws of a frame for both eyes, with 93 textures, 3
+pipelines and 2 samplers, and the frames stay at 4.7 to 5.0 ms with both
+renderers. The images of frame 3000 and the pictures of Direct3D 9 differ by
+more than 24 levels in 0.70 percent of the pixels of the left eye and 0.72
+percent of the right eye. Most of these pixels are in the sea, and in some
+patches on it: the sea of Direct3D 9 shows more of the blue of the reflected
+sky, and the sea of Vulkan more of its own color. The cause is not found
+yet. The draws of the sea are the sky dome (depth test always, no blend) and
+then the sea (289 vertices, the blend of source alpha, the alpha of its
+texture). A read of each texture again changes nothing.
 
 ## How the threads wait
 

@@ -9,10 +9,18 @@
 //
 // THE SHADOW TEST (vk_scene=1). With d3d7_thread=1 the D3D7 thread gives
 // each call of the queue to dxwrapper as before, and also to this renderer.
-// The renderer draws the left eye into an image of its own. The picture of
-// the game stays the one of dxwrapper. vk_scene_test_frame=N writes the image
-// of frame N to a file, so a desktop run compares it with the picture of
-// Direct3D 9 of the same frame.
+// The renderer draws both eyes into an image of its own, with a layer for
+// each eye. The picture of the game stays the one of dxwrapper.
+// vk_scene_test_frame=N writes the images of frame N to files, so a desktop
+// run compares them with the pictures of Direct3D 9 of the same frame.
+//
+// BOTH EYES. In one walk the game draws the left eye, and one walk makes the
+// right eye from it (one_walk.cpp). Here each draw goes to both layers at
+// once (multiview), and the vertex shader moves each vertex of the right eye
+// by per_rhw * rhw, unless each vertex of the batch has an rhw of 1 or a z
+// of 1 or more (one_walk_math.h, CopyForRightEye). A batch of the interface
+// for one eye only (OneWalkModeNow) goes to that layer only. With no one walk
+// the walk draws the left layer only.
 //
 // WHAT IT MAKES. The game draws vertices with their place on the screen
 // (0x1C4: XYZRHW, diffuse, specular, one texture). docs/backend.md, "The
@@ -39,6 +47,7 @@
 
 #include "d3d7_thread.h"
 #include "one_walk.h"
+#include "one_walk_math.h"
 #include "vk_core.h"
 #include "vk_scene.h"
 #include "vk_scene_frag.h"
@@ -262,6 +271,7 @@ VkPipeline Pipeline(uint32_t key) {
   dynamic_state.pDynamicStates = dynamic;
   VkPipelineRenderingCreateInfo rendering = {
       VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
+  rendering.viewMask = 3;
   rendering.colorAttachmentCount = 1;
   rendering.pColorAttachmentFormats = &kColorFormat;
   rendering.depthAttachmentFormat = kDepthFormat;
@@ -572,10 +582,10 @@ bool MakeTarget(uint32_t width, uint32_t height) {
   return vk::MakeImage(width, height, 1, kColorFormat,
                        VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
                            VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
-                       VK_IMAGE_ASPECT_COLOR_BIT, &g_color) &&
+                       VK_IMAGE_ASPECT_COLOR_BIT, &g_color, 2) &&
          vk::MakeImage(width, height, 1, kDepthFormat,
                        VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
-                       VK_IMAGE_ASPECT_DEPTH_BIT, &g_depth);
+                       VK_IMAGE_ASPECT_DEPTH_BIT, &g_depth, 2);
 }
 
 bool Ready() {
@@ -665,8 +675,8 @@ bool Ready() {
   return true;
 }
 
-// Writes the image of the left eye to a file of 24 bits, bottom up.
-void WritePicture(uint64_t frame) {
+// Writes the image of one eye to a file of 24 bits, bottom up.
+void WritePicture(uint64_t frame, uint32_t eye) {
   const uint32_t w = g_color.width, h = g_color.height;
   vk::Buffer read;
   if (!vk::MakeBuffer(static_cast<VkDeviceSize>(w) * h * 4,
@@ -676,16 +686,16 @@ void WritePicture(uint64_t frame) {
   VkCommandBuffer cb = vk::BeginOnce();
   vk::Barrier(cb, g_color.image, VK_IMAGE_ASPECT_COLOR_BIT,
               VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-              VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, 1);
+              VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, 1, 2);
   VkBufferImageCopy copy = {};
-  copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+  copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, eye, 1};
   copy.imageExtent = {w, h, 1};
   f.vkCmdCopyImageToBuffer(cb, g_color.image,
                            VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, read.buffer,
                            1, &copy);
   vk::Barrier(cb, g_color.image, VK_IMAGE_ASPECT_COLOR_BIT,
               VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-              VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 1);
+              VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 1, 2);
   if (!vk::EndOnce(cb)) {
     vk::FreeBuffer(&read);
     return;
@@ -695,7 +705,8 @@ void WritePicture(uint64_t frame) {
   char* slash = strrchr(path, '\\');
   if (slash != nullptr) slash[1] = 0;
   char name[64];
-  sprintf_s(name, "bwvr-vk-left-%05llu.bmp", frame);
+  sprintf_s(name, "bwvr-vk-%s-%05llu.bmp", eye == 0 ? "left" : "right",
+            frame);
   strcat_s(path, name);
   FILE* out = nullptr;
   if (fopen_s(&out, path, "wb") == 0 && out != nullptr) {
@@ -725,8 +736,8 @@ void WritePicture(uint64_t frame) {
     }
     free(line);
     fclose(out);
-    ModLog("vk scene     : the image of the left eye of frame %llu is in %s",
-           frame, path);
+    ModLog("vk scene     : the image of the %s eye of frame %llu is in %s",
+           eye == 0 ? "left" : "right", frame, path);
   }
   vk::FreeBuffer(&read);
 }
@@ -771,10 +782,10 @@ void BeginOnWorker(const void* data) {
   f.vkBeginCommandBuffer(s.cb, &begin);
   vk::Barrier(s.cb, g_color.image, VK_IMAGE_ASPECT_COLOR_BIT,
               VK_IMAGE_LAYOUT_UNDEFINED,
-              VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 1);
+              VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 1, 2);
   vk::Barrier(s.cb, g_depth.image, VK_IMAGE_ASPECT_DEPTH_BIT,
               VK_IMAGE_LAYOUT_UNDEFINED,
-              VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, 1);
+              VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, 1, 2);
   VkRenderingAttachmentInfo color = {
       VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
   color.imageView = g_color.view;
@@ -791,6 +802,7 @@ void BeginOnWorker(const void* data) {
   VkRenderingInfo rendering = {VK_STRUCTURE_TYPE_RENDERING_INFO};
   rendering.renderArea = {{0, 0}, {g_color.width, g_color.height}};
   rendering.layerCount = 1;
+  rendering.viewMask = 3;
   rendering.colorAttachmentCount = 1;
   rendering.pColorAttachments = &color;
   rendering.pDepthAttachment = &depth;
@@ -825,7 +837,8 @@ void EndOnWorker(const void*) {
   }
   if (g_picture) {
     f.vkWaitForFences(vk::Get().device, 1, &s.fence, VK_TRUE, UINT64_MAX);
-    WritePicture(g_picture_frame);
+    WritePicture(g_picture_frame, 0);
+    WritePicture(g_picture_frame, 1);
   }
 }
 
@@ -903,11 +916,8 @@ void VkSceneDraw(uint32_t type, uint32_t fvf, const void* vertices,
                  uint32_t vertex_count, const uint16_t* indices,
                  uint32_t index_count) {
   if (!g_recording) return;
-  // In one walk a batch of the interface for the right eye only does not go
-  // into the image of the left eye.
-  if (OneWalkModeNow() == kOneWalkRightOnly) {
+  if (OneWalkActive() && OneWalkModeNow() == kOneWalkRightOnly) {
     ++g_right_only;
-    return;
   }
   // Texture stage 1 adds its texture to stage 0 (seed: color op 7), but
   // the game sets no texture on it in a walk, so it adds nothing.
@@ -1001,6 +1011,23 @@ void VkSceneDraw(uint32_t type, uint32_t fvf, const void* vertices,
   const float range = g_viewport.dvMaxZ - g_viewport.dvMinZ;
   push.depth[0] = g_viewport.dvMinZ;
   push.depth[1] = range > 0.0f ? 1.0f / range : 1.0f;
+  // The eyes of the draw and the move of the right eye (BOTH EYES).
+  uint32_t eyes = 1u;
+  uint32_t still = 1u;
+  if (OneWalkActive()) {
+    const int mode = OneWalkModeNow();
+    eyes = mode == kOneWalkLeftOnly ? 1u : mode == kOneWalkRightOnly ? 2u : 3u;
+    if (mode == kOneWalkBoth) {
+      bool all_rhw_one = true, all_far = true;
+      const float* v = static_cast<const float*>(vertices);
+      for (uint32_t i = 0; i < vertex_count; ++i, v += 8) {
+        if (v[3] != 1.0f) all_rhw_one = false;
+        if (v[2] < 1.0f) all_far = false;
+      }
+      still = all_rhw_one || all_far ? 1u : 0u;
+      push.depth[2] = OneWalkShiftPerRhw();
+    }
+  }
   push.ops[0] = (ts[D3DTSS_COLOROP] & 255) | (ts[D3DTSS_COLORARG1] & 255) << 8 |
                 (ts[D3DTSS_COLORARG2] & 255) << 16;
   push.ops[1] = (ts[D3DTSS_ALPHAOP] & 255) | (ts[D3DTSS_ALPHAARG1] & 255) << 8 |
@@ -1015,6 +1042,7 @@ void VkSceneDraw(uint32_t type, uint32_t fvf, const void* vertices,
     flags |= 0x200u;
   }
   push.ops[2] = flags;
+  push.ops[3] = still | eyes << 8;
   push.alpha[0] = static_cast<float>(rs[D3DRENDERSTATE_ALPHAREF] & 255) / 255.0f;
   const uint32_t fog = rs[D3DRENDERSTATE_FOGCOLOR];
   push.fog_color[0] = static_cast<float>((fog >> 16) & 255) / 255.0f;
@@ -1045,7 +1073,7 @@ void VkSceneSurfaceWritten(void* surface) {
 void VkSceneReport(uint64_t frames) {
   if (g_mode == 0 || frames == 0) return;
   const double per = static_cast<double>(frames);
-  ModLog("vk scene     : a frame: %.1f draws of the right eye only, %.1f "
+  ModLog("vk scene     : a frame: %.1f draws for the right eye only, %.1f "
          "draws with a texture on stage 1, which the renderer does not draw",
          g_right_only / per, g_stage1 / per);
   g_right_only = g_stage1 = 0;

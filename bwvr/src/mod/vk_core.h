@@ -119,7 +119,8 @@ struct Core {
 };
 
 // Starts Vulkan 1.3 on the first GPU that has it, a dedicated one before an
-// integrated one. False with a reason in the log when it cannot.
+// integrated one, with multiview (one draw for both eyes, each in a layer of
+// the target). False with a reason in the log when it cannot.
 bool Start();
 bool Started();
 const Core& Get();
@@ -137,17 +138,18 @@ bool MakeBuffer(VkDeviceSize size, VkBufferUsageFlags usage, bool host,
                 Buffer* out);
 void FreeBuffer(Buffer* b);
 
-// An image of one sample with its memory and a view of all its levels.
+// An image of one sample with its memory and a view of all its levels and
+// layers (an array view when it has more than one layer).
 struct Image {
   VkImage image;
   VkDeviceMemory memory;
   VkImageView view;
   VkFormat format;
-  uint32_t width, height, levels;
+  uint32_t width, height, levels, layers;
 };
 bool MakeImage(uint32_t width, uint32_t height, uint32_t levels,
                VkFormat format, VkImageUsageFlags usage,
-               VkImageAspectFlags aspect, Image* out);
+               VkImageAspectFlags aspect, Image* out, uint32_t layers = 1);
 void FreeImage(Image* image);
 
 // A command buffer for one job: Begin gives it, End submits it and waits.
@@ -156,6 +158,7 @@ bool EndOnce(VkCommandBuffer cb);
 
 // A barrier of one image from one layout to another, for all stages.
 void Barrier(VkCommandBuffer cb, VkImage image, VkImageAspectFlags aspect,
-             VkImageLayout from, VkImageLayout to, uint32_t levels);
+             VkImageLayout from, VkImageLayout to, uint32_t levels,
+             uint32_t layers = 1);
 
 }  // namespace vk

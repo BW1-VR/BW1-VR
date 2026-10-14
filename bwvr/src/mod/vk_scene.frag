@@ -1,4 +1,5 @@
 #version 450
+#extension GL_EXT_multiview : require
 // The fragment shader of the Vulkan renderer of the scene (vk_scene.cpp,
 // docs/backend.md, "The Vulkan renderer"). It makes texture stage 0 of
 // Direct3D 7 for the operations and inputs that the game uses, the alpha
@@ -12,7 +13,8 @@
 //   fog_color  the color of the fog
 //
 // Compile with:
-//   glslang -V --vn kVkSceneFrag -o vk_scene_frag.h vk_scene.frag
+//   glslang -V --target-env vulkan1.3 --vn kVkSceneFrag -o vk_scene_frag.h
+//       vk_scene.frag
 
 layout(location = 0) in vec4 in_diffuse;
 layout(location = 1) in vec4 in_specular;

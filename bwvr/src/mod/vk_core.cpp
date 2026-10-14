@@ -98,11 +98,16 @@ bool Start() {
     if (p.apiVersion < VK_API_VERSION_1_3) continue;
     VkPhysicalDeviceVulkan13Features v13 = {
         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES};
+    VkPhysicalDeviceVulkan11Features v11 = {
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES};
+    v13.pNext = &v11;
     VkPhysicalDeviceFeatures2 features = {
         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
     features.pNext = &v13;
     f.vkGetPhysicalDeviceFeatures2(devices[i], &features);
-    if (!v13.dynamicRendering || !v13.synchronization2) continue;
+    if (!v13.dynamicRendering || !v13.synchronization2 || !v11.multiview) {
+      continue;
+    }
     VkQueueFamilyProperties families[16];
     uint32_t family_count = 16;
     f.vkGetPhysicalDeviceQueueFamilyProperties(devices[i], &family_count,
@@ -127,8 +132,8 @@ bool Start() {
     }
   }
   if (best < 0) {
-    ModLog("vulkan       : no GPU has Vulkan 1.3 with dynamic rendering. The "
-           "mod does not use Vulkan");
+    ModLog("vulkan       : no GPU has Vulkan 1.3 with dynamic rendering and "
+           "multiview. The mod does not use Vulkan");
     f.vkDestroyInstance(g_core.instance, nullptr);
     g_failed = true;
     return false;
@@ -147,6 +152,10 @@ bool Start() {
       VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES};
   v13.dynamicRendering = VK_TRUE;
   v13.synchronization2 = VK_TRUE;
+  VkPhysicalDeviceVulkan11Features v11 = {
+      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES};
+  v11.multiview = VK_TRUE;
+  v13.pNext = &v11;
   VkPhysicalDeviceFeatures2 features = {
       VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
   features.pNext = &v13;
@@ -236,14 +245,14 @@ void FreeBuffer(Buffer* b) {
 
 bool MakeImage(uint32_t width, uint32_t height, uint32_t levels,
                VkFormat format, VkImageUsageFlags usage,
-               VkImageAspectFlags aspect, Image* out) {
+               VkImageAspectFlags aspect, Image* out, uint32_t layers) {
   memset(out, 0, sizeof(*out));
   VkImageCreateInfo info = {VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
   info.imageType = VK_IMAGE_TYPE_2D;
   info.format = format;
   info.extent = {width, height, 1};
   info.mipLevels = levels;
-  info.arrayLayers = 1;
+  info.arrayLayers = layers;
   info.samples = VK_SAMPLE_COUNT_1_BIT;
   info.tiling = VK_IMAGE_TILING_OPTIMAL;
   info.usage = usage;
@@ -262,9 +271,10 @@ bool MakeImage(uint32_t width, uint32_t height, uint32_t levels,
   }
   VkImageViewCreateInfo view = {VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
   view.image = out->image;
-  view.viewType = VK_IMAGE_VIEW_TYPE_2D;
+  view.viewType =
+      layers > 1 ? VK_IMAGE_VIEW_TYPE_2D_ARRAY : VK_IMAGE_VIEW_TYPE_2D;
   view.format = format;
-  view.subresourceRange = {aspect, 0, levels, 0, 1};
+  view.subresourceRange = {aspect, 0, levels, 0, layers};
   if (f.vkCreateImageView(g_core.device, &view, nullptr, &out->view) !=
       VK_SUCCESS) {
     FreeImage(out);
@@ -274,6 +284,7 @@ bool MakeImage(uint32_t width, uint32_t height, uint32_t levels,
   out->width = width;
   out->height = height;
   out->levels = levels;
+  out->layers = layers;
   return true;
 }
 
@@ -328,7 +339,8 @@ bool EndOnce(VkCommandBuffer cb) {
 }
 
 void Barrier(VkCommandBuffer cb, VkImage image, VkImageAspectFlags aspect,
-             VkImageLayout from, VkImageLayout to, uint32_t levels) {
+             VkImageLayout from, VkImageLayout to, uint32_t levels,
+             uint32_t layers) {
   VkImageMemoryBarrier2 b = {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
   b.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
   b.srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT;
@@ -339,7 +351,7 @@ void Barrier(VkCommandBuffer cb, VkImage image, VkImageAspectFlags aspect,
   b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
   b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
   b.image = image;
-  b.subresourceRange = {aspect, 0, levels, 0, 1};
+  b.subresourceRange = {aspect, 0, levels, 0, layers};
   VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
   dep.imageMemoryBarrierCount = 1;
   dep.pImageMemoryBarriers = &b;
