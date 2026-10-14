@@ -301,7 +301,8 @@ VkPipeline Pipeline(uint32_t key) {
 }
 
 // D3DTFG_ / D3DTFN_ / D3DTFP_ to Vulkan: 1 point, 2 linear, 3 (min) or 5
-// (mag) anisotropic.
+// (mag) anisotropic. D3DTFP_NONE (1) uses level 0 only. An anisotropic
+// filter needs the feature of the device (vk::Core, max_anisotropy).
 VkSampler Sampler(uint32_t mag, uint32_t min, uint32_t mip, uint32_t u,
                   uint32_t v, uint32_t anisotropy) {
   const uint32_t key = (mag & 7) | (min & 7) << 3 | (mip & 7) << 6 |
@@ -323,15 +324,18 @@ VkSampler Sampler(uint32_t mag, uint32_t min, uint32_t mip, uint32_t u,
   VkSamplerCreateInfo info = {VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
   info.magFilter = filter(mag);
   info.minFilter = filter(min);
-  info.mipmapMode = mip == 1 || mip == 0 ? VK_SAMPLER_MIPMAP_MODE_NEAREST
-                                         : VK_SAMPLER_MIPMAP_MODE_LINEAR;
+  info.mipmapMode = mip == 3 ? VK_SAMPLER_MIPMAP_MODE_LINEAR
+                             : VK_SAMPLER_MIPMAP_MODE_NEAREST;
   info.addressModeU = address(u);
   info.addressModeV = address(v);
   info.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+  const float most = vk::Get().max_anisotropy;
   info.anisotropyEnable =
-      (min == 3 || mag == 5) && anisotropy > 1 ? VK_TRUE : VK_FALSE;
-  info.maxAnisotropy = static_cast<float>(anisotropy > 16 ? 16 : anisotropy);
-  info.maxLod = mip == 0 ? 0.25f : VK_LOD_CLAMP_NONE;
+      (min == 3 || mag == 5) && anisotropy > 1 && most > 1.0f ? VK_TRUE
+                                                              : VK_FALSE;
+  info.maxAnisotropy = static_cast<float>(anisotropy);
+  if (info.maxAnisotropy > most) info.maxAnisotropy = most;
+  info.maxLod = mip <= 1 ? 0.25f : VK_LOD_CLAMP_NONE;
   VkSampler sampler = VK_NULL_HANDLE;
   f.vkCreateSampler(vk::Get().device, &info, nullptr, &sampler);
   g_samplers[g_sampler_count].key = key;
@@ -904,6 +908,13 @@ void VkSceneRenderState(uint32_t state, uint32_t value) {
 void VkSceneStageState(uint32_t stage, uint32_t type, uint32_t value) {
   if (stage < 2 && type < static_cast<uint32_t>(kStageStates)) {
     g_ts[stage][type] = value;
+    // In Direct3D 7 D3DTSS_ADDRESS sets the address mode of u and of v. The
+    // game sets only this state, for example wrap for the sea after clamp
+    // for an earlier draw.
+    if (type == D3DTSS_ADDRESS) {
+      g_ts[stage][D3DTSS_ADDRESSU] = value;
+      g_ts[stage][D3DTSS_ADDRESSV] = value;
+    }
   }
 }
 
@@ -947,11 +958,10 @@ void VkSceneDraw(uint32_t type, uint32_t fvf, const void* vertices,
   }
   Texture* texture = TextureOf(g_texture);
   const uint32_t* ts = g_ts[0];
-  const uint32_t address = ts[D3DTSS_ADDRESS] != 0 ? ts[D3DTSS_ADDRESS] : 1;
   VkSampler sampler =
       Sampler(ts[D3DTSS_MAGFILTER], ts[D3DTSS_MINFILTER], ts[D3DTSS_MIPFILTER],
-              ts[D3DTSS_ADDRESSU] != 0 ? ts[D3DTSS_ADDRESSU] : address,
-              ts[D3DTSS_ADDRESSV] != 0 ? ts[D3DTSS_ADDRESSV] : address,
+              ts[D3DTSS_ADDRESSU] != 0 ? ts[D3DTSS_ADDRESSU] : 1,
+              ts[D3DTSS_ADDRESSV] != 0 ? ts[D3DTSS_ADDRESSV] : 1,
               ts[D3DTSS_MAXANISOTROPY]);
   VkDescriptorSet set = SetOf(texture, sampler);
   if (set == VK_NULL_HANDLE) {

@@ -545,7 +545,7 @@ that moves while the Hand takes it.
     standalone** needs fewer layers of x86 code for each draw. The plan,
     in steps that a desktop run can check: (A) a Vulkan renderer of the
     scene walks in place of dxwrapper and Direct3D 9 (`backend.md`, "The
-    Vulkan renderer"; now the shadow test: the same picture but the sea),
+    Vulkan renderer"; now the shadow test: the same picture),
     then its images straight to an OpenXR session of Vulkan, the hand and
     the overlays of the mod in it, and both eyes in one pass; (B) one draw
     for many copies of a mesh (about 870 draws of a frame are 36 meshes);

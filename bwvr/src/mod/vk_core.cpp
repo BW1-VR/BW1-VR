@@ -92,6 +92,7 @@ bool Start() {
   int best = -1;
   int best_rank = -1;
   uint32_t best_family = 0;
+  float best_anisotropy = 0.0f;
   for (uint32_t i = 0; i < count && i < 16; ++i) {
     VkPhysicalDeviceProperties p;
     f.vkGetPhysicalDeviceProperties(devices[i], &p);
@@ -128,6 +129,9 @@ bool Start() {
       best_rank = rank;
       best = static_cast<int>(i);
       best_family = family;
+      best_anisotropy = features.features.samplerAnisotropy
+                            ? p.limits.maxSamplerAnisotropy
+                            : 0.0f;
       strncpy_s(g_core.gpu, p.deviceName, _TRUNCATE);
     }
   }
@@ -140,6 +144,7 @@ bool Start() {
   }
   g_core.physical = devices[best];
   g_core.queue_family = best_family;
+  g_core.max_anisotropy = best_anisotropy;
   f.vkGetPhysicalDeviceMemoryProperties(g_core.physical, &g_core.memory);
 
   const float priority = 1.0f;
@@ -159,6 +164,9 @@ bool Start() {
   VkPhysicalDeviceFeatures2 features = {
       VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
   features.pNext = &v13;
+  // The game asks for an anisotropic filter (D3DTSS_MAXANISOTROPY 16).
+  features.features.samplerAnisotropy =
+      g_core.max_anisotropy > 0.0f ? VK_TRUE : VK_FALSE;
   VkDeviceCreateInfo device_info = {VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
   device_info.pNext = &features;
   device_info.queueCreateInfoCount = 1;

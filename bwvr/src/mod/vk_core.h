@@ -115,6 +115,9 @@ struct Core {
   VkQueue queue;
   uint32_t queue_family;
   VkPhysicalDeviceMemoryProperties memory;
+  // The largest anisotropy of a sampler, or 0 when the GPU has no
+  // anisotropic filter.
+  float max_anisotropy;
   char gpu[256];
 };
 

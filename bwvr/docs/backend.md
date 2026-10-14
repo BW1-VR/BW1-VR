@@ -2128,10 +2128,12 @@ game, so they come to the renderer as the draws of the game do.
 **Vulkan.** The mod loads `vulkan-1.dll` at run time, so the DLL of the mod
 has no import of Vulkan. It needs Vulkan 1.3 (dynamic rendering,
 synchronization2, the extended dynamic state) and takes a dedicated GPU
-before an integrated one. The headers are in `third_party/Vulkan-Headers`.
-The shaders are GLSL (`vk_scene.vert`, `vk_scene.frag`), and their SPIR-V is
-in `vk_scene_vert.h` and `vk_scene_frag.h`, made with `glslang -V`. The build
-does not need glslang.
+before an integrated one. It turns on the anisotropic filter of the GPU
+when the GPU has it, because the game asks for it (up to 16). The headers
+are in `third_party/Vulkan-Headers`. The shaders are GLSL
+(`vk_scene.vert`, `vk_scene.frag`), and their SPIR-V is in `vk_scene_vert.h`
+and `vk_scene_frag.h`, made with `glslang -V`. The build does not need
+glslang.
 
 **What it draws.** Each draw of a walk has the format 0x1C4: a place on the
 screen (XYZRHW), the diffuse and the specular color, and one set of texture
@@ -2142,30 +2144,39 @@ at the half. The fragment shader makes texture stage 0 (the operations and
 inputs of Direct3D 7), the alpha test, the specular color and the fog of the
 vertices. Texture stage 1 adds its texture (color operation 7), but the game
 sets no texture on it in a walk. The state that a walk does not set comes
-from the device at the start of the walk. Each pair of blend factors has a
-pipeline. The cull mode, the depth test, the depth write, the depth function
-and the primitive type are dynamic states. In one walk a batch of the
+from the device at the start of the walk. In Direct3D 7 the state
+`D3DTSS_ADDRESS` sets the address mode of u and of v, and the game sets
+only this state (wrap or clamp), so the renderer copies it into
+`D3DTSS_ADDRESSU` and `D3DTSS_ADDRESSV`. A mip filter of `D3DTFP_NONE`
+uses level 0 only. Each pair of blend factors has a pipeline. The cull
+mode, the depth test, the depth write, the depth function and the
+primitive type are dynamic states. In one walk a batch of the
 interface for the right eye only does not go into the image of the left
 eye.
 
 **The textures.** A texture of the game is a DirectDraw surface of
 dxwrapper. At its first use the renderer reads it with `Lock`, makes RGBA8
-of it, and makes its mip levels with linear blits. A `Lock` for a write, a
+of it, and makes its mip levels with linear blits (the textures of the
+game have no mip levels of their own). A `Lock` for a write, a
 `Blt` or a `BltFast` of the game on a surface (`draw_merge.cpp`) marks it,
 and its next use reads it again. The game has 117 textures of 256 by 256 in
 A4R4G4B4 and 2 in X1R5G5B5 at the start of a new game.
 
 **The numbers.** A desktop run at the start of a new game: the renderer draws
 each of the 1067 draws of a frame for both eyes, with 93 textures, 3
-pipelines and 2 samplers, and the frames stay at 4.7 to 5.0 ms with both
+pipelines and 3 samplers, and the frames stay at 4.7 to 5.0 ms with both
 renderers. The images of frame 3000 and the pictures of Direct3D 9 differ by
-more than 24 levels in 0.70 percent of the pixels of the left eye and 0.72
-percent of the right eye. Most of these pixels are in the sea, and in some
-patches on it: the sea of Direct3D 9 shows more of the blue of the reflected
-sky, and the sea of Vulkan more of its own color. The cause is not found
-yet. The draws of the sea are the sky dome (depth test always, no blend) and
-then the sea (289 vertices, the blend of source alpha, the alpha of its
-texture). A read of each texture again changes nothing.
+more than 24 levels in 0.17 percent of the pixels of the left eye and 0.19
+percent of the right eye. These pixels are on the edges of the land and of
+the window of the dialog, on the line of the horizon, on the pointer of the
+mouse and in a line of one pixel at the border of the picture. The sea is
+the sky dome (the first draw of a walk, depth test always, no blend) and
+then the sea (22 vertices, the blend of source alpha, a texture that
+repeats 50 times, with the mode wrap), and it has the same mean color in
+both renderers. A run in the start dialog with the scripted controller
+(`hand_run.ps1 -Kind fixed -NewGame`, frame 420) has the hand of the mod in
+view: 0.18 percent of the pixels of the left eye and 0.20 percent of the
+right eye differ, and 0.3 percent in a box around the hand, on its edges.
 
 ## How the threads wait
 
