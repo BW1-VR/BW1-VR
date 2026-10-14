@@ -126,6 +126,18 @@ uint64_t g_walk_calls[kKinds][kMaxSlots] = {{0}};
 uint8_t* g_thunks = nullptr;
 CRITICAL_SECTION g_lock;
 
+// THE STATES. Each pair of a state and a value that a walk set, with its
+// count. The D3D7 thread writes them, and the report reads them.
+const int kMaxPairs = 2048;
+struct Pair {
+  uint32_t key;  // kind << 31 | type
+  uint32_t value;
+  uint32_t count;
+};
+Pair g_pairs[kMaxPairs];
+int g_pair_count = 0;
+SRWLOCK g_pair_lock = SRWLOCK_INIT;
+
 // The interface ids that QueryInterface was asked for, by kind.
 const int kMaxIds = 64;
 struct Asked {
@@ -455,12 +467,61 @@ void DdrawCensusWalk(bool begin) {
   }
 }
 
+void DdrawCensusState(int kind, uint32_t type, uint32_t value) {
+  if (!g_on) return;
+  const uint32_t key = (static_cast<uint32_t>(kind) << 31) | type;
+  AcquireSRWLockExclusive(&g_pair_lock);
+  int i = 0;
+  for (; i < g_pair_count; ++i) {
+    if (g_pairs[i].key == key && g_pairs[i].value == value) break;
+  }
+  if (i == g_pair_count && g_pair_count < kMaxPairs) {
+    g_pairs[i].key = key;
+    g_pairs[i].value = value;
+    g_pairs[i].count = 0;
+    ++g_pair_count;
+  }
+  if (i < g_pair_count) ++g_pairs[i].count;
+  ReleaseSRWLockExclusive(&g_pair_lock);
+}
+
 void DdrawCensusReport(uint64_t frames) {
   if (!g_on || frames == 0) return;
   // Each 10th report, so the log keeps its other lines in view.
   static int s_reports = 0;
   if (++s_reports % 10 != 1) return;
   Report("since the start (in the scene walks in brackets)");
+  // The states: for each state the values that a walk set (value=count).
+  AcquireSRWLockExclusive(&g_pair_lock);
+  char line[2048];
+  for (int kind = 0; kind < 2; ++kind) {
+    for (int a = 0; a < g_pair_count; ++a) {
+      const uint32_t key = g_pairs[a].key;
+      if ((key >> 31) != static_cast<uint32_t>(kind)) continue;
+      bool first = true;
+      for (int b = 0; b < a; ++b) {
+        if (g_pairs[b].key == key) first = false;
+      }
+      if (!first) continue;
+      int used = 0;
+      line[0] = 0;
+      for (int b = a; b < g_pair_count; ++b) {
+        if (g_pairs[b].key != key) continue;
+        used += sprintf_s(line + used, sizeof(line) - used, "%s0x%X=%u",
+                          used == 0 ? "" : " ", g_pairs[b].value,
+                          g_pairs[b].count);
+        if (used > static_cast<int>(sizeof(line)) - 40) break;
+      }
+      const uint32_t type = key & 0x7FFFFFFFu;
+      if (kind == 0) {
+        ModLog("ddraw census : render state %u: %s", type, line);
+      } else {
+        ModLog("ddraw census : stage %u state %u: %s", type >> 8, type & 255,
+               line);
+      }
+    }
+  }
+  ReleaseSRWLockExclusive(&g_pair_lock);
 }
 
 void DdrawCensusExit() {

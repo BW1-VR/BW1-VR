@@ -11,3 +11,6 @@ void DdrawCensusInstall(int on);
 // stereo.cpp: a scene walk starts (true) or ends (false).
 void DdrawCensusWalk(bool begin);
 void DdrawCensusReport(uint64_t frames);
+// d3d7_thread.cpp, on the D3D7 thread: a render state (kind 0) or a state of
+// a texture stage (kind 1, stage * 256 + type) gets a value in a walk.
+void DdrawCensusState(int kind, uint32_t type, uint32_t value);

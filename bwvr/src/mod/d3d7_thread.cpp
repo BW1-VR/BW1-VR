@@ -60,6 +60,8 @@
 #include "MinHook.h"
 #include "../common/bw_addresses.h"
 #include "d3d7_thread.h"
+#include "ddraw_census.h"
+#include "vk_scene.h"
 #include "render_thread_ring.h"
 #include "thread_id.h"
 #include "thread_wait.h"
@@ -356,16 +358,21 @@ uint32_t Play(uint8_t* at) {
   switch (h->op) {
     case kOpSetRenderState: {
       const ArgState* a = reinterpret_cast<const ArgState*>(p);
+      DdrawCensusState(0, a->a, a->b);
+      VkSceneRenderState(a->a, a->b);
       hr = o_SetRenderState(a->x, a->a, a->b);
       break;
     }
     case kOpSetTexture: {
       const ArgState* a = reinterpret_cast<const ArgState*>(p);
+      VkSceneTexture(a->a, reinterpret_cast<void*>(a->b));
       hr = o_SetTexture(a->x, a->a, reinterpret_cast<void*>(a->b));
       break;
     }
     case kOpSetStageState: {
       const ArgState* a = reinterpret_cast<const ArgState*>(p);
+      DdrawCensusState(1, a->a * 256 + a->b, a->c);
+      VkSceneStageState(a->a, a->b, a->c);
       hr = o_SetStageState(a->x, a->a, a->b, a->c);
       break;
     }
@@ -378,12 +385,15 @@ uint32_t Play(uint8_t* at) {
       ArgDraw* a = reinterpret_cast<ArgDraw*>(p);
       uint8_t* vertices = reinterpret_cast<uint8_t*>(a + 1);
       WORD* indices = reinterpret_cast<WORD*>(vertices + a->vertex_bytes);
+      VkSceneDraw(a->type, a->fvf, vertices, a->vertex_count, indices,
+                  a->index_count);
       hr = o_DrawIndexed(a->x, a->type, a->fvf, vertices, a->vertex_count,
                          indices, a->index_count, a->flags, a->version);
       break;
     }
     case kOpDraw: {
       ArgDraw* a = reinterpret_cast<ArgDraw*>(p);
+      VkSceneDraw(a->type, a->fvf, a + 1, a->vertex_count, nullptr, 0);
       hr = o_Draw(a->x, a->type, a->fvf, a + 1, a->vertex_count, a->flags,
                   a->version);
       break;
@@ -489,6 +499,8 @@ uint32_t PlayRow(uint32_t read, uint32_t* write_io) {
     base += d->vertex_count;
     at += dh->bytes;
   }
+  VkSceneDraw(a->type, a->fvf, g_merge_vertices, vertices, g_merge_indices,
+              indices);
   const HRESULT hr =
       o_DrawIndexed(a->x, a->type, a->fvf, g_merge_vertices, vertices,
                     g_merge_indices, indices, a->flags, a->version);
@@ -911,9 +923,11 @@ void D3D7ThreadWalk(bool begin, bool render_thread) {
     g_active = true;
     ++g_walks;
     OneWalkPostState();
+    VkSceneWalkBegin(*reinterpret_cast<void**>(bw::render::kDirect3DDevice7));
     return;
   }
   if (!g_active) return;
+  VkSceneWalkEnd();
   Drain();
   g_active = false;
 }

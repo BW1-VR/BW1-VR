@@ -31,6 +31,7 @@
 #include "fast_transform.h"
 #include "thread_wait.h"
 #include "ddraw_census.h"
+#include "vk_scene.h"
 #include "render_thread.h"
 #include "tabletop.h"
 #include "far_grab.h"
@@ -522,6 +523,8 @@ int g_fast_transform_check = 0;
 int g_d3d7_count = 0;
 int g_d3d7_thread = 1;
 int g_d3d7_thread_merge = 1;
+int g_vk_scene = 0;
+int g_vk_scene_test_frame = 0;
 int g_render_thread_late_end = 1;
 int g_thread_wait = 1;
 int g_test_cores = 0;
@@ -1331,6 +1334,10 @@ void ReadSettings() {
   g_d3d7_thread_merge =
       GetPrivateProfileIntA("bwvr", "d3d7_thread_merge", 1, path) != 0 ? 1
                                                                        : 0;
+  g_vk_scene =
+      static_cast<int>(GetPrivateProfileIntA("bwvr", "vk_scene", 0, path));
+  g_vk_scene_test_frame = static_cast<int>(
+      GetPrivateProfileIntA("bwvr", "vk_scene_test_frame", 0, path));
   g_render_thread_late_end =
       GetPrivateProfileIntA("bwvr", "render_thread_late_end", 1, path) != 0
           ? 1
@@ -1620,6 +1627,7 @@ void StartVrOnce() {
     D3D7CountSetOptions(g_d3d7_count);
     D3D7ThreadSetOptions(g_d3d7_thread);
     D3D7ThreadSetMerge(g_d3d7_thread_merge);
+    VkSceneSetOptions(g_vk_scene, g_vk_scene_test_frame);
     RenderThreadSetLateEnd(g_render_thread_late_end != 0);
     BubbleCardSetOptions(g_bubble_card, g_bubble_card_test,
                          g_bubble_card_test_frame);

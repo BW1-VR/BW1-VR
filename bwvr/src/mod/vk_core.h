@@ -1,0 +1,161 @@
+// The Vulkan core of the mod (vk_core.cpp, docs/backend.md, "The Vulkan
+// renderer"): the loader, one instance, one device with one queue, and
+// helpers for memory, buffers, images and one-time command buffers.
+//
+// The mod loads vulkan-1.dll itself and reads each function from it, so the
+// DLL of the mod has no import of Vulkan and starts on a PC with no Vulkan.
+// Vulkan 1.3 is the floor: dynamic rendering, synchronization2 and the
+// extended dynamic state are core there.
+
+#pragma once
+
+#define VK_NO_PROTOTYPES
+#include <vulkan/vulkan.h>
+#include <stdint.h>
+
+namespace vk {
+
+// The functions of Vulkan that the mod uses, read from the loader.
+#define BWVR_VK_INSTANCE_FUNCTIONS(X)        \
+  X(vkDestroyInstance)                       \
+  X(vkEnumeratePhysicalDevices)              \
+  X(vkGetPhysicalDeviceProperties)           \
+  X(vkGetPhysicalDeviceFeatures2)            \
+  X(vkGetPhysicalDeviceQueueFamilyProperties) \
+  X(vkGetPhysicalDeviceMemoryProperties)     \
+  X(vkGetPhysicalDeviceFormatProperties)     \
+  X(vkCreateDevice)                          \
+  X(vkGetDeviceProcAddr)
+
+#define BWVR_VK_DEVICE_FUNCTIONS(X)   \
+  X(vkDestroyDevice)                  \
+  X(vkGetDeviceQueue)                 \
+  X(vkDeviceWaitIdle)                 \
+  X(vkQueueSubmit2)                   \
+  X(vkQueueWaitIdle)                  \
+  X(vkAllocateMemory)                 \
+  X(vkFreeMemory)                     \
+  X(vkMapMemory)                      \
+  X(vkUnmapMemory)                    \
+  X(vkFlushMappedMemoryRanges)        \
+  X(vkCreateBuffer)                   \
+  X(vkDestroyBuffer)                  \
+  X(vkGetBufferMemoryRequirements)    \
+  X(vkBindBufferMemory)               \
+  X(vkCreateImage)                    \
+  X(vkDestroyImage)                   \
+  X(vkGetImageMemoryRequirements)     \
+  X(vkBindImageMemory)                \
+  X(vkCreateImageView)                \
+  X(vkDestroyImageView)               \
+  X(vkCreateSampler)                  \
+  X(vkDestroySampler)                 \
+  X(vkCreateCommandPool)              \
+  X(vkDestroyCommandPool)             \
+  X(vkResetCommandPool)               \
+  X(vkAllocateCommandBuffers)         \
+  X(vkBeginCommandBuffer)             \
+  X(vkEndCommandBuffer)               \
+  X(vkCreateFence)                    \
+  X(vkDestroyFence)                   \
+  X(vkWaitForFences)                  \
+  X(vkResetFences)                    \
+  X(vkCreateShaderModule)             \
+  X(vkDestroyShaderModule)            \
+  X(vkCreateDescriptorSetLayout)      \
+  X(vkDestroyDescriptorSetLayout)     \
+  X(vkCreatePipelineLayout)           \
+  X(vkDestroyPipelineLayout)          \
+  X(vkCreateGraphicsPipelines)        \
+  X(vkDestroyPipeline)                \
+  X(vkCreateDescriptorPool)           \
+  X(vkDestroyDescriptorPool)          \
+  X(vkResetDescriptorPool)            \
+  X(vkAllocateDescriptorSets)         \
+  X(vkUpdateDescriptorSets)           \
+  X(vkCmdPipelineBarrier2)            \
+  X(vkCmdCopyBufferToImage)           \
+  X(vkCmdCopyImageToBuffer)           \
+  X(vkCmdBlitImage)                   \
+  X(vkCmdBeginRendering)              \
+  X(vkCmdEndRendering)                \
+  X(vkCmdBindPipeline)                \
+  X(vkCmdBindDescriptorSets)          \
+  X(vkCmdBindVertexBuffers)           \
+  X(vkCmdBindIndexBuffer)             \
+  X(vkCmdPushConstants)               \
+  X(vkCmdSetViewport)                 \
+  X(vkCmdSetScissor)                  \
+  X(vkCmdSetCullMode)                 \
+  X(vkCmdSetFrontFace)                \
+  X(vkCmdSetPrimitiveTopology)        \
+  X(vkCmdSetDepthTestEnable)          \
+  X(vkCmdSetDepthWriteEnable)         \
+  X(vkCmdSetDepthCompareOp)           \
+  X(vkCmdDrawIndexed)                 \
+  X(vkCmdDraw)                        \
+  X(vkCmdClearAttachments)
+
+struct Functions {
+  PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr;
+  PFN_vkCreateInstance vkCreateInstance;
+#define BWVR_VK_DECLARE(name) PFN_##name name;
+  BWVR_VK_INSTANCE_FUNCTIONS(BWVR_VK_DECLARE)
+  BWVR_VK_DEVICE_FUNCTIONS(BWVR_VK_DECLARE)
+#undef BWVR_VK_DECLARE
+};
+
+// The functions, after Start.
+extern Functions f;
+
+struct Core {
+  VkInstance instance;
+  VkPhysicalDevice physical;
+  VkDevice device;
+  VkQueue queue;
+  uint32_t queue_family;
+  VkPhysicalDeviceMemoryProperties memory;
+  char gpu[256];
+};
+
+// Starts Vulkan 1.3 on the first GPU that has it, a dedicated one before an
+// integrated one. False with a reason in the log when it cannot.
+bool Start();
+bool Started();
+const Core& Get();
+void Stop();
+
+// A buffer with its memory. host: the CPU can write it (mapped while it
+// lives).
+struct Buffer {
+  VkBuffer buffer;
+  VkDeviceMemory memory;
+  VkDeviceSize size;
+  void* mapped;
+};
+bool MakeBuffer(VkDeviceSize size, VkBufferUsageFlags usage, bool host,
+                Buffer* out);
+void FreeBuffer(Buffer* b);
+
+// An image of one sample with its memory and a view of all its levels.
+struct Image {
+  VkImage image;
+  VkDeviceMemory memory;
+  VkImageView view;
+  VkFormat format;
+  uint32_t width, height, levels;
+};
+bool MakeImage(uint32_t width, uint32_t height, uint32_t levels,
+               VkFormat format, VkImageUsageFlags usage,
+               VkImageAspectFlags aspect, Image* out);
+void FreeImage(Image* image);
+
+// A command buffer for one job: Begin gives it, End submits it and waits.
+VkCommandBuffer BeginOnce();
+bool EndOnce(VkCommandBuffer cb);
+
+// A barrier of one image from one layout to another, for all stages.
+void Barrier(VkCommandBuffer cb, VkImage image, VkImageAspectFlags aspect,
+             VkImageLayout from, VkImageLayout to, uint32_t levels);
+
+}  // namespace vk

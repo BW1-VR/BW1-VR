@@ -35,6 +35,8 @@ add_library(bwvr_mod SHARED
     thread_wait.cpp
     d3d9_backend.cpp
     ddraw_census.cpp
+    vk_core.cpp
+    vk_scene.cpp
     frame_time.cpp
     fov.cpp
     input_watch.cpp
@@ -101,6 +103,16 @@ set_target_properties(bwvr_mod PROPERTIES
 )
 
 target_link_libraries(bwvr_mod PRIVATE minhook bwvr_vr d3d9 d3d11)
+
+# The C headers of Vulkan (vk_core.cpp). The mod loads vulkan-1.dll at run
+# time, so there is no library to link.
+set(VULKAN_HEADERS_DIR "${BWVR_THIRD_PARTY}/Vulkan-Headers/include")
+if(NOT EXISTS "${VULKAN_HEADERS_DIR}/vulkan/vulkan.h")
+  message(FATAL_ERROR
+      "The Vulkan headers are not at ${VULKAN_HEADERS_DIR}. They are part of "
+      "the repo, in the folder third_party. Check that the clone is complete.")
+endif()
+target_include_directories(bwvr_mod PRIVATE "${VULKAN_HEADERS_DIR}")
 
 # The reader of a hand that the player edited (hand_model_file.cpp) uses
 # cgltf, one header with the MIT license. With no clone of it the mod builds

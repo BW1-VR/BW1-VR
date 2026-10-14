@@ -52,3 +52,7 @@ const void* OneWalkReadEye(int eye, int* pitch, uint32_t* width,
 void OneWalkReadDone();
 
 void OneWalkReport(uint64_t frames);
+
+// The mode of one walk for the draw now, on the thread that calls: the
+// D3D7 thread has its own copy (one_walk.cpp).
+int OneWalkModeNow();

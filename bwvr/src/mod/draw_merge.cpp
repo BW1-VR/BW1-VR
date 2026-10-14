@@ -56,6 +56,7 @@
 #include "../common/bw_addresses.h"
 #include "draw_merge_math.h"
 #include "d3d7_thread.h"
+#include "vk_scene.h"
 #include "render_thread.h"
 #include "thread_id.h"
 
@@ -155,6 +156,7 @@ HRESULT WINAPI h_Blt(IDirectDrawSurface7* self, LPRECT destination,
                      DWORD flags, LPDDBLTFX fx) {
   DrawMergeFlush();
   RenderThreadSync();
+  VkSceneSurfaceWritten(self);
   return o_Blt(self, destination, source, source_rect, flags, fx);
 }
 
@@ -163,6 +165,7 @@ HRESULT WINAPI h_BltFast(IDirectDrawSurface7* self, DWORD x, DWORD y,
                          DWORD flags) {
   DrawMergeFlush();
   RenderThreadSync();
+  VkSceneSurfaceWritten(self);
   return o_BltFast(self, x, y, source, source_rect, flags);
 }
 
@@ -176,6 +179,7 @@ HRESULT WINAPI h_Lock(IDirectDrawSurface7* self, LPRECT rect,
                       LPDDSURFACEDESC2 desc, DWORD flags, HANDLE event) {
   DrawMergeFlush();
   RenderThreadSync();
+  if ((flags & DDLOCK_READONLY) == 0) VkSceneSurfaceWritten(self);
   return o_Lock(self, rect, desc, flags, event);
 }
 

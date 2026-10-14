@@ -2096,6 +2096,62 @@ session in a headset with DXVK, a PC with two GPUs, a GPU of NVIDIA or Intel.
 The share needs DXVK and the OpenXR session on the same GPU. DXVK takes a
 dedicated GPU before an integrated one.
 
+## The Vulkan renderer
+
+The mod has a renderer of its own for the scene walks, with Vulkan
+(`vk_core.cpp`, `vk_scene.cpp`). The goal: the draws of a walk go from the
+game to Vulkan with no dxwrapper and no Direct3D 9, on a PC and later on a
+headset with an ARM CPU (Steam Frame), where each layer of x86 code costs
+more. Now it is a test: `vk_scene=1` (0 is the default).
+
+**The shadow test.** With `d3d7_thread=1` the D3D7 thread gives each call
+of its queue to dxwrapper as before, and also to the Vulkan renderer. The
+renderer draws the left eye into an image of its own. The picture of the
+game stays the one of dxwrapper. `vk_scene_test_frame=N` writes the image of
+frame N to `bwvr-vk-left-NNNNN.bmp` beside `runblack.exe`, so a desktop run
+with `render_thread_test_frame=N` compares it with the picture of
+Direct3D 9.
+
+**Vulkan.** The mod loads `vulkan-1.dll` at run time, so the DLL of the mod
+has no import of Vulkan. It needs Vulkan 1.3 (dynamic rendering,
+synchronization2, the extended dynamic state) and takes a dedicated GPU
+before an integrated one. The headers are in `third_party/Vulkan-Headers`.
+The shaders are GLSL (`vk_scene.vert`, `vk_scene.frag`), and their SPIR-V is
+in `vk_scene_vert.h` and `vk_scene_frag.h`, made with `glslang -V`. The build
+does not need glslang.
+
+**What it draws.** Each draw of a walk has the format 0x1C4: a place on the
+screen (XYZRHW), the diffuse and the specular color, and one set of texture
+coordinates. The vertex shader gives the clip position of that pixel in the
+viewport of the walk, times `1 / rhw`, and moves it by half a pixel, because
+a pixel of Direct3D has its centre at the whole number and a pixel of Vulkan
+at the half. The fragment shader makes texture stage 0 (the operations and
+inputs of Direct3D 7), the alpha test, the specular color and the fog of the
+vertices. Texture stage 1 adds its texture (color operation 7), but the game
+sets no texture on it in a walk. The state that a walk does not set comes
+from the device at the start of the walk. Each pair of blend factors has a
+pipeline. The cull mode, the depth test, the depth write, the depth function
+and the primitive type are dynamic states. In one walk a batch of the
+interface for the right eye only does not go into the image of the left
+eye.
+
+**The textures.** A texture of the game is a DirectDraw surface of
+dxwrapper. At its first use the renderer reads it with `Lock`, makes RGBA8
+of it, and makes its mip levels with linear blits. A `Lock` for a write, a
+`Blt` or a `BltFast` of the game on a surface (`draw_merge.cpp`) marks it,
+and its next use reads it again. The game has 117 textures of 256 by 256 in
+A4R4G4B4 and 2 in X1R5G5B5 at the start of a new game.
+
+**The numbers.** A desktop run at the start of a new game: the renderer draws
+each of the 1066 draws of a frame, with 94 textures, 3 pipelines and 2
+samplers, and the frames stay at 5.0 ms with both renderers. The image of
+the left eye of frame 3000 and the picture of Direct3D 9 differ by more than
+24 levels in 0.2 percent of the pixels of the upper half (the sky and the
+hills), 0.5 percent of the land and 2.3 percent of the sea. The sea of
+Direct3D 9 shows more of the reflected sky: the cause is not found yet. The
+draws of the sea are the sky dome (depth test always, no blend) and then the
+sea (289 vertices, the blend of source alpha, the alpha of its texture).
+
 ## How the threads wait
 
 The render thread and the D3D7 thread read a queue that another thread
@@ -2173,6 +2229,15 @@ A desktop run of 120 s at the start of a new game, from the first walk on:
 | `IDirectDraw7` | `CreateSurface` (89, each in a walk), `Release` |
 | `IDirectDrawSurface7` | `Blt` (about 4 in a frame, mostly outside the walks), `GetSurfaceDesc`, `IsLost`, `Lock` and `Unlock` (490, each in a walk), `Release`, and `QueryInterface` |
 | `IDirect3D7` | `Release` |
+
+Each 10th report also lists, for each render state and each state of a
+texture stage that a walk sets, each value with its count (the D3D7 thread
+counts them). At the start of a new game a walk sets the depth function
+(always, less or equal, equal), the depth write, the blend (source alpha
+and inverse source alpha, or one and one), the alpha test and its
+reference, the cull mode (none or counter-clockwise), the render states 4
+and 16, and for stages 0 and 1 the alpha operation, the address mode and
+the filters (anisotropic 16).
 
 The calls of `QueryInterface` are of dxwrapper itself: they ask for the two
 private interface ids of dxwrapper (`{11111111-1C77-4D40-B0CF-98FEFDFFFFFF}`
@@ -3582,6 +3647,7 @@ keys that the launcher sets.
 | `fast_transform_check` | 0 | A test key. See "The vertex loops with SSE" |
 | `d3d7_count` | 0 | A test key. See "The calls of Direct3D 7 in a walk" |
 | `ddraw_census` | 0 | A test key. See "The calls of DirectDraw and Direct3D 7 in a session" |
+| `vk_scene`, `vk_scene_test_frame` | 0, 0 | Test keys: 1 draws each walk of the left eye also with the Vulkan renderer, and frame N writes its image to a file. See "The Vulkan renderer" |
 | `fast_transform` | 1 | 1: the two vertex loops of the engine run with SSE, with the bits of the game. 0: on the x87 unit. See "The vertex loops with SSE" |
 | `profile_gpu` | 0 | A test key. See "The GPU time" |
 | `hang_watch` | 0 | A test key. See "The watch of the frame thread" |
