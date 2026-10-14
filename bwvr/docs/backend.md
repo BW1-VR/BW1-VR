@@ -1810,8 +1810,14 @@ A desktop run copies each frame to the monitor (`GetBackBuffer`,
 calls stop. So on the desktop the wait moves from the end of the walk to
 the copy (0.70 ms in place of 0.72 ms), and the pictures of the test frames
 differ as much as with no late end. In a headset the mod skips the copy to
-the monitor (`skip_desktop_present`). `render_thread_late_end=0` waits at
-the end of the walk. With `test_keys=1`, Shift and N turn it off and on.
+the monitor (`skip_desktop_present`). A session in a headset (SteamVR, Steam
+Frame) at 144 Hz with `ab_test=render_thread_late_end`, over the island with
+1250 to 1850 draws: the scene walks 2.6 to 3.0 ms in place of 3.2 to 3.9 ms,
+the wait at the start of the next walk 0.005 ms at the most, the wait of the
+second thread for the GPU 1.2 to 1.8 ms in place of 0.6 to 0.8 ms, the time
+from `xrWaitFrame` to the end of `xrEndFrame` 5.1 to 6.0 ms as with no late
+end, and no fault in the picture. `render_thread_late_end=0` waits at the
+end of the walk. With `test_keys=1`, Shift and N turn it off and on.
 
 ### The time
 
