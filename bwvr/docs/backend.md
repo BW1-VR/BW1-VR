@@ -2148,6 +2148,37 @@ it. With 4, 6 and 16 cores the D3D7 thread makes each frame 0.05 to 0.14 ms
 shorter. Not run: a session in a headset with `thread_wait=1`, and the wait
 of the second thread for the GPU, which a desktop run does not have.
 
+## The calls of DirectDraw and Direct3D 7 in a session
+
+`ddraw_census=1` (a test key, `ddraw_census.cpp`) counts each call of each
+method of the objects of dxwrapper: `IDirectDraw7`, `IDirectDrawSurface7`,
+`IDirect3D7`, `IDirect3DDevice7`, `IDirectDrawPalette`,
+`IDirectDrawClipper` and `IDirect3DVertexBuffer7`. Their tables of methods
+go to counting thunks, as with `d3d7_count`, and hooks on the methods that
+make objects give the table of each new kind of object to the thunks. Each
+10th report has the calls since the start, with the calls in the scene walks
+in brackets, and each interface id that a `QueryInterface` asked for.
+
+A hook of `DirectDrawCreateEx` and `DirectDrawCreate` of the backend sees no
+call: the game makes its DirectDraw object another way. So the tables come
+from the device of the game at the first walk, and the count starts there.
+The calls of the start (the display mode, the cooperative level, the first
+surfaces and the device) are not counted.
+
+A desktop run of 120 s at the start of a new game, from the first walk on:
+
+| Object | Methods with calls |
+| --- | --- |
+| `IDirect3DDevice7` | `BeginScene`, `EndScene`, `Clear`, `SetTransform` (outside the walks only), `SetLight`, `SetRenderState`, `DrawIndexedPrimitive`, `SetTexture`, `GetTextureStageState`, `SetTextureStageState` |
+| `IDirectDraw7` | `CreateSurface` (89, each in a walk), `Release` |
+| `IDirectDrawSurface7` | `Blt` (about 4 in a frame, mostly outside the walks), `GetSurfaceDesc`, `IsLost`, `Lock` and `Unlock` (490, each in a walk), `Release`, and `QueryInterface` |
+| `IDirect3D7` | `Release` |
+
+The calls of `QueryInterface` are of dxwrapper itself: they ask for the two
+private interface ids of dxwrapper (`{11111111-1C77-4D40-B0CF-98FEFDFFFFFF}`
+and `{22222222-1C77-4D40-B0CF-98FEFDFFFFFF}`). The counts have each call
+through the tables, so the calls of the mod and of dxwrapper are in them.
+
 ## The calls of Direct3D 7 in a walk
 
 `d3d7_count=1` (a test key, `d3d7_count.cpp`) counts each call of a method
@@ -3550,6 +3581,7 @@ keys that the launcher sets.
 | `d3d7_thread` | 1 | 1: with `render_thread=1`, the calls of Direct3D 7 of a walk go to a thread of their own. 0: the frame thread gives them to dxwrapper. See "The thread of Direct3D 7" |
 | `fast_transform_check` | 0 | A test key. See "The vertex loops with SSE" |
 | `d3d7_count` | 0 | A test key. See "The calls of Direct3D 7 in a walk" |
+| `ddraw_census` | 0 | A test key. See "The calls of DirectDraw and Direct3D 7 in a session" |
 | `fast_transform` | 1 | 1: the two vertex loops of the engine run with SSE, with the bits of the game. 0: on the x87 unit. See "The vertex loops with SSE" |
 | `profile_gpu` | 0 | A test key. See "The GPU time" |
 | `hang_watch` | 0 | A test key. See "The watch of the frame thread" |

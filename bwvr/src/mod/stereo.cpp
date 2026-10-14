@@ -71,6 +71,7 @@
 #include "d3d7_thread.h"
 #include "fast_transform.h"
 #include "thread_wait.h"
+#include "ddraw_census.h"
 #include "render_thread.h"
 #include "scene_sample.h"
 #include "ui_panel.h"
@@ -1461,7 +1462,9 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
       D3D9BackendConfirm();
     }
     D3D7CountWalk(true);
+    DdrawCensusWalk(true);
     o_Process3dEngine(self, unused);
+    DdrawCensusWalk(false);
     // The targets get the color of the game back (target_glow.cpp).
     TargetGlowPassDone();
     DrawMergePass(false);
@@ -1779,6 +1782,7 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
     FastTransformReport(g_timed_now);
     D3D7CountReport(g_timed_now);
     D3D7ThreadReport(g_timed_now);
+    DdrawCensusReport(g_timed_now);
     ThreadLoadReport(g_timed_now);
     RenderThreadReport(g_timed_now);
     PresentWatchReport(g_timed_now);

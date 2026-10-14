@@ -195,6 +195,13 @@ bool ProxyLoadRealDDraw() {
          real_DirectDrawEnumerateA != nullptr;
 }
 
+// An export of the backend that ProxyLoadRealDDraw loaded, or null.
+void* ProxyRealExport(const char* name) {
+  return g_real != nullptr
+             ? reinterpret_cast<void*>(GetProcAddress(g_real, name))
+             : nullptr;
+}
+
 // What ProxyLoadRealDDraw did, ready to log.
 const char* ProxyBackendNote() { return g_note; }
 

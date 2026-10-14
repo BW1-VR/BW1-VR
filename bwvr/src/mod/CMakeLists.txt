@@ -34,6 +34,7 @@ add_library(bwvr_mod SHARED
     d3d7_thread.cpp
     thread_wait.cpp
     d3d9_backend.cpp
+    ddraw_census.cpp
     frame_time.cpp
     fov.cpp
     input_watch.cpp

@@ -30,6 +30,7 @@
 #include "d3d7_thread.h"
 #include "fast_transform.h"
 #include "thread_wait.h"
+#include "ddraw_census.h"
 #include "render_thread.h"
 #include "tabletop.h"
 #include "far_grab.h"
@@ -1999,6 +2000,7 @@ void EarlyHooks() {
     ModLog("gpu bridge   : MinHook would not start, staying on the CPU path");
     return;
   }
+
   // With frame_send=2 a second thread makes calls on the device of the
   // backend, and the render thread is a second thread too. A test key can
   // choose each of them in a session.
@@ -2255,6 +2257,15 @@ BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, LPVOID reserved) {
       ProxyForceSystemDDraw();
     }
     if (!ProxyLoadRealDDraw()) return FALSE;
+    // A test key: the count of each call of DirectDraw and Direct3D 7. After
+    // the backend loads, and before the game makes its DirectDraw object.
+    if (game_ok) {
+      char ini[MAX_PATH];
+      lstrcpynA(ini, g_dir, MAX_PATH);
+      lstrcatA(ini, "bwvr.ini");
+      DdrawCensusInstall(static_cast<int>(
+          GetPrivateProfileIntA("bwvr", "ddraw_census", 0, ini)));
+    }
     if (game_ok) Startup();
   } else if (reason == DLL_PROCESS_DETACH) {
     // The third parameter is not null when the process ends.
