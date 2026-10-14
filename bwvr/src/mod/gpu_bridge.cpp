@@ -60,6 +60,7 @@
 
 #include "MinHook.h"
 #include "render_thread.h"
+#include "thread_wait.h"
 #include "ui_panel.h"
 
 extern void ModLog(const char* format, ...);
@@ -114,6 +115,12 @@ unsigned long g_flush_number = 0;
 bool g_thread_gave_up = false;
 uint64_t g_thread_wait_ticks = 0;
 uint32_t g_thread_polls = 0;
+// thread_wait=1: the time from the issue of the query to the end of the GPU
+// in the last frames, and the sleep before the polls.
+const int kRecentWaits = 8;
+LONGLONG g_recent_waits[kRecentWaits] = {0};
+int g_recent_at = 0;
+uint64_t g_thread_sleep_ticks = 0;
 int g_gave_up_lines = 0;
 
 uint32_t g_width = 0;
@@ -1092,14 +1099,25 @@ void GpuBridgeWaitBegin() {
 
 // Then the second thread waits for that end. The device takes a lock for
 // each call, and the frame thread can draw the next frame at the same time.
-// So this loop asks about 20,000 times a second and not without a stop. Each
-// call has D3DGETDATA_FLUSH, as the wait on the frame thread has. The loop
-// has a limit of 100 ms: the frame then goes out as it is.
+// With thread_wait=0 this loop asks about 20,000 times a second and spins
+// between the questions. With thread_wait=1 the thread sleeps with a timer of
+// high resolution until 0.3 ms before the earliest end of the last 8 frames,
+// asks each 50 microseconds for the next 0.5 ms, and then each 100
+// microseconds with a sleep between. Each call has D3DGETDATA_FLUSH, as the
+// wait on the frame thread has. The loop has a limit of 100 ms: the frame then
+// goes out as it is.
 void GpuBridgeWaitOnThread() {
   IDirect3DQuery9* query = g_flush_query;
   if (query == nullptr || g_frequency.QuadPart == 0) return;
+  static bool s_added = false;
+  if (!s_added) {
+    s_added = true;
+    ThreadWaitTune(GetCurrentThread(), L"bwvr frame_send thread");
+    ThreadLoadAddThis("frame_send thread");
+  }
   const LONGLONG pause = g_frequency.QuadPart / 20000;
   const LONGLONG limit = g_frequency.QuadPart / 10;
+  const bool sleeps = ThreadWaitMode() != 0;
   LARGE_INTEGER start, now;
   QueryPerformanceCounter(&start);
   uint32_t polls = 0;
@@ -1109,6 +1127,31 @@ void GpuBridgeWaitOnThread() {
   if (g_flush_number != 0 && !RenderThreadWaitFlushed(g_flush_number, 100)) {
     gave_up = true;
   }
+  LARGE_INTEGER issued;
+  QueryPerformanceCounter(&issued);
+  LONGLONG slept = 0;
+  if (sleeps && !gave_up) {
+    LONGLONG earliest = 0;
+    for (int i = 0; i < kRecentWaits; ++i) {
+      if (g_recent_waits[i] <= 0) {
+        earliest = 0;
+        break;
+      }
+      if (earliest == 0 || g_recent_waits[i] < earliest) {
+        earliest = g_recent_waits[i];
+      }
+    }
+    const LONGLONG margin = g_frequency.QuadPart * 3 / 10000;  // 0.3 ms
+    if (earliest > 2 * margin &&
+        query->GetData(nullptr, 0, D3DGETDATA_FLUSH) == S_FALSE) {
+      ThreadWaitSleep(earliest - margin);
+      QueryPerformanceCounter(&now);
+      slept = now.QuadPart - issued.QuadPart;
+    }
+  }
+  const LONGLONG spin_until = g_frequency.QuadPart / 2000;  // 0.5 ms
+  LARGE_INTEGER polls_from;
+  QueryPerformanceCounter(&polls_from);
   for (; !gave_up;) {
     QueryPerformanceCounter(&now);
     const LONGLONG waited = now.QuadPart - start.QuadPart;
@@ -1118,6 +1161,10 @@ void GpuBridgeWaitOnThread() {
       gave_up = true;
       break;
     }
+    if (sleeps && now.QuadPart - polls_from.QuadPart > spin_until &&
+        ThreadWaitSleep(2 * pause)) {
+      continue;
+    }
     LARGE_INTEGER then;
     do {
       YieldProcessor();
@@ -1125,7 +1172,12 @@ void GpuBridgeWaitOnThread() {
     } while (then.QuadPart - now.QuadPart < pause);
   }
   QueryPerformanceCounter(&now);
+  if (!gave_up) {
+    g_recent_waits[g_recent_at] = now.QuadPart - issued.QuadPart;
+    g_recent_at = (g_recent_at + 1) % kRecentWaits;
+  }
   g_thread_wait_ticks = static_cast<uint64_t>(now.QuadPart - start.QuadPart);
+  g_thread_sleep_ticks += static_cast<uint64_t>(slept);
   g_thread_polls = polls;
   g_thread_gave_up = gave_up;
   g_thread_waited = true;
@@ -1261,11 +1313,14 @@ void GpuBridgeReport(uint64_t frames) {
   }
   const double to_ms = 1000.0 / static_cast<double>(g_frequency.QuadPart);
   const double per_frame = static_cast<double>(frames);
-  ModLog("gpu bridge   : blit %.2f ms + GPU drain %.2f ms per frame, %llu "
-         "captures, %llu waited, %llu failed",
+  ModLog("gpu bridge   : blit %.2f ms + GPU drain %.2f ms per frame (%.2f ms "
+         "of it a sleep of the second thread), %llu captures, %llu waited, "
+         "%llu failed",
          (static_cast<double>(g_blit_ticks) / per_frame) * to_ms,
-         (static_cast<double>(g_flush_ticks) / per_frame) * to_ms, g_captures,
-         g_flush_spins, g_failures);
+         (static_cast<double>(g_flush_ticks) / per_frame) * to_ms,
+         (static_cast<double>(g_thread_sleep_ticks) / per_frame) * to_ms,
+         g_captures, g_flush_spins, g_failures);
+  g_thread_sleep_ticks = 0;
   g_blit_ticks = 0;
   g_flush_ticks = 0;
   g_captures = 0;

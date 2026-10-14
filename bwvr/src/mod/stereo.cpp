@@ -70,6 +70,7 @@
 #include "d3d7_count.h"
 #include "d3d7_thread.h"
 #include "fast_transform.h"
+#include "thread_wait.h"
 #include "render_thread.h"
 #include "scene_sample.h"
 #include "ui_panel.h"
@@ -595,14 +596,14 @@ float FrameSeparation() {
 //
 // A virtual keyboard can also send a capital letter as the character alone
 // (VK_PACKET), with no Shift. Then only a WM_CHAR of the capital letter
-// comes. So a WM_CHAR of F, G, H, J, K, L, M or N is the same key, unless the WM_KEYDOWN
+// comes. So a WM_CHAR of F, G, H, J, K, L, M, N or B is the same key, unless the WM_KEYDOWN
 // of that key came less than 200 ms before it: a real keyboard sends both.
 // The digits have no such second way, because the character of Shift 8 and
 // Shift 9 is not the same on each keyboard layout.
 // Shift 8, Shift 9, Shift F, Shift G, Shift H, Shift J, Shift K, Shift L,
-// Shift M, Shift N
-static volatile LONG g_shift_key[10] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
-static DWORD g_shift_key_at[10] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+// Shift M, Shift N, Shift B
+static volatile LONG g_shift_key[11] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+static DWORD g_shift_key_at[11] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 static HHOOK g_message_hook = nullptr;
 static bool g_message_hook_tried = false;
 
@@ -617,6 +618,7 @@ static int ShiftKeyIndex(WPARAM key) {
          : key == 'L' ? 7
          : key == 'M' ? 8
          : key == 'N' ? 9
+         : key == 'B' ? 10
                       : -1;
 }
 
@@ -886,6 +888,9 @@ void PollHotkeys() {
   }
   if (InterlockedExchange(&g_shift_key[9], 0) != 0) {
     RenderThreadLateEndToggle("Shift and N");
+  }
+  if (InterlockedExchange(&g_shift_key[10], 0) != 0) {
+    ThreadWaitToggle("Shift and B");
   }
   // An A/B of one walk (docs/backend.md, "One walk for both eyes"). The
   // menu key (VK_APPS) has no action in the game and no other test key.
@@ -1441,6 +1446,11 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
     // end waits until each of them went to Direct3D 9.
     RenderThreadWalk(true);
     D3D7ThreadWalk(true, RenderThreadQueueing());
+    static bool s_frame_thread_added = false;
+    if (!s_frame_thread_added) {
+      s_frame_thread_added = true;
+      ThreadLoadAddThis("frame thread");
+    }
     D3D7CountWalk(true);
     o_Process3dEngine(self, unused);
     // The targets get the color of the game back (target_glow.cpp).
@@ -1760,6 +1770,7 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
     FastTransformReport(g_timed_now);
     D3D7CountReport(g_timed_now);
     D3D7ThreadReport(g_timed_now);
+    ThreadLoadReport(g_timed_now);
     RenderThreadReport(g_timed_now);
     PresentWatchReport(g_timed_now);
     {

@@ -29,6 +29,7 @@
 #include "d3d7_count.h"
 #include "d3d7_thread.h"
 #include "fast_transform.h"
+#include "thread_wait.h"
 #include "render_thread.h"
 #include "tabletop.h"
 #include "far_grab.h"
@@ -518,6 +519,12 @@ int g_fast_transform_check = 0;
 int g_d3d7_count = 0;
 int g_d3d7_thread = 1;
 int g_render_thread_late_end = 1;
+int g_thread_wait = 1;
+int g_test_cores = 0;
+int g_test_smt = 0;
+int g_test_spin_walk_us = -1;
+int g_test_spin_idle_us = -1;
+int g_test_wake_records = -1;
 int g_gpu_flush = 128;
 char g_ab_test[64] = "";
 int g_profile_gpu = 0;
@@ -1321,6 +1328,18 @@ void ReadSettings() {
       GetPrivateProfileIntA("bwvr", "render_thread_late_end", 1, path) != 0
           ? 1
           : 0;
+  g_thread_wait =
+      GetPrivateProfileIntA("bwvr", "thread_wait", 1, path) != 0 ? 1 : 0;
+  g_test_cores =
+      static_cast<int>(GetPrivateProfileIntA("bwvr", "test_cores", 0, path));
+  g_test_smt =
+      static_cast<int>(GetPrivateProfileIntA("bwvr", "test_smt", 0, path));
+  g_test_spin_walk_us = static_cast<int>(
+      GetPrivateProfileIntA("bwvr", "test_spin_walk_us", -1, path));
+  g_test_spin_idle_us = static_cast<int>(
+      GetPrivateProfileIntA("bwvr", "test_spin_idle_us", -1, path));
+  g_test_wake_records = static_cast<int>(
+      GetPrivateProfileIntA("bwvr", "test_wake_records", -1, path));
   GetPrivateProfileStringA("bwvr", "ab_test", "", g_ab_test,
                            sizeof(g_ab_test), path);
   g_profile_gpu =
@@ -1577,6 +1596,9 @@ void StartVrOnce() {
     EyeCleanSetOptions(g_eye_clean, g_eye_clean_test, g_eye_clean_test_frame);
     EyeCleanInstall();
     FrameSendSetOptions(g_frame_send);
+    ThreadWaitLimitCores(g_test_cores, g_test_smt);
+    ThreadWaitSetOptions(g_thread_wait, g_test_spin_walk_us,
+                         g_test_spin_idle_us, g_test_wake_records);
     DrawMergeSetOptions(g_draw_merge, g_draw_merge_test,
                         g_draw_merge_test_frame);
     RenderThreadSetOptions(g_render_thread, g_render_thread_test_frame,

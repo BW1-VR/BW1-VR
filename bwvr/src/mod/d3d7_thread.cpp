@@ -52,6 +52,7 @@
 #include "d3d7_thread.h"
 #include "render_thread_ring.h"
 #include "thread_id.h"
+#include "thread_wait.h"
 
 void ModLog(const char* format, ...);
 // controllers.cpp
@@ -198,6 +199,9 @@ DWORD g_worker_id = 0;
 HANDLE g_worker = nullptr;
 HANDLE g_work_event = nullptr;
 volatile LONG g_worker_waits = 0;
+// The records since the last wake of a D3D7 thread that sleeps
+// (thread_wait.cpp). The frame thread writes it.
+uint32_t g_unwoken = 0;
 
 const uint32_t kQueueBytes = 16u << 20;
 uint8_t* g_queue = nullptr;
@@ -313,7 +317,10 @@ void Commit() {
       reinterpret_cast<const Header*>(g_queue + (write & (kQueueBytes - 1)));
   _ReadWriteBarrier();
   StoreIndex(&g_write, write + h->bytes);
-  if (g_worker_waits != 0) SetEvent(g_work_event);
+  if (g_worker_waits != 0 && ++g_unwoken >= ThreadWaitWakeRecords()) {
+    g_unwoken = 0;
+    SetEvent(g_work_event);
+  }
 }
 
 // Gives the bytes of the record.
@@ -368,18 +375,38 @@ uint32_t Play(uint8_t* at) {
   return h->bytes;
 }
 
+// Spins until the writer passes `read`, for at most `budget` ticks. True when
+// a record came.
+bool SpinForWrite(uint32_t read, int64_t budget) {
+  if (budget <= 0) return false;
+  LARGE_INTEGER start, now;
+  QueryPerformanceCounter(&start);
+  for (int i = 0;; ++i) {
+    YieldProcessor();
+    if (LoadIndex(&g_write) != read) return true;
+    if ((i & 63) == 63) {
+      QueryPerformanceCounter(&now);
+      if (now.QuadPart - start.QuadPart > budget) return false;
+    }
+  }
+}
+
 DWORD WINAPI Worker(LPVOID) {
   for (;;) {
     uint32_t read = LoadIndex(&g_read);
     uint32_t write = LoadIndex(&g_write);
     if (read == write) {
       bool more = false;
-      for (int i = 0; i < 2000 || g_active; ++i) {
-        YieldProcessor();
-        if (LoadIndex(&g_write) != read) {
-          more = true;
-          break;
+      if (ThreadWaitMode() == 0) {
+        for (int i = 0; i < 2000 || g_active; ++i) {
+          YieldProcessor();
+          if (LoadIndex(&g_write) != read) {
+            more = true;
+            break;
+          }
         }
+      } else {
+        more = SpinForWrite(read, ThreadWaitSpinTicks(g_active));
       }
       if (!more) {
         InterlockedExchange(&g_worker_waits, 1);
@@ -408,6 +435,7 @@ void Drain() {
   const uint32_t write = LoadIndex(&g_write);
   if (LoadIndex(&g_read) == write) return;
   const uint64_t start = Ticks();
+  g_unwoken = 0;
   if (g_worker_waits != 0) SetEvent(g_work_event);
   while (LoadIndex(&g_read) != write) YieldProcessor();
   ++g_stops;
@@ -690,6 +718,8 @@ bool Install() {
   g_worker = CreateThread(nullptr, 0, &Worker, nullptr, 0, &g_worker_id);
   if (g_worker == nullptr) return false;
   SetThreadPriority(g_worker, THREAD_PRIORITY_ABOVE_NORMAL);
+  ThreadWaitTune(g_worker, L"bwvr D3D7 thread");
+  ThreadLoadAdd("D3D7 thread", g_worker);
   QueryPerformanceFrequency(&g_frequency);
   ModLog("hooks        : the D3D7 thread: 6 calls of the queue, the lock of "
          "dxwrapper, %d stops ok", kStopCount + kTableCount);
@@ -721,6 +751,18 @@ void D3D7ThreadToggle(const char* keys) {
 void D3D7ThreadWalk(bool begin, bool render_thread) {
   if (begin) {
     if (!g_on || !render_thread) return;
+    // With fewer than 4 logical cores the D3D7 thread takes a core from the
+    // frame thread and the render thread, and the frames are slower.
+    if (ThreadWaitLogicalCores() < 4) {
+      static bool s_said = false;
+      if (!s_said) {
+        s_said = true;
+        ModLog("d3d7 thread  : the process can use %d logical cores, fewer "
+               "than 4. So the frame thread gives the calls of Direct3D 7 "
+               "to dxwrapper", ThreadWaitLogicalCores());
+      }
+      return;
+    }
     if (!g_in) {
       if (g_failed) return;
       g_in = Install();

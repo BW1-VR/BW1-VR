@@ -535,7 +535,11 @@ that moves while the Hand takes it.
     no fault in a headset at 144 Hz. The end of a walk does not wait for
     the render thread (`render_thread_late_end`, `backend.md`, "The late
     end of a walk"): the scene walks over the island are 2.6 to 3.0 ms in
-    a headset at 144 Hz. With the render
+    a headset at 144 Hz. The threads of the mod spin only for a short time
+    and then sleep (`thread_wait`, `backend.md`, "How the threads wait"):
+    in desktop runs with 4 to 16 cores the frames are as fast, and the
+    process uses about 0.5 cores less. Not run: a headset session with it.
+    With the render
     thread, one walk draws most batches in one draw for both eyes (`one_walk_merge`, `backend.md`, "One
     draw for both eyes"). Before the thread, with one walk, a view of the
     whole island has about 1500 batches and a scene walk of 9.5 to 11 ms,

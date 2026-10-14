@@ -58,6 +58,7 @@
 #include "render_thread_d3d9.h"
 #include "render_thread_ring.h"
 #include "thread_id.h"
+#include "thread_wait.h"
 
 extern void ModLog(const char* format, ...);
 // gpu_bridge.cpp
@@ -348,6 +349,16 @@ bool g_late = false;          // the queue of the last walk is open
 uint64_t g_late_ticks = 0;    // the waits at the start of a walk for it
 uint64_t g_late_walks = 0;
 volatile LONG g_flushed = 0;  // the number of the last event query issued
+// The second thread of frame_send sleeps on g_flushed_event for g_flushed.
+HANDLE g_flushed_event = nullptr;
+volatile LONG g_flushed_waits = 0;
+// Between the start and the end of a walk (thread_wait.cpp: a reader spins
+// longer in a walk).
+volatile bool g_in_walk = false;
+// The records that the writer committed since the last wake of a render
+// thread that sleeps (thread_wait.cpp). One writer at a time: the frame
+// thread, or the D3D7 thread in a walk of d3d7_thread=1.
+uint32_t g_unwoken = 0;
 LONG g_flush_number = 0;
 DWORD g_frame_thread = 0;
 DWORD g_worker_id = 0;
@@ -1023,6 +1034,7 @@ uint32_t Play(const uint8_t* at) {
       Drop(a->query);
       // The second thread of frame_send polls the query only after this.
       InterlockedExchange(&g_flushed, a->number);
+      if (g_flushed_waits != 0) SetEvent(g_flushed_event);
       break;
     }
     case kOpSetVertexShader: {
@@ -1084,9 +1096,25 @@ void PlayHere(uint32_t until) {
   StoreIndex(&g_read, read);
 }
 
-// THE RENDER THREAD. It reads the queue in order. In a walk it spins while the
-// queue is empty, because a wake from a sleep is a call of the kernel on the
-// frame thread for each record. Outside the walks it sleeps.
+// Spins until the writer passes `read`, for at most `budget` ticks. True when
+// a record came.
+bool SpinForWrite(uint32_t read, int64_t budget) {
+  if (budget <= 0) return false;
+  LARGE_INTEGER start, now;
+  QueryPerformanceCounter(&start);
+  for (int i = 0;; ++i) {
+    YieldProcessor();
+    if (LoadIndex(&g_write) != read && g_worker_on != 0) return true;
+    if ((i & 63) == 63) {
+      QueryPerformanceCounter(&now);
+      if (now.QuadPart - start.QuadPart > budget) return false;
+    }
+  }
+}
+
+// THE RENDER THREAD. It reads the queue in order. When the queue is empty it
+// spins for a short time (thread_wait.cpp), because a wake from a sleep is a
+// call of the kernel on the writer. Then it sleeps.
 DWORD WINAPI Worker(LPVOID) {
   for (;;) {
     uint32_t read = LoadIndex(&g_read);
@@ -1096,13 +1124,17 @@ DWORD WINAPI Worker(LPVOID) {
         SetEvent(g_idle_event);
       }
       bool more = false;
-      for (int i = 0; i < 2000 || g_recording; ++i) {
-        YieldProcessor();
-        if (LoadIndex(&g_write) != read &&
-            g_worker_on != 0) {
-          more = true;
-          break;
+      if (ThreadWaitMode() == 0) {
+        for (int i = 0; i < 2000 || g_recording; ++i) {
+          YieldProcessor();
+          if (LoadIndex(&g_write) != read &&
+              g_worker_on != 0) {
+            more = true;
+            break;
+          }
         }
+      } else {
+        more = SpinForWrite(read, ThreadWaitSpinTicks(g_in_walk));
       }
       if (!more) {
         InterlockedExchange(&g_worker_waits, 1);
@@ -1149,6 +1181,12 @@ DWORD WINAPI Worker(LPVOID) {
 // ---------------------------------------------------------------------------
 // The writer, on the frame thread.
 
+// Wakes the render thread when it sleeps.
+void Wake() {
+  g_unwoken = 0;
+  if (g_worker_waits != 0) SetEvent(g_work_event);
+}
+
 // Waits until the queue is empty: the render thread made each call, or in
 // mode 2 this thread made them.
 void Drain() {
@@ -1158,6 +1196,7 @@ void Drain() {
     PlayHere(write);
     return;
   }
+  Wake();
   for (int i = 0; i < 4000; ++i) {
     if (LoadIndex(&g_read) == write) return;
     YieldProcessor();
@@ -1231,7 +1270,9 @@ void Commit() {
       reinterpret_cast<const Header*>(g_queue + (write & (kQueueBytes - 1)));
   _ReadWriteBarrier();
   StoreIndex(&g_write, write + h->bytes);
-  if (g_mode == 1 && g_worker_waits != 0) {
+  if (g_mode == 1 && g_worker_waits != 0 &&
+      ++g_unwoken >= ThreadWaitWakeRecords()) {
+    g_unwoken = 0;
     SetEvent(g_work_event);
   }
 }
@@ -2874,7 +2915,9 @@ bool StartWorker() {
       nullptr, kQueueBytes, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE));
   g_work_event = CreateEventA(nullptr, FALSE, FALSE, nullptr);
   g_idle_event = CreateEventA(nullptr, FALSE, FALSE, nullptr);
-  if (g_queue == nullptr || g_work_event == nullptr || g_idle_event == nullptr) {
+  g_flushed_event = CreateEventA(nullptr, FALSE, FALSE, nullptr);
+  if (g_queue == nullptr || g_work_event == nullptr || g_idle_event == nullptr ||
+      g_flushed_event == nullptr) {
     return false;
   }
   g_worker = CreateThread(nullptr, 0, Worker, nullptr, 0, &g_worker_id);
@@ -2883,6 +2926,8 @@ bool StartWorker() {
     return false;
   }
   SetThreadPriority(g_worker, THREAD_PRIORITY_ABOVE_NORMAL);
+  ThreadWaitTune(g_worker, L"bwvr render thread");
+  ThreadLoadAdd("render thread", g_worker);
   return true;
 }
 
@@ -3158,8 +3203,10 @@ void EndLate() {
 void RenderThreadWalk(bool begin) {
   if (!begin) {
     StampWalkEnd();
+    g_in_walk = false;
     if (g_recording) {
       ViewportPutBack();
+      if (g_mode == 1) Wake();
       if (g_late_end && g_mode == 1) {
         g_late = true;
       } else {
@@ -3205,6 +3252,7 @@ void RenderThreadWalk(bool begin) {
   // The queue is empty here: the end of each walk, or EndLate, waits for it.
   InterlockedExchange(&g_worker_on, g_mode == 1 ? 1 : 0);
   g_recording = true;
+  g_in_walk = true;
   StampWalkBegin(device);
 }
 
@@ -3218,7 +3266,8 @@ void RenderThreadSync() {
 // of the key, so a session in a headset compares the two with no key.
 // g_ab_test: 1 gpu_flush (the value of the ini, or 128, and 0), 2
 // render_thread_right_eye (1 and 0), 3 fast_transform (1 and 0), 4
-// d3d7_thread (1 and 0), 5 render_thread_late_end (1 and 0).
+// d3d7_thread (1 and 0), 5 render_thread_late_end (1 and 0), 6 thread_wait
+// (1 and 0).
 static int g_ab_test = 0;
 
 void RenderThreadSetAbTest(const char* key) {
@@ -3227,6 +3276,7 @@ void RenderThreadSetAbTest(const char* key) {
               : strcmp(key, "fast_transform") == 0          ? 3
               : strcmp(key, "d3d7_thread") == 0             ? 4
               : strcmp(key, "render_thread_late_end") == 0  ? 5
+              : strcmp(key, "thread_wait") == 0             ? 6
                                                             : 0;
   if (g_ab_test == 1) {
     ModLog("ab test      : ab_test=gpu_flush. Each window of 450 frames has "
@@ -3244,10 +3294,13 @@ void RenderThreadSetAbTest(const char* key) {
   } else if (g_ab_test == 5) {
     ModLog("ab test      : ab_test=render_thread_late_end. Each window of 450 "
            "frames has the other value of render_thread_late_end: 1 and 0");
+  } else if (g_ab_test == 6) {
+    ModLog("ab test      : ab_test=thread_wait. Each window of 450 frames has "
+           "the other value of thread_wait: 1 and 0");
   } else if (key[0] != 0) {
     ModLog("ab test      : ab_test=%s is not a key that the test knows. The "
            "keys: gpu_flush, render_thread_right_eye, fast_transform, "
-           "d3d7_thread, render_thread_late_end", key);
+           "d3d7_thread, render_thread_late_end, thread_wait", key);
   }
 }
 
@@ -3272,6 +3325,11 @@ void RenderThreadReport(uint64_t frames) {
     ModLog("ab test      : the window that ends now had d3d7_thread=%d, the "
            "next one has %d",
            D3D7ThreadOn() ? 0 : 1, D3D7ThreadOn() ? 1 : 0);
+  } else if (g_ab_test == 6 && frames > 0) {
+    ThreadWaitSet(ThreadWaitMode() != 0 ? 0 : 1);
+    ModLog("ab test      : the window that ends now had thread_wait=%d, the "
+           "next one has %d",
+           ThreadWaitMode() != 0 ? 0 : 1, ThreadWaitMode());
   } else if (g_ab_test == 3 && frames > 0) {
     FastTransformSet(!FastTransformOn());
     ModLog("ab test      : the window that ends now had fast_transform=%d, "
@@ -3562,11 +3620,30 @@ unsigned long RenderThreadQueueFlush(void* query) {
 
 bool RenderThreadWaitFlushed(unsigned long number, unsigned limit_ms) {
   const DWORD start = GetTickCount();
-  while (static_cast<unsigned long>(g_flushed) != number) {
-    if (GetTickCount() - start > limit_ms) return false;
+  if (ThreadWaitMode() == 0 || g_flushed_event == nullptr) {
+    while (static_cast<unsigned long>(g_flushed) != number) {
+      if (GetTickCount() - start > limit_ms) return false;
+      YieldProcessor();
+    }
+    return true;
+  }
+  // A short spin, and then a sleep until the render thread issued the query.
+  for (int i = 0; i < 256; ++i) {
+    if (static_cast<unsigned long>(g_flushed) == number) return true;
     YieldProcessor();
   }
-  return true;
+  InterlockedExchange(&g_flushed_waits, 1);
+  bool done = true;
+  while (static_cast<unsigned long>(g_flushed) != number) {
+    const DWORD waited = GetTickCount() - start;
+    if (waited > limit_ms) {
+      done = false;
+      break;
+    }
+    WaitForSingleObject(g_flushed_event, 1);
+  }
+  InterlockedExchange(&g_flushed_waits, 0);
+  return done;
 }
 
 void RenderThreadSetLateEnd(bool on) {
