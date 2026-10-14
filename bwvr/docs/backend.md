@@ -1889,6 +1889,22 @@ projection to the screen, the clamp to the screen, and the light of the
 normal (`fn_0085AB10`). Each comparison is an `fcomp` and an `fnstsw` with
 a branch.
 
+**Which meshes.** In a desktop run at the start of a new game with
+`one_walk=0`, `draw_probe=1` names the caller of each draw: 900 of about
+1190 draws of both eye passes come from `fn_00856D40` (`0x008573E8`), 242
+from `fn_0085AB10` (`0x0085B23D`) and 48 from `fn_0084BA90` (`0x0084C3A1`).
+The draws of `fn_00856D40` are about 870 draws of only 36 meshes in a frame,
+with 772 vertices together, so a mesh has about 21 vertices. After the loop
+`fn_00856D40` tests the back face of each triangle on the screen, clips a
+triangle with a clip flag (`fn_0081A760`), puts the triangles in
+`g_TriangleList`, sets the material (`0x00857367`), the tiling and the cull
+mode (`D3DRENDERSTATE_CULLMODE` from bit 0 of the byte at `+5` of the mesh),
+and calls `LH3DRender::DrawTriangle` through `0x00C386EC`. With such small
+meshes the cost of a mesh is its draw, not its vertices. In a profile of
+the frame thread the SSE loops and the code of `fn_00856D40` are together
+about 5 percent of the samples. A transform of these meshes on the GPU
+gives one draw or more for each mesh to the driver.
+
 `fast_transform=1` (the default) makes these four loops with SSE, four
 vertices at a time (`fast_transform_math.h`). The loops differ in the order
 of the additions of the matrix and in the order of the product of the y of
