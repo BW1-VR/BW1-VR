@@ -3267,7 +3267,7 @@ void RenderThreadSync() {
 // g_ab_test: 1 gpu_flush (the value of the ini, or 128, and 0), 2
 // render_thread_right_eye (1 and 0), 3 fast_transform (1 and 0), 4
 // d3d7_thread (1 and 0), 5 render_thread_late_end (1 and 0), 6 thread_wait
-// (1 and 0).
+// (1 and 0), 7 d3d7_thread_merge (1 and 0).
 static int g_ab_test = 0;
 
 void RenderThreadSetAbTest(const char* key) {
@@ -3277,6 +3277,7 @@ void RenderThreadSetAbTest(const char* key) {
               : strcmp(key, "d3d7_thread") == 0             ? 4
               : strcmp(key, "render_thread_late_end") == 0  ? 5
               : strcmp(key, "thread_wait") == 0             ? 6
+              : strcmp(key, "d3d7_thread_merge") == 0       ? 7
                                                             : 0;
   if (g_ab_test == 1) {
     ModLog("ab test      : ab_test=gpu_flush. Each window of 450 frames has "
@@ -3297,10 +3298,15 @@ void RenderThreadSetAbTest(const char* key) {
   } else if (g_ab_test == 6) {
     ModLog("ab test      : ab_test=thread_wait. Each window of 450 frames has "
            "the other value of thread_wait: 1 and 0");
+  } else if (g_ab_test == 7) {
+    ModLog("ab test      : ab_test=d3d7_thread_merge. Each window of 450 "
+           "frames has the other value of d3d7_thread_merge: 1 and 0");
   } else if (key[0] != 0) {
     ModLog("ab test      : ab_test=%s is not a key that the test knows. The "
            "keys: gpu_flush, render_thread_right_eye, fast_transform, "
-           "d3d7_thread, render_thread_late_end, thread_wait", key);
+           "d3d7_thread, render_thread_late_end, thread_wait, "
+           "d3d7_thread_merge",
+           key);
   }
 }
 
@@ -3325,6 +3331,11 @@ void RenderThreadReport(uint64_t frames) {
     ModLog("ab test      : the window that ends now had d3d7_thread=%d, the "
            "next one has %d",
            D3D7ThreadOn() ? 0 : 1, D3D7ThreadOn() ? 1 : 0);
+  } else if (g_ab_test == 7 && frames > 0) {
+    D3D7ThreadSetMergeNow(!D3D7ThreadMergeOn());
+    ModLog("ab test      : the window that ends now had d3d7_thread_merge=%d, "
+           "the next one has %d",
+           D3D7ThreadMergeOn() ? 0 : 1, D3D7ThreadMergeOn() ? 1 : 0);
   } else if (g_ab_test == 6 && frames > 0) {
     ThreadWaitSet(ThreadWaitMode() != 0 ? 0 : 1);
     ModLog("ab test      : the window that ends now had thread_wait=%d, the "

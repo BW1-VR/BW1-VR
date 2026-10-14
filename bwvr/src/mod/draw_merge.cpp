@@ -55,6 +55,7 @@
 #include "MinHook.h"
 #include "../common/bw_addresses.h"
 #include "draw_merge_math.h"
+#include "d3d7_thread.h"
 #include "render_thread.h"
 #include "thread_id.h"
 
@@ -103,6 +104,7 @@ uint64_t g_passes = 0;
 uint64_t g_taken = 0;   // draw calls of the game that went into a batch
 uint64_t g_sent = 0;    // draw calls that went out for them
 uint64_t g_passed = 0;  // draw calls in an eye pass that the merge did not take
+uint64_t g_to_d3d7 = 0;  // draw calls that the D3D7 thread merges
 // The check of the triangles.
 uint64_t g_hash_in = draw_merge::kHashStart;
 uint64_t g_hash_out = draw_merge::kHashStart;
@@ -364,6 +366,13 @@ bool DrawMergeTake(void* self, D3DPRIMITIVETYPE type, DWORD fvf,
                    const WORD* indices, DWORD index_count, DWORD flags,
                    const void* caller) {
   if (!g_inside) return false;
+  // The D3D7 thread merges the draws of this walk (d3d7_thread.cpp, THE
+  // MERGE).
+  if (D3D7ThreadMerging()) {
+    DrawMergeFlush();
+    ++g_to_d3d7;
+    return false;
+  }
   const uintptr_t from = reinterpret_cast<uintptr_t>(caller);
   const uint32_t stride = draw_merge::Stride(fvf);
   const uint32_t corners = draw_merge::WholeTriangles(
@@ -431,12 +440,13 @@ void DrawMergeReport() {
   if (!g_installed || g_passes == 0) return;
   ModLog("draw merge   : draw_merge=%d. In %llu eye passes the merge took "
          "%llu draw calls of the game, and they went to Direct3D as %llu "
-         "draw calls (%.1f percent fewer). %llu draw calls went as they came",
+         "draw calls (%.1f percent fewer). %llu draw calls went as they came, "
+         "%llu went to the merge of the D3D7 thread",
          g_key, g_passes, g_taken, g_sent,
          g_taken > 0 ? 100.0 * (1.0 - static_cast<double>(g_sent) /
                                           static_cast<double>(g_taken))
                      : 0.0,
-         g_passed);
+         g_passed, g_to_d3d7);
   if (g_test != 0) {
     ModLog("draw merge   : the check of the triangles (draw_merge_test=1): "
            "%llu eye passes with %llu triangles, and %llu of the eye passes "
@@ -450,4 +460,5 @@ void DrawMergeReport() {
   g_taken = 0;
   g_sent = 0;
   g_passed = 0;
+  g_to_d3d7 = 0;
 }

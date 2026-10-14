@@ -599,14 +599,14 @@ float FrameSeparation() {
 //
 // A virtual keyboard can also send a capital letter as the character alone
 // (VK_PACKET), with no Shift. Then only a WM_CHAR of the capital letter
-// comes. So a WM_CHAR of F, G, H, J, K, L, M, N or B is the same key, unless the WM_KEYDOWN
+// comes. So a WM_CHAR of F, G, H, J, K, L, M, N, B or V is the same key, unless the WM_KEYDOWN
 // of that key came less than 200 ms before it: a real keyboard sends both.
 // The digits have no such second way, because the character of Shift 8 and
 // Shift 9 is not the same on each keyboard layout.
 // Shift 8, Shift 9, Shift F, Shift G, Shift H, Shift J, Shift K, Shift L,
-// Shift M, Shift N, Shift B
-static volatile LONG g_shift_key[11] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
-static DWORD g_shift_key_at[11] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+// Shift M, Shift N, Shift B, Shift V
+static volatile LONG g_shift_key[12] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+static DWORD g_shift_key_at[12] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 static HHOOK g_message_hook = nullptr;
 static bool g_message_hook_tried = false;
 
@@ -622,6 +622,7 @@ static int ShiftKeyIndex(WPARAM key) {
          : key == 'M' ? 8
          : key == 'N' ? 9
          : key == 'B' ? 10
+         : key == 'V' ? 11
                       : -1;
 }
 
@@ -894,6 +895,9 @@ void PollHotkeys() {
   }
   if (InterlockedExchange(&g_shift_key[10], 0) != 0) {
     ThreadWaitToggle("Shift and B");
+  }
+  if (InterlockedExchange(&g_shift_key[11], 0) != 0) {
+    D3D7ThreadMergeToggle("Shift and V");
   }
   // An A/B of one walk (docs/backend.md, "One walk for both eyes"). The
   // menu key (VK_APPS) has no action in the game and no other test key.

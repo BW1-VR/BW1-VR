@@ -31,3 +31,13 @@ void D3D7ThreadStop();
 typedef void (*D3D7ThreadFn)(const void* data);
 bool D3D7ThreadPost(D3D7ThreadFn fn, const void* data, unsigned bytes);
 void D3D7ThreadReport(uint64_t frames);
+// d3d7_thread_merge of bwvr.ini: 1 (the default) merges a row of draws with
+// one state on the D3D7 thread, and draw_merge.cpp does not merge in a walk
+// with the D3D7 thread. 0: draw_merge.cpp merges on the frame thread.
+void D3D7ThreadSetMerge(int on);
+bool D3D7ThreadMergeOn();
+void D3D7ThreadSetMergeNow(bool on);
+// True in a walk where the D3D7 thread merges.
+bool D3D7ThreadMerging();
+// The test key: d3d7_thread_merge goes between 1 and 0.
+void D3D7ThreadMergeToggle(const char* keys);

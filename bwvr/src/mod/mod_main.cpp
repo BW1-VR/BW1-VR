@@ -520,6 +520,7 @@ int g_fast_transform = 1;
 int g_fast_transform_check = 0;
 int g_d3d7_count = 0;
 int g_d3d7_thread = 1;
+int g_d3d7_thread_merge = 1;
 int g_render_thread_late_end = 1;
 int g_thread_wait = 1;
 int g_test_cores = 0;
@@ -1326,6 +1327,9 @@ void ReadSettings() {
       GetPrivateProfileIntA("bwvr", "d3d7_count", 0, path) != 0 ? 1 : 0;
   g_d3d7_thread =
       GetPrivateProfileIntA("bwvr", "d3d7_thread", 1, path) != 0 ? 1 : 0;
+  g_d3d7_thread_merge =
+      GetPrivateProfileIntA("bwvr", "d3d7_thread_merge", 1, path) != 0 ? 1
+                                                                       : 0;
   g_render_thread_late_end =
       GetPrivateProfileIntA("bwvr", "render_thread_late_end", 1, path) != 0
           ? 1
@@ -1614,6 +1618,7 @@ void StartVrOnce() {
     FastTransformInstall();
     D3D7CountSetOptions(g_d3d7_count);
     D3D7ThreadSetOptions(g_d3d7_thread);
+    D3D7ThreadSetMerge(g_d3d7_thread_merge);
     RenderThreadSetLateEnd(g_render_thread_late_end != 0);
     BubbleCardSetOptions(g_bubble_card, g_bubble_card_test,
                          g_bubble_card_test_frame);

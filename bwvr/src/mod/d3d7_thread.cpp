@@ -35,6 +35,16 @@
 // queue is empty then, because the way in stopped first. A Release of a
 // surface takes the lock, so a texture in a record is never released early.
 //
+// THE MERGE (d3d7_thread_merge=1). draw_merge.cpp gives a row of draws
+// with one state to dxwrapper as one draw. With the D3D7 thread that merge
+// is here and not on the frame thread: the D3D7 thread looks at the records
+// after a draw, and a row of draws of a triangle list with the same device,
+// format, flags and version, and with no other record between them, goes to
+// dxwrapper as one draw. A record that sets a state, a record of one walk
+// and a stop end the row, so each triangle has the state that it has with
+// no merge. The frame thread then copies the vertices of a draw one time,
+// into the queue.
+//
 // THE ORDER. One walk reads its mode and the move of the right eye in the
 // hooks of Direct3D 9, which the D3D7 thread makes. So a change of these on
 // the frame thread goes into the queue as a record that calls a function
@@ -189,6 +199,7 @@ LockFn o_Lock = nullptr;
 
 bool g_ini = false;       // d3d7_thread
 bool g_on = false;        // the value now (the test key changes it)
+bool g_merge = true;      // d3d7_thread_merge, the value now
 bool g_in = false;        // the hooks are in
 bool g_failed = false;
 volatile bool g_active = false;  // a walk with the queue
@@ -221,6 +232,13 @@ uint64_t g_stops = 0;
 uint64_t g_stop_ticks = 0;
 uint64_t g_table_stops = 0;  // a stop before a hook of the mod
 uint64_t g_not_queued = 0;   // a draw with a vertex format the file does not know
+// THE MERGE, written by the D3D7 thread.
+volatile LONG g_merge_in = 0;   // draws in a row of more than one
+volatile LONG g_merge_out = 0;  // the draws that went to dxwrapper for them
+const uint32_t kMergeVertexBytes = 4u << 20;
+const uint32_t kMergeIndices = 1u << 20;
+uint8_t* g_merge_vertices = nullptr;
+WORD* g_merge_indices = nullptr;
 volatile LONG g_failed_calls = 0;
 volatile LONG64 g_busy_ticks = 0;
 LARGE_INTEGER g_frequency = {};
@@ -288,10 +306,17 @@ uint8_t* Reserve(Op op, uint32_t payload) {
   render_ring::Plan plan;
   uint32_t write = LoadIndex(&g_write);
   if (!render_ring::PlanRecord(write, kQueueBytes, bytes, &plan)) return nullptr;
-  while (!render_ring::HasRoom(write, LoadIndex(&g_read), kQueueBytes,
-                               plan.need)) {
+  // The count of the reader is read again only when the room that the last
+  // read showed is not enough: each read moves its cache line from the core
+  // of the D3D7 thread.
+  static uint32_t s_read = 0;
+  if (!render_ring::HasRoom(write, s_read, kQueueBytes, plan.need)) {
+    s_read = LoadIndex(&g_read);
+  }
+  while (!render_ring::HasRoom(write, s_read, kQueueBytes, plan.need)) {
     if (g_worker_waits != 0) SetEvent(g_work_event);
     YieldProcessor();
+    s_read = LoadIndex(&g_read);
   }
   if (plan.wrap) {
     Header* w = reinterpret_cast<Header*>(g_queue + (write & (kQueueBytes - 1)));
@@ -391,6 +416,88 @@ bool SpinForWrite(uint32_t read, int64_t budget) {
   }
 }
 
+// THE MERGE. A row of draws from the record at `read` as one draw. Gives the
+// bytes of the records of the row, or 0 when the record is not the first of
+// a row of more than one draw. The D3D7 thread is often just behind the
+// frame thread, so at the end of the records that are there in a walk it
+// waits up to 30 microseconds for the next record. `write` gets the end of
+// the records that it saw.
+uint32_t PlayRow(uint32_t read, uint32_t* write_io) {
+  uint32_t write = *write_io;
+  const Header* h =
+      reinterpret_cast<const Header*>(g_queue + (read & (kQueueBytes - 1)));
+  const ArgDraw* a = reinterpret_cast<const ArgDraw*>(h + 1);
+  if (a->type != D3DPT_TRIANGLELIST || g_merge_vertices == nullptr) return 0;
+  const uint32_t stride = a->vertex_bytes / (a->vertex_count ? a->vertex_count : 1);
+  uint32_t vertices = a->vertex_count;
+  uint32_t indices = a->index_count;
+  uint32_t bytes = a->vertex_bytes;
+  uint32_t next = read + h->bytes;
+  int draws = 1;
+  for (;;) {
+    if (next == write) {
+      if (!g_active) break;
+      uint32_t w = LoadIndex(&g_write);
+      if (w == write) {
+        LARGE_INTEGER start, now;
+        QueryPerformanceCounter(&start);
+        const LONGLONG budget = g_frequency.QuadPart * 30 / 1000000;
+        do {
+          YieldProcessor();
+          w = LoadIndex(&g_write);
+          QueryPerformanceCounter(&now);
+        } while (w == write && now.QuadPart - start.QuadPart < budget);
+      }
+      if (w == write) break;
+      write = w;
+      *write_io = w;
+    }
+    const Header* nh =
+        reinterpret_cast<const Header*>(g_queue + (next & (kQueueBytes - 1)));
+    if (nh->op != kOpDrawIndexed) break;
+    const ArgDraw* b = reinterpret_cast<const ArgDraw*>(nh + 1);
+    if (b->x != a->x || b->type != a->type || b->fvf != a->fvf ||
+        b->flags != a->flags || b->version != a->version ||
+        vertices + b->vertex_count > 0xFFFFu ||
+        bytes + b->vertex_bytes > kMergeVertexBytes ||
+        indices + b->index_count > kMergeIndices) {
+      break;
+    }
+    vertices += b->vertex_count;
+    indices += b->index_count;
+    bytes += b->vertex_bytes;
+    next += nh->bytes;
+    ++draws;
+  }
+  if (draws < 2 || stride == 0) return 0;
+  // The vertices one after the other, and the indices of each draw moved by
+  // the vertices before it.
+  uint8_t* v = g_merge_vertices;
+  WORD* ix = g_merge_indices;
+  uint32_t base = 0;
+  for (uint32_t at = read; at != next;) {
+    const Header* dh =
+        reinterpret_cast<const Header*>(g_queue + (at & (kQueueBytes - 1)));
+    const ArgDraw* d = reinterpret_cast<const ArgDraw*>(dh + 1);
+    const uint8_t* src = reinterpret_cast<const uint8_t*>(d + 1);
+    const WORD* src_ix = reinterpret_cast<const WORD*>(src + d->vertex_bytes);
+    memcpy(v, src, d->vertex_bytes);
+    v += d->vertex_bytes;
+    for (DWORD i = 0; i < d->index_count; ++i) {
+      *ix++ = static_cast<WORD>(src_ix[i] + base);
+    }
+    base += d->vertex_count;
+    at += dh->bytes;
+  }
+  const HRESULT hr =
+      o_DrawIndexed(a->x, a->type, a->fvf, g_merge_vertices, vertices,
+                    g_merge_indices, indices, a->flags, a->version);
+  if (FAILED(hr)) InterlockedIncrement(&g_failed_calls);
+  InterlockedExchangeAdd(&g_merge_in, draws);
+  InterlockedIncrement(&g_merge_out);
+  return next - read;
+}
+
 DWORD WINAPI Worker(LPVOID) {
   for (;;) {
     uint32_t read = LoadIndex(&g_read);
@@ -419,7 +526,11 @@ DWORD WINAPI Worker(LPVOID) {
     }
     const uint64_t start = Ticks();
     while (read != write) {
-      read += Play(g_queue + (read & (kQueueBytes - 1)));
+      const Header* h = reinterpret_cast<const Header*>(
+          g_queue + (read & (kQueueBytes - 1)));
+      const uint32_t row =
+          g_merge && h->op == kOpDrawIndexed ? PlayRow(read, &write) : 0;
+      read += row != 0 ? row : Play(g_queue + (read & (kQueueBytes - 1)));
       // Each record before the count is done, so a stop that sees the count
       // knows that dxwrapper has no call of the queue in it.
       StoreIndex(&g_read, read);
@@ -715,6 +826,13 @@ bool Install() {
     return false;
   }
   g_work_event = CreateEventA(nullptr, FALSE, FALSE, nullptr);
+  g_merge_vertices = static_cast<uint8_t*>(
+      VirtualAlloc(nullptr, kMergeVertexBytes + kMergeIndices * sizeof(WORD),
+                   MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE));
+  if (g_merge_vertices != nullptr) {
+    g_merge_indices =
+        reinterpret_cast<WORD*>(g_merge_vertices + kMergeVertexBytes);
+  }
   g_worker = CreateThread(nullptr, 0, &Worker, nullptr, 0, &g_worker_id);
   if (g_worker == nullptr) return false;
   SetThreadPriority(g_worker, THREAD_PRIORITY_ABOVE_NORMAL);
@@ -727,6 +845,26 @@ bool Install() {
 }
 
 }  // namespace
+
+void D3D7ThreadSetMerge(int on) {
+  g_merge = on != 0;
+  ModLog("d3d7 thread  : d3d7_thread_merge=%d. %s", g_merge ? 1 : 0,
+         g_merge ? "With d3d7_thread=1 the D3D7 thread gives a row of draws "
+                   "with one state to dxwrapper as one draw, and the frame "
+                   "thread does not merge"
+                 : "The frame thread merges the draws (draw_merge.cpp)");
+}
+
+bool D3D7ThreadMerging() { return g_merge && g_active; }
+bool D3D7ThreadMergeOn() { return g_merge; }
+void D3D7ThreadSetMergeNow(bool on) { g_merge = on; }
+
+void D3D7ThreadMergeToggle(const char* keys) {
+  g_merge = !g_merge;
+  ControllersGesturePulse(0.5f, g_merge ? 0.30f : 0.08f);
+  ModLog("test key     : %s, d3d7_thread_merge is %d from the next walk",
+         keys, g_merge ? 1 : 0);
+}
 
 void D3D7ThreadSetOptions(int on) {
   g_ini = on != 0;
@@ -825,6 +963,13 @@ void D3D7ThreadReport(uint64_t frames) {
          g_records[kOpCall] / per, g_bytes / 1024.0 / per, g_stops / per,
          Ms(g_stop_ticks) / per, Ms(static_cast<uint64_t>(busy)) / per,
          g_table_stops, g_not_queued, failed);
+  {
+    const LONG in = InterlockedExchange(&g_merge_in, 0);
+    const LONG out = InterlockedExchange(&g_merge_out, 0);
+    ModLog("d3d7 thread  : d3d7_thread_merge=%d. A frame: %.0f draws in rows "
+           "went to dxwrapper as %.0f draws",
+           g_merge ? 1 : 0, in / per, out / per);
+  }
   g_walks = 0;
   memset(g_records, 0, sizeof(g_records));
   g_bytes = g_stops = g_stop_ticks = g_table_stops = g_not_queued = 0;
