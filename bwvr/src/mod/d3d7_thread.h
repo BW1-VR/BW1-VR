@@ -5,9 +5,9 @@
 
 #include <stdint.h>
 
-// d3d7_thread of bwvr.ini: 1 gives the calls of the device of a walk to the
-// D3D7 thread, with render_thread=1. 0: the frame thread gives them to
-// dxwrapper.
+// d3d7_thread of bwvr.ini: 1 (the default) gives the calls of the device of
+// a walk to the D3D7 thread, with render_thread=1. 0: the frame thread gives
+// them to dxwrapper.
 void D3D7ThreadSetOptions(int on);
 bool D3D7ThreadOn();
 void D3D7ThreadSet(bool on);

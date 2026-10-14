@@ -107,6 +107,10 @@ bool g_two_threads_wanted = false;
 // second thread writes these. The frame thread reads them in the next frame,
 // when the second thread has no frame.
 bool g_thread_waited = false;
+// With the late end of the render thread (render_thread.cpp) the render
+// thread issues the event query of the frame, in the order of its queue.
+// This is its number, or 0 when the frame thread issued it.
+unsigned long g_flush_number = 0;
 bool g_thread_gave_up = false;
 uint64_t g_thread_wait_ticks = 0;
 uint32_t g_thread_polls = 0;
@@ -1080,6 +1084,8 @@ void GpuBridgeWaitHere() { WaitForGpu(); }
 // end of the frame in the queue and sends the queue to the GPU.
 void GpuBridgeWaitBegin() {
   if (g_flush_query == nullptr) return;
+  g_flush_number = RenderThreadQueueFlush(g_flush_query);
+  if (g_flush_number != 0) return;
   g_flush_query->Issue(D3DISSUE_END);
   g_flush_query->GetData(nullptr, 0, D3DGETDATA_FLUSH);
 }
@@ -1098,7 +1104,12 @@ void GpuBridgeWaitOnThread() {
   QueryPerformanceCounter(&start);
   uint32_t polls = 0;
   bool gave_up = false;
-  for (;;) {
+  // Before the render thread issued the query, the query has the end of the
+  // frame before.
+  if (g_flush_number != 0 && !RenderThreadWaitFlushed(g_flush_number, 100)) {
+    gave_up = true;
+  }
+  for (; !gave_up;) {
     QueryPerformanceCounter(&now);
     const LONGLONG waited = now.QuadPart - start.QuadPart;
     if (query->GetData(nullptr, 0, D3DGETDATA_FLUSH) != S_FALSE) break;

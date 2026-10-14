@@ -50,6 +50,22 @@ void RenderThreadReport(uint64_t frames);
 unsigned long RenderThreadWorkerId();
 // True in a walk whose calls go to the render thread (render_thread=1).
 bool RenderThreadQueueing();
+// render_thread_late_end: 1 (the default) does not wait at the end of a walk
+// until the render thread made each call of it. The calls after the walk go
+// into the queue, and the start of the next walk waits for it. 0: the end of
+// the walk waits.
+void RenderThreadSetLateEnd(bool on);
+bool RenderThreadLateEnd();
+// The test key: render_thread_late_end goes between 1 and 0.
+void RenderThreadLateEndToggle(const char* keys);
+// gpu_bridge.cpp, frame_send=2: the event query of the end of a frame goes
+// into the open queue after a walk, and the render thread issues it with
+// D3DGETDATA_FLUSH. Gives its number, or 0 when the frame thread must issue
+// it itself (no open queue).
+unsigned long RenderThreadQueueFlush(void* query);
+// The second thread of frame_send: waits until the render thread issued the
+// query of that number. False after limit_ms.
+bool RenderThreadWaitFlushed(unsigned long number, unsigned limit_ms);
 // ab_test=<key> (a test key): each window of the report goes to the other
 // value of the key: gpu_flush or render_thread_right_eye.
 void RenderThreadSetAbTest(const char* key);

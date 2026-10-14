@@ -77,6 +77,8 @@ enum Slot {
   kAddRef = 1,
   kRelease = 2,
   kCreateDepthStencilSurface = 29,
+  kStretchRect = 34,
+  kColorFill = 35,
   kSetRenderTarget = 37,
   kGetRenderTarget = 38,
   kSetDepthStencilSurface = 39,
@@ -85,6 +87,7 @@ enum Slot {
   kEndScene = 42,
   kClear = 43,
   kSetTransform = 44,
+  kGetTransform = 45,
   kSetViewport = 47,
   kGetViewport = 48,
   kSetMaterial = 49,
@@ -172,6 +175,9 @@ enum Op : uint16_t {
   kOpIssueQuery,
   kOpDrawBoth,   // the left copy, the render thread makes the right one
   kOpDrawApart,  // a kOpDrawBoth whose copies are not each in their half
+  kOpStretchRect,
+  kOpColorFill,
+  kOpFlushQuery,  // issue an event query and give the calls to the GPU
   kOps
 };
 
@@ -209,6 +215,22 @@ struct ArgStream { UINT stream; IDirect3DVertexBuffer9* buffer; UINT offset; UIN
 // After the indices of a kOpDrawBoth: the viewport of the game, the width of
 // an eye, and the move of x for each unit of rhw.
 struct ArgBothTail { D3DVIEWPORT9 game; UINT eye_width; float per_rhw; };
+struct ArgStretch {
+  IDirect3DSurface9* source;
+  IDirect3DSurface9* dest;
+  RECT source_rect;
+  RECT dest_rect;
+  BOOL has_source_rect;
+  BOOL has_dest_rect;
+  D3DTEXTUREFILTERTYPE filter;
+};
+struct ArgColorFill {
+  IDirect3DSurface9* surface;
+  RECT rect;
+  BOOL has_rect;
+  D3DCOLOR color;
+};
+struct ArgFlush { IDirect3DQuery9* query; LONG number; };
 
 // ---------------------------------------------------------------------------
 // The originals of the hooks.
@@ -248,6 +270,9 @@ typedef HRESULT(STDMETHODCALLTYPE* SetConstantsFn)(IDirect3DDevice9*, UINT, cons
 typedef HRESULT(STDMETHODCALLTYPE* SetStreamSourceFn)(IDirect3DDevice9*, UINT, IDirect3DVertexBuffer9*, UINT, UINT);
 typedef HRESULT(STDMETHODCALLTYPE* SetIndicesFn)(IDirect3DDevice9*, IDirect3DIndexBuffer9*);
 typedef HRESULT(STDMETHODCALLTYPE* SetPixelShaderFn)(IDirect3DDevice9*, IDirect3DPixelShader9*);
+typedef HRESULT(STDMETHODCALLTYPE* GetTransformFn)(IDirect3DDevice9*, D3DTRANSFORMSTATETYPE, D3DMATRIX*);
+typedef HRESULT(STDMETHODCALLTYPE* StretchRectFn)(IDirect3DDevice9*, IDirect3DSurface9*, const RECT*, IDirect3DSurface9*, const RECT*, D3DTEXTUREFILTERTYPE);
+typedef HRESULT(STDMETHODCALLTYPE* ColorFillFn)(IDirect3DDevice9*, IDirect3DSurface9*, const RECT*, D3DCOLOR);
 
 SetRenderTargetFn o_SetRenderTarget = nullptr;
 GetRenderTargetFn o_GetRenderTarget = nullptr;
@@ -286,6 +311,9 @@ SetStreamSourceFn o_SetStreamSource = nullptr;
 SetIndicesFn o_SetIndices = nullptr;
 SetPixelShaderFn o_SetPixelShader = nullptr;
 SetConstantsFn o_SetPixelShaderConstantF = nullptr;
+GetTransformFn o_GetTransform = nullptr;
+StretchRectFn o_StretchRect = nullptr;
+ColorFillFn o_ColorFill = nullptr;
 
 // ---------------------------------------------------------------------------
 // The state.
@@ -305,6 +333,22 @@ bool g_all_failed = false;
 bool g_said_no_surface = false;
 IDirect3DDevice9* g_device = nullptr;
 volatile bool g_recording = false;  // in a walk with mode 1 or 2
+// THE LATE END (render_thread_late_end=1). With render_thread=1 the end of a
+// walk does not wait until the render thread made each call of the walk.
+// The queue stays open after the walk: the calls of the mod after the walk
+// (one walk puts the game's target back, gpu_bridge.cpp copies the eyes into
+// the shared textures and issues the event query of the frame) go into the
+// queue after the calls of the walk. A call that the queue does not take
+// stops, as in a walk. The start of the next walk waits until the queue is
+// empty, and that wait is short: the render thread has the time of the game
+// turn and of xrWaitFrame. The second thread of frame_send waits until the
+// render thread issued the event query of its frame (RenderThreadQueueFlush).
+bool g_late_end = true;       // render_thread_late_end
+bool g_late = false;          // the queue of the last walk is open
+uint64_t g_late_ticks = 0;    // the waits at the start of a walk for it
+uint64_t g_late_walks = 0;
+volatile LONG g_flushed = 0;  // the number of the last event query issued
+LONG g_flush_number = 0;
 DWORD g_frame_thread = 0;
 DWORD g_worker_id = 0;
 HANDLE g_worker = nullptr;
@@ -955,6 +999,32 @@ uint32_t Play(const uint8_t* at) {
       hr = static_cast<IDirect3DQuery9*>(a->object)->Issue(D3DISSUE_END);
       break;
     }
+    case kOpStretchRect: {
+      const ArgStretch* a = reinterpret_cast<const ArgStretch*>(p);
+      hr = o_StretchRect(d, a->source,
+                         a->has_source_rect ? &a->source_rect : nullptr,
+                         a->dest, a->has_dest_rect ? &a->dest_rect : nullptr,
+                         a->filter);
+      Drop(a->source);
+      Drop(a->dest);
+      break;
+    }
+    case kOpColorFill: {
+      const ArgColorFill* a = reinterpret_cast<const ArgColorFill*>(p);
+      hr = o_ColorFill(d, a->surface, a->has_rect ? &a->rect : nullptr,
+                       a->color);
+      Drop(a->surface);
+      break;
+    }
+    case kOpFlushQuery: {
+      const ArgFlush* a = reinterpret_cast<const ArgFlush*>(p);
+      hr = a->query->Issue(D3DISSUE_END);
+      a->query->GetData(nullptr, 0, D3DGETDATA_FLUSH);
+      Drop(a->query);
+      // The second thread of frame_send polls the query only after this.
+      InterlockedExchange(&g_flushed, a->number);
+      break;
+    }
     case kOpSetVertexShader: {
       const ArgObject* a = reinterpret_cast<const ArgObject*>(p);
       hr = o_SetVertexShader(d, static_cast<IDirect3DVertexShader9*>(a->object));
@@ -1467,6 +1537,26 @@ HRESULT STDMETHODCALLTYPE h_GetRenderState(IDirect3DDevice9* self,
   return o_GetRenderState(self, state, value);
 }
 
+HRESULT STDMETHODCALLTYPE h_GetTransform(IDirect3DDevice9* self,
+                                         D3DTRANSFORMSTATETYPE state,
+                                         D3DMATRIX* matrix) {
+  if (Taking(self) && matrix != nullptr) {
+    const int slot = TransformSlot(state);
+    if (slot >= 0 && g_kept.transform_ok[slot]) {
+      *matrix = g_kept.transform[slot];
+      return D3D_OK;
+    }
+    Stop(kGetTransform);
+    const HRESULT hr = o_GetTransform(self, state, matrix);
+    if (SUCCEEDED(hr) && slot >= 0) {
+      g_kept.transform[slot] = *matrix;
+      g_kept.transform_ok[slot] = 1;
+    }
+    return hr;
+  }
+  return o_GetTransform(self, state, matrix);
+}
+
 HRESULT STDMETHODCALLTYPE h_SetTexture(IDirect3DDevice9* self, DWORD stage,
                                        IDirect3DBaseTexture9* texture) {
   if (Taking(self)) {
@@ -1805,6 +1895,50 @@ HRESULT STDMETHODCALLTYPE h_SetPixelShader(IDirect3DDevice9* self,
   return o_SetPixelShader(self, shader);
 }
 
+// The copies of gpu_bridge.cpp into the shared textures, after a walk.
+HRESULT STDMETHODCALLTYPE h_StretchRect(IDirect3DDevice9* self,
+                                        IDirect3DSurface9* source,
+                                        const RECT* source_rect,
+                                        IDirect3DSurface9* dest,
+                                        const RECT* dest_rect,
+                                        D3DTEXTUREFILTERTYPE filter) {
+  if (Taking(self) && source != nullptr && dest != nullptr) {
+    ViewportPutBack();
+    ArgStretch a = {};
+    a.source = source;
+    a.dest = dest;
+    if (source_rect != nullptr) a.source_rect = *source_rect;
+    if (dest_rect != nullptr) a.dest_rect = *dest_rect;
+    a.has_source_rect = source_rect != nullptr;
+    a.has_dest_rect = dest_rect != nullptr;
+    a.filter = filter;
+    Hold(source);
+    Hold(dest);
+    if (Simple(kOpStretchRect, a)) return D3D_OK;
+    Drop(source);
+    Drop(dest);
+    Stop(kStretchRect);
+  }
+  return o_StretchRect(self, source, source_rect, dest, dest_rect, filter);
+}
+
+HRESULT STDMETHODCALLTYPE h_ColorFill(IDirect3DDevice9* self,
+                                      IDirect3DSurface9* surface,
+                                      const RECT* rect, D3DCOLOR color) {
+  if (Taking(self) && surface != nullptr) {
+    ArgColorFill a = {};
+    a.surface = surface;
+    if (rect != nullptr) a.rect = *rect;
+    a.has_rect = rect != nullptr;
+    a.color = color;
+    Hold(surface);
+    if (Simple(kOpColorFill, a)) return D3D_OK;
+    Drop(surface);
+    Stop(kColorFill);
+  }
+  return o_ColorFill(self, surface, rect, color);
+}
+
 // ---------------------------------------------------------------------------
 // THE STOPS of each other call. A thunk of machine code for each call:
 //
@@ -1828,7 +1962,18 @@ bool ChangesStates(int which) {
          which == 132;                    // ResetEx
 }
 
+// Calls that read the state of the device or of the adapter, and change
+// nothing that a call of the queue uses: TestCooperativeLevel,
+// GetAvailableTextureMem, GetDeviceCaps, GetDisplayMode,
+// GetCreationParameters, and CheckDeviceState of Direct3D 9Ex. They need no
+// stop (gpu_bridge.cpp asks CheckDeviceState before each copy).
+bool NoStop(int which) {
+  return which == 3 || which == 4 || which == 7 || which == 8 ||
+         which == 9 || which == 128;
+}
+
 void __cdecl OtherCall(int which) {
+  if (NoStop(which)) return;
   const DWORD thread = ThisThreadId();
   if (g_recording && thread == g_frame_thread && D3D7ThreadActive()) {
     D3D7ThreadStop();
@@ -1984,6 +2129,9 @@ bool InstallAll(IDirect3DDevice9* device) {
       {kSetIndices, reinterpret_cast<void*>(&h_SetIndices), reinterpret_cast<void**>(&o_SetIndices)},
       {kSetPixelShader, reinterpret_cast<void*>(&h_SetPixelShader), reinterpret_cast<void**>(&o_SetPixelShader)},
       {kSetPixelShaderConstantF, reinterpret_cast<void*>(&h_SetPixelShaderConstantF), reinterpret_cast<void**>(&o_SetPixelShaderConstantF)},
+      {kGetTransform, reinterpret_cast<void*>(&h_GetTransform), reinterpret_cast<void**>(&o_GetTransform)},
+      {kStretchRect, reinterpret_cast<void*>(&h_StretchRect), reinterpret_cast<void**>(&o_StretchRect)},
+      {kColorFill, reinterpret_cast<void*>(&h_ColorFill), reinterpret_cast<void**>(&o_ColorFill)},
   };
   bool is_typed[kDeviceSlotsEx] = {false};
   for (const Typed& t : typed) {
@@ -2972,21 +3120,39 @@ bool RenderThreadFrame(uint64_t frame) {
   return true;
 }
 
+// The end of an open queue: each call of it goes to Direct3D 9 now.
+void EndLate() {
+  if (!g_late) return;
+  const uint64_t start = Ticks();
+  Drain();
+  g_late_ticks += Ticks() - start;
+  ++g_late_walks;
+  g_late = false;
+  g_recording = false;
+}
+
 void RenderThreadWalk(bool begin) {
   if (!begin) {
     StampWalkEnd();
     if (g_recording) {
       ViewportPutBack();
-      const uint64_t start = Ticks();
-      Drain();
-      g_end_ticks += Ticks() - start;
-      g_recording = false;
+      if (g_late_end && g_mode == 1) {
+        g_late = true;
+      } else {
+        const uint64_t start = Ticks();
+        Drain();
+        g_end_ticks += Ticks() - start;
+        g_recording = false;
+      }
     }
-    MeasureDoneAfterWalk(
-        static_cast<IDirect3DDevice9*>(GpuBridgeDeviceObject()));
+    if (!g_late) {
+      MeasureDoneAfterWalk(
+          static_cast<IDirect3DDevice9*>(GpuBridgeDeviceObject()));
+    }
     g_since_flush = 0;
     return;
   }
+  EndLate();
   g_mode = 0;
   IDirect3DDevice9* device =
       static_cast<IDirect3DDevice9*>(GpuBridgeDeviceObject());
@@ -3012,7 +3178,7 @@ void RenderThreadWalk(bool begin) {
   g_frame_thread = GetCurrentThreadId();
   ReadAll(device);
   ++g_walks;
-  // The queue is empty here: the end of each walk waits for it.
+  // The queue is empty here: the end of each walk, or EndLate, waits for it.
   InterlockedExchange(&g_worker_on, g_mode == 1 ? 1 : 0);
   g_recording = true;
   StampWalkBegin(device);
@@ -3028,7 +3194,7 @@ void RenderThreadSync() {
 // of the key, so a session in a headset compares the two with no key.
 // g_ab_test: 1 gpu_flush (the value of the ini, or 128, and 0), 2
 // render_thread_right_eye (1 and 0), 3 fast_transform (1 and 0), 4
-// d3d7_thread (1 and 0).
+// d3d7_thread (1 and 0), 5 render_thread_late_end (1 and 0).
 static int g_ab_test = 0;
 
 void RenderThreadSetAbTest(const char* key) {
@@ -3036,6 +3202,7 @@ void RenderThreadSetAbTest(const char* key) {
               : strcmp(key, "render_thread_right_eye") == 0 ? 2
               : strcmp(key, "fast_transform") == 0          ? 3
               : strcmp(key, "d3d7_thread") == 0             ? 4
+              : strcmp(key, "render_thread_late_end") == 0  ? 5
                                                             : 0;
   if (g_ab_test == 1) {
     ModLog("ab test      : ab_test=gpu_flush. Each window of 450 frames has "
@@ -3050,10 +3217,13 @@ void RenderThreadSetAbTest(const char* key) {
   } else if (g_ab_test == 4) {
     ModLog("ab test      : ab_test=d3d7_thread. Each window of 450 frames "
            "has the other value of d3d7_thread: 1 and 0");
+  } else if (g_ab_test == 5) {
+    ModLog("ab test      : ab_test=render_thread_late_end. Each window of 450 "
+           "frames has the other value of render_thread_late_end: 1 and 0");
   } else if (key[0] != 0) {
     ModLog("ab test      : ab_test=%s is not a key that the test knows. The "
            "keys: gpu_flush, render_thread_right_eye, fast_transform, "
-           "d3d7_thread", key);
+           "d3d7_thread, render_thread_late_end", key);
   }
 }
 
@@ -3068,6 +3238,11 @@ void RenderThreadReport(uint64_t frames) {
     ModLog("ab test      : the window that ends now had "
            "render_thread_right_eye=%d, the next one has %d",
            g_right_eye ? 0 : 1, g_right_eye ? 1 : 0);
+  } else if (g_ab_test == 5 && frames > 0) {
+    g_late_end = !g_late_end;
+    ModLog("ab test      : the window that ends now had "
+           "render_thread_late_end=%d, the next one has %d",
+           g_late_end ? 0 : 1, g_late_end ? 1 : 0);
   } else if (g_ab_test == 4 && frames > 0) {
     D3D7ThreadSet(!D3D7ThreadOn());
     ModLog("ab test      : the window that ends now had d3d7_thread=%d, the "
@@ -3115,7 +3290,8 @@ void RenderThreadReport(uint64_t frames) {
         "DrawPrimitiveUP", "DrawIndexedPrimitiveUP", "SetVertexDeclaration",
         "SetFVF", "SetVertexShader", "SetVertexShaderConstantF",
         "SetStreamSource", "SetIndices", "SetPixelShader",
-        "SetPixelShaderConstantF", "IssueQuery", "DrawBoth", "DrawApart"};
+        "SetPixelShaderConstantF", "IssueQuery", "DrawBoth", "DrawApart", "StretchRect", "ColorFill",
+        "FlushQuery"};
     const double per = static_cast<double>(frames);
     char line[1024];
     int used = 0;
@@ -3165,7 +3341,9 @@ void RenderThreadReport(uint64_t frames) {
   const LONG64 busy = InterlockedExchange64(&g_busy_ticks, 0);
   ModLog("render thread: render_thread=%d. %llu scene walks in %llu frames. A "
          "frame: %.0f records (%.0f draws), %.0f KiB, %.1f stops (%.3f ms), "
-         "the wait at the end of the walks %.3f ms, the render thread busy "
+         "the wait at the end of the walks %.3f ms, the wait at the start of a "
+         "walk for the queue of the walk before %.3f ms (%llu walks), the "
+         "render thread busy "
          "%.3f ms. %llu waits for room in the queue, %llu calls too large "
          "for the queue, %ld calls that failed",
          g_mode, g_walks, frames, records / per,
@@ -3174,7 +3352,8 @@ void RenderThreadReport(uint64_t frames) {
           g_records[kOpDrawBoth]) /
              per,
          g_bytes / 1024.0 / per, stops / per, Ms(g_stop_ticks) / per,
-         Ms(g_end_ticks) / per, Ms(static_cast<uint64_t>(busy)) / per,
+         Ms(g_end_ticks) / per, Ms(g_late_ticks) / per, g_late_walks,
+         Ms(static_cast<uint64_t>(busy)) / per,
          g_full_waits, g_too_large, failed);
   if (stops > 0) {
     char line[512];
@@ -3200,6 +3379,7 @@ void RenderThreadReport(uint64_t frames) {
   memset(g_records, 0, sizeof(g_records));
   memset(g_stops, 0, sizeof(g_stops));
   g_bytes = g_stop_ticks = g_end_ticks = g_full_waits = g_too_large = 0;
+  g_late_ticks = g_late_walks = 0;
 }
 
 unsigned long RenderThreadWorkerId() { return g_worker_id; }
@@ -3339,4 +3519,47 @@ void RenderThreadRightEyeToggle(const char* keys) {
   ControllersGesturePulse(0.5f, g_right_eye ? 0.30f : 0.08f);
   ModLog("test key     : %s, render_thread_right_eye is %d from the next draw",
          keys, g_right_eye ? 1 : 0);
+}
+
+unsigned long RenderThreadQueueFlush(void* query) {
+  if (!g_late || ThisThreadId() != g_frame_thread || query == nullptr) {
+    return 0;
+  }
+  IDirect3DQuery9* q = static_cast<IDirect3DQuery9*>(query);
+  ArgFlush a = {q, ++g_flush_number};
+  if (a.number <= 0) a.number = g_flush_number = 1;
+  Hold(q);
+  if (!Simple(kOpFlushQuery, a)) {
+    Drop(q);
+    return 0;
+  }
+  return static_cast<unsigned long>(a.number);
+}
+
+bool RenderThreadWaitFlushed(unsigned long number, unsigned limit_ms) {
+  const DWORD start = GetTickCount();
+  while (static_cast<unsigned long>(g_flushed) != number) {
+    if (GetTickCount() - start > limit_ms) return false;
+    YieldProcessor();
+  }
+  return true;
+}
+
+void RenderThreadSetLateEnd(bool on) {
+  g_late_end = on;
+  ModLog("render thread: render_thread_late_end=%d. %s", on ? 1 : 0,
+         on ? "With render_thread=1 the end of a walk does not wait for the "
+              "render thread. The calls after the walk go into its queue, "
+              "and the start of the next walk waits until it is empty"
+            : "The end of each walk waits until the render thread made each "
+              "call of the walk");
+}
+
+bool RenderThreadLateEnd() { return g_late_end; }
+
+void RenderThreadLateEndToggle(const char* keys) {
+  g_late_end = !g_late_end;
+  ControllersGesturePulse(0.5f, g_late_end ? 0.30f : 0.08f);
+  ModLog("test key     : %s, render_thread_late_end is %d from the next walk",
+         keys, g_late_end ? 1 : 0);
 }

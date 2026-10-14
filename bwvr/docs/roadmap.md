@@ -531,9 +531,11 @@ that moves while the Hand takes it.
     with SSE"): 0.25 ms less of the scene walks in a desktop run. Not run: a
     headset session with it. The calls of Direct3D 7 of a walk can go to a
     thread of their own (`d3d7_thread`, `backend.md`, "The thread of
-    Direct3D 7"), with the same pixels in a desktop run. Open: a headset
-    session with it, then its default value. With the render thread, one walk draws most
-    batches in one draw for both eyes (`one_walk_merge`, `backend.md`, "One
+    Direct3D 7", on by default), with the same pixels in a desktop run and
+    no fault in a headset at 144 Hz. The end of a walk does not wait for
+    the render thread (`render_thread_late_end`, `backend.md`, "The late
+    end of a walk"). Open: a headset session with it. With the render
+    thread, one walk draws most batches in one draw for both eyes (`one_walk_merge`, `backend.md`, "One
     draw for both eyes"). Before the thread, with one walk, a view of the
     whole island has about 1500 batches and a scene walk of 9.5 to 11 ms,
     and the runtime then shows 45 frames a second. Of that walk about 6 ms

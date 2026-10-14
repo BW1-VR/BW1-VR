@@ -515,7 +515,8 @@ int g_render_thread_buffers = 1;
 int g_render_thread_right_eye = 1;
 int g_fast_transform = 1;
 int g_d3d7_count = 0;
-int g_d3d7_thread = 0;
+int g_d3d7_thread = 1;
+int g_render_thread_late_end = 1;
 int g_gpu_flush = 128;
 char g_ab_test[64] = "";
 int g_profile_gpu = 0;
@@ -1311,7 +1312,11 @@ void ReadSettings() {
   g_d3d7_count =
       GetPrivateProfileIntA("bwvr", "d3d7_count", 0, path) != 0 ? 1 : 0;
   g_d3d7_thread =
-      GetPrivateProfileIntA("bwvr", "d3d7_thread", 0, path) != 0 ? 1 : 0;
+      GetPrivateProfileIntA("bwvr", "d3d7_thread", 1, path) != 0 ? 1 : 0;
+  g_render_thread_late_end =
+      GetPrivateProfileIntA("bwvr", "render_thread_late_end", 1, path) != 0
+          ? 1
+          : 0;
   GetPrivateProfileStringA("bwvr", "ab_test", "", g_ab_test,
                            sizeof(g_ab_test), path);
   g_profile_gpu =
@@ -1580,6 +1585,7 @@ void StartVrOnce() {
     FastTransformInstall();
     D3D7CountSetOptions(g_d3d7_count);
     D3D7ThreadSetOptions(g_d3d7_thread);
+    RenderThreadSetLateEnd(g_render_thread_late_end != 0);
     BubbleCardSetOptions(g_bubble_card, g_bubble_card_test,
                          g_bubble_card_test_frame);
     BubbleCardInstall();
