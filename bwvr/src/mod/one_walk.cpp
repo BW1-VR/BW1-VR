@@ -50,6 +50,7 @@
 #include "../common/bw_addresses.h"
 #include "one_walk.h"
 #include "one_walk_math.h"
+#include "d3d7_thread.h"
 #include "render_thread_d3d9.h"
 
 extern void ModLog(const char* format, ...);
@@ -103,26 +104,79 @@ float g_per_rhw = 0.0f;  // the move per rhw of the last draw
 bool g_shift_held = false;
 float g_held_shift = 0.0f;
 
+// The four inputs of the move per rhw: the scale of the field of view, the
+// eye separation, half the render width and the near plane.
+void RhwInputs(float out[4]) {
+  const bw::tech::InfoTransform* info =
+      reinterpret_cast<const bw::tech::InfoTransform*>(bw::tech::kInfoTransform);
+  out[0] = info->inv_half_tan_fov_x;
+  out[1] = g_separation;
+  out[2] = info->half_res_x;
+  out[3] = *reinterpret_cast<const float*>(bw::tech::kNearPlane);
+}
+
+// The move per rhw from its inputs. The inputs change seldom in a walk, so
+// the last result is kept with them.
+struct RhwCache {
+  float inputs[4];
+  float result;
+  float Get(const float in[4]) {
+    if (memcmp(in, inputs, sizeof(inputs)) != 0) {
+      memcpy(inputs, in, sizeof(inputs));
+      result = one_walk_math::ShiftPerRhw(in[0], in[1], in[2], in[3]);
+    }
+    return result;
+  }
+};
+RhwCache g_frame_rhw = {{0.0f, 0.0f, 0.0f, 0.0f}, 0.0f};
+
+// THE STATE ON THE D3D7 THREAD (d3d7_thread=1). The hooks of Direct3D 9 run
+// on the D3D7 thread then, later than the calls of the game. So the D3D7
+// thread has its own copy of the mode, of the held move and of the inputs of
+// the move, and each change of them on the frame thread goes into the queue
+// of the D3D7 thread in the order of the calls (D3D7ThreadPost).
+struct WorkerState {
+  int mode;
+  bool shift_held;
+  float held_shift;
+  float inputs[4];
+};
+WorkerState g_worker = {kOneWalkBoth, false, 0.0f, {0.0f, 0.0f, 0.0f, 0.0f}};
+RhwCache g_worker_rhw = {{0.0f, 0.0f, 0.0f, 0.0f}, 0.0f};
+// The values that went into the queue last: a record only for a change.
+float g_posted_inputs[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+int g_posted_mode = kOneWalkBoth;
+bool g_posted_held = false;
+float g_posted_shift = 0.0f;
+
+void ApplyState(const void* data) {
+  memcpy(&g_worker, data, sizeof(g_worker));
+}
+void ApplyMode(const void* data) { memcpy(&g_worker.mode, data, sizeof(int)); }
+void ApplyHold(const void* data) {
+  const uint8_t* p = static_cast<const uint8_t*>(data);
+  g_worker.shift_held = p[0] != 0;
+  memcpy(&g_worker.held_shift, p + 4, sizeof(float));
+}
+void ApplyInputs(const void* data) {
+  memcpy(g_worker.inputs, data, sizeof(g_worker.inputs));
+}
+
+// The mode for the hooks of Direct3D 9.
+int Mode() { return D3D7ThreadOnWorker() ? g_worker.mode : g_mode; }
+
 float PerRhwNow() {
+  if (D3D7ThreadOnWorker()) {
+    return g_worker.shift_held ? g_worker.held_shift
+                               : g_worker_rhw.Get(g_worker.inputs);
+  }
   if (g_shift_held) {
     g_per_rhw = g_held_shift;
     return g_per_rhw;
   }
-  // The four inputs change seldom in a walk, so the last result is kept with
-  // them.
-  static float s_inputs[4] = {0.0f, 0.0f, 0.0f, 0.0f};
-  static float s_result = 0.0f;
-  const bw::tech::InfoTransform* info =
-      reinterpret_cast<const bw::tech::InfoTransform*>(bw::tech::kInfoTransform);
-  const float inputs[4] = {
-      info->inv_half_tan_fov_x, g_separation, info->half_res_x,
-      *reinterpret_cast<const float*>(bw::tech::kNearPlane)};
-  if (memcmp(inputs, s_inputs, sizeof(inputs)) != 0) {
-    memcpy(s_inputs, inputs, sizeof(inputs));
-    s_result = one_walk_math::ShiftPerRhw(inputs[0], inputs[1], inputs[2],
-                                          inputs[3]);
-  }
-  g_per_rhw = s_result;
+  float inputs[4];
+  RhwInputs(inputs);
+  g_per_rhw = g_frame_rhw.Get(inputs);
   return g_per_rhw;
 }
 
@@ -291,7 +345,7 @@ HRESULT STDMETHODCALLTYPE h_DrawIndexedPrimitiveUP(
         self, type, min_index, vertex_count, primitive_count, indices,
         index_format, vertices, stride);
   }
-  const int mode = g_mode;
+  const int mode = Mode();
   // ONE DRAW FOR BOTH EYES (one_walk_merge=1). A triangle list whose left
   // copy ends at the right edge of the viewport of the left eye, and whose
   // right copy starts at the left edge of the right eye, needs no clip at the
@@ -397,7 +451,7 @@ HRESULT STDMETHODCALLTYPE h_DrawPrimitiveUP(IDirect3DDevice9* self,
     return RenderThreadOutDrawPrimitiveUP(self, type, primitive_count, vertices,
                                           stride);
   }
-  const int mode = g_mode;
+  const int mode = Mode();
   HRESULT hr = S_OK;
   if (mode != kOneWalkRightOnly) {
     hr = RenderThreadOutDrawPrimitiveUP(self, type, primitive_count, vertices,
@@ -460,10 +514,11 @@ HRESULT STDMETHODCALLTYPE h_Clear(IDirect3DDevice9* self, DWORD count,
     return RenderThreadOutClear(self, count, rects, flags, color, z, stencil);
   }
   HRESULT hr = S_OK;
-  if (g_mode != kOneWalkRightOnly) {
+  const int mode = Mode();
+  if (mode != kOneWalkRightOnly) {
     hr = RenderThreadOutClear(self, count, rects, flags, color, z, stencil);
   }
-  if (g_mode == kOneWalkLeftOnly) return hr;
+  if (mode == kOneWalkLeftOnly) return hr;
   ++g_clears;
   D3DRECT moved[16];
   const D3DRECT* use = nullptr;
@@ -482,7 +537,7 @@ HRESULT STDMETHODCALLTYPE h_Clear(IDirect3DDevice9* self, DWORD count,
   const HRESULT right =
       RenderThreadOutClear(self, use_count, use, flags, color, z, stencil);
   PutBack(self, saved);
-  return g_mode == kOneWalkRightOnly ? right : hr;
+  return mode == kOneWalkRightOnly ? right : hr;
 }
 
 // THE TARGET STAYS WIDE FOR THE WHOLE PASS. dxwrapper binds the game's target
@@ -763,12 +818,46 @@ float OneWalkShiftPerRhw() { return g_active ? PerRhwNow() : g_per_rhw; }
 void OneWalkHoldShift(bool hold, float shift) {
   g_shift_held = hold;
   g_held_shift = shift;
+  if (!D3D7ThreadActive() ||
+      (hold == g_posted_held && (!hold || shift == g_posted_shift))) {
+    return;
+  }
+  uint8_t data[8] = {static_cast<uint8_t>(hold ? 1 : 0), 0, 0, 0};
+  memcpy(data + 4, &shift, sizeof(float));
+  if (D3D7ThreadPost(&ApplyHold, data, sizeof(data))) {
+    g_posted_held = hold;
+    g_posted_shift = shift;
+  }
 }
 
 void OneWalkSetMode(int mode) {
   // A batch of draw_merge goes out with the mode of the draw calls in it.
   if (mode != g_mode) DrawMergeFlush();
   g_mode = mode;
+  if (D3D7ThreadActive() && mode != g_posted_mode &&
+      D3D7ThreadPost(&ApplyMode, &mode, sizeof(mode))) {
+    g_posted_mode = mode;
+  }
+}
+
+void OneWalkPostState() {
+  WorkerState state = {g_mode, g_shift_held, g_held_shift, {}};
+  RhwInputs(state.inputs);
+  memcpy(g_posted_inputs, state.inputs, sizeof(g_posted_inputs));
+  g_posted_mode = g_mode;
+  g_posted_held = g_shift_held;
+  g_posted_shift = g_held_shift;
+  if (!D3D7ThreadPost(&ApplyState, &state, sizeof(state))) {
+    memcpy(&g_worker, &state, sizeof(state));
+  }
+}
+
+void OneWalkBeforeQueuedDraw() {
+  float inputs[4];
+  RhwInputs(inputs);
+  if (memcmp(inputs, g_posted_inputs, sizeof(inputs)) == 0) return;
+  memcpy(g_posted_inputs, inputs, sizeof(inputs));
+  D3D7ThreadPost(&ApplyInputs, inputs, sizeof(inputs));
 }
 
 void* OneWalkTarget() { return g_wide; }

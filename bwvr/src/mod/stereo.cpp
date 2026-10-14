@@ -68,6 +68,7 @@
 #include "cutscene_window.h"
 #include "frame_profile.h"
 #include "d3d7_count.h"
+#include "d3d7_thread.h"
 #include "fast_transform.h"
 #include "render_thread.h"
 #include "scene_sample.h"
@@ -594,13 +595,14 @@ float FrameSeparation() {
 //
 // A virtual keyboard can also send a capital letter as the character alone
 // (VK_PACKET), with no Shift. Then only a WM_CHAR of the capital letter
-// comes. So a WM_CHAR of F, G, H, J, K or L is the same key, unless the WM_KEYDOWN
+// comes. So a WM_CHAR of F, G, H, J, K, L or M is the same key, unless the WM_KEYDOWN
 // of that key came less than 200 ms before it: a real keyboard sends both.
 // The digits have no such second way, because the character of Shift 8 and
 // Shift 9 is not the same on each keyboard layout.
-// Shift 8, Shift 9, Shift F, Shift G, Shift H, Shift J, Shift K, Shift L
-static volatile LONG g_shift_key[8] = {0, 0, 0, 0, 0, 0, 0, 0};
-static DWORD g_shift_key_at[8] = {0, 0, 0, 0, 0, 0, 0, 0};
+// Shift 8, Shift 9, Shift F, Shift G, Shift H, Shift J, Shift K, Shift L,
+// Shift M
+static volatile LONG g_shift_key[9] = {0, 0, 0, 0, 0, 0, 0, 0, 0};
+static DWORD g_shift_key_at[9] = {0, 0, 0, 0, 0, 0, 0, 0, 0};
 static HHOOK g_message_hook = nullptr;
 static bool g_message_hook_tried = false;
 
@@ -613,6 +615,7 @@ static int ShiftKeyIndex(WPARAM key) {
          : key == 'J' ? 5
          : key == 'K' ? 6
          : key == 'L' ? 7
+         : key == 'M' ? 8
                       : -1;
 }
 
@@ -707,6 +710,9 @@ bool GameHasFocus() {
 //               (render_thread_right_eye, render_thread.cpp)
 //   Shift L     the two vertex loops of the engine run with SSE or on the
 //               x87 unit (fast_transform, fast_transform.cpp)
+//   Shift M     the calls of Direct3D 7 of a walk go to the D3D7 thread or
+//               to dxwrapper on the frame thread (d3d7_thread,
+//               d3d7_thread.cpp)
 //   Ctrl Shift Numpad Slash  the mod waits for the GPU after each eye pass,
 //               one time a frame, or one time a frame on a second thread
 //               that also gives the frame to the runtime (frame_send,
@@ -871,6 +877,9 @@ void PollHotkeys() {
   }
   if (InterlockedExchange(&g_shift_key[7], 0) != 0) {
     FastTransformToggle("Shift and L");
+  }
+  if (InterlockedExchange(&g_shift_key[8], 0) != 0) {
+    D3D7ThreadToggle("Shift and M");
   }
   // An A/B of one walk (docs/backend.md, "One walk for both eyes"). The
   // menu key (VK_APPS) has no action in the game and no other test key.
@@ -1425,12 +1434,14 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
     // The calls of the walk to Direct3D 9 can go to the render thread. The
     // end waits until each of them went to Direct3D 9.
     RenderThreadWalk(true);
+    D3D7ThreadWalk(true, RenderThreadQueueing());
     D3D7CountWalk(true);
     o_Process3dEngine(self, unused);
     // The targets get the color of the game back (target_glow.cpp).
     TargetGlowPassDone();
     DrawMergePass(false);
     D3D7CountWalk(false);
+    D3D7ThreadWalk(false, false);
     RenderThreadWalk(false);
     if (walk_wide) {
       EyeCleanOneWalkAfter();
@@ -1742,6 +1753,7 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
     // ab_test for the next window.
     FastTransformReport(g_timed_now);
     D3D7CountReport(g_timed_now);
+    D3D7ThreadReport(g_timed_now);
     RenderThreadReport(g_timed_now);
     PresentWatchReport(g_timed_now);
     {

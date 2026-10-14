@@ -1752,8 +1752,8 @@ render thread does it, with no render thread the frame thread does it in the
 `ab_test=<key>` (a test key) gives each window of 450 frames the other value
 of the key, and the log says it at the end of each window (`ab test`), so a
 session in a headset compares the two with no key. The keys are `gpu_flush`
-(the value of the ini, or 128, and 0), `render_thread_right_eye` (1 and 0)
-and `fast_transform` (1 and 0).
+(the value of the ini, or 128, and 0), `render_thread_right_eye` (1 and 0),
+`fast_transform` (1 and 0) and `d3d7_thread` (1 and 0).
 
 A desktop run with `render_thread=1`, 1096 draws in a frame: the GPU is done
 2.98 ms after the walk with no flush, 1.57 ms with a flush each 64 or 128
@@ -1859,6 +1859,66 @@ pictures of two runs of one mode (0.007 to 0.017 percent of the pixels).
 
 `fast_transform=0` runs the loops of the game. With `test_keys=1`, Shift
 and L turn it off and on.
+
+## The thread of Direct3D 7
+
+In a walk the frame thread calls the Direct3D 7 device of dxwrapper about
+4000 times a frame. dxwrapper makes each call into calls of Direct3D 9, and
+the hooks of the render thread and of one walk make records of those. With
+`render_thread=1`, `d3d7_thread=1` (0 by default, `d3d7_thread.cpp`) puts
+the calls of the device into a queue, and a thread of its own (the D3D7
+thread) gives them to dxwrapper. Then the D3D7 thread makes the records of
+the render thread, and the frame thread has only the game and the hooks of
+the mod on the methods.
+
+**The queue.** In a walk the game makes `SetRenderState` (about 1550 a
+frame), `DrawIndexedPrimitive` (1490), `SetTexture` (605),
+`SetTextureStageState` (354) and `SetLight` (61), and the hand and the
+overlay of the mod make `DrawPrimitive` ("The calls of Direct3D 7 in a
+walk"). A hook on the inner function of dxwrapper behind each of these six
+methods makes a record with a copy of the vertices, the indices or the light,
+and returns `D3D_OK`. The hooks of the mod on the methods
+(`draw_probe.cpp`, `texture_filter.cpp`, `draw_merge.cpp`, `eye_clean.cpp`)
+are on the methods themselves, so they run first, on the frame thread.
+
+**The stops.** Each other way of the frame thread into dxwrapper in a walk
+first waits until the D3D7 thread did each record:
+
+- dxwrapper makes a scoped lock of its own (`0x100096E0`) at the start of
+  most methods of the device and of the surfaces, also `Lock`, `Unlock`,
+  `Blt` and `Release`. A hook of that lock stops. So a texture that a record
+  names is never released before the record.
+- The methods of the device that take no such lock at their start (`Clear`,
+  `BeginScene`, `EndScene`, the Get methods and the others) have a hook on
+  their inner function that stops, and so do `SetPalette` and `Restore` of a
+  surface. Five methods have no inner function (`GetTexture`,
+  `EndStateBlock`, `PreLoad`, `Load`, `GetInfo`): their entries in the
+  table of methods stop.
+- A call of the frame thread to Direct3D 9 stops (`render_thread.cpp`,
+  `Taking`).
+
+A stop never waits while the frame thread holds the lock of dxwrapper. A
+call that comes from inside dxwrapper goes to dxwrapper at once, and then
+the queue is empty, because the way into dxwrapper stopped first. The places
+in dxwrapper are of the build that the mod ships. The mod checks the start of
+each function and the place of the table of methods of the device, and with
+a different build the calls stay on the frame thread.
+
+**One walk.** One walk reads its mode and the move of the right eye in its
+hooks of Direct3D 9, which then run on the D3D7 thread. So the D3D7 thread
+has its own copy of these. A change of the mode, of the move that
+`draw_merge.cpp` holds, or of the inputs of the move (the field of view,
+the size and the near plane of the engine) goes into the queue as a record
+in the order of the calls (`D3D7ThreadPost`).
+
+A desktop run at the start of a new game: the D3D7 thread is busy 0.8 ms in
+a frame, with about 4 stops. The pictures of frame 3000 with and with no
+D3D7 thread have the same pixels. The scene walks are 2.02 ms in place of
+2.14 ms. The work of the frame thread is much less, but the end of each walk
+waits for the render thread (1.9 ms), which is the slowest step on the
+desktop. In a headset the walks of the frame thread take longer than the
+render thread, so the gain is larger there. With `test_keys=1`, Shift and M
+turn it on and off from the next walk.
 
 ## The calls of Direct3D 7 in a walk
 
@@ -3133,7 +3193,7 @@ in front. The mod reads the keys and never takes them from the game.
 | Ctrl Shift Equals | `test_keys=1` | The ears decide the start of the loop of a bulk take, or the game camera decides and the take has no sound in the God view. A long pulse and a short pulse (`audio_take_loop`, `audio.md`, 6.4). The equals key is in the row of digits |
 | Ctrl Shift Minus | `test_keys=1` | The pieces of the stream of a take at a distance go on a curve from the top of the source to the Hand, or they are on the line of the game, from the land under the Hand. A long pulse and a short pulse (`take_stream`, `grab.md`, "The stream of a take at a distance"). The minus key is in the row of digits |
 | Ctrl Shift Left bracket | `test_keys=1` | What marks a target of the Hand steps from 1 to 0 to 2 and back: the glow on the mesh with a halo only for a target whose mesh does not glow, the halo, or the glow and the halo. A long pulse for 1, a short pulse for 0 and a longer pulse for 2 (`target_glow`, `hand-model.md`, "The glow on the mesh of a target"). The left square bracket key is right of the P key on a US keyboard |
-| Shift 8 | `test_keys=1` | The calls of each scene walk go to the render thread, or to Direct3D 9 as they come, from the next scene walk. A long pulse and a short pulse (`render_thread`, "The render thread"). The game uses Shift with 1 to 7 for its bookmarks. A hook of the messages of the game thread reads the key, so a key of a virtual keyboard that goes down and up between two frames counts. For F, G, H, J, K and L the capital letter alone (a `WM_CHAR` with no Shift) counts too, because a virtual keyboard can send it so Ctrl must be up |
+| Shift 8 | `test_keys=1` | The calls of each scene walk go to the render thread, or to Direct3D 9 as they come, from the next scene walk. A long pulse and a short pulse (`render_thread`, "The render thread"). The game uses Shift with 1 to 7 for its bookmarks. A hook of the messages of the game thread reads the key, so a key of a virtual keyboard that goes down and up between two frames counts. For F, G, H, J, K, L and M the capital letter alone (a `WM_CHAR` with no Shift) counts too, because a virtual keyboard can send it so Ctrl must be up |
 | Shift 9 | `test_keys=1` | The mod gives the answers of some calls of a texture with no lock of the device, or each call goes to Direct3D 9, from the next call. A long pulse and a short pulse (`render_thread_lock_free`, "The lock of the device"). It works only while `render_thread` is 1 or 2 in the ini. It is read as Shift 8. Ctrl must be up |
 | Shift F | `test_keys=1` | A call of a walk that sets the value that the device has already goes to Direct3D 9 or not. A long pulse and a short pulse (`render_thread_filter`, "The calls that change nothing"). It works only while `render_thread` is 1 or 2 in the ini. It is read as Shift 8. Ctrl must be up |
 | Shift G | `test_keys=1` | The render thread draws from buffers of its own, or gives each `DrawIndexedPrimitiveUP` to Direct3D 9. A long pulse and a short pulse (`render_thread_buffers`, "The buffers of the render thread"). It works only while `render_thread` is 1 in the ini. It is read as Shift 8. Ctrl must be up |
@@ -3141,6 +3201,7 @@ in front. The mod reads the keys and never takes them from the game.
 | Shift J | `test_keys=1` | The driver gives the calls of a walk to the GPU each N draws, or when it wants. A long pulse and a short pulse (`gpu_flush`, "The flush"). Ctrl must be up |
 | Shift K | `test_keys=1` | The render thread or the frame thread makes the copy of a batch of one walk for the right eye, from the next draw. A long pulse and a short pulse (`render_thread_right_eye`, "The right eye on the render thread"). It works only while `render_thread` is 1 in the ini. Ctrl must be up |
 | Shift L | `test_keys=1` | The two vertex loops of the engine run with SSE or on the x87 unit, from the next mesh. A long pulse and a short pulse (`fast_transform`, "The vertex loops with SSE"). Ctrl must be up |
+| Shift M | `test_keys=1` | The calls of Direct3D 7 of a walk go to the D3D7 thread or to dxwrapper on the frame thread, from the next walk. A long pulse and a short pulse (`d3d7_thread`, "The thread of Direct3D 7"). It works only while `render_thread` is 1 in the ini. Ctrl must be up |
 | Ctrl Shift Numpad Slash | `test_keys=1` | The mod waits for the GPU after each eye pass, one time a frame, or one time a frame on a second thread that also gives the frame to the runtime. A long pulse, a pulse of middle length and a short pulse (`frame_send`, "One wait a frame, and a second thread"). The slash key with Shift and no Ctrl is a key of the Temple, and with no Shift it is a key of the throw |
 | Menu key | `test_keys=1` | One walk for both eyes on and off (see "One walk for both eyes"). The key beside the right Ctrl key that opens a context menu. Ctrl and Shift must be up |
 | Ctrl Menu key | `test_keys=1` | The layout of the buttons of the hand that does not point. The menu button of the left controller opens the game menu, Y opens the ring and the stick does not drive the ring, or Y opens the game menu and X and the stick open the ring. A long pulse and a short pulse on that hand (`button_layout`, `controllers.md`, 5.1). Shift must be up |
@@ -3249,7 +3310,8 @@ keys that the launcher sets.
 | `render_thread_buffers` | 1 | 1: the render thread draws the `DrawIndexedPrimitiveUP` of a walk from buffers of its own. 0: each goes to Direct3D 9 as it is. See "The buffers of the render thread" |
 | `gpu_flush` | 128 | N: each N draws of a walk the driver gives the calls so far to the GPU. 0: when the driver wants. See "The flush" |
 | `render_thread_right_eye` | 1 | 1: with the render thread, the render thread makes the copy of a batch of one walk for the right eye. 0: the frame thread makes it. See "The right eye on the render thread" |
-| `ab_test` | (empty) | A test key: `gpu_flush`, `render_thread_right_eye` or `fast_transform` changes at each window of 450 frames. See "The flush" |
+| `ab_test` | (empty) | A test key: `gpu_flush`, `render_thread_right_eye`, `fast_transform` or `d3d7_thread` changes at each window of 450 frames. See "The flush" |
+| `d3d7_thread` | 0 | 1: with `render_thread=1`, the calls of Direct3D 7 of a walk go to a thread of their own. See "The thread of Direct3D 7" |
 | `d3d7_count` | 0 | A test key. See "The calls of Direct3D 7 in a walk" |
 | `fast_transform` | 1 | 1: the two vertex loops of the engine run with SSE, with the bits of the game. 0: on the x87 unit. See "The vertex loops with SSE" |
 | `profile_gpu` | 0 | A test key. See "The GPU time" |

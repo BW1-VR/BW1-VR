@@ -27,6 +27,7 @@
 #include "controllers.h"
 #include "frame_profile.h"
 #include "d3d7_count.h"
+#include "d3d7_thread.h"
 #include "fast_transform.h"
 #include "render_thread.h"
 #include "tabletop.h"
@@ -514,6 +515,7 @@ int g_render_thread_buffers = 1;
 int g_render_thread_right_eye = 1;
 int g_fast_transform = 1;
 int g_d3d7_count = 0;
+int g_d3d7_thread = 0;
 int g_gpu_flush = 128;
 char g_ab_test[64] = "";
 int g_profile_gpu = 0;
@@ -1308,6 +1310,8 @@ void ReadSettings() {
       GetPrivateProfileIntA("bwvr", "fast_transform", 1, path) != 0 ? 1 : 0;
   g_d3d7_count =
       GetPrivateProfileIntA("bwvr", "d3d7_count", 0, path) != 0 ? 1 : 0;
+  g_d3d7_thread =
+      GetPrivateProfileIntA("bwvr", "d3d7_thread", 0, path) != 0 ? 1 : 0;
   GetPrivateProfileStringA("bwvr", "ab_test", "", g_ab_test,
                            sizeof(g_ab_test), path);
   g_profile_gpu =
@@ -1575,6 +1579,7 @@ void StartVrOnce() {
     FastTransformSetOptions(g_fast_transform);
     FastTransformInstall();
     D3D7CountSetOptions(g_d3d7_count);
+    D3D7ThreadSetOptions(g_d3d7_thread);
     BubbleCardSetOptions(g_bubble_card, g_bubble_card_test,
                          g_bubble_card_test_frame);
     BubbleCardInstall();

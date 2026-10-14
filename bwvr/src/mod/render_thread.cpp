@@ -52,6 +52,7 @@
 
 #include "MinHook.h"
 #include "one_walk_math.h"
+#include "d3d7_thread.h"
 #include "fast_transform.h"
 #include "render_thread.h"
 #include "render_thread_d3d9.h"
@@ -493,10 +494,17 @@ void ReadAll(IDirect3DDevice9* d) {
   }
 }
 
-// True when this call is a call of the walk that the queue takes.
+// True when this call is a call of the walk that the queue takes. With the
+// D3D7 thread (d3d7_thread.cpp) the D3D7 thread writes the records of the
+// walk. A call of the frame thread then first waits until the D3D7 thread
+// did each call before it, so one thread at a time writes.
 bool Taking(IDirect3DDevice9* self) {
-  return g_recording && self == g_device &&
-         ThisThreadId() == g_frame_thread;
+  if (!g_recording || self != g_device) return false;
+  if (ThisThreadId() == g_frame_thread) {
+    if (D3D7ThreadActive()) D3D7ThreadStop();
+    return true;
+  }
+  return D3D7ThreadOnWorker();
 }
 
 bool OnWorker() { return g_worker_id != 0 && ThisThreadId() == g_worker_id; }
@@ -1822,7 +1830,10 @@ bool ChangesStates(int which) {
 
 void __cdecl OtherCall(int which) {
   const DWORD thread = ThisThreadId();
-  if (g_recording && thread == g_frame_thread) {
+  if (g_recording && thread == g_frame_thread && D3D7ThreadActive()) {
+    D3D7ThreadStop();
+  }
+  if (g_recording && (thread == g_frame_thread || D3D7ThreadOnWorker())) {
     ViewportPutBack();
     Stop(which);
     if (ChangesStates(which)) ResetKept();
@@ -3009,19 +3020,22 @@ void RenderThreadWalk(bool begin) {
 
 void RenderThreadSync() {
   if (!g_recording || ThisThreadId() != g_frame_thread) return;
+  if (D3D7ThreadActive()) D3D7ThreadStop();
   Stop(kStopSurface);
 }
 
 // ab_test=<key> (a test key): each window of the report has the other value
 // of the key, so a session in a headset compares the two with no key.
 // g_ab_test: 1 gpu_flush (the value of the ini, or 128, and 0), 2
-// render_thread_right_eye (1 and 0), 3 fast_transform (1 and 0).
+// render_thread_right_eye (1 and 0), 3 fast_transform (1 and 0), 4
+// d3d7_thread (1 and 0).
 static int g_ab_test = 0;
 
 void RenderThreadSetAbTest(const char* key) {
   g_ab_test = strcmp(key, "gpu_flush") == 0                 ? 1
               : strcmp(key, "render_thread_right_eye") == 0 ? 2
               : strcmp(key, "fast_transform") == 0          ? 3
+              : strcmp(key, "d3d7_thread") == 0             ? 4
                                                             : 0;
   if (g_ab_test == 1) {
     ModLog("ab test      : ab_test=gpu_flush. Each window of 450 frames has "
@@ -3033,9 +3047,13 @@ void RenderThreadSetAbTest(const char* key) {
   } else if (g_ab_test == 3) {
     ModLog("ab test      : ab_test=fast_transform. Each window of 450 frames "
            "has the other value of fast_transform: 1 and 0");
+  } else if (g_ab_test == 4) {
+    ModLog("ab test      : ab_test=d3d7_thread. Each window of 450 frames "
+           "has the other value of d3d7_thread: 1 and 0");
   } else if (key[0] != 0) {
     ModLog("ab test      : ab_test=%s is not a key that the test knows. The "
-           "keys: gpu_flush, render_thread_right_eye, fast_transform", key);
+           "keys: gpu_flush, render_thread_right_eye, fast_transform, "
+           "d3d7_thread", key);
   }
 }
 
@@ -3050,6 +3068,11 @@ void RenderThreadReport(uint64_t frames) {
     ModLog("ab test      : the window that ends now had "
            "render_thread_right_eye=%d, the next one has %d",
            g_right_eye ? 0 : 1, g_right_eye ? 1 : 0);
+  } else if (g_ab_test == 4 && frames > 0) {
+    D3D7ThreadSet(!D3D7ThreadOn());
+    ModLog("ab test      : the window that ends now had d3d7_thread=%d, the "
+           "next one has %d",
+           D3D7ThreadOn() ? 0 : 1, D3D7ThreadOn() ? 1 : 0);
   } else if (g_ab_test == 3 && frames > 0) {
     FastTransformSet(!FastTransformOn());
     ModLog("ab test      : the window that ends now had fast_transform=%d, "
@@ -3180,6 +3203,8 @@ void RenderThreadReport(uint64_t frames) {
 }
 
 unsigned long RenderThreadWorkerId() { return g_worker_id; }
+
+bool RenderThreadQueueing() { return g_recording && g_mode == 1; }
 
 bool RenderThreadViewportBoth(IDirect3DDevice9* self,
                               const D3DVIEWPORT9* both) {
