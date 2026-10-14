@@ -1780,7 +1780,13 @@ the walk go into it after the calls of the walk:
 - one walk puts the target of the game back (`SetRenderTarget`,
   `SetDepthStencilSurface`),
 - `gpu_bridge.cpp` copies the eyes and the interface panel into the shared
-  textures (`StretchRect`, `ColorFill`, records of their own),
+  textures (`StretchRect`, `ColorFill`, records of their own). Only a copy
+  from the code of the mod goes into the queue. A copy of dxwrapper stops:
+  dxwrapper reads the result of each copy and makes the texture in a
+  different way when Direct3D 9 refuses the copy, and a record gives
+  `D3D_OK` at once. With such records the buildings of a village had black
+  walls and no roofs (`village_run.ps1 -Kind store -NewGame` shows the
+  village up close),
 - with `frame_send=2` the render thread issues the event query of the end
   of the frame with `D3DGETDATA_FLUSH` (`RenderThreadQueueFlush`). The
   second thread of `frame_send.cpp` first waits until the render thread
@@ -1791,8 +1797,8 @@ A call that the queue does not take stops, as in a walk, and a lock of a
 surface or a query that the frame thread issues itself (`frame_send` 0 and
 1) waits for each call before it. The start of the next walk waits until
 the queue is empty. The render thread has the time of the game turn and of
-`xrWaitFrame` for it, so that wait is short. `GetTransform` gets its answer
-from the matrices that the walk set, as `GetRenderState` does. The calls
+`xrWaitFrame` for it, so that wait is short. `GetTransform` stops, and the
+matrix that it reads becomes the kept matrix of the filter. The calls
 that only read the state of the device or of the adapter
 (`TestCooperativeLevel`, `GetAvailableTextureMem`, `GetDeviceCaps`,
 `GetDisplayMode`, `GetCreationParameters`, `CheckDeviceState`) need no stop,
@@ -1909,6 +1915,14 @@ same pixels.
 
 `fast_transform=0` runs the loops of the game. With `test_keys=1`, Shift
 and L turn it off and on.
+
+`fast_transform_check=1` (a test key) checks the SSE loops in the game: each
+hook makes the SSE loop into a copy of the output, and the loop of the game
+runs. A hook at the start of the code after each loop compares the copy with
+what the game wrote, and the log has the count of the meshes and of the
+vertices that differ (`fast transform: check` lines, and the first 12
+vertices that differ). A desktop run at the start of a new game compared 10.8
+million vertices in each window of 450 frames, and 0 differed.
 
 ## The thread of Direct3D 7
 
@@ -3369,6 +3383,7 @@ keys that the launcher sets.
 | `ab_test` | (empty) | A test key: `gpu_flush`, `render_thread_right_eye`, `fast_transform`, `d3d7_thread` or `render_thread_late_end` changes at each window of 450 frames. See "The flush" |
 | `render_thread_late_end` | 1 | 1: with `render_thread=1` the end of a walk does not wait for the render thread. 0: it waits. See "The late end of a walk" |
 | `d3d7_thread` | 1 | 1: with `render_thread=1`, the calls of Direct3D 7 of a walk go to a thread of their own. 0: the frame thread gives them to dxwrapper. See "The thread of Direct3D 7" |
+| `fast_transform_check` | 0 | A test key. See "The vertex loops with SSE" |
 | `d3d7_count` | 0 | A test key. See "The calls of Direct3D 7 in a walk" |
 | `fast_transform` | 1 | 1: the two vertex loops of the engine run with SSE, with the bits of the game. 0: on the x87 unit. See "The vertex loops with SSE" |
 | `profile_gpu` | 0 | A test key. See "The GPU time" |

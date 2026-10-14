@@ -1542,10 +1542,6 @@ HRESULT STDMETHODCALLTYPE h_GetTransform(IDirect3DDevice9* self,
                                          D3DMATRIX* matrix) {
   if (Taking(self) && matrix != nullptr) {
     const int slot = TransformSlot(state);
-    if (slot >= 0 && g_kept.transform_ok[slot]) {
-      *matrix = g_kept.transform[slot];
-      return D3D_OK;
-    }
     Stop(kGetTransform);
     const HRESULT hr = o_GetTransform(self, state, matrix);
     if (SUCCEEDED(hr) && slot >= 0) {
@@ -1895,14 +1891,41 @@ HRESULT STDMETHODCALLTYPE h_SetPixelShader(IDirect3DDevice9* self,
   return o_SetPixelShader(self, shader);
 }
 
-// The copies of gpu_bridge.cpp into the shared textures, after a walk.
+// THE COPIES OF THE MOD. gpu_bridge.cpp copies the eyes and the interface
+// panel into the shared textures with StretchRect and ColorFill, after a
+// walk. With the late end these go into the queue after the calls of the
+// walk. A copy of dxwrapper goes to Direct3D 9 after a stop, as each other
+// call: dxwrapper reads the result of each copy, and makes the texture in a
+// different way when Direct3D 9 refuses the copy. A record gives D3D_OK at
+// once, so such a texture stays black. So only a call from the code of the
+// mod goes into the queue.
+bool FromMod(const void* caller) {
+  static uintptr_t s_base = 0, s_end = 0;
+  if (s_base == 0) {
+    HMODULE self = nullptr;
+    if (GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+                               GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                           reinterpret_cast<LPCSTR>(&FromMod), &self) &&
+        self != nullptr) {
+      const IMAGE_DOS_HEADER* dos = reinterpret_cast<const IMAGE_DOS_HEADER*>(self);
+      const IMAGE_NT_HEADERS* nt = reinterpret_cast<const IMAGE_NT_HEADERS*>(
+          reinterpret_cast<uintptr_t>(self) + dos->e_lfanew);
+      s_base = reinterpret_cast<uintptr_t>(self);
+      s_end = s_base + nt->OptionalHeader.SizeOfImage;
+    }
+  }
+  const uintptr_t a = reinterpret_cast<uintptr_t>(caller);
+  return a >= s_base && a < s_end;
+}
+
 HRESULT STDMETHODCALLTYPE h_StretchRect(IDirect3DDevice9* self,
                                         IDirect3DSurface9* source,
                                         const RECT* source_rect,
                                         IDirect3DSurface9* dest,
                                         const RECT* dest_rect,
                                         D3DTEXTUREFILTERTYPE filter) {
-  if (Taking(self) && source != nullptr && dest != nullptr) {
+  const bool mod = FromMod(_ReturnAddress());
+  if (Taking(self) && mod && source != nullptr && dest != nullptr) {
     ViewportPutBack();
     ArgStretch a = {};
     a.source = source;
@@ -1917,15 +1940,16 @@ HRESULT STDMETHODCALLTYPE h_StretchRect(IDirect3DDevice9* self,
     if (Simple(kOpStretchRect, a)) return D3D_OK;
     Drop(source);
     Drop(dest);
-    Stop(kStretchRect);
   }
+  if (Taking(self)) Stop(kStretchRect);
   return o_StretchRect(self, source, source_rect, dest, dest_rect, filter);
 }
 
 HRESULT STDMETHODCALLTYPE h_ColorFill(IDirect3DDevice9* self,
                                       IDirect3DSurface9* surface,
                                       const RECT* rect, D3DCOLOR color) {
-  if (Taking(self) && surface != nullptr) {
+  const bool mod = FromMod(_ReturnAddress());
+  if (Taking(self) && mod && surface != nullptr) {
     ArgColorFill a = {};
     a.surface = surface;
     if (rect != nullptr) a.rect = *rect;
@@ -1934,8 +1958,8 @@ HRESULT STDMETHODCALLTYPE h_ColorFill(IDirect3DDevice9* self,
     Hold(surface);
     if (Simple(kOpColorFill, a)) return D3D_OK;
     Drop(surface);
-    Stop(kColorFill);
   }
+  if (Taking(self)) Stop(kColorFill);
   return o_ColorFill(self, surface, rect, color);
 }
 

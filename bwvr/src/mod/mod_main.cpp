@@ -514,6 +514,7 @@ int g_render_thread_filter = 1;
 int g_render_thread_buffers = 1;
 int g_render_thread_right_eye = 1;
 int g_fast_transform = 1;
+int g_fast_transform_check = 0;
 int g_d3d7_count = 0;
 int g_d3d7_thread = 1;
 int g_render_thread_late_end = 1;
@@ -1309,6 +1310,9 @@ void ReadSettings() {
           : 0;
   g_fast_transform =
       GetPrivateProfileIntA("bwvr", "fast_transform", 1, path) != 0 ? 1 : 0;
+  g_fast_transform_check =
+      GetPrivateProfileIntA("bwvr", "fast_transform_check", 0, path) != 0 ? 1
+                                                                        : 0;
   g_d3d7_count =
       GetPrivateProfileIntA("bwvr", "d3d7_count", 0, path) != 0 ? 1 : 0;
   g_d3d7_thread =
@@ -1582,6 +1586,7 @@ void StartVrOnce() {
     RenderThreadSetRightEye(g_render_thread_right_eye != 0);
     RenderThreadSetAbTest(g_ab_test);
     FastTransformSetOptions(g_fast_transform);
+    FastTransformSetCheck(g_fast_transform_check);
     FastTransformInstall();
     D3D7CountSetOptions(g_d3d7_count);
     D3D7ThreadSetOptions(g_d3d7_thread);

@@ -91,6 +91,112 @@ uint32_t g_inexact = 0;
 uint32_t g_game_mxcsr = 0;  // the last MXCSR of the game that the loop changed
 uint32_t g_mxcsr_sets = 0;
 
+// THE CHECK (fast_transform_check=1, a test key). Each hook makes the SSE
+// loop into a copy of the output, and the loop of the game runs. A hook at
+// the start of the code after each loop compares the copy with what the game
+// wrote, before other code of the game writes the tables again.
+bool g_check = false;
+uint8_t* g_check_out = nullptr;      // kMaxVertices vertices of 32 bytes
+uint32_t* g_check_flags = nullptr;   // kMaxVertices clip flags
+uint32_t g_check_count = 0;          // the vertices of the pending copy
+int g_check_kind = 0;                // 1 clip, 2 lit, 3 lit clip, 4 group
+uint8_t* g_check_dest = nullptr;     // where the game wrote the vertices
+uint32_t* g_check_dest_flags = nullptr;
+uint32_t g_checked_meshes = 0;
+uint32_t g_checked_vertices = 0;
+uint32_t g_check_diff_meshes[5] = {0, 0, 0, 0, 0};
+uint32_t g_check_diff_vertices = 0;
+int g_check_lines = 0;
+
+// Compares the pending copy with what the game wrote.
+void ComparePending() {
+  if (g_check_count == 0) return;
+  const uint32_t n = g_check_count;
+  g_check_count = 0;
+  ++g_checked_meshes;
+  g_checked_vertices += n;
+  uint32_t differ = 0;
+  for (uint32_t i = 0; i < n; ++i) {
+    const uint8_t* want = g_check_dest + i * 32;
+    const uint8_t* got = g_check_out + i * 32;
+    const bool flags_differ = g_check_dest_flags != nullptr &&
+                              g_check_dest_flags[i] != g_check_flags[i];
+    if (memcmp(want, got, 32) == 0 && !flags_differ) continue;
+    ++differ;
+    if (g_check_lines < 12) {
+      ++g_check_lines;
+      uint32_t a[8], b[8];
+      memcpy(a, want, 32);
+      memcpy(b, got, 32);
+      ModLog("fast transform: check, loop %d, vertex %u of %u: the game "
+             "%08X %08X %08X %08X %08X %08X %08X %08X flags %X, SSE %08X "
+             "%08X %08X %08X %08X %08X %08X %08X flags %X",
+             g_check_kind, i, n, a[0], a[1], a[2], a[3], a[4], a[5], a[6],
+             a[7], g_check_dest_flags != nullptr ? g_check_dest_flags[i] : 0,
+             b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7],
+             g_check_dest_flags != nullptr ? g_check_flags[i] : 0);
+    }
+  }
+  if (differ > 0) {
+    ++g_check_diff_meshes[g_check_kind];
+    g_check_diff_vertices += differ;
+  }
+}
+
+// Gets the copy ready: the bytes that a loop does not write are as in the
+// output now.
+bool BeginCheck(int kind, uint8_t* dest, uint32_t* dest_flags, uint32_t count) {
+  if (g_check_out == nullptr) {
+    g_check_out = static_cast<uint8_t*>(VirtualAlloc(
+        nullptr, kMaxVertices * 32 + kMaxVertices * 4, MEM_COMMIT | MEM_RESERVE,
+        PAGE_READWRITE));
+    if (g_check_out == nullptr) return false;
+    g_check_flags = reinterpret_cast<uint32_t*>(g_check_out + kMaxVertices * 32);
+  }
+  if (count == 0 || count > static_cast<uint32_t>(kMaxVertices)) return false;
+  memcpy(g_check_out, dest, count * 32);
+  g_check_kind = kind;
+  g_check_dest = dest;
+  g_check_dest_flags = dest_flags;
+  return true;
+}
+
+extern "C" void __cdecl FastTransformCompare() { ComparePending(); }
+
+// The hooks of the check at the code after each loop: pushad; call
+// FastTransformCompare; popad; jmp dword ptr [original].
+const uintptr_t kAfterPlaces[4] = {0x0085713C, 0x0085B05B, 0x0084C0E6,
+                                   0x0084C0C1};
+void* g_after_original[4] = {nullptr, nullptr, nullptr, nullptr};
+
+bool InstallCheck() {
+  uint8_t* thunks = static_cast<uint8_t*>(VirtualAlloc(
+      nullptr, 4 * 16, MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE));
+  if (thunks == nullptr) return false;
+  for (int i = 0; i < 4; ++i) {
+    uint8_t* at = thunks + i * 16;
+    at[0] = 0x60;
+    at[1] = 0xE8;
+    const int32_t rel = static_cast<int32_t>(
+        reinterpret_cast<intptr_t>(&FastTransformCompare) -
+        reinterpret_cast<intptr_t>(at + 6));
+    memcpy(at + 2, &rel, 4);
+    at[6] = 0x61;
+    at[7] = 0xFF;
+    at[8] = 0x25;
+    const uint32_t o = static_cast<uint32_t>(
+        reinterpret_cast<uintptr_t>(&g_after_original[i]));
+    memcpy(at + 9, &o, 4);
+    void* target = reinterpret_cast<void*>(kAfterPlaces[i]);
+    if (MH_CreateHook(target, at, &g_after_original[i]) != MH_OK ||
+        MH_QueueEnableHook(target) != MH_OK) {
+      return false;
+    }
+  }
+  FlushInstructionCache(GetCurrentProcess(), thunks, 4 * 16);
+  return true;
+}
+
 // The targets of the stubs.
 void* g_clip_back = nullptr;
 void* g_lit_back = nullptr;
@@ -171,6 +277,17 @@ int __cdecl FastClip(const uint8_t* object) {
   }
   const uint8_t* in =
       Read<const uint8_t*>(reinterpret_cast<uintptr_t>(object) + 0x14);
+  if (g_check) {
+    if (BeginCheck(1, reinterpret_cast<uint8_t*>(kTable1),
+                   reinterpret_cast<uint32_t*>(kTable0),
+                   static_cast<uint32_t>(count))) {
+      fast_transform_math::TransformClip(c, in, static_cast<uint32_t>(count),
+                                         g_check_out, g_check_flags);
+      g_check_count = static_cast<uint32_t>(count);
+    }
+    units.End();
+    return 0;
+  }
   fast_transform_math::TransformClip(
       c, in, static_cast<uint32_t>(count), reinterpret_cast<uint8_t*>(kTable1),
       reinterpret_cast<uint32_t*>(kTable0));
@@ -200,6 +317,16 @@ int __cdecl FastLit(const uint8_t* object, uint32_t color) {
   l.color = color;
   const uint8_t* in =
       Read<const uint8_t*>(reinterpret_cast<uintptr_t>(object) + 0x14);
+  if (g_check) {
+    if (BeginCheck(2, reinterpret_cast<uint8_t*>(kTable1), nullptr,
+                   static_cast<uint32_t>(count))) {
+      fast_transform_math::TransformLit(c, l, in, static_cast<uint32_t>(count),
+                                        g_check_out);
+      g_check_count = static_cast<uint32_t>(count);
+    }
+    units.End();
+    return 0;
+  }
   fast_transform_math::TransformLit(c, l, in, static_cast<uint32_t>(count),
                                     reinterpret_cast<uint8_t*>(kTable1));
   units.End();
@@ -228,6 +355,18 @@ int __cdecl FastLitClip(const uint8_t* object, uint32_t color) {
   l.color = color;
   const uint8_t* in =
       Read<const uint8_t*>(reinterpret_cast<uintptr_t>(object) + 0x14);
+  if (g_check) {
+    if (BeginCheck(3, reinterpret_cast<uint8_t*>(kTable1),
+                   reinterpret_cast<uint32_t*>(kTable0),
+                   static_cast<uint32_t>(count))) {
+      fast_transform_math::TransformLitClip(c, l, false, in,
+                                            static_cast<uint32_t>(count),
+                                            g_check_out, g_check_flags);
+      g_check_count = static_cast<uint32_t>(count);
+    }
+    units.End();
+    return 0;
+  }
   fast_transform_math::TransformLitClip(
       c, l, false, in, static_cast<uint32_t>(count),
       reinterpret_cast<uint8_t*>(kTable1), reinterpret_cast<uint32_t*>(kTable0));
@@ -259,6 +398,15 @@ int __cdecl FastGroup(const uint8_t* in, uint8_t* out, const float* matrix,
   memcpy(l.direction, frame - 0x44, sizeof(l.direction));
   l.ambient = Read<int32_t>(kAmbient);
   l.color = *reinterpret_cast<const uint32_t*>(frame - 0x30);
+  if (g_check) {
+    if (BeginCheck(4, out, flags, count)) {
+      fast_transform_math::TransformLitClip(c, l, true, in, count, g_check_out,
+                                            g_check_flags);
+      g_check_count = count;
+    }
+    units.End();
+    return 0;
+  }
   fast_transform_math::TransformLitClip(c, l, true, in, count, out, flags);
   units.End();
   *reinterpret_cast<uint32_t**>(frame - 0x10) = flags + count;
@@ -345,6 +493,14 @@ bool Expect(uintptr_t address, const uint8_t* bytes, size_t size) {
 
 }  // namespace
 
+void FastTransformSetCheck(int on) {
+  g_check = on != 0;
+  if (g_check) {
+    ModLog("fast transform: fast_transform_check=1. Each loop runs on the x87 "
+           "unit, and the SSE loop makes a copy that the mod compares with it");
+  }
+}
+
 void FastTransformSetOptions(int on) {
   g_on = on != 0;
   ModLog("fast transform: fast_transform=%d. %s", g_on ? 1 : 0,
@@ -390,6 +546,7 @@ void FastTransformInstall() {
   if (status == MH_OK) status = MH_QueueEnableHook(lit);
   if (status == MH_OK) status = MH_QueueEnableHook(lit_clip);
   if (status == MH_OK) status = MH_QueueEnableHook(group);
+  if (status == MH_OK && g_check && !InstallCheck()) status = MH_UNKNOWN;
   if (status == MH_OK) status = MH_ApplyQueued();
   g_in = status == MH_OK;
   ModLog("hooks        : the vertex loops at 0x%08X, 0x%08X, 0x%08X and "
@@ -412,6 +569,18 @@ void FastTransformToggle(const char* keys) {
 
 void FastTransformReport(uint64_t frames) {
   if (!g_in || frames == 0) return;
+  if (g_check) {
+    ComparePending();
+    ModLog("fast transform: check: %u meshes and %u vertices compared. "
+           "Meshes with a vertex that differs: %u of fn_00856D40, %u of "
+           "fn_0085AB10, %u of fn_0084BA90 and %u groups of fn_0084BA90, "
+           "%u vertices",
+           g_checked_meshes, g_checked_vertices, g_check_diff_meshes[1],
+           g_check_diff_meshes[2], g_check_diff_meshes[3],
+           g_check_diff_meshes[4], g_check_diff_vertices);
+    g_checked_meshes = g_checked_vertices = g_check_diff_vertices = 0;
+    memset(g_check_diff_meshes, 0, sizeof(g_check_diff_meshes));
+  }
   const double per = static_cast<double>(frames);
   ModLog("fast transform: fast_transform=%d. A frame with SSE: %.0f meshes "
          "of fn_00856D40, %.0f of fn_0085AB10, %.0f of fn_0084BA90 and %.0f "
