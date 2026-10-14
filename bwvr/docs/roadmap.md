@@ -349,6 +349,23 @@ is built, and no test has proven it.
   To decide: a halo or a line of the card that shows which objects the
   grip takes, a longer range of the grab while the leash is on, or no
   change.
+- **B32. In a fight of Creatures, the grip on a Creature does not block or
+  attach.** In the Creature tutorial, the words of the game and the hint
+  tell the player to press the action button (the grip) on the other
+  Creature or on the player's own Creature, to block or to attach. In a
+  headset session that did nothing. A grip together with the trigger
+  (perhaps in the other order) did work. Not known: what the game needs for
+  that press in a fight (which button, which click, which place of the
+  Hand), and what the mod sends for a grip on a Creature in a fight. The
+  rules of the mod for a grip on the Creature (the leash click, the stay,
+  `creature.md`, section 5) can take that press.
+- **B33. The marks on the other Creature in a fight have no depth.** In a
+  fight, a click on the other Creature puts glowing stars on it, at the
+  place that the player's Creature must hit. In a headset session they
+  showed over each other thing, and not on the body of the Creature: they
+  looked as if they had no depth. Not known: how the game draws them (a
+  sprite or a flat batch of the interface), and whether one walk or the
+  interface chain of the mod gives them the wrong depth in the eyes.
 
 B1b, B2, B4 and B11 are one package: a thing that is held, thrown, or
 that moves while the Hand takes it.
