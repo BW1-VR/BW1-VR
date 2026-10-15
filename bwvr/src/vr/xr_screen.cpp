@@ -276,6 +276,7 @@ VulkanFunctions vkf = {};
 
 struct VulkanState {
   bool made;
+  bool shading_rate;  // VK_KHR_fragment_shading_rate is on the device
   HMODULE library;
   VkInstance instance;
   VkPhysicalDevice physical;
@@ -486,6 +487,14 @@ struct XrScreen::Impl {
   XrSpace aim_space[2] = {XR_NULL_HANDLE, XR_NULL_HANDLE};
   bool input_ready = false;
   bool focused = false;
+  // EYE TRACKING (XR_EXT_eye_gaze_interaction).
+  bool gaze_wanted = false;
+  bool gaze_extension = false;  // the instance has the extension
+  bool gaze_supported = false;  // and the headset has an eye tracker
+  XrAction gaze_action = XR_NULL_HANDLE;
+  XrSpace gaze_space = XR_NULL_HANDLE;
+  bool gaze_valid = false;
+  float gaze_direction[3] = {0.0f, 0.0f, -1.0f};
   bool profiles_logged = false;
   char profile[2][XR_MAX_PATH_LENGTH] = {{0}, {0}};
 
@@ -647,6 +656,37 @@ bool XrScreen::Impl::CreateInput() {
   // skipped, and never fails the session.
   for (const Profile& p : kProfiles) SuggestProfile(p);
 
+  // EYE TRACKING: a pose action with the profile of the eye tracker. A
+  // failure only leaves the fovea straight ahead.
+  if (gaze_supported) {
+    XrActionCreateInfo info = {XR_TYPE_ACTION_CREATE_INFO};
+    strcpy_s(info.actionName, "eye_gaze");
+    strcpy_s(info.localizedActionName, "Eye gaze");
+    info.actionType = XR_ACTION_TYPE_POSE_INPUT;
+    XrPath profile_path = XR_NULL_PATH, gaze_path = XR_NULL_PATH;
+    bool ok =
+        Check(xrCreateAction(action_set, &info, &gaze_action),
+              "xrCreateAction(eye_gaze)") &&
+        Check(xrStringToPath(instance,
+                             "/interaction_profiles/ext/eye_gaze_interaction",
+                             &profile_path),
+              "xrStringToPath(eye gaze profile)") &&
+        Check(xrStringToPath(instance, "/user/eyes_ext/input/gaze_ext/pose",
+                             &gaze_path),
+              "xrStringToPath(eye gaze)");
+    if (ok) {
+      XrActionSuggestedBinding binding = {gaze_action, gaze_path};
+      XrInteractionProfileSuggestedBinding suggested = {
+          XR_TYPE_INTERACTION_PROFILE_SUGGESTED_BINDING};
+      suggested.interactionProfile = profile_path;
+      suggested.suggestedBindings = &binding;
+      suggested.countSuggestedBindings = 1;
+      ok = Check(xrSuggestInteractionProfileBindings(instance, &suggested),
+                 "xrSuggestInteractionProfileBindings(eye gaze)");
+    }
+    if (!ok) gaze_supported = false;
+  }
+
   XrSessionActionSetsAttachInfo attach = {
       XR_TYPE_SESSION_ACTION_SETS_ATTACH_INFO};
   attach.countActionSets = 1;
@@ -669,6 +709,15 @@ bool XrScreen::Impl::CreateInput() {
     if (!Check(xrCreateActionSpace(session, &space_info, &aim_space[h]),
                "xrCreateActionSpace(aim)")) {
       return false;
+    }
+  }
+  if (gaze_supported) {
+    XrActionSpaceCreateInfo space_info = {XR_TYPE_ACTION_SPACE_CREATE_INFO};
+    space_info.action = gaze_action;
+    space_info.poseInActionSpace.orientation.w = 1.0f;
+    if (!Check(xrCreateActionSpace(session, &space_info, &gaze_space),
+               "xrCreateActionSpace(eye gaze)")) {
+      gaze_supported = false;
     }
   }
   input_ready = true;
@@ -770,6 +819,32 @@ void XrScreen::Impl::SyncInput(HandInput* hands, XrTime when) {
     LogProfiles();
   }
 
+  // EYE TRACKING: the gaze in the space of the head, at the display time.
+  gaze_valid = false;
+  if (gaze_supported && gaze_space != XR_NULL_HANDLE &&
+      view_space != XR_NULL_HANDLE) {
+    XrActionStateGetInfo gaze_get = {XR_TYPE_ACTION_STATE_GET_INFO};
+    gaze_get.action = gaze_action;
+    XrActionStatePose gaze_state = {XR_TYPE_ACTION_STATE_POSE};
+    XrSpaceLocation gaze_location = {XR_TYPE_SPACE_LOCATION};
+    if (XR_SUCCEEDED(xrGetActionStatePose(session, &gaze_get, &gaze_state)) &&
+        gaze_state.isActive &&
+        XR_SUCCEEDED(
+            xrLocateSpace(gaze_space, view_space, when, &gaze_location))) {
+      const XrSpaceLocationFlags need =
+          XR_SPACE_LOCATION_ORIENTATION_VALID_BIT |
+          XR_SPACE_LOCATION_ORIENTATION_TRACKED_BIT;
+      if ((gaze_location.locationFlags & need) == need) {
+        // The forward of the pose (0, 0, -1) turned by its orientation.
+        const XrQuaternionf& q = gaze_location.pose.orientation;
+        gaze_direction[0] = -2.0f * (q.x * q.z + q.w * q.y);
+        gaze_direction[1] = -2.0f * (q.y * q.z - q.w * q.x);
+        gaze_direction[2] = -(1.0f - 2.0f * (q.x * q.x + q.y * q.y));
+        gaze_valid = true;
+      }
+    }
+  }
+
   for (int h = 0; h < 2; ++h) {
     HandInput& out = hands[h];
     const uint64_t serial = out.serial + 1;
@@ -864,6 +939,10 @@ void XrScreen::Impl::SyncInput(HandInput* hands, XrTime when) {
 }
 
 void XrScreen::Impl::DestroyInput() {
+  if (gaze_space != XR_NULL_HANDLE) xrDestroySpace(gaze_space);
+  gaze_space = XR_NULL_HANDLE;
+  gaze_action = XR_NULL_HANDLE;
+  gaze_valid = false;
   for (int h = 0; h < 2; ++h) {
     if (grip_space[h] != XR_NULL_HANDLE) xrDestroySpace(grip_space[h]);
     if (aim_space[h] != XR_NULL_HANDLE) xrDestroySpace(aim_space[h]);
@@ -977,6 +1056,10 @@ bool XrScreen::Start(uint32_t width, uint32_t height, int eyes, LogFn log) {
             s.log("  hints        : extensions: %s", names.c_str());
             names.clear();
           }
+          if (strcmp(list[i].extensionName,
+                     XR_EXT_EYE_GAZE_INTERACTION_EXTENSION_NAME) == 0) {
+            s.gaze_extension = s.gaze_wanted;
+          }
           if (strcmp(list[i].extensionName, "XR_MSFT_controller_model") == 0 ||
               strcmp(list[i].extensionName, "XR_FB_render_model") == 0) {
             model = true;
@@ -989,10 +1072,11 @@ bool XrScreen::Start(uint32_t width, uint32_t height, int eyes, LogFn log) {
     }
   }
   const char* extensions[] = {s.vulkan ? XR_KHR_VULKAN_ENABLE2_EXTENSION_NAME
-                                       : XR_KHR_D3D11_ENABLE_EXTENSION_NAME};
+                                       : XR_KHR_D3D11_ENABLE_EXTENSION_NAME,
+                              XR_EXT_EYE_GAZE_INTERACTION_EXTENSION_NAME};
 
   XrInstanceCreateInfo create = {XR_TYPE_INSTANCE_CREATE_INFO};
-  create.enabledExtensionCount = 1;
+  create.enabledExtensionCount = s.gaze_extension ? 2 : 1;
   create.enabledExtensionNames = extensions;
   strcpy_s(create.applicationInfo.applicationName, BWVR_PRODUCT_NAME);
   // A uint32_t, so not XR_MAKE_VERSION, which is 64 bit.
@@ -1033,9 +1117,23 @@ bool XrScreen::Start(uint32_t width, uint32_t height, int eyes, LogFn log) {
   }
 
   XrSystemProperties system_properties = {XR_TYPE_SYSTEM_PROPERTIES};
+  XrSystemEyeGazeInteractionPropertiesEXT gaze_properties = {
+      XR_TYPE_SYSTEM_EYE_GAZE_INTERACTION_PROPERTIES_EXT};
+  if (s.gaze_extension) system_properties.next = &gaze_properties;
   if (XR_SUCCEEDED(
           xrGetSystemProperties(s.instance, s.system, &system_properties))) {
     s.log("  openxr: headset \"%s\"", system_properties.systemName);
+  }
+  s.gaze_supported =
+      s.gaze_extension && gaze_properties.supportsEyeGazeInteraction == XR_TRUE;
+  if (s.gaze_wanted) {
+    s.log("  openxr: eye tracking for foveated rendering: %s",
+          s.gaze_supported ? "the headset has an eye tracker"
+          : s.gaze_extension
+              ? "the runtime has XR_EXT_eye_gaze_interaction, but the headset "
+                "has no eye tracker, so the fovea is straight ahead"
+              : "the runtime has no XR_EXT_eye_gaze_interaction, so the fovea "
+                "is straight ahead");
   }
 
   // What the headset would like each eye rendered at. This needs no session
@@ -2863,6 +2961,24 @@ bool XrScreen::Impl::StartVulkan() {
         external = true;
       }
     }
+    // FOVEATED RENDERING: a shading rate attachment, when the GPU has it.
+    bool rate_extension = false;
+    for (uint32_t i = 0; i < extension_count; ++i) {
+      if (strcmp(extension_list[i].extensionName,
+                 VK_KHR_FRAGMENT_SHADING_RATE_EXTENSION_NAME) == 0) {
+        rate_extension = true;
+      }
+    }
+    VkPhysicalDeviceFragmentShadingRateFeaturesKHR rate_features = {
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADING_RATE_FEATURES_KHR};
+    if (rate_extension) {
+      VkPhysicalDeviceFeatures2 rate_query = {
+          VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
+      rate_query.pNext = &rate_features;
+      vkf.vkGetPhysicalDeviceFeatures2(g_vk.physical, &rate_query);
+    }
+    g_vk.shading_rate =
+        rate_extension && rate_features.attachmentFragmentShadingRate;
     if (!external) {
       log("  openxr: the GPU of the runtime (%s) has no %s", g_vk.gpu,
           VK_KHR_EXTERNAL_MEMORY_WIN32_EXTENSION_NAME);
@@ -2905,13 +3021,18 @@ bool XrScreen::Impl::StartVulkan() {
     // The game asks for an anisotropic filter (D3DTSS_MAXANISOTROPY 16).
     want.features.samplerAnisotropy =
         g_vk.max_anisotropy > 0.0f ? VK_TRUE : VK_FALSE;
+    VkPhysicalDeviceFragmentShadingRateFeaturesKHR want_rate = {
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADING_RATE_FEATURES_KHR};
+    want_rate.attachmentFragmentShadingRate = VK_TRUE;
+    if (g_vk.shading_rate) want11.pNext = &want_rate;
     const char* device_extensions[] = {
-        VK_KHR_EXTERNAL_MEMORY_WIN32_EXTENSION_NAME};
+        VK_KHR_EXTERNAL_MEMORY_WIN32_EXTENSION_NAME,
+        VK_KHR_FRAGMENT_SHADING_RATE_EXTENSION_NAME};
     VkDeviceCreateInfo device_info = {VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
     device_info.pNext = &want;
     device_info.queueCreateInfoCount = 1;
     device_info.pQueueCreateInfos = &queue_info;
-    device_info.enabledExtensionCount = 1;
+    device_info.enabledExtensionCount = g_vk.shading_rate ? 2 : 1;
     device_info.ppEnabledExtensionNames = device_extensions;
     XrVulkanDeviceCreateInfoKHR xr_device_info = {
         XR_TYPE_VULKAN_DEVICE_CREATE_INFO_KHR};
@@ -2941,7 +3062,8 @@ bool XrScreen::Impl::StartVulkan() {
     vkf.vkGetPhysicalDeviceMemoryProperties(g_vk.physical, &g_vk.memory);
     g_vk.made = true;
     log("  openxr: Vulkan 1.3 on %s, made by the runtime. The anisotropic "
-        "filter: up to %.0f", g_vk.gpu, g_vk.max_anisotropy);
+        "filter: up to %.0f. A shading rate attachment: %s", g_vk.gpu,
+        g_vk.max_anisotropy, g_vk.shading_rate ? "yes" : "no");
   }
 
   if (!MakeD3D11(g_vk.luid)) return false;
@@ -3601,6 +3723,16 @@ XrResult XrScreen::Impl::CopyVulkan(XrSwapchain chain, uint64_t image,
 
 void XrScreen::UseVulkan(bool on) { impl_->vulkan = on; }
 
+void XrScreen::WantEyeGaze(bool on) { impl_->gaze_wanted = on; }
+
+bool XrScreen::EyeGazeSupported() const { return impl_->gaze_supported; }
+
+bool XrScreen::EyeGaze(float direction[3]) const {
+  if (!impl_->gaze_valid) return false;
+  for (int i = 0; i < 3; ++i) direction[i] = impl_->gaze_direction[i];
+  return true;
+}
+
 void XrScreen::SetVulkanUpload(bool on) { impl_->vk_upload = on; }
 
 bool XrScreen::vulkan_upload() const { return impl_->vk_upload; }
@@ -3622,6 +3754,7 @@ bool XrScreen::VulkanInfo(XrVulkan* out) const {
   out->max_anisotropy = g_vk.max_anisotropy;
   out->eye_format = static_cast<uint32_t>(
       kFormats[s.format_index < 0 ? 0 : s.format_index].vk_unorm);
+  out->shading_rate = g_vk.shading_rate;
   return true;
 }
 

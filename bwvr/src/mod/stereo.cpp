@@ -72,6 +72,7 @@
 #include "fast_transform.h"
 #include "thread_wait.h"
 #include "ddraw_census.h"
+#include "foveation_math.h"
 #include "vk_scene.h"
 #include "vk_ddraw.h"
 #include "render_thread.h"
@@ -610,8 +611,8 @@ float FrameSeparation() {
 // character of Shift 8 and Shift 9 is not the same on each keyboard layout.
 // Shift 8, Shift 9, Shift F, Shift G, Shift H, Shift J, Shift K, Shift L,
 // Shift M, Shift N, Shift B, Shift V, Shift C, Shift X, Shift Z, Shift Y,
-// Shift U, Shift I
-static const int kShiftKeys = 18;
+// Shift U, Shift I, Shift O
+static const int kShiftKeys = 19;
 static volatile LONG g_shift_key[kShiftKeys] = {};
 static DWORD g_shift_key_at[kShiftKeys] = {};
 static HHOOK g_message_hook = nullptr;
@@ -636,6 +637,7 @@ static int ShiftKeyIndex(WPARAM key) {
          : key == 'Y' ? 15
          : key == 'U' ? 16
          : key == 'I' ? 17
+         : key == 'O' ? 18
                       : -1;
 }
 
@@ -929,6 +931,9 @@ void PollHotkeys() {
   }
   if (InterlockedExchange(&g_shift_key[17], 0) != 0) {
     VkSceneUploadsToggle("Shift and I");
+  }
+  if (InterlockedExchange(&g_shift_key[18], 0) != 0) {
+    VkSceneFoveationToggle("Shift and O");
   }
   // An A/B of one walk (docs/backend.md, "One walk for both eyes"). The
   // menu key (VK_APPS) has no action in the game and no other test key.
@@ -1256,6 +1261,15 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
     EyeCaptureArmNow(g_frames + 1);
   }
   VkSceneFrame(ControllersFrameCount(), g_frames + 1);
+  // FOVEATED RENDERING: the gaze of an eye tracker is the centre of the
+  // fovea of this frame. With none the centre is straight ahead.
+  {
+    float direction[3] = {0.0f, 0.0f, -1.0f};
+    float gx = 0.0f, gy = 0.0f;
+    const bool gaze = to_headset && g_screen->EyeGaze(direction) &&
+                      foveation_math::GazeTangent(direction, &gx, &gy);
+    VkSceneSetGaze(gaze, gx, gy);
+  }
   // The walk of one walk of this frame can go without Direct3D 9 (vk_only)
   // when its eye pictures come from the Vulkan renderer: in a session with
   // Vulkan, or on the desktop with vk_only_test=1.

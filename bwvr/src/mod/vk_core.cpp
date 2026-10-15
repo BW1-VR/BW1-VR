@@ -76,6 +76,75 @@ bool MakeOnce() {
   return true;
 }
 
+// FOVEATED RENDERING: the texel of the shading rate attachment and the rate
+// 4 by 4, when the device has VK_KHR_fragment_shading_rate.
+void ReadShadingRate() {
+  if (!g_core.shading_rate) return;
+  VkPhysicalDeviceFragmentShadingRatePropertiesKHR rate = {
+      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADING_RATE_PROPERTIES_KHR};
+  VkPhysicalDeviceProperties2 properties = {
+      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2};
+  properties.pNext = &rate;
+  f.vkGetPhysicalDeviceProperties2(g_core.physical, &properties);
+  g_core.rate_texel_w = rate.minFragmentShadingRateAttachmentTexelSize.width;
+  g_core.rate_texel_h = rate.minFragmentShadingRateAttachmentTexelSize.height;
+  if (g_core.rate_texel_w == 0 || g_core.rate_texel_h == 0) {
+    g_core.shading_rate = false;
+    return;
+  }
+  g_core.rate_quarter = false;
+  PFN_vkGetPhysicalDeviceFragmentShadingRatesKHR rates =
+      reinterpret_cast<PFN_vkGetPhysicalDeviceFragmentShadingRatesKHR>(
+          f.vkGetInstanceProcAddr(g_core.instance,
+                                  "vkGetPhysicalDeviceFragmentShadingRatesKHR"));
+  if (rates != nullptr) {
+    VkPhysicalDeviceFragmentShadingRateKHR list[16];
+    uint32_t count = 16;
+    for (uint32_t i = 0; i < 16; ++i) {
+      list[i] = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADING_RATE_KHR};
+    }
+    if (rates(g_core.physical, &count, list) >= 0) {
+      for (uint32_t i = 0; i < count && i < 16; ++i) {
+        if (list[i].fragmentSize.width == 4 &&
+            list[i].fragmentSize.height == 4 &&
+            (list[i].sampleCounts & VK_SAMPLE_COUNT_1_BIT) != 0) {
+          g_core.rate_quarter = true;
+        }
+      }
+    }
+  }
+  ModLog("vulkan       : a shading rate attachment, a texel of %u by %u "
+         "pixels, %s the rate 4 by 4",
+         g_core.rate_texel_w, g_core.rate_texel_h,
+         g_core.rate_quarter ? "with" : "without");
+}
+
+// True when the GPU has VK_KHR_fragment_shading_rate with a shading rate
+// attachment.
+bool HasShadingRate(VkPhysicalDevice physical) {
+  static VkExtensionProperties list[512];
+  uint32_t count = 512;
+  if (f.vkEnumerateDeviceExtensionProperties(physical, nullptr, &count,
+                                             list) < 0) {
+    return false;
+  }
+  bool listed = false;
+  for (uint32_t i = 0; i < count && i < 512; ++i) {
+    if (strcmp(list[i].extensionName,
+               VK_KHR_FRAGMENT_SHADING_RATE_EXTENSION_NAME) == 0) {
+      listed = true;
+    }
+  }
+  if (!listed) return false;
+  VkPhysicalDeviceFragmentShadingRateFeaturesKHR rate = {
+      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADING_RATE_FEATURES_KHR};
+  VkPhysicalDeviceFeatures2 features = {
+      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
+  features.pNext = &rate;
+  f.vkGetPhysicalDeviceFeatures2(physical, &features);
+  return rate.attachmentFragmentShadingRate == VK_TRUE;
+}
+
 // The instance and the device of the session (UseExternal).
 bool StartExternal() {
   const External& e = g_external;
@@ -96,6 +165,8 @@ bool StartExternal() {
   VkPhysicalDeviceProperties p;
   f.vkGetPhysicalDeviceProperties(g_core.physical, &p);
   strncpy_s(g_core.gpu, p.deviceName, _TRUNCATE);
+  g_core.timestamp_ns =
+      p.limits.timestampComputeAndGraphics ? p.limits.timestampPeriod : 0.0f;
   f.vkGetPhysicalDeviceMemoryProperties(g_core.physical, &g_core.memory);
 #define BWVR_VK_LOAD_DEVICE(name)                                      \
   f.name = reinterpret_cast<PFN_##name>(                               \
@@ -107,6 +178,8 @@ bool StartExternal() {
                      &g_core.queue);
   g_lock = e.lock;
   g_unlock = e.unlock;
+  g_core.shading_rate = e.shading_rate;
+  ReadShadingRate();
   if (!MakeOnce()) return false;
   g_started = true;
   ModLog("vulkan       : the Vulkan of the OpenXR session, Vulkan 1.3 on %s",
@@ -223,6 +296,9 @@ bool Start() {
                             ? p.limits.maxSamplerAnisotropy
                             : 0.0f;
       strncpy_s(g_core.gpu, p.deviceName, _TRUNCATE);
+      g_core.timestamp_ns = p.limits.timestampComputeAndGraphics
+                                ? p.limits.timestampPeriod
+                                : 0.0f;
     }
   }
   if (best < 0) {
@@ -257,10 +333,18 @@ bool Start() {
   // The game asks for an anisotropic filter (D3DTSS_MAXANISOTROPY 16).
   features.features.samplerAnisotropy =
       g_core.max_anisotropy > 0.0f ? VK_TRUE : VK_FALSE;
+  g_core.shading_rate = HasShadingRate(g_core.physical);
+  VkPhysicalDeviceFragmentShadingRateFeaturesKHR want_rate = {
+      VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADING_RATE_FEATURES_KHR};
+  want_rate.attachmentFragmentShadingRate = VK_TRUE;
+  if (g_core.shading_rate) v11.pNext = &want_rate;
+  const char* rate_extension = VK_KHR_FRAGMENT_SHADING_RATE_EXTENSION_NAME;
   VkDeviceCreateInfo device_info = {VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
   device_info.pNext = &features;
   device_info.queueCreateInfoCount = 1;
   device_info.pQueueCreateInfos = &queue_info;
+  device_info.enabledExtensionCount = g_core.shading_rate ? 1 : 0;
+  device_info.ppEnabledExtensionNames = &rate_extension;
   r = f.vkCreateDevice(g_core.physical, &device_info, nullptr, &g_core.device);
   if (r != VK_SUCCESS) return Fail("vkCreateDevice", r);
 #define BWVR_VK_LOAD_DEVICE(name)                                      \
@@ -270,6 +354,7 @@ bool Start() {
   BWVR_VK_DEVICE_FUNCTIONS(BWVR_VK_LOAD_DEVICE)
 #undef BWVR_VK_LOAD_DEVICE
   f.vkGetDeviceQueue(g_core.device, best_family, 0, &g_core.queue);
+  ReadShadingRate();
   if (!MakeOnce()) return false;
   g_started = true;
   ModLog("vulkan       : Vulkan 1.3 on %s", g_core.gpu);

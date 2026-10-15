@@ -99,6 +99,8 @@
 #include "one_walk_math.h"
 #include "vk_core.h"
 #include "vk_scene.h"
+#include "../common/bw_addresses.h"
+#include "foveation_math.h"
 #include "vk_scene_math.h"
 #include "vk_texture_math.h"
 #include "vk_scene_frag.h"
@@ -166,6 +168,10 @@ struct Seed {
   int reread;    // vk_scene_reread_test: the textures that the walk reads again
   void* target;  // the target of the eyes, or null when it is not known
   int eye;       // the eye pass of the walk (StereoPassEye), -1 for none
+  // FOVEATED RENDERING: the fovea of the walk (inner_deg 0: none), and the
+  // centre of the fovea as tangents of the eye.
+  foveation_math::Params fovea;
+  float gaze[2];
 };
 
 // A bind of render target 0 of Direct3D 9 in a walk.
@@ -300,6 +306,10 @@ struct Slot {
   VkCommandBuffer upload_cb;
   bool upload_open;  // upload_cb has commands of this walk
   VkFence fence;
+  // THE TIME OF THE GPU: a timestamp at the start and at the end of the
+  // buffer of the walk.
+  VkQueryPool query;
+  bool query_written;
   vk::Buffer ring;
   VkDeviceSize used;
   bool pending;
@@ -389,6 +399,29 @@ bool g_walk_right = false;  // the walk now is the right eye of a pair
 LONG g_left_serial = -1;    // g_walk_serial at the end of a walk of the left eye
 VkImage g_left_image = VK_NULL_HANDLE;  // its target
 uint64_t g_pair_walks = 0;  // for the report
+uint64_t g_gpu_walks = 0;   // for the report: the walks with a time of the GPU
+uint64_t g_gpu_ticks = 0;
+uint64_t g_gpu_odd = 0;  // the times that are not times of a walk
+// FOVEATED RENDERING (foveation, docs/backend.md, "Foveated rendering"). A
+// shading rate attachment of R8_UINT with a layer for each eye. On the frame
+// thread: the key now, the degrees of the ini, and the gaze of the frame. On
+// the D3D7 thread: the map in the image, and the walk now.
+int g_fovea_level = 0;
+float g_fovea_inner_ini = 0.0f;  // foveation_inner_deg, 0: the level gives it
+float g_fovea_outer_ini = 0.0f;
+bool g_gaze_valid = false;
+float g_gaze_now[2] = {0.0f, 0.0f};
+bool g_said_no_rate = false;
+vk::Image g_rate = {};
+vk::Buffer g_rate_stage[2] = {};  // for each slot
+uint32_t g_rate_map_w = 0, g_rate_map_h = 0;
+// The map in the image: the fovea and the texel of its centre.
+float g_rate_inner = -1.0f, g_rate_outer = -1.0f;
+int g_rate_cx = -1, g_rate_cy = -1;
+bool g_walk_fovea = false;  // the renderings of the walk use the map
+uint64_t g_fovea_walks = 0;  // for the report
+uint64_t g_fovea_maps = 0;
+uint64_t g_gaze_frames = 0;
 
 bool Fail(const char* what) {
   ModLog("vk scene     : %s failed. The Vulkan renderer stops", what);
@@ -522,6 +555,18 @@ VkPipeline Pipeline(uint32_t key) {
   info.pColorBlendState = &blend_state;
   info.pDynamicState = &dynamic_state;
   info.layout = g_layout;
+  // FOVEATED RENDERING: the rate of the attachment replaces the rate of the
+  // pipeline. With no attachment in a rendering the rate is 1 by 1.
+  VkPipelineFragmentShadingRateStateCreateInfoKHR rate_state = {
+      VK_STRUCTURE_TYPE_PIPELINE_FRAGMENT_SHADING_RATE_STATE_CREATE_INFO_KHR};
+  rate_state.fragmentSize = {1, 1};
+  rate_state.combinerOps[0] = VK_FRAGMENT_SHADING_RATE_COMBINER_OP_KEEP_KHR;
+  rate_state.combinerOps[1] = VK_FRAGMENT_SHADING_RATE_COMBINER_OP_REPLACE_KHR;
+  if (vk::Get().shading_rate && !panel) {
+    rendering.pNext = &rate_state;
+    info.flags |=
+        VK_PIPELINE_CREATE_RENDERING_FRAGMENT_SHADING_RATE_ATTACHMENT_BIT_KHR;
+  }
   VkPipeline pipeline = VK_NULL_HANDLE;
   if (f.vkCreateGraphicsPipelines(vk::Get().device, VK_NULL_HANDLE, 1, &info,
                                   nullptr, &pipeline) != VK_SUCCESS) {
@@ -1242,6 +1287,15 @@ bool Ready() {
     if (f.vkCreateFence(device, &fence, nullptr, &s.fence) != VK_SUCCESS) {
       return Fail("a fence");
     }
+    if (vk::Get().timestamp_ns > 0.0f) {
+      VkQueryPoolCreateInfo query = {VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO};
+      query.queryType = VK_QUERY_TYPE_TIMESTAMP;
+      query.queryCount = 2;
+      if (f.vkCreateQueryPool(device, &query, nullptr, &s.query) !=
+          VK_SUCCESS) {
+        s.query = VK_NULL_HANDLE;
+      }
+    }
     if (!vk::MakeBuffer(kRingBytes,
                         VK_BUFFER_USAGE_VERTEX_BUFFER_BIT |
                             VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
@@ -1356,6 +1410,17 @@ void BeginRenderingOf(VkCommandBuffer cb, const vk::Image& color_image,
   rendering.colorAttachmentCount = 1;
   rendering.pColorAttachments = &color;
   rendering.pDepthAttachment = &depth;
+  // FOVEATED RENDERING: the map of the rates, a layer for each eye.
+  VkRenderingFragmentShadingRateAttachmentInfoKHR rate = {
+      VK_STRUCTURE_TYPE_RENDERING_FRAGMENT_SHADING_RATE_ATTACHMENT_INFO_KHR};
+  if (g_walk_fovea && view_mask != 0 && g_rate.view != VK_NULL_HANDLE) {
+    rate.imageView = g_rate.view;
+    rate.imageLayout =
+        VK_IMAGE_LAYOUT_FRAGMENT_SHADING_RATE_ATTACHMENT_OPTIMAL_KHR;
+    rate.shadingRateAttachmentTexelSize = {vk::Get().rate_texel_w,
+                                           vk::Get().rate_texel_h};
+    rendering.pNext = &rate;
+  }
   f.vkCmdBeginRendering(cb, &rendering);
 }
 
@@ -1527,6 +1592,87 @@ void Deliver(D3D7ThreadFn fn, const void* data, unsigned bytes) {
   }
 }
 
+// FOVEATED RENDERING: the map of the rates for the walk, into the image in
+// the buffer of the walk when the fovea or its centre changed. False when the
+// walk has no fovea.
+bool PrepareFovea(Slot& s, const Seed* seed) {
+  const foveation_math::Params& p = seed->fovea;
+  if (p.inner_deg <= 0.0f || p.tan_h <= 0.0f || p.tan_v <= 0.0f) return false;
+  const vk::Core& core = vk::Get();
+  if (!core.shading_rate) {
+    if (!g_said_no_rate) {
+      g_said_no_rate = true;
+      ModLog("vk scene     : foveation is on, but the GPU has no shading rate "
+             "attachment, so each pixel has the full rate");
+    }
+    return false;
+  }
+  const uint32_t width = Target().width, height = Target().height;
+  const uint32_t map_w = foveation_math::TexelCount(width, core.rate_texel_w);
+  const uint32_t map_h = foveation_math::TexelCount(height, core.rate_texel_h);
+  const VkDevice device = core.device;
+  const int slot = static_cast<int>(&s - g_slots);
+  if (g_rate.image == VK_NULL_HANDLE || g_rate_map_w != map_w ||
+      g_rate_map_h != map_h) {
+    if (g_rate.image != VK_NULL_HANDLE) {
+      vk::LockQueue();
+      f.vkDeviceWaitIdle(device);
+      vk::UnlockQueue();
+    }
+    vk::FreeImage(&g_rate);
+    for (int i = 0; i < 2; ++i) vk::FreeBuffer(&g_rate_stage[i]);
+    if (!vk::MakeImage(map_w, map_h, 1, VK_FORMAT_R8_UINT,
+                       VK_IMAGE_USAGE_FRAGMENT_SHADING_RATE_ATTACHMENT_BIT_KHR |
+                           VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+                       VK_IMAGE_ASPECT_COLOR_BIT, &g_rate, 2)) {
+      return false;
+    }
+    g_rate_map_w = map_w;
+    g_rate_map_h = map_h;
+    g_rate_inner = -1.0f;
+  }
+  // The centre of the fovea, in texels.
+  float px = 0.0f, py = 0.0f;
+  foveation_math::TangentPixel(seed->gaze[0], seed->gaze[1], width, height, p,
+                               &px, &py);
+  const int cx = static_cast<int>(px) / static_cast<int>(core.rate_texel_w);
+  const int cy = static_cast<int>(py) / static_cast<int>(core.rate_texel_h);
+  if (g_rate_inner != p.inner_deg || g_rate_outer != p.outer_deg ||
+      cx != g_rate_cx || cy != g_rate_cy) {
+    const VkDeviceSize layer = static_cast<VkDeviceSize>(map_w) * map_h;
+    vk::Buffer& stage = g_rate_stage[slot];
+    if (stage.buffer == VK_NULL_HANDLE &&
+        !vk::MakeBuffer(layer * 2, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, true,
+                        &stage)) {
+      return false;
+    }
+    uint8_t* map = static_cast<uint8_t*>(stage.mapped);
+    foveation_math::BuildMap(map, map_w, map_h, core.rate_texel_w,
+                             core.rate_texel_h, width, height, seed->gaze[0],
+                             seed->gaze[1], p);
+    memcpy(map + layer, map, static_cast<size_t>(layer));
+    vk::Barrier(s.cb, g_rate.image, VK_IMAGE_ASPECT_COLOR_BIT,
+                VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                1, 2);
+    VkBufferImageCopy copy = {};
+    copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 2};
+    copy.imageExtent = {map_w, map_h, 1};
+    f.vkCmdCopyBufferToImage(s.cb, stage.buffer, g_rate.image,
+                             VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
+    vk::Barrier(s.cb, g_rate.image, VK_IMAGE_ASPECT_COLOR_BIT,
+                VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                VK_IMAGE_LAYOUT_FRAGMENT_SHADING_RATE_ATTACHMENT_OPTIMAL_KHR,
+                1, 2);
+    g_rate_inner = p.inner_deg;
+    g_rate_outer = p.outer_deg;
+    g_rate_cx = cx;
+    g_rate_cy = cy;
+    ++g_fovea_maps;
+  }
+  ++g_fovea_walks;
+  return true;
+}
+
 // THE WALK, on the D3D7 thread.
 void BeginOnWorker(const void* data) {
   const Seed* seed = static_cast<const Seed*>(data);
@@ -1573,6 +1719,27 @@ void BeginOnWorker(const void* data) {
   }
   f.vkResetFences(device, 1, &s.fence);
   s.stage_used = 0;
+  if (s.query_written) {
+    // Each query with its availability. A time over 100 ms is not a time
+    // of a walk, and the report counts it apart.
+    uint64_t stamps[4] = {0, 0, 0, 0};
+    if (f.vkGetQueryPoolResults(
+            device, s.query, 0, 2, sizeof(stamps), stamps,
+            2 * sizeof(uint64_t),
+            VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WITH_AVAILABILITY_BIT) ==
+            VK_SUCCESS &&
+        stamps[1] != 0 && stamps[3] != 0) {
+      const uint64_t ticks = stamps[2] - stamps[0];
+      if (stamps[2] >= stamps[0] &&
+          static_cast<double>(ticks) * vk::Get().timestamp_ns < 1e8) {
+        g_gpu_ticks += ticks;
+        ++g_gpu_walks;
+      } else {
+        ++g_gpu_odd;
+      }
+    }
+    s.query_written = false;
+  }
   for (int i = 0; i < s.garbage_count; ++i) vk::FreeImage(&s.garbage[i]);
   s.garbage_count = 0;
   for (int i = 0; i < s.staging_count; ++i) vk::FreeBuffer(&s.staging[i]);
@@ -1600,6 +1767,11 @@ void BeginOnWorker(const void* data) {
   VkCommandBufferBeginInfo begin = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
   begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
   f.vkBeginCommandBuffer(s.cb, &begin);
+  if (s.query != VK_NULL_HANDLE) {
+    f.vkCmdResetQueryPool(s.cb, s.query, 0, 2);
+    f.vkCmdWriteTimestamp2(s.cb, VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, s.query,
+                           0);
+  }
   if (g_walk_right) {
     // Layer 0 has the left eye: the barrier keeps it.
     vk::Barrier(s.cb, Target().image, VK_IMAGE_ASPECT_COLOR_BIT,
@@ -1616,6 +1788,7 @@ void BeginOnWorker(const void* data) {
   vk::Barrier(s.cb, g_depth.image, VK_IMAGE_ASPECT_DEPTH_BIT,
               VK_IMAGE_LAYOUT_UNDEFINED,
               VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, 1, 2);
+  g_walk_fovea = PrepareFovea(s, seed);
   g_walk_follow = seed->follow;
   g_eye_target = seed->target;
   g_draw_target = seed->target;
@@ -1662,6 +1835,11 @@ void EndOnWorker(const void*) {
   g_recording = false;
   Slot& s = g_slots[g_slot];
   f.vkCmdEndRendering(s.cb);
+  if (s.query != VK_NULL_HANDLE) {
+    f.vkCmdWriteTimestamp2(s.cb, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+                           s.query, 1);
+    s.query_written = true;
+  }
   f.vkEndCommandBuffer(s.cb);
   // THE UPLOADS OF A WALK go first, so each copy is done before a draw
   // reads its texture.
@@ -1832,6 +2010,27 @@ void VkSceneWalkBegin(void* device7) {
   g_only_frame = false;
   seed.target = g_follow ? OneWalkBoundTarget() : nullptr;
   seed.eye = StereoPassEye();
+  // FOVEATED RENDERING: the angles of the picture from the camera of the
+  // game, and the centre of the fovea: the gaze, or straight ahead.
+  if (g_fovea_level > 0) {
+    const foveation_math::Level level = foveation_math::LevelOf(g_fovea_level);
+    seed.fovea.inner_deg =
+        g_fovea_inner_ini > 0.0f ? g_fovea_inner_ini : level.inner_deg;
+    seed.fovea.outer_deg =
+        g_fovea_outer_ini > 0.0f ? g_fovea_outer_ini : level.outer_deg;
+    seed.fovea.quarter = vk::Get().rate_quarter;
+    const bw::tech::InfoTransform* info =
+        reinterpret_cast<const bw::tech::InfoTransform*>(
+            bw::tech::kInfoTransform);
+    if (info->inv_half_tan_fov_x > 0.0f && info->res_x > 0 &&
+        info->res_y > 0) {
+      seed.fovea.tan_h = 1.0f / info->inv_half_tan_fov_x;
+      seed.fovea.tan_v = seed.fovea.tan_h * static_cast<float>(info->res_y) /
+                         static_cast<float>(info->res_x);
+    }
+    seed.gaze[0] = g_gaze_valid ? g_gaze_now[0] : 0.0f;
+    seed.gaze[1] = g_gaze_valid ? g_gaze_now[1] : 0.0f;
+  }
   if (g_direct) {
     BeginOnWorker(&seed);
   } else {
@@ -2267,6 +2466,41 @@ const void* VkScenePanelReadHalf(const int rect[4], int* pitch,
 
 void VkScenePanelReadDone() { g_half_locked = false; }
 
+void VkSceneSetFoveation(int level, int inner_deg, int outer_deg) {
+  g_fovea_level = level >= 0 && level <= 3 ? level : 0;
+  g_fovea_inner_ini = static_cast<float>(inner_deg);
+  g_fovea_outer_ini = static_cast<float>(outer_deg);
+  if (g_fovea_level == 0) return;
+  const foveation_math::Level l = foveation_math::LevelOf(g_fovea_level);
+  ModLog("vk scene     : foveation=%d. The eye pictures of the Vulkan renderer "
+         "have the full rate within %.0f degrees of the centre of the fovea, "
+         "2 by 2 pixels for one shade within %.0f degrees, and 4 by 4 "
+         "outside. The centre is the gaze of an eye tracker, or straight "
+         "ahead",
+         g_fovea_level, g_fovea_inner_ini > 0.0f ? g_fovea_inner_ini : l.inner_deg,
+         g_fovea_outer_ini > 0.0f ? g_fovea_outer_ini : l.outer_deg);
+}
+
+void VkSceneFoveationToggle(const char* keys) {
+  static int s_last = 2;
+  if (g_fovea_level > 0) {
+    s_last = g_fovea_level;
+    g_fovea_level = 0;
+  } else {
+    g_fovea_level = s_last;
+  }
+  ControllersGesturePulse(0.5f, g_fovea_level > 0 ? 0.30f : 0.08f);
+  ModLog("test key     : %s, foveation is %d from the next walk", keys,
+         g_fovea_level);
+}
+
+void VkSceneSetGaze(bool valid, float gx, float gy) {
+  g_gaze_valid = valid;
+  g_gaze_now[0] = gx;
+  g_gaze_now[1] = gy;
+  if (valid) ++g_gaze_frames;
+}
+
 void VkSceneSetDirect(bool on) {
   g_direct = on;
   if (on) g_mode = 1;
@@ -2600,6 +2834,20 @@ void VkSceneReport(uint64_t frames) {
            g_present_late ? 1 : 0, g_present_waits,
            g_present_wait_ticks * 1000.0 / static_cast<double>(hz.QuadPart));
     g_present_waits = g_present_wait_ticks = 0;
+  }
+  if (g_gpu_walks > 0) {
+    ModLog("vk scene     : the GPU took %.3f ms for a walk, in %llu walks "
+           "(%llu times not used)",
+           g_gpu_ticks * vk::Get().timestamp_ns * 1e-6 /
+               static_cast<double>(g_gpu_walks),
+           g_gpu_walks, g_gpu_odd);
+    g_gpu_walks = g_gpu_ticks = g_gpu_odd = 0;
+  }
+  if (g_fovea_level > 0 || g_fovea_walks > 0) {
+    ModLog("vk scene     : foveation=%d. %llu walks with the map of the rates, "
+           "%llu new maps, %llu frames with the gaze of an eye tracker",
+           g_fovea_level, g_fovea_walks, g_fovea_maps, g_gaze_frames);
+    g_fovea_walks = g_fovea_maps = g_gaze_frames = 0;
   }
   if (g_pair_walks != 0) {
     ModLog("vk scene     : %llu walks of the right eye drew into the target "

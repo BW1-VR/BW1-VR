@@ -117,6 +117,15 @@ const Setting kSettings[] = {
      "start, the mod starts one with Direct3D 11. This is a test: the "
      "pictures can differ from the ones of the game. The change counts from "
      "the next start."},
+    {kValues, "foveation", "Foveated rendering (test)",
+     "Off=0|Light=1|Medium=2|Strong=3", 0,
+     "The middle of each eye picture keeps its full detail, and the parts "
+     "around it get fewer shades of color. This takes time off the GPU. "
+     "With an eye tracker (for example Quest Pro) the sharp part follows "
+     "your gaze. With no eye tracker (for example Quest 3) it stays in the "
+     "middle of the view. It works only when the mod draws the eye pictures "
+     "with its Vulkan renderer: with the headset session with Vulkan, and "
+     "your GPU needs variable rate shading."},
 
     {kGroup, nullptr, "View", nullptr, 0, nullptr},
     {kValues, "play_mode", "Play mode",

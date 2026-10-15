@@ -161,6 +161,9 @@ struct XrVulkan {
   // swapchains. An image in this format goes into a swapchain image by a
   // copy of its bytes (SetEyeVulkan).
   uint32_t eye_format;
+  // The device has VK_KHR_fragment_shading_rate with a shading rate
+  // attachment, for foveated rendering.
+  bool shading_rate;
 };
 
 // A LATE FRAME: a frame whose eye pictures are in textures that the GPU has
@@ -207,6 +210,15 @@ class XrScreen {
   bool VulkanFailed() const;
   // The Vulkan of the session. False before a Start with Vulkan succeeded.
   bool VulkanInfo(XrVulkan* out) const;
+  // EYE TRACKING for foveated rendering (XR_EXT_eye_gaze_interaction).
+  // WantEyeGaze(true) before Start asks for the extension when the runtime
+  // lists it. EyeGazeSupported is true when the headset has an eye tracker.
+  // EyeGaze gives the direction of the gaze in the space of the head (x
+  // right, y up, -z forward) at the display time of the frame, false when
+  // the eye tracker gave none for this frame.
+  void WantEyeGaze(bool on);
+  bool EyeGazeSupported() const;
+  bool EyeGaze(float direction[3]) const;
   // The queue of the session. The runtime uses it in xrBeginFrame,
   // xrEndFrame and in the acquire and the release of a swapchain image, so
   // each other submit to it must hold this lock.

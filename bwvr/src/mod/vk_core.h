@@ -29,7 +29,9 @@ namespace vk {
   X(vkDestroyInstance)                       \
   X(vkEnumeratePhysicalDevices)              \
   X(vkGetPhysicalDeviceProperties)           \
+  X(vkGetPhysicalDeviceProperties2)          \
   X(vkGetPhysicalDeviceFeatures2)            \
+  X(vkEnumerateDeviceExtensionProperties)    \
   X(vkGetPhysicalDeviceQueueFamilyProperties) \
   X(vkGetPhysicalDeviceMemoryProperties)     \
   X(vkGetPhysicalDeviceFormatProperties)     \
@@ -105,7 +107,11 @@ namespace vk {
   X(vkCmdSetDepthCompareOp)           \
   X(vkCmdDrawIndexed)                 \
   X(vkCmdDraw)                        \
-  X(vkCmdClearAttachments)
+  X(vkCmdClearAttachments)            \
+  X(vkCreateQueryPool)                \
+  X(vkCmdResetQueryPool)              \
+  X(vkCmdWriteTimestamp2)             \
+  X(vkGetQueryPoolResults)
 
 struct Functions {
   PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr;
@@ -135,6 +141,15 @@ struct Core {
   VkFormat color_format;
   bool external;  // the instance and the device are the ones of a session
   char gpu[256];
+  // FOVEATED RENDERING: the device has VK_KHR_fragment_shading_rate with a
+  // shading rate attachment, its texel in pixels, and the rate 4 by 4.
+  // The nanoseconds of a tick of a timestamp of the queue, 0 when the
+  // queue has no timestamps.
+  float timestamp_ns;
+  bool shading_rate;
+  uint32_t rate_texel_w;
+  uint32_t rate_texel_h;
+  bool rate_quarter;
 };
 
 struct External {
@@ -146,6 +161,7 @@ struct External {
   uint32_t queue_index;
   float max_anisotropy;
   VkFormat color_format;
+  bool shading_rate;  // VK_KHR_fragment_shading_rate is on the device
   void (*lock)();  // the lock of the queue of the session
   void (*unlock)();
 };

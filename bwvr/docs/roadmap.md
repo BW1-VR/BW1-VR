@@ -567,7 +567,11 @@ that moves while the Hand takes it.
     walks of the eyes, give one image with both eyes for a session with
     Vulkan, and the help text goes into the panel of the renderer for the
     subtitle card. `ddraw_census=1` with `backend=system` lists the calls
-    that the game makes. Next for the backend: a headset session. (B) one draw
+    that the game makes. Next for the backend: a headset session. Foveated
+    rendering (`foveation`, `backend.md`, "Foveated rendering") gives the eye
+    pictures of the renderer fewer shades away from the gaze of an eye
+    tracker, or from straight ahead. Not run in a headset, and not run with
+    an eye tracker. (B) one draw
     for many copies of a mesh (about 870 draws of a frame are 36 meshes);
     (C) a new renderer of the land, after a count of its draws. The Quest 3
     cannot run `runblack.exe`; a port there needs an x86 emulator with Wine

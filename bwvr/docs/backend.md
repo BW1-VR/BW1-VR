@@ -2453,6 +2453,58 @@ not the picture of the walk.
 **Not run yet:** a headset session, a video, the Main Menu, a saved game,
 the Temple.
 
+## Foveated rendering
+
+`foveation` (0 is the default, a test key: Shift O, the launcher row
+"Foveated rendering (test)") gives the eye pictures of the Vulkan renderer
+fewer shades away from the centre of the fovea (`VK_KHR_fragment_shading_rate`
+with a shading rate attachment). The levels: 1 light, 2 medium, 3 strong.
+
+| Level | The full rate within | 2 by 2 within | Outside |
+| --- | --- | --- | --- |
+| 1 | 30 degrees | 45 degrees | 4 by 4 |
+| 2 | 22 degrees | 35 degrees | 4 by 4 |
+| 3 | 15 degrees | 25 degrees | 4 by 4 |
+
+A GPU with no rate of 4 by 4 has 2 by 2 outside too.
+`foveation_inner_deg` and `foveation_outer_deg` replace the degrees of the
+level.
+
+**The centre of the fovea.** With an eye tracker (`XR_EXT_eye_gaze_interaction`,
+for example Quest Pro) the centre is the gaze of the frame: the session reads
+the pose of the gaze in the space of the head at the display time of the
+frame (`XrScreen::EyeGaze`), and the renderer makes a new map when the centre
+goes to another texel of the map. With no eye tracker (for example Quest 3),
+or with `foveation_gaze=0`, the centre is straight ahead: the eye picture is
+the symmetric view of the game, so straight ahead is the middle of the
+picture. The log of the session says which of the two the headset has.
+
+**The map** (`foveation_math.h`, checks in `foveation_checks.h`) has one byte
+for each texel of the attachment (8 by 8 pixels on a Radeon RX 7900 XTX) and
+a layer for each eye. The angles of the picture come from the camera of the
+game (`InfoTransform::inv_half_tan_fov_x`). A texel takes the rate of its
+point that is nearest to the centre, so no part of the fovea gets a lower
+rate. Each rendering of the eyes has the map, and each pipeline of the eyes
+lets the rate of the map replace its own rate. The panel has no map.
+
+**Where it works.** Only where the Vulkan renderer makes the eye pictures:
+`backend=vulkan`, or a session with Vulkan with `vk_eyes=1` in a frame of one
+walk. The eye pictures of Direct3D 9 have no shading rate, and the log says
+so. The report of each 450 frames has the walks with the map, the new maps,
+the frames with a gaze, and the time of the GPU for a walk (a timestamp at
+the start and at the end of the buffer of the walk).
+
+**Desktop runs** of a new game to the choice of the Creature (Radeon RX
+7900 XTX, render 4080 by 3264, one walk, no rate of 4 by 4 on this GPU): the
+GPU takes 1.0 to 1.5 ms for a walk with `foveation=0`, 0.65 to 1.0 ms with
+2 and 0.63 to 0.99 ms with 3, in the same windows of 450 frames. With 3 the
+image of the left eye at frame 421 has 99.0 percent of its blocks of 2 by 2
+pixels in one color at more than 30 percent of the width or of the height
+from the middle, and 48.9 percent with 0. A
+time of the GPU that is not a time of a walk (a few in each window) is not
+used, and the report counts it. Not run: a headset session, an eye tracker,
+the test key.
+
 ## The session with Vulkan
 
 `xr_vulkan=1` (0 is the default) makes the OpenXR session a session with
@@ -3922,6 +3974,7 @@ in front. The mod reads the keys and never takes them from the game.
 | Shift Y | `test_keys=1` | The Vulkan renderer draws the draws for the panel target into a panel of its own, and the subtitle card and the panel layer of a session with Vulkan take it, or they take the panel of Direct3D 9, from the next walk. A long pulse and a short pulse (`vk_panel`, "The Vulkan renderer"). Ctrl must be up |
 | Shift U | `test_keys=1` | A walk of one walk with the eyes of the Vulkan renderer goes to the renderer alone, with no draw for Direct3D 9, or Direct3D 9 draws it too, from the next walk. A long pulse and a short pulse (`vk_only`, "The Vulkan renderer"). Ctrl must be up |
 | Shift I | `test_keys=1` | A texture that a walk reads again goes to the GPU in the submit of the walk, with no wait, or at once with a wait for the GPU, from the next walk. A long pulse and a short pulse (`vk_upload_queue`, "The Vulkan renderer"). Ctrl must be up |
+| Shift O | `test_keys=1` | Foveated rendering goes off, or back to its level, from the next walk. A long pulse and a short pulse (`foveation`, "Foveated rendering"). Ctrl must be up |
 | Ctrl Shift Numpad Slash | `test_keys=1` | The mod waits for the GPU after each eye pass, one time a frame, or one time a frame on a second thread that also gives the frame to the runtime. A long pulse, a pulse of middle length and a short pulse (`frame_send`, "One wait a frame, and a second thread"). The slash key with Shift and no Ctrl is a key of the Temple, and with no Shift it is a key of the throw |
 | Menu key | `test_keys=1` | One walk for both eyes on and off (see "One walk for both eyes"). The key beside the right Ctrl key that opens a context menu. Ctrl and Shift must be up |
 | Ctrl Menu key | `test_keys=1` | The layout of the buttons of the hand that does not point. The menu button of the left controller opens the game menu, Y opens the ring and the stick does not drive the ring, or Y opens the game menu and X and the stick open the ring. A long pulse and a short pulse on that hand (`button_layout`, `controllers.md`, 5.1). Shift must be up |
@@ -4054,6 +4107,9 @@ keys that the launcher sets.
 | `vk_lines` | 1 | With `backend=vulkan`: 1 a draw of points or lines becomes triangles of 1 pixel across, 0 it is not drawn. See "The backend of the mod on Vulkan" |
 | `vk_present_late` | 1 | With `backend=vulkan`: 1 the window on the monitor shows the picture of the present before, with no wait for the GPU, 0 each present waits for its own picture. See "The backend of the mod on Vulkan" |
 | `vk_texture_reuse` | 1 | 1 a texture that a walk reads again goes into the image it has when it can, and its pixels into a ring of the slot, so a read makes no allocation of the GPU. 0 each read makes a new image and a staging buffer. See "The Vulkan renderer" |
+| `foveation` | 0 | 0 each pixel of the eye pictures has the full rate. 1 light, 2 medium, 3 strong: the part around the centre of the fovea has the full rate, and the rest fewer shades. Only the eye pictures of the Vulkan renderer. The launcher has the row "Foveated rendering (test)". A test key: Shift O. See "Foveated rendering" |
+| `foveation_inner_deg`, `foveation_outer_deg` | 0, 0 | The degrees of the full rate and of 2 by 2 around the centre of the fovea. 0 takes the degrees of the level. See "Foveated rendering" |
+| `foveation_gaze` | 1 | 1 the centre of the fovea follows the gaze of an eye tracker when the headset has one (`XR_EXT_eye_gaze_interaction`), 0 it stays straight ahead. See "Foveated rendering" |
 | `profile_sample` | 0 | A test key. See "Where the time of the scene walk goes" |
 | `profile_sample_thread` | 0 | A test key: 1 takes the samples of `profile_sample` from the render thread, 2 from the D3D7 thread. See "Where the time of the scene walk goes" |
 | `profile_sample_dump` | 0 | A test key: 1 writes each sample of `profile_sample` with the modules to `bwvr-samples.txt` beside `runblack.exe`. See "Where the time of the scene walk goes" |

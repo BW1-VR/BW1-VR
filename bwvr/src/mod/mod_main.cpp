@@ -538,6 +538,11 @@ int g_vk_only_test = 0;
 int g_vk_upload_queue = 1;
 int g_vk_present_late = 1;
 int g_vk_texture_reuse = 1;
+// Foveated rendering (docs/backend.md, "Foveated rendering").
+int g_foveation = 0;
+int g_foveation_inner_deg = 0;
+int g_foveation_outer_deg = 0;
+int g_foveation_gaze = 1;
 int g_vk_scene_reread_test = 0;
 // The OpenXR session with Vulkan, and the eye pictures of the Vulkan
 // renderer in it (docs/backend.md, "The session with Vulkan").
@@ -1370,6 +1375,14 @@ void ReadSettings() {
       GetPrivateProfileIntA("bwvr", "vk_present_late", 1, path) != 0 ? 1 : 0;
   g_vk_texture_reuse =
       GetPrivateProfileIntA("bwvr", "vk_texture_reuse", 1, path) != 0 ? 1 : 0;
+  g_foveation =
+      static_cast<int>(GetPrivateProfileIntA("bwvr", "foveation", 0, path));
+  g_foveation_inner_deg = static_cast<int>(
+      GetPrivateProfileIntA("bwvr", "foveation_inner_deg", 0, path));
+  g_foveation_outer_deg = static_cast<int>(
+      GetPrivateProfileIntA("bwvr", "foveation_outer_deg", 0, path));
+  g_foveation_gaze =
+      GetPrivateProfileIntA("bwvr", "foveation_gaze", 1, path) != 0 ? 1 : 0;
   g_vk_scene_reread_test =
       static_cast<int>(GetPrivateProfileIntA("bwvr", "vk_scene_reread_test", 0,
                                              path));
@@ -1686,6 +1699,14 @@ void StartVrOnce() {
     VkSceneSetUploads(g_vk_upload_queue, g_vk_scene_reread_test);
     VkSceneSetPresentLate(g_vk_present_late);
     VkSceneSetTextureReuse(g_vk_texture_reuse);
+    VkSceneSetFoveation(g_foveation, g_foveation_inner_deg,
+                        g_foveation_outer_deg);
+    if (g_foveation != 0 && g_vk_scene == 0 && !vk_eyes && !direct) {
+      ModLog("vk scene     : foveation=%d, but the eye pictures come from "
+             "Direct3D 9, which has no shading rate. Foveated rendering "
+             "needs backend=vulkan, or xr_vulkan=1 with vk_eyes=1",
+             g_foveation);
+    }
     // With a session with Vulkan the renderer takes its device, so it waits
     // for the session.
     if (g_xr_vulkan != 0 && g_vr_enabled && !g_stereo_headless) {
@@ -1720,6 +1741,7 @@ void StartVrOnce() {
 
   bwvr::XrScreen* screen = new bwvr::XrScreen();
   screen->UseVulkan(g_xr_vulkan != 0);
+  screen->WantEyeGaze(g_foveation != 0 && g_foveation_gaze != 0);
   screen->SetVulkanUpload(g_xr_vulkan_upload != 0);
   screen->SetPlacement(g_distance, g_width);
   screen->EnablePanel(g_stereo && g_ui_panel.mode == kUiPanelLayer);
@@ -1772,6 +1794,7 @@ void StartVrOnce() {
     external.queue_index = session_vulkan.queue_index;
     external.max_anisotropy = session_vulkan.max_anisotropy;
     external.color_format = static_cast<VkFormat>(session_vulkan.eye_format);
+    external.shading_rate = session_vulkan.shading_rate;
     external.lock = &bwvr::XrScreen::LockQueue;
     external.unlock = &bwvr::XrScreen::UnlockQueue;
     vk::UseExternal(external);

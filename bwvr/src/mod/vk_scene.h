@@ -159,6 +159,20 @@ bool VkSceneDirect();
 // change of the size.
 const uint8_t* VkScenePresentPixels(uint32_t width, uint32_t height,
                                     int* pitch);
+// FOVEATED RENDERING (foveation of bwvr.ini, docs/backend.md, "Foveated
+// rendering"). level: 0 (the default) each pixel of the eye pictures has the
+// full rate. 1 light, 2 medium, 3 strong: the part around the centre of the
+// fovea has the full rate and the rest fewer shades (VK_KHR_fragment_shading_
+// rate). inner_deg and outer_deg (foveation_inner_deg, foveation_outer_deg)
+// replace the degrees of the level when they are not 0. Only the eye
+// pictures of the Vulkan renderer have it.
+void VkSceneSetFoveation(int level, int inner_deg, int outer_deg);
+// The test key: foveation goes between 0 and its level.
+void VkSceneFoveationToggle(const char* keys);
+// stereo.cpp, on the frame thread before the walks of a frame: the centre of
+// the fovea as tangents of the eye (x right, y up), from an eye tracker.
+// valid false: straight ahead.
+void VkSceneSetGaze(bool valid, float gx, float gy);
 // vk_texture_reuse of bwvr.ini: 1 (the default) a texture that a walk reads
 // again with the same size goes into the image it has, when no draw of the
 // walk drew with it yet, and its pixels go into a ring of the slot. 0: each
