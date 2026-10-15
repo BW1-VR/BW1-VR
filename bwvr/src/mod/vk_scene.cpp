@@ -11,8 +11,14 @@
 // each call of the queue to dxwrapper as before, and also to this renderer.
 // The renderer draws both eyes into an image of its own, with a layer for
 // each eye. The picture of the game stays the one of dxwrapper.
-// vk_scene_test_frame=N writes the images of frame N to files, so a desktop
-// run compares them with the pictures of Direct3D 9 of the same frame.
+// vk_scene_test_frame=N writes the images of the walk of frame N to files,
+// so a desktop run compares them with the pictures of Direct3D 9 of the same
+// walk. Frame N is the frame that starts with the count N of the controllers,
+// as for render_thread_test_frame=N (VkSceneFrame). The controllers count the
+// frame before its walk, so the walk itself starts with the count N + 1. The
+// files have the number of the eye captures of that frame (stereo.cpp), so
+// the image of the Vulkan renderer and the picture of Direct3D 9 of one walk
+// have one number.
 //
 // BOTH EYES. In one walk the game draws the left eye, and one walk makes the
 // right eye from it (one_walk.cpp). Here each draw goes to both layers at
@@ -81,7 +87,6 @@
 
 void ModLog(const char* format, ...);
 // controllers.cpp
-uint64_t ControllersFrameCount();
 void ControllersGesturePulse(float amplitude, float seconds);
 
 namespace {
@@ -109,6 +114,10 @@ void* g_eye_target = nullptr;   // the target of the eyes in Direct3D 9
 void* g_draw_target = nullptr;  // render target 0 of Direct3D 9 now
 // On the frame thread: vk_scene_follow now (the test key changes it).
 bool g_follow = true;
+// On the frame thread: the next walk writes its images to files
+// (VkSceneFrame), with this number.
+bool g_picture_next = false;
+uint64_t g_picture_name = 0;
 
 // The seed of a walk: the frame thread reads the state, and the D3D7 thread
 // takes it with the start of the walk.
@@ -118,7 +127,8 @@ struct Seed {
   void* texture;
   void* texture1;
   D3DVIEWPORT7 viewport;
-  uint64_t frame;
+  uint64_t frame;  // the number of the files of the images
+  bool picture;    // the walk writes its images to files
   bool both;  // a walk of one walk: both layers get a picture
   bool follow;
   void* target;  // the target of the eyes, or null when it is not known
@@ -1128,7 +1138,7 @@ void BeginOnWorker(const void* data) {
     f.vkCmdSetScissor(s.cb, 0, 1, &scissor);
   }
   g_recording = true;
-  g_picture = g_test_frame > 0 && seed->frame == static_cast<uint64_t>(g_test_frame);
+  g_picture = seed->picture;
   g_picture_frame = seed->frame;
   ++g_walks;
 }
@@ -1262,11 +1272,21 @@ void VkSceneWalkBegin(void* device7) {
     texture->Release();
   }
   d->GetViewport(&seed.viewport);
-  seed.frame = ControllersFrameCount();
+  // The first walk of the frame of vk_scene_test_frame writes its images.
+  seed.frame = g_picture_name;
+  seed.picture = g_picture_next;
+  g_picture_next = false;
   seed.both = OneWalkActive();
   seed.follow = g_follow;
   seed.target = g_follow ? OneWalkBoundTarget() : nullptr;
   D3D7ThreadPost(&BeginOnWorker, &seed, sizeof(seed));
+}
+
+void VkSceneFrame(uint64_t frame, uint64_t name) {
+  if (!VkSceneOn()) return;
+  g_picture_next =
+      g_test_frame > 0 && frame == static_cast<uint64_t>(g_test_frame);
+  g_picture_name = name;
 }
 
 void VkSceneSetFollow(int on) {

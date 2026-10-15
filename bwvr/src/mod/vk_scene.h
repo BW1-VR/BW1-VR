@@ -9,9 +9,18 @@
 // d3d7_thread=1 the D3D7 thread gives each call of a walk also to the Vulkan
 // renderer, which draws both eyes into an image of its own, a layer for each
 // eye. vk_scene_test_frame=N: the images of the walk of frame N go to
-// bwvr-vk-left-NNNNN.bmp and bwvr-vk-right-NNNNN.bmp beside runblack.exe.
+// bwvr-vk-left-NNNNN.bmp and bwvr-vk-right-NNNNN.bmp beside runblack.exe
+// (VkSceneFrame).
 void VkSceneSetOptions(int mode, int test_frame);
 bool VkSceneOn();
+
+// stereo.cpp, on the frame thread at the start of a frame, before the
+// controllers count the frame. `frame` is the count of the controllers, which
+// render_thread_test_frame also reads there. When it is vk_scene_test_frame,
+// the first walk of this frame writes its images, with the number `name`:
+// the number of the eye captures of this frame. So the image of the Vulkan
+// renderer and the picture of Direct3D 9 with one number are of one walk.
+void VkSceneFrame(uint64_t frame, uint64_t name);
 
 // d3d7_thread.cpp, on the frame thread at the start of a walk, before the
 // queue takes calls: the state of the device for the walk. Then the start

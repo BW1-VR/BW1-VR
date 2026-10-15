@@ -2109,10 +2109,15 @@ the eye pictures in a session with Vulkan ("The session with Vulkan").
 of its queue to dxwrapper as before, and also to the Vulkan renderer. The
 renderer draws both eyes into an image of its own, with a layer for each
 eye. The picture of the game stays the one of dxwrapper.
-`vk_scene_test_frame=N` writes the images of frame N to
-`bwvr-vk-left-NNNNN.bmp` and `bwvr-vk-right-NNNNN.bmp` beside `runblack.exe`,
-so a desktop run with `render_thread_test_frame=N` compares them with the
-pictures of Direct3D 9.
+`vk_scene_test_frame=N` writes the images of the walk of frame N to
+`bwvr-vk-left-MMMMM.bmp` and `bwvr-vk-right-MMMMM.bmp` beside `runblack.exe`.
+Frame N is the frame that starts with the count N of the controllers, as for
+`render_thread_test_frame=N`. The controllers count the frame before its
+walk, so the walk itself starts with the count N + 1. M is the number of the
+eye captures of that frame. So a desktop run with the same N for both keys
+gives `bwvr-vk-left-MMMMM.bmp` and `bwvr-shared-left-MMMMM.bmp` of one walk.
+The next walk can differ: when the script of the controller ends, the Hand
+goes away, and an advisor that spoke can go away.
 
 **Both eyes.** In one walk the game draws the left eye. Each draw goes to
 both layers of the target at once (multiview, a feature of each GPU with
@@ -2195,13 +2200,11 @@ left. At the first subtitle of a new game (frame 720) 4.69 percent of the
 pixels of the left eye differ from Direct3D 9 by more than 24 levels (20.9
 percent in the middle of the bottom third), and with the Hand on the
 Creature (frame 1400) 11.5 percent of the left third of the middle differ.
-With `vk_scene_follow=1` 0.06 percent of each eye differ at frame 720, and
-0.15 percent of each eye at frame 1400. Open: in one run of the strokes
-with `vk_scene_follow=0` an advisor spoke, and the advisor was at the top
-right of both images of the Vulkan renderer and not in the pictures of
-Direct3D 9. No run with `vk_scene_follow=1` had an advisor in view. The
-mod puts a spirit at a place of the world (`spirit_world_size`). The cause
-is not known.
+With `vk_scene_follow=1` the image and the picture of one walk differ in
+0.06 percent of each eye at frame 710, 0.09 percent at frame 1400 and 0.10
+percent at frame 1560. Open: no comparison of one walk had an advisor in
+view. The advisors come at a different frame in each run of the strokes,
+so a run cannot ask for a frame with an advisor.
 
 **The textures.** A texture of the game is a DirectDraw surface of
 dxwrapper. At its first use the renderer reads it with `Lock`, makes RGBA8

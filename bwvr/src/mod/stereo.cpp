@@ -1236,6 +1236,7 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
   if (RenderThreadFrame(ControllersFrameCount())) {
     EyeCaptureArmNow(g_frames + 1);
   }
+  VkSceneFrame(ControllersFrameCount(), g_frames + 1);
   const bool capture_frame = EyeCaptureWanted(g_frames + 1);
   UiPanelBeginFrame(to_headset, to_headset && g_screen->projection() && !flat,
                     g_frames + 1, capture_frame);
