@@ -165,9 +165,10 @@ const uint8_t* VkScenePresentPixels(uint32_t width, uint32_t height,
 // fovea has the full rate and the rest fewer shades (VK_KHR_fragment_shading_
 // rate). inner_deg and outer_deg (foveation_inner_deg, foveation_outer_deg)
 // replace the degrees of the level when they are not 0. Only the eye
-// pictures of the Vulkan renderer have it.
-void VkSceneSetFoveation(int level, int inner_deg, int outer_deg);
-// The test key: foveation goes between 0 and its level.
+// pictures of the Vulkan renderer have it. show (foveation_show, a test
+// key): a colour over the coarse parts, blue for 2 by 2 and red for 4 by 4.
+void VkSceneSetFoveation(int level, int inner_deg, int outer_deg, int show);
+// The test key: foveation goes on, on with the colour of show, and off.
 void VkSceneFoveationToggle(const char* keys);
 // stereo.cpp, on the frame thread before the walks of a frame: the centre of
 // the fovea as tangents of the eye (x right, y up), from an eye tracker.

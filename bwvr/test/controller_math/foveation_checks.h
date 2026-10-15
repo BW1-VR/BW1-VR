@@ -125,6 +125,31 @@ inline void FoveationChecks() {
         "the gaze 25 degrees to the right: the left part is coarse",
         map[(mh / 2) * mw + 10], kRateHalf);
   free(map);
+
+  // The edge of the marks: each point is deg degrees from the centre.
+  int off_edge = 0;
+  const float centres[3][2] = {{0.0f, 0.0f}, {0.4f, -0.2f}, {-0.6f, 0.5f}};
+  for (int c = 0; c < 3; ++c) {
+    for (int k = 0; k < 64; ++k) {
+      float ex = 0.0f, ey = 0.0f;
+      if (!ConePoint(centres[c][0], centres[c][1], 20.0f, k, 64, &ex, &ey)) {
+        ++off_edge;
+        continue;
+      }
+      const float deg = AngleDeg(ex, ey, centres[c][0], centres[c][1]);
+      if (deg < 19.9f || deg > 20.1f) ++off_edge;
+    }
+  }
+  Check(off_edge == 0,
+        "each point of the edge of the marks is 20 degrees from the centre",
+        off_edge, 0);
+  float e0x = 0.0f, e0y = 0.0f, e1x = 0.0f, e1y = 0.0f;
+  ConePoint(0.0f, 0.0f, 45.0f, 0, 4, &e0x, &e0y);
+  ConePoint(0.0f, 0.0f, 45.0f, 1, 4, &e1x, &e1y);
+  Near("straight ahead, 45 degrees: point 0 is at x tangent 1", e0x, 1.0,
+       1e-4);
+  Near("straight ahead, 45 degrees: point 1 is at y tangent 1", e1y, 1.0,
+       1e-4);
 }
 
 }  // namespace foveation_checks

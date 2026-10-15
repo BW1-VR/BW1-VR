@@ -167,6 +167,15 @@ bool StartExternal() {
   strncpy_s(g_core.gpu, p.deviceName, _TRUNCATE);
   g_core.timestamp_ns =
       p.limits.timestampComputeAndGraphics ? p.limits.timestampPeriod : 0.0f;
+  {
+    VkQueueFamilyProperties families[16];
+    uint32_t family_count = 16;
+    f.vkGetPhysicalDeviceQueueFamilyProperties(g_core.physical, &family_count,
+                                               families);
+    g_core.timestamp_bits = e.queue_family < family_count && e.queue_family < 16
+                                ? families[e.queue_family].timestampValidBits
+                                : 0;
+  }
   f.vkGetPhysicalDeviceMemoryProperties(g_core.physical, &g_core.memory);
 #define BWVR_VK_LOAD_DEVICE(name)                                      \
   f.name = reinterpret_cast<PFN_##name>(                               \
@@ -299,6 +308,7 @@ bool Start() {
       g_core.timestamp_ns = p.limits.timestampComputeAndGraphics
                                 ? p.limits.timestampPeriod
                                 : 0.0f;
+      g_core.timestamp_bits = families[family].timestampValidBits;
     }
   }
   if (best < 0) {

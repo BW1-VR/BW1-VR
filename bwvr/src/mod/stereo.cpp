@@ -606,8 +606,9 @@ float FrameSeparation() {
 // A virtual keyboard can also send a capital letter as the character alone
 // (VK_PACKET), with no Shift. Then only a WM_CHAR of the capital letter
 // comes. So a WM_CHAR of a letter of ShiftKeyIndex is the same key, unless
-// the WM_KEYDOWN of that key came less than 200 ms before it: a real
-// keyboard sends both. The digits have no such second way, because the
+// a WM_KEYDOWN of that key came less than 300 ms before it: a real keyboard
+// sends both, and a held key sends both again and again. A repeat counts
+// never. The digits have no such second way, because the
 // character of Shift 8 and Shift 9 is not the same on each keyboard layout.
 // Shift 8, Shift 9, Shift F, Shift G, Shift H, Shift J, Shift K, Shift L,
 // Shift M, Shift N, Shift B, Shift V, Shift C, Shift X, Shift Z, Shift Y,
@@ -647,12 +648,21 @@ static LRESULT CALLBACK KeyMessageHook(int code, WPARAM remove, LPARAM message) 
     const bool first = (m->lParam & (1 << 30)) == 0;  // not a repeat
     const int index = ShiftKeyIndex(m->wParam);
     const bool ctrl = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
-    if (m->message == WM_KEYDOWN && first && index >= 0 &&
+    // A key that is held sends the character again (a repeat), and a press
+    // can come as the key and as the character: one press counts one time
+    // in 300 ms.
+    const bool fresh =
+        index >= 0 && GetTickCount() - g_shift_key_at[index] > 300;
+    if (m->message == WM_KEYDOWN && first && fresh &&
         (GetKeyState(VK_SHIFT) & 0x8000) != 0 && !ctrl) {
       InterlockedExchange(&g_shift_key[index], 1);
       g_shift_key_at[index] = GetTickCount();
-    } else if (m->message == WM_CHAR && index >= 2 && !ctrl &&
-               GetTickCount() - g_shift_key_at[index] > 200) {
+    } else if (m->message == WM_KEYDOWN && index >= 0) {
+      // Each key down of the letter, also a repeat, starts the 300 ms again,
+      // so its character does not count.
+      g_shift_key_at[index] = GetTickCount();
+    } else if (m->message == WM_CHAR && index >= 2 && first && fresh &&
+               !ctrl) {
       InterlockedExchange(&g_shift_key[index], 1);
       g_shift_key_at[index] = GetTickCount();
     }

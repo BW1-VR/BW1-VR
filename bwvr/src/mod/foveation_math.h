@@ -111,6 +111,35 @@ inline void BuildMap(uint8_t* out, uint32_t map_w, uint32_t map_h,
   }
 }
 
+// THE MARKS of the test (foveation_show): point k of n on the edge of the
+// directions within deg degrees of the centre of the fovea, as tangents.
+// False when that point does not point forward.
+inline bool ConePoint(float gx, float gy, float deg, int k, int n, float* tx,
+                      float* ty) {
+  // The centre as a direction with z forward, and two directions at a right
+  // angle to it.
+  float d[3] = {gx, gy, 1.0f};
+  const float dl = sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+  for (int i = 0; i < 3; ++i) d[i] /= dl;
+  // u = up x d, normalized. Up is never parallel to a forward direction.
+  float u[3] = {d[2], 0.0f, -d[0]};
+  const float ul = sqrtf(u[0] * u[0] + u[2] * u[2]);
+  u[0] /= ul;
+  u[2] /= ul;
+  const float v[3] = {d[1] * u[2], d[2] * u[0] - d[0] * u[2], -d[1] * u[0]};
+  const float a = deg / 57.2957795f;
+  const float phi = 6.28318531f * static_cast<float>(k) / static_cast<float>(n);
+  const float c = cosf(a), s = sinf(a);
+  float p[3];
+  for (int i = 0; i < 3; ++i) {
+    p[i] = c * d[i] + s * (cosf(phi) * u[i] + sinf(phi) * v[i]);
+  }
+  if (p[2] < 0.05f) return false;
+  *tx = p[0] / p[2];
+  *ty = p[1] / p[2];
+  return true;
+}
+
 // The count of texels of a picture size, rounded up.
 inline uint32_t TexelCount(uint32_t pixels, uint32_t texel) {
   return texel == 0 ? 0 : (pixels + texel - 1) / texel;

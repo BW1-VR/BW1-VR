@@ -2487,12 +2487,21 @@ point that is nearest to the centre, so no part of the fovea gets a lower
 rate. Each rendering of the eyes has the map, and each pipeline of the eyes
 lets the rate of the map replace its own rate. The panel has no map.
 
+**The marks of the test** (`foveation_show=1`, or the second press of Shift
+O). The textures of the game are soft, so the parts with fewer shades look
+almost the same as with the full rate. The marks show where they are: at
+the end of each walk with the map the renderer draws a blue colour over the
+part with 2 by 2 pixels for one shade, and a red one over the part with 4 by
+4. Each mark is a ring of triangles between two edges of the cone around the
+centre of the fovea (`foveation_math::ConePoint`).
+
 **Where it works.** Only where the Vulkan renderer makes the eye pictures:
 `backend=vulkan`, or a session with Vulkan with `vk_eyes=1` in a frame of one
 walk. The eye pictures of Direct3D 9 have no shading rate, and the log says
 so. The report of each 450 frames has the walks with the map, the new maps,
 the frames with a gaze, and the time of the GPU for a walk (a timestamp at
-the start and at the end of the buffer of the walk).
+the start and at the end of the buffer of the walk, each after the commands
+before it, so the time has no wait for other work).
 
 **Desktop runs** of a new game to the choice of the Creature (Radeon RX
 7900 XTX, render 4080 by 3264, one walk, no rate of 4 by 4 on this GPU): the
@@ -2500,10 +2509,20 @@ GPU takes 1.0 to 1.5 ms for a walk with `foveation=0`, 0.65 to 1.0 ms with
 2 and 0.63 to 0.99 ms with 3, in the same windows of 450 frames. With 3 the
 image of the left eye at frame 421 has 99.0 percent of its blocks of 2 by 2
 pixels in one color at more than 30 percent of the width or of the height
-from the middle, and 48.9 percent with 0. A
-time of the GPU that is not a time of a walk (a few in each window) is not
-used, and the report counts it. Not run: a headset session, an eye tracker,
-the test key.
+from the middle, and 48.9 percent with 0. With `foveation_show=1` the
+image has the clear circle of the fovea and the blue colour around it.
+
+**A known limit of the time of the GPU.** On the Radeon RX 7900 XTX the
+first stamp of a walk is sometimes 0 and marked as available: about a third
+of the walks at the start of the game, 1 to 4 percent later, and half of the
+walks in a headset session with dxwrapper. Such a time is not used, the
+report counts it, and the log has the stamps of the first four. A barrier
+between the reset of the queries and the first stamp does not change it.
+The cause is not known.
+
+In a headset session (`foveation=3`, dxwrapper with the eye
+pictures of the renderer) the map was in each walk, and the parts with 2 by
+2 looked the same as with the full rate. Not run: an eye tracker.
 
 ## The session with Vulkan
 
@@ -3956,7 +3975,7 @@ in front. The mod reads the keys and never takes them from the game.
 | Ctrl Shift Equals | `test_keys=1` | The ears decide the start of the loop of a bulk take, or the game camera decides and the take has no sound in the God view. A long pulse and a short pulse (`audio_take_loop`, `audio.md`, 6.4). The equals key is in the row of digits |
 | Ctrl Shift Minus | `test_keys=1` | The pieces of the stream of a take at a distance go on a curve from the top of the source to the Hand, or they are on the line of the game, from the land under the Hand. A long pulse and a short pulse (`take_stream`, `grab.md`, "The stream of a take at a distance"). The minus key is in the row of digits |
 | Ctrl Shift Left bracket | `test_keys=1` | What marks a target of the Hand steps from 1 to 0 to 2 and back: the glow on the mesh with a halo only for a target whose mesh does not glow, the halo, or the glow and the halo. A long pulse for 1, a short pulse for 0 and a longer pulse for 2 (`target_glow`, `hand-model.md`, "The glow on the mesh of a target"). The left square bracket key is right of the P key on a US keyboard |
-| Shift 8 | `test_keys=1` | The calls of each scene walk go to the render thread, or to Direct3D 9 as they come, from the next scene walk. A long pulse and a short pulse (`render_thread`, "The render thread"). The game uses Shift with 1 to 7 for its bookmarks. A hook of the messages of the game thread reads the key, so a key of a virtual keyboard that goes down and up between two frames counts. For F, G, H, J, K, L, M, N, B, V, C, X, Z, Y, U and I the capital letter alone (a `WM_CHAR` with no Shift) counts too, because a virtual keyboard can send it so Ctrl must be up |
+| Shift 8 | `test_keys=1` | The calls of each scene walk go to the render thread, or to Direct3D 9 as they come, from the next scene walk. A long pulse and a short pulse (`render_thread`, "The render thread"). The game uses Shift with 1 to 7 for its bookmarks. A hook of the messages of the game thread reads the key, so a key of a virtual keyboard that goes down and up between two frames counts. For F, G, H, J, K, L, M, N, B, V, C, X, Z, Y, U and I the capital letter alone (a `WM_CHAR` with no Shift) counts too, because a virtual keyboard can send it. A key that is held, and a key with its letter, count one time in 300 ms. Ctrl must be up |
 | Shift 9 | `test_keys=1` | The mod gives the answers of some calls of a texture with no lock of the device, or each call goes to Direct3D 9, from the next call. A long pulse and a short pulse (`render_thread_lock_free`, "The lock of the device"). It works only while `render_thread` is 1 or 2 in the ini. It is read as Shift 8. Ctrl must be up |
 | Shift F | `test_keys=1` | A call of a walk that sets the value that the device has already goes to Direct3D 9 or not. A long pulse and a short pulse (`render_thread_filter`, "The calls that change nothing"). It works only while `render_thread` is 1 or 2 in the ini. It is read as Shift 8. Ctrl must be up |
 | Shift G | `test_keys=1` | The render thread draws from buffers of its own, or gives each `DrawIndexedPrimitiveUP` to Direct3D 9. A long pulse and a short pulse (`render_thread_buffers`, "The buffers of the render thread"). It works only while `render_thread` is 1 in the ini. It is read as Shift 8. Ctrl must be up |
@@ -3974,7 +3993,7 @@ in front. The mod reads the keys and never takes them from the game.
 | Shift Y | `test_keys=1` | The Vulkan renderer draws the draws for the panel target into a panel of its own, and the subtitle card and the panel layer of a session with Vulkan take it, or they take the panel of Direct3D 9, from the next walk. A long pulse and a short pulse (`vk_panel`, "The Vulkan renderer"). Ctrl must be up |
 | Shift U | `test_keys=1` | A walk of one walk with the eyes of the Vulkan renderer goes to the renderer alone, with no draw for Direct3D 9, or Direct3D 9 draws it too, from the next walk. A long pulse and a short pulse (`vk_only`, "The Vulkan renderer"). Ctrl must be up |
 | Shift I | `test_keys=1` | A texture that a walk reads again goes to the GPU in the submit of the walk, with no wait, or at once with a wait for the GPU, from the next walk. A long pulse and a short pulse (`vk_upload_queue`, "The Vulkan renderer"). Ctrl must be up |
-| Shift O | `test_keys=1` | Foveated rendering goes off, or back to its level, from the next walk. A long pulse and a short pulse (`foveation`, "Foveated rendering"). Ctrl must be up |
+| Shift O | `test_keys=1` | Foveated rendering goes on, then on with the colour over the coarse parts (`foveation_show`), then off, from the next walk. A long pulse when it is on, a short pulse when it is off (`foveation`, "Foveated rendering"). Ctrl must be up |
 | Ctrl Shift Numpad Slash | `test_keys=1` | The mod waits for the GPU after each eye pass, one time a frame, or one time a frame on a second thread that also gives the frame to the runtime. A long pulse, a pulse of middle length and a short pulse (`frame_send`, "One wait a frame, and a second thread"). The slash key with Shift and no Ctrl is a key of the Temple, and with no Shift it is a key of the throw |
 | Menu key | `test_keys=1` | One walk for both eyes on and off (see "One walk for both eyes"). The key beside the right Ctrl key that opens a context menu. Ctrl and Shift must be up |
 | Ctrl Menu key | `test_keys=1` | The layout of the buttons of the hand that does not point. The menu button of the left controller opens the game menu, Y opens the ring and the stick does not drive the ring, or Y opens the game menu and X and the stick open the ring. A long pulse and a short pulse on that hand (`button_layout`, `controllers.md`, 5.1). Shift must be up |
@@ -4109,6 +4128,7 @@ keys that the launcher sets.
 | `vk_texture_reuse` | 1 | 1 a texture that a walk reads again goes into the image it has when it can, and its pixels into a ring of the slot, so a read makes no allocation of the GPU. 0 each read makes a new image and a staging buffer. See "The Vulkan renderer" |
 | `foveation` | 0 | 0 each pixel of the eye pictures has the full rate. 1 light, 2 medium, 3 strong: the part around the centre of the fovea has the full rate, and the rest fewer shades. Only the eye pictures of the Vulkan renderer. The launcher has the row "Foveated rendering (test)". A test key: Shift O. See "Foveated rendering" |
 | `foveation_inner_deg`, `foveation_outer_deg` | 0, 0 | The degrees of the full rate and of 2 by 2 around the centre of the fovea. 0 takes the degrees of the level. See "Foveated rendering" |
+| `foveation_show` | 0 | A test key: 1 a colour over the coarse parts of the eye pictures, blue for 2 by 2 and red for 4 by 4. Shift O goes to it too. See "Foveated rendering" |
 | `foveation_gaze` | 1 | 1 the centre of the fovea follows the gaze of an eye tracker when the headset has one (`XR_EXT_eye_gaze_interaction`), 0 it stays straight ahead. See "Foveated rendering" |
 | `profile_sample` | 0 | A test key. See "Where the time of the scene walk goes" |
 | `profile_sample_thread` | 0 | A test key: 1 takes the samples of `profile_sample` from the render thread, 2 from the D3D7 thread. See "Where the time of the scene walk goes" |

@@ -146,6 +146,7 @@ struct Core {
   // The nanoseconds of a tick of a timestamp of the queue, 0 when the
   // queue has no timestamps.
   float timestamp_ns;
+  uint32_t timestamp_bits;  // the valid bits of a timestamp of the queue
   bool shading_rate;
   uint32_t rate_texel_w;
   uint32_t rate_texel_h;

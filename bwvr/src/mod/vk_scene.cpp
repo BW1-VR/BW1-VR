@@ -172,6 +172,7 @@ struct Seed {
   // centre of the fovea as tangents of the eye.
   foveation_math::Params fovea;
   float gaze[2];
+  bool fovea_show;  // foveation_show: the marks of the coarse parts
 };
 
 // A bind of render target 0 of Direct3D 9 in a walk.
@@ -402,11 +403,16 @@ uint64_t g_pair_walks = 0;  // for the report
 uint64_t g_gpu_walks = 0;   // for the report: the walks with a time of the GPU
 uint64_t g_gpu_ticks = 0;
 uint64_t g_gpu_odd = 0;  // the times that are not times of a walk
+int g_gpu_odd_said = 0;
 // FOVEATED RENDERING (foveation, docs/backend.md, "Foveated rendering"). A
 // shading rate attachment of R8_UINT with a layer for each eye. On the frame
 // thread: the key now, the degrees of the ini, and the gaze of the frame. On
 // the D3D7 thread: the map in the image, and the walk now.
 int g_fovea_level = 0;
+bool g_fovea_show = false;  // foveation_show, on the frame thread
+bool g_walk_show = false;   // the walk draws the marks
+float g_walk_gaze[2] = {0.0f, 0.0f};
+foveation_math::Params g_walk_fovea_params = {};
 float g_fovea_inner_ini = 0.0f;  // foveation_inner_deg, 0: the level gives it
 float g_fovea_outer_ini = 0.0f;
 bool g_gaze_valid = false;
@@ -421,6 +427,7 @@ int g_rate_cx = -1, g_rate_cy = -1;
 bool g_walk_fovea = false;  // the renderings of the walk use the map
 uint64_t g_fovea_walks = 0;  // for the report
 uint64_t g_fovea_maps = 0;
+uint64_t g_fovea_marks = 0;  // walks with the marks of the test
 uint64_t g_gaze_frames = 0;
 
 bool Fail(const char* what) {
@@ -1729,12 +1736,20 @@ void BeginOnWorker(const void* data) {
             VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WITH_AVAILABILITY_BIT) ==
             VK_SUCCESS &&
         stamps[1] != 0 && stamps[3] != 0) {
-      const uint64_t ticks = stamps[2] - stamps[0];
-      if (stamps[2] >= stamps[0] &&
-          static_cast<double>(ticks) * vk::Get().timestamp_ns < 1e8) {
+      // The valid bits of the queue: a difference of two stamps in them.
+      const uint32_t bits = vk::Get().timestamp_bits;
+      const uint64_t mask = bits >= 64 || bits == 0 ? ~0ull : (1ull << bits) - 1;
+      const uint64_t ticks = (stamps[2] - stamps[0]) & mask;
+      if (static_cast<double>(ticks) * vk::Get().timestamp_ns < 1e8) {
         g_gpu_ticks += ticks;
         ++g_gpu_walks;
       } else {
+        if (g_gpu_odd_said < 4) {
+          ++g_gpu_odd_said;
+          ModLog("vk scene     : a time of the GPU that is not used: the "
+                 "stamps 0x%llX and 0x%llX, %u valid bits, %.3f ns a tick",
+                 stamps[0], stamps[2], bits, vk::Get().timestamp_ns);
+        }
         ++g_gpu_odd;
       }
     }
@@ -1769,8 +1784,8 @@ void BeginOnWorker(const void* data) {
   f.vkBeginCommandBuffer(s.cb, &begin);
   if (s.query != VK_NULL_HANDLE) {
     f.vkCmdResetQueryPool(s.cb, s.query, 0, 2);
-    f.vkCmdWriteTimestamp2(s.cb, VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, s.query,
-                           0);
+    f.vkCmdWriteTimestamp2(s.cb, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
+                           s.query, 0);
   }
   if (g_walk_right) {
     // Layer 0 has the left eye: the barrier keeps it.
@@ -1789,6 +1804,10 @@ void BeginOnWorker(const void* data) {
               VK_IMAGE_LAYOUT_UNDEFINED,
               VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, 1, 2);
   g_walk_fovea = PrepareFovea(s, seed);
+  g_walk_show = g_walk_fovea && seed->fovea_show;
+  g_walk_gaze[0] = seed->gaze[0];
+  g_walk_gaze[1] = seed->gaze[1];
+  g_walk_fovea_params = seed->fovea;
   g_walk_follow = seed->follow;
   g_eye_target = seed->target;
   g_draw_target = seed->target;
@@ -1829,9 +1848,128 @@ void BeginOnWorker(const void* data) {
   if (g_walk_only) ++g_only_walks;
 }
 
+// THE MARKS OF THE TEST (foveation_show): at the end of a walk with the map,
+// a blue colour over the part with 2 by 2 pixels for one shade, and a red one
+// over the part with 4 by 4 (blue too when the GPU has no 4 by 4). Each mark
+// is a ring of triangles between two edges of the cone around the centre of
+// the fovea (foveation_math::ConePoint). The draw goes through VkSceneDraw
+// with the states of a flat colour, and the states of the walk come back
+// after it.
+void DrawFoveaMarks() {
+  const foveation_math::Params& p = g_walk_fovea_params;
+  const uint32_t width = Target().width, height = Target().height;
+  float cx = 0.0f, cy = 0.0f;
+  foveation_math::TangentPixel(g_walk_gaze[0], g_walk_gaze[1], width, height,
+                               p, &cx, &cy);
+  const int kEdge = 64;
+  // The vertices of D3DFVF_XYZRHW | DIFFUSE | SPECULAR | TEX1 (0x1C4).
+  struct Vertex {
+    float x, y, z, rhw;
+    uint32_t diffuse, specular;
+    float u, v;
+  };
+  static Vertex vertices[2 * kEdge * 6];
+  int count = 0;
+  const float far_out = 4.0f * static_cast<float>(width + height);
+  for (int ring = 0; ring < 2; ++ring) {
+    const float from_deg = ring == 0 ? p.inner_deg : p.outer_deg;
+    const uint32_t colour =
+        ring == 1 && p.quarter ? 0x50FF3030u : 0x503060FFu;  // ARGB
+    for (int k = 0; k < kEdge; ++k) {
+      float a[2][2], b[2][2];  // the inner and the outer point of k and k+1
+      bool ok = true;
+      for (int j = 0; j < 2; ++j) {
+        float tx = 0.0f, ty = 0.0f;
+        if (!foveation_math::ConePoint(g_walk_gaze[0], g_walk_gaze[1],
+                                       from_deg, k + j, kEdge, &tx, &ty)) {
+          ok = false;
+          break;
+        }
+        foveation_math::TangentPixel(tx, ty, width, height, p, &a[j][0],
+                                     &a[j][1]);
+        if (ring == 0) {
+          if (!foveation_math::ConePoint(g_walk_gaze[0], g_walk_gaze[1],
+                                         p.outer_deg, k + j, kEdge, &tx,
+                                         &ty)) {
+            ok = false;
+            break;
+          }
+          foveation_math::TangentPixel(tx, ty, width, height, p, &b[j][0],
+                                       &b[j][1]);
+        } else {
+          // Far past each edge of the picture, on the line from the centre.
+          const float dx = a[j][0] - cx, dy = a[j][1] - cy;
+          const float l = sqrtf(dx * dx + dy * dy);
+          if (l < 1.0f) {
+            ok = false;
+            break;
+          }
+          b[j][0] = cx + dx / l * far_out;
+          b[j][1] = cy + dy / l * far_out;
+        }
+      }
+      if (!ok) continue;
+      const float* corner[6] = {a[0], b[0], a[1], b[0], b[1], a[1]};
+      for (int i = 0; i < 6; ++i) {
+        Vertex& v = vertices[count++];
+        v.x = corner[i][0];
+        v.y = corner[i][1];
+        v.z = 0.0f;
+        v.rhw = 1.0f;
+        v.diffuse = colour;
+        v.specular = 0;
+        v.u = v.v = 0.0f;
+      }
+    }
+  }
+  if (count == 0) return;
+  UsePanel(false);
+  uint32_t rs[kStates];
+  uint32_t ts[kStageStates];
+  memcpy(rs, g_rs, sizeof(rs));
+  memcpy(ts, g_ts[0], sizeof(ts));
+  void* texture = g_texture;
+  const D3DVIEWPORT7 viewport = g_viewport;
+  void* draw_target = g_draw_target;
+  const bool draw_panel = g_draw_panel;
+  g_rs[D3DRENDERSTATE_ZENABLE] = 0;
+  g_rs[D3DRENDERSTATE_ZWRITEENABLE] = 0;
+  g_rs[D3DRENDERSTATE_ALPHABLENDENABLE] = 1;
+  g_rs[D3DRENDERSTATE_SRCBLEND] = D3DBLEND_SRCALPHA;
+  g_rs[D3DRENDERSTATE_DESTBLEND] = D3DBLEND_INVSRCALPHA;
+  g_rs[D3DRENDERSTATE_CULLMODE] = D3DCULL_NONE;
+  g_rs[D3DRENDERSTATE_ALPHATESTENABLE] = 0;
+  g_rs[D3DRENDERSTATE_FOGENABLE] = 0;
+  g_rs[D3DRENDERSTATE_SPECULARENABLE] = 0;
+  g_ts[0][D3DTSS_COLOROP] = D3DTOP_SELECTARG1;
+  g_ts[0][D3DTSS_COLORARG1] = D3DTA_DIFFUSE;
+  g_ts[0][D3DTSS_ALPHAOP] = D3DTOP_SELECTARG1;
+  g_ts[0][D3DTSS_ALPHAARG1] = D3DTA_DIFFUSE;
+  g_texture = nullptr;
+  g_draw_target = g_eye_target;
+  g_draw_panel = false;
+  g_viewport.dwX = 0;
+  g_viewport.dwY = 0;
+  g_viewport.dwWidth = width;
+  g_viewport.dwHeight = height;
+  g_viewport.dvMinZ = 0.0f;
+  g_viewport.dvMaxZ = 1.0f;
+  SetViewportState(g_slots[g_slot].cb);
+  VkSceneDraw(D3DPT_TRIANGLELIST, 0x1C4, vertices,
+              static_cast<uint32_t>(count), nullptr, 0);
+  memcpy(g_rs, rs, sizeof(rs));
+  memcpy(g_ts[0], ts, sizeof(ts));
+  g_texture = texture;
+  g_viewport = viewport;
+  g_draw_target = draw_target;
+  g_draw_panel = draw_panel;
+  ++g_fovea_marks;
+}
+
 void EndOnWorker(const void*) {
   g_walk_only = false;
   if (!g_recording) return;
+  if (g_walk_show) DrawFoveaMarks();
   g_recording = false;
   Slot& s = g_slots[g_slot];
   f.vkCmdEndRendering(s.cb);
@@ -2028,6 +2166,7 @@ void VkSceneWalkBegin(void* device7) {
       seed.fovea.tan_v = seed.fovea.tan_h * static_cast<float>(info->res_y) /
                          static_cast<float>(info->res_x);
     }
+    seed.fovea_show = g_fovea_show;
     seed.gaze[0] = g_gaze_valid ? g_gaze_now[0] : 0.0f;
     seed.gaze[1] = g_gaze_valid ? g_gaze_now[1] : 0.0f;
   }
@@ -2466,8 +2605,10 @@ const void* VkScenePanelReadHalf(const int rect[4], int* pitch,
 
 void VkScenePanelReadDone() { g_half_locked = false; }
 
-void VkSceneSetFoveation(int level, int inner_deg, int outer_deg) {
+void VkSceneSetFoveation(int level, int inner_deg, int outer_deg,
+                         int show) {
   g_fovea_level = level >= 0 && level <= 3 ? level : 0;
+  g_fovea_show = show != 0;
   g_fovea_inner_ini = static_cast<float>(inner_deg);
   g_fovea_outer_ini = static_cast<float>(outer_deg);
   if (g_fovea_level == 0) return;
@@ -2482,16 +2623,22 @@ void VkSceneSetFoveation(int level, int inner_deg, int outer_deg) {
 }
 
 void VkSceneFoveationToggle(const char* keys) {
+  // On, on with the marks, off, and on again.
   static int s_last = 2;
-  if (g_fovea_level > 0) {
+  if (g_fovea_level == 0) {
+    g_fovea_level = s_last;
+    g_fovea_show = false;
+  } else if (!g_fovea_show) {
+    g_fovea_show = true;
+  } else {
     s_last = g_fovea_level;
     g_fovea_level = 0;
-  } else {
-    g_fovea_level = s_last;
+    g_fovea_show = false;
   }
   ControllersGesturePulse(0.5f, g_fovea_level > 0 ? 0.30f : 0.08f);
-  ModLog("test key     : %s, foveation is %d from the next walk", keys,
-         g_fovea_level);
+  ModLog("test key     : %s, foveation is %d%s from the next walk", keys,
+         g_fovea_level,
+         g_fovea_show ? ", with the marks of the coarse parts" : "");
 }
 
 void VkSceneSetGaze(bool valid, float gx, float gy) {
@@ -2845,9 +2992,11 @@ void VkSceneReport(uint64_t frames) {
   }
   if (g_fovea_level > 0 || g_fovea_walks > 0) {
     ModLog("vk scene     : foveation=%d. %llu walks with the map of the rates, "
-           "%llu new maps, %llu frames with the gaze of an eye tracker",
-           g_fovea_level, g_fovea_walks, g_fovea_maps, g_gaze_frames);
-    g_fovea_walks = g_fovea_maps = g_gaze_frames = 0;
+           "%llu new maps, %llu frames with the gaze of an eye tracker, %llu "
+           "walks with the marks",
+           g_fovea_level, g_fovea_walks, g_fovea_maps, g_gaze_frames,
+           g_fovea_marks);
+    g_fovea_walks = g_fovea_maps = g_gaze_frames = g_fovea_marks = 0;
   }
   if (g_pair_walks != 0) {
     ModLog("vk scene     : %llu walks of the right eye drew into the target "

@@ -543,6 +543,7 @@ int g_foveation = 0;
 int g_foveation_inner_deg = 0;
 int g_foveation_outer_deg = 0;
 int g_foveation_gaze = 1;
+int g_foveation_show = 0;
 int g_vk_scene_reread_test = 0;
 // The OpenXR session with Vulkan, and the eye pictures of the Vulkan
 // renderer in it (docs/backend.md, "The session with Vulkan").
@@ -1383,6 +1384,8 @@ void ReadSettings() {
       GetPrivateProfileIntA("bwvr", "foveation_outer_deg", 0, path));
   g_foveation_gaze =
       GetPrivateProfileIntA("bwvr", "foveation_gaze", 1, path) != 0 ? 1 : 0;
+  g_foveation_show =
+      GetPrivateProfileIntA("bwvr", "foveation_show", 0, path) != 0 ? 1 : 0;
   g_vk_scene_reread_test =
       static_cast<int>(GetPrivateProfileIntA("bwvr", "vk_scene_reread_test", 0,
                                              path));
@@ -1700,7 +1703,7 @@ void StartVrOnce() {
     VkSceneSetPresentLate(g_vk_present_late);
     VkSceneSetTextureReuse(g_vk_texture_reuse);
     VkSceneSetFoveation(g_foveation, g_foveation_inner_deg,
-                        g_foveation_outer_deg);
+                        g_foveation_outer_deg, g_foveation_show);
     if (g_foveation != 0 && g_vk_scene == 0 && !vk_eyes && !direct) {
       ModLog("vk scene     : foveation=%d, but the eye pictures come from "
              "Direct3D 9, which has no shading rate. Foveated rendering "
