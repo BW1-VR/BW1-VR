@@ -42,6 +42,7 @@
 #include "vk_core.h"
 #include "vk_ddraw.h"
 #include "vk_scene.h"
+#include "vk_prim_math.h"
 #include "vk_texture_math.h"
 
 void ModLog(const char* format, ...);
@@ -49,6 +50,9 @@ void ModLog(const char* format, ...);
 namespace {
 
 bool g_on = false;
+// vk_lines of bwvr.ini: 1 (the default) a draw of points or lines becomes
+// triangles (vk_prim_math.h). 0: it is not drawn, and the report counts it.
+bool g_lines = true;
 
 // THE METHODS THAT THIS FILE DOES NOT MAKE: a count for each name, and one
 // line of the log at the first call.
@@ -101,6 +105,8 @@ volatile LONG g_presents = 0;
 volatile LONG g_dxt_blts = 0;
 volatile LONG g_copy_blts = 0;
 volatile LONG g_fills = 0;
+volatile LONG g_line_draws = 0;
+volatile LONG g_line_prims = 0;
 
 // THE FORMATS.
 DDPIXELFORMAT Rgb(DWORD bits, DWORD r, DWORD g, DWORD b, DWORD a) {
@@ -893,10 +899,41 @@ class Device : public IDirect3DDevice7 {
 
   void DrawTriangles(D3DPRIMITIVETYPE type, DWORD fvf, const void* vertices,
             DWORD count, const WORD* indices, DWORD index_count) {
-    // The renderer draws triangles. A draw of points or lines is not drawn.
+    // The renderer draws triangles. A draw of points or lines of XYZRHW
+    // vertices becomes a list of triangles of 1 pixel across, with no cull,
+    // because Direct3D 7 culls no point and no line.
     if (type != D3DPT_TRIANGLELIST && type != D3DPT_TRIANGLESTRIP &&
         type != D3DPT_TRIANGLEFAN) {
-      NotMade("a draw of points or lines", D3D_OK);
+      const uint32_t stride = vk_prim_math::FvfStride(fvf);
+      if (!g_lines || (fvf & D3DFVF_POSITION_MASK) != D3DFVF_XYZRHW ||
+          stride == 0 ||
+          (!vk_prim_math::IsPoints(type) && !vk_prim_math::IsLines(type))) {
+        NotMade("a draw of points or lines", D3D_OK);
+        return;
+      }
+      const uint32_t prims = vk_prim_math::PrimCount(
+          type, indices != nullptr ? index_count : count);
+      if (prims == 0) return;
+      const size_t bytes = static_cast<size_t>(prims) * 6 * stride;
+      if (bytes > prim_room_) {
+        delete[] prim_;
+        prim_room_ = bytes * 2;
+        prim_ = new uint8_t[prim_room_];
+      }
+      const uint32_t made = vk_prim_math::Expand(
+          type, static_cast<const uint8_t*>(vertices), count, indices,
+          index_count, stride, prim_, prims * 6);
+      if (made == 0) return;
+      InterlockedIncrement(&g_line_draws);
+      InterlockedExchangeAdd(&g_line_prims, static_cast<LONG>(made / 6));
+      const DWORD cull = rs_[D3DRENDERSTATE_CULLMODE];
+      if (cull != D3DCULL_NONE) {
+        VkSceneRenderState(D3DRENDERSTATE_CULLMODE, D3DCULL_NONE);
+      }
+      VkSceneDraw(D3DPT_TRIANGLELIST, fvf, prim_, made, nullptr, 0);
+      if (cull != D3DCULL_NONE) {
+        VkSceneRenderState(D3DRENDERSTATE_CULLMODE, cull);
+      }
       return;
     }
     VkSceneDraw(type, fvf, vertices, count, indices, index_count);
@@ -933,6 +970,9 @@ class Device : public IDirect3DDevice7 {
   Surface* target_;
   GUID id_;
   bool in_scene_ = false;
+  // The triangles of a draw of points or lines.
+  uint8_t* prim_ = nullptr;
+  size_t prim_room_ = 0;
   DWORD rs_[kStates] = {};
   DWORD ts_[kStages][kStageStates] = {};
   IDirectDrawSurface7* textures_[kStages] = {};
@@ -1944,6 +1984,7 @@ Device::~Device() {
   }
   for (int i = 0; i < kMaxBlocks; ++i) delete blocks_[i];
   delete recording_;
+  delete[] prim_;
   target_->Release();
   d3d_->Release();
 }
@@ -1984,8 +2025,9 @@ HRESULT Create(ProxyCreateFn, GUID*, void** out, IUnknown*) {
 
 }  // namespace
 
-void VkDdrawInstall() {
+void VkDdrawInstall(int lines) {
   g_on = true;
+  g_lines = lines != 0;
   ProxyCreateHooks hooks = {};
   hooks.create_ex = &CreateEx;
   hooks.create = &Create;
@@ -2005,6 +2047,12 @@ void VkDdrawReport(unsigned long long frames) {
          g_surfaces, g_surfaces_made, InterlockedExchange(&g_presents, 0),
          InterlockedExchange(&g_fills, 0), InterlockedExchange(&g_copy_blts, 0),
          InterlockedExchange(&g_dxt_blts, 0));
+  const LONG line_draws = InterlockedExchange(&g_line_draws, 0);
+  if (line_draws != 0) {
+    ModLog("vk ddraw     : %ld draws of points or lines in the window, as %ld "
+           "rectangles of 1 pixel across",
+           line_draws, InterlockedExchange(&g_line_prims, 0));
+  }
   AcquireSRWLockExclusive(&g_unmade_lock);
   for (int i = 0; i < g_unmade_count; ++i) {
     if (g_unmade[i].count == 0) continue;

@@ -195,9 +195,10 @@ void FreeImage(Image* image);
 VkCommandBuffer BeginOnce();
 bool EndOnce(VkCommandBuffer cb);
 
-// A barrier of one image from one layout to another, for all stages.
+// A barrier of one image from one layout to another, for all stages. The
+// layers from base_layer.
 void Barrier(VkCommandBuffer cb, VkImage image, VkImageAspectFlags aspect,
              VkImageLayout from, VkImageLayout to, uint32_t levels,
-             uint32_t layers = 1);
+             uint32_t layers = 1, uint32_t base_layer = 0);
 
 }  // namespace vk

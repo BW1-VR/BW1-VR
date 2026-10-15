@@ -444,7 +444,7 @@ bool EndOnce(VkCommandBuffer cb) {
 
 void Barrier(VkCommandBuffer cb, VkImage image, VkImageAspectFlags aspect,
              VkImageLayout from, VkImageLayout to, uint32_t levels,
-             uint32_t layers) {
+             uint32_t layers, uint32_t base_layer) {
   VkImageMemoryBarrier2 b = {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
   b.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
   b.srcAccessMask = VK_ACCESS_2_MEMORY_WRITE_BIT;
@@ -455,7 +455,7 @@ void Barrier(VkCommandBuffer cb, VkImage image, VkImageAspectFlags aspect,
   b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
   b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
   b.image = image;
-  b.subresourceRange = {aspect, 0, levels, 0, layers};
+  b.subresourceRange = {aspect, 0, levels, base_layer, layers};
   VkDependencyInfo dep = {VK_STRUCTURE_TYPE_DEPENDENCY_INFO};
   dep.imageMemoryBarrierCount = 1;
   dep.pImageMemoryBarriers = &b;

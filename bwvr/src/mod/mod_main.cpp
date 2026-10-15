@@ -1661,9 +1661,17 @@ void StartVrOnce() {
     D3D7CountSetOptions(g_d3d7_count);
     D3D7ThreadSetOptions(g_d3d7_thread);
     D3D7ThreadSetMerge(g_d3d7_thread_merge);
+    // backend=vulkan has no Direct3D 9 and no Direct3D 11, so the session
+    // is a session with Vulkan, and the eye pictures come from the renderer.
+    const bool direct = VkSceneDirect();
+    if (direct && (g_xr_vulkan == 0 || g_vk_eyes == 0)) {
+      g_xr_vulkan = 1;
+      g_vk_eyes = 1;
+      ModLog("vr           : backend=vulkan, so xr_vulkan=1 and vk_eyes=1");
+    }
     // The eye pictures of the Vulkan renderer need the renderer.
     const bool vk_eyes = g_xr_vulkan != 0 && g_vk_eyes != 0;
-    VkSceneSetOptions(g_vk_scene != 0 || vk_eyes ? 1 : 0,
+    VkSceneSetOptions(g_vk_scene != 0 || vk_eyes || direct ? 1 : 0,
                       g_vk_scene_test_frame);
     VkSceneSetEyes(vk_eyes);
     VkSceneSetFollow(g_vk_scene_follow);
@@ -2377,7 +2385,10 @@ BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, LPVOID reserved) {
       // backend=vulkan: the DirectDraw of the mod. The count needs the
       // objects of another backend, so it does not run then.
       const bool vulkan = ProxyBackendVulkan();
-      if (vulkan) VkDdrawInstall();
+      if (vulkan) {
+        VkDdrawInstall(static_cast<int>(
+            GetPrivateProfileIntA("bwvr", "vk_lines", 1, ini)));
+      }
       const int census =
           vulkan ? 0
                  : static_cast<int>(

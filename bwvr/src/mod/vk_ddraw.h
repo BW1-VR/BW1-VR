@@ -10,7 +10,9 @@
 // exports that make a DirectDraw object (ProxySetCreateHooks) and puts the
 // Vulkan renderer in its direct mode. In DllMain, before the game makes its
 // DirectDraw object.
-void VkDdrawInstall();
+// lines: vk_lines of bwvr.ini (1: a draw of points or lines becomes
+// triangles, 0: it is not drawn).
+void VkDdrawInstall(int lines);
 bool VkDdrawOn();
 
 // For the report of each 450 frames: the calls of each method that the

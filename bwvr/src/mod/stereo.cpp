@@ -1564,7 +1564,15 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
                          VkSceneEyesWanted() &&
                          VkSceneEyesFor(g_screen->width(), g_screen->height(),
                                         &vk_image);
-    if (vk_eyes) {
+    // backend=vulkan in a frame of two walks: after the pass of the right
+    // eye the image of the renderer has both eyes (vk_scene.cpp, "TWO WALKS
+    // FOR THE EYES"). The pass of the left eye sends nothing.
+    const bool vk_pair = !vk_eyes && to_headset && !one_walk_done &&
+                         eye == 1 && VkSceneDirect() && g_screen->vulkan() &&
+                         VkSceneEyesWanted() &&
+                         VkSceneEyesFor(g_screen->width(), g_screen->height(),
+                                        &vk_image);
+    if (vk_eyes || vk_pair) {
       for (int e = 0; e < 2; ++e) {
         if (send_mode == 0) {
           g_screen->SetEyeVulkan(e, vk_image, static_cast<uint32_t>(e));
@@ -1691,16 +1699,19 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
         OneWalkReadDone();
       }
     }
-    // In one walk the backend's own target holds neither eye.
+    // In one walk the backend's own target holds neither eye. With
+    // backend=vulkan the pixels of the target are not the picture of the
+    // walk, so they do not go to the headset.
     const bool luma = EyeLumaOn();
+    const bool cpu_eye = to_headset && !sent && !VkSceneDirect();
     if (!one_walk_done &&
-        ((to_headset && !sent) || g_headless_grab || want_capture || luma)) {
+        (cpu_eye || g_headless_grab || want_capture || luma)) {
       // The surface stays locked while the VR layer reads it, so the frame is
       // copied once instead of twice.
       int pitch = 0;
       const void* pixels = FrameSourceBegin(&pitch);
       if (pixels != nullptr) {
-        if (to_headset && !sent) g_screen->SetEyeImage(eye, pixels, pitch);
+        if (cpu_eye) g_screen->SetEyeImage(eye, pixels, pitch);
         if (luma) {
           EyeLumaEye(eye, pixels, pitch, static_cast<uint32_t>(pitch / 4),
                      g_height);

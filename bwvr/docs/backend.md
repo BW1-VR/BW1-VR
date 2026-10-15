@@ -2390,13 +2390,30 @@ each draw. At frame 421 the image of the left eye and the image of the
 renderer with dxwrapper differ in 0.035 percent of the pixels by more than
 24 levels, and the image and the picture of Direct3D 9 in 0.180 percent.
 
-**Not made yet.** A draw of points or lines (about 20000 at the start, in
-the logos, and none in play). One walk for both eyes: the walk of one
-walk needs the targets of Direct3D 9 (`one_walk.cpp`), so each frame has
-two walks, and the eye pictures of a session do not come from the
-renderer yet. The panel target of the interface (`gpu_bridge.cpp`), so the
-help text stays in the eye pictures. Not run: a headset session, a video,
-the Main Menu, a saved game, the Temple.
+**Points and lines.** The renderer draws triangles. So a draw of points or
+lines of XYZRHW vertices becomes a list of triangles (`vk_prim_math.h`): a
+point is a square of 1 by 1 pixels with its centre at the point, and a line
+is a rectangle of 1 pixel across from its first vertex to its second
+vertex. Each corner has the color, the depth and the texture coordinates
+of the vertex of its end. The draw has no cull, because Direct3D 7 culls no
+point and no line. `vk_lines=0` draws no point and no line.
+
+**Two walks for the eyes.** One walk needs the targets of Direct3D 9
+(`one_walk.cpp`), so with the backend each frame has a walk for each eye.
+The walk of the left eye draws into layer 0 of its target. The walk of the
+right eye that comes just after it takes the same target: it keeps layer
+0, clears layer 1 and draws into it (the eyes of the push constants, and a
+clear of layer 1 alone). After the pass of the right eye both layers go to
+the session with Vulkan (`stereo.cpp`). `backend=vulkan` sets
+`xr_vulkan=1` and `vk_eyes=1`, because it has no Direct3D 11 for a
+session. The pass of the left eye sends no picture, and the pixels of the
+render target of the backend do not go to the headset, because they are
+not the picture of the walk.
+
+**Not made yet.** One walk for both eyes. The panel target of the
+interface (`gpu_bridge.cpp`), so the help text stays in the eye pictures.
+Not run: a headset session, a video, the Main Menu, a saved game, the
+Temple.
 
 ## The session with Vulkan
 
@@ -3987,7 +4004,7 @@ keys that the launcher sets.
 | `ddraw_census` | 0 | A test key. See "The calls of DirectDraw and Direct3D 7 in a session" |
 | `vk_scene`, `vk_scene_test_frame` | 0, 0 | Test keys: 1 draws each walk also with the Vulkan renderer, both eyes, and frame N writes its images to files. See "The Vulkan renderer" |
 | `xr_vulkan` | 0 | 0: the OpenXR session has Direct3D 11. 1: the session has Vulkan, and the Vulkan renderer draws with its device. When it cannot start, the next try has Direct3D 11. There is no test key: the choice is made at the start. See "The session with Vulkan" |
-| `vk_eyes` | 1 | With `xr_vulkan=1`: 1 the eye pictures of a frame of one walk come from the Vulkan renderer, 0 from Direct3D 9. A test key: Shift C. See "The session with Vulkan" |
+| `vk_eyes` | 1 | With `xr_vulkan=1`: 1 the eye pictures of a frame of one walk come from the Vulkan renderer, 0 from Direct3D 9. `backend=vulkan` sets `xr_vulkan=1` and `vk_eyes=1`. A test key: Shift C. See "The session with Vulkan" |
 | `xr_vulkan_upload` | 1 | With `xr_vulkan=1`: 1 the pixels of the CPU (an eye picture of the CPU, a card, the walls of the cut scene window) go into the swapchain images with a copy of Vulkan. 0 they go into the relays of Direct3D 11, and the release of an image copies its relay. A test key: Shift Z. See "The session with Vulkan" |
 | `vk_scene_follow` | 1 | 1: in a walk of one walk the Vulkan renderer follows render target 0 of Direct3D 9, the viewport of Direct3D 7 and the clears, and a draw for another target does not go into the eye pictures. 0: each draw goes into the eye pictures, and the renderer makes no clear. A test key: Shift X. See "The Vulkan renderer" |
 | `vk_panel` | 1 | 1: the Vulkan renderer draws the draws for the panel target into a panel of its own, and the subtitle card and the panel layer of a session with Vulkan take it. 0: the renderer draws no draw for the panel target, and the card and the layer take the panel of Direct3D 9. A test key: Shift Y. See "The Vulkan renderer" |
@@ -3996,6 +4013,7 @@ keys that the launcher sets.
 | `fast_transform` | 1 | 1: the two vertex loops of the engine run with SSE, with the bits of the game. 0: on the x87 unit. See "The vertex loops with SSE" |
 | `profile_gpu` | 0 | A test key. See "The GPU time" |
 | `hang_watch` | 0 | A test key: 1 the place of the frame thread when it makes no frame for 8 s, 2 each 8 s. With each of the two the place of a fault. See "The watch of the frame thread" |
+| `vk_lines` | 1 | With `backend=vulkan`: 1 a draw of points or lines becomes triangles of 1 pixel across, 0 it is not drawn. See "The backend of the mod on Vulkan" |
 | `profile_sample` | 0 | A test key. See "Where the time of the scene walk goes" |
 | `profile_sample_thread` | 0 | A test key: 1 takes the samples of `profile_sample` from the render thread, 2 from the D3D7 thread. See "Where the time of the scene walk goes" |
 | `profile_sample_dump` | 0 | A test key: 1 writes each sample of `profile_sample` with the modules to `bwvr-samples.txt` beside `runblack.exe`. See "Where the time of the scene walk goes" |

@@ -165,6 +165,7 @@ struct Seed {
   bool upload_queue;  // vk_upload_queue
   int reread;    // vk_scene_reread_test: the textures that the walk reads again
   void* target;  // the target of the eyes, or null when it is not known
+  int eye;       // the eye pass of the walk (StereoPassEye), -1 for none
 };
 
 // A bind of render target 0 of Direct3D 9 in a walk.
@@ -363,6 +364,14 @@ uint64_t g_right_only = 0;
 uint64_t g_stage1 = 0;  // draws with texture stage 1 on
 bool g_said_seed = false;
 bool g_walk_both = false;  // the walk now draws both eyes
+// TWO WALKS FOR THE EYES. A frame with no walk of one walk has a walk for each
+// eye. The walk of the left eye draws into layer 0 of its target. The walk of
+// the right eye that comes just after it takes the same target, keeps layer
+// 0, clears layer 1 and draws into it. Then the target has both eyes.
+bool g_walk_right = false;  // the walk now is the right eye of a pair
+LONG g_left_serial = -1;    // g_walk_serial at the end of a walk of the left eye
+VkImage g_left_image = VK_NULL_HANDLE;  // its target
+uint64_t g_pair_walks = 0;  // for the report
 
 bool Fail(const char* what) {
   ModLog("vk scene     : %s failed. The Vulkan renderer stops", what);
@@ -1392,7 +1401,8 @@ void ClearOnWorker(const void* data) {
   // renderings of both. The dynamic states stay.
   const VkCommandBuffer cb = g_slots[g_slot].cb;
   const uint32_t eyes =
-      vk_scene_math::Eyes(OneWalkActive(), OneWalkModeNow());
+      g_walk_right ? 2u
+                   : vk_scene_math::Eyes(OneWalkActive(), OneWalkModeNow());
   if (eyes != 3u) {
     f.vkCmdEndRendering(cb);
     BeginRendering(cb, eyes, true, true);
@@ -1444,8 +1454,12 @@ void BeginOnWorker(const void* data) {
     return;
   }
   g_slot ^= 1;
-  g_target ^= 1;
   g_walk_both = seed->both;
+  g_walk_right = !seed->both && seed->eye == 1 &&
+                 g_left_serial ==
+                     InterlockedCompareExchange(&g_walk_serial, 0, 0) &&
+                 g_left_image == Target().image;
+  if (!g_walk_right) g_target ^= 1;
   Slot& s = g_slots[g_slot];
   const VkDevice device = vk::Get().device;
   f.vkWaitForFences(device, 1, &s.fence, VK_TRUE, UINT64_MAX);
@@ -1477,9 +1491,19 @@ void BeginOnWorker(const void* data) {
   VkCommandBufferBeginInfo begin = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
   begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
   f.vkBeginCommandBuffer(s.cb, &begin);
-  vk::Barrier(s.cb, Target().image, VK_IMAGE_ASPECT_COLOR_BIT,
-              VK_IMAGE_LAYOUT_UNDEFINED,
-              VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 1, 2);
+  if (g_walk_right) {
+    // Layer 0 has the left eye: the barrier keeps it.
+    vk::Barrier(s.cb, Target().image, VK_IMAGE_ASPECT_COLOR_BIT,
+                VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 1, 1);
+    vk::Barrier(s.cb, Target().image, VK_IMAGE_ASPECT_COLOR_BIT,
+                VK_IMAGE_LAYOUT_UNDEFINED,
+                VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 1, 1, 1);
+  } else {
+    vk::Barrier(s.cb, Target().image, VK_IMAGE_ASPECT_COLOR_BIT,
+                VK_IMAGE_LAYOUT_UNDEFINED,
+                VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 1, 2);
+  }
   vk::Barrier(s.cb, g_depth.image, VK_IMAGE_ASPECT_DEPTH_BIT,
               VK_IMAGE_LAYOUT_UNDEFINED,
               VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, 1, 2);
@@ -1490,7 +1514,17 @@ void BeginOnWorker(const void* data) {
   g_draw_panel = false;
   g_panel_drawn = false;
   g_rendering_panel = false;
-  BeginRendering(s.cb, 3u, false, g_walk_follow);
+  if (g_walk_right) {
+    // A clear of layer 1 alone, then the rendering of both layers with the
+    // pixels of layer 0. The draws of the walk go to layer 1 alone (the
+    // eyes of the push constants).
+    BeginRendering(s.cb, 2u, false, true);
+    f.vkCmdEndRendering(s.cb);
+    BeginRendering(s.cb, 3u, true, g_walk_follow);
+    ++g_pair_walks;
+  } else {
+    BeginRendering(s.cb, 3u, false, g_walk_follow);
+  }
   if (g_walk_follow) {
     SetViewportState(s.cb);
   } else {
@@ -1541,13 +1575,17 @@ void EndOnWorker(const void*) {
     Fail("a submit");
     return;
   }
-  if (g_walk_both) {
+  if (g_walk_both || g_walk_right) {
     g_done_image = (uint64_t)Target().image;  // a handle of 64 bits
     g_done_width = Target().width;
     g_done_height = Target().height;
     InterlockedIncrement(&g_done_serial);
   }
   const LONG walk = InterlockedIncrement(&g_walk_serial);
+  // A walk of the left eye can have the walk of the right eye after it.
+  const bool left = !g_walk_both && !g_walk_right && StereoPassEye() == 0;
+  g_left_serial = left ? walk : -1;
+  g_left_image = left ? Target().image : VK_NULL_HANDLE;
   // The picture of the window: the last walk of the left eye, or of a scene
   // with no eye pass (a menu).
   if (StereoPassEye() <= 0) {
@@ -1669,10 +1707,11 @@ void VkSceneWalkBegin(void* device7) {
     texture->Release();
   }
   d->GetViewport(&seed.viewport);
-  // The first walk of the frame of vk_scene_test_frame writes its images.
+  // The first walk of the frame of vk_scene_test_frame writes its images. In
+  // a frame of two walks it is the walk of the right eye, which has both.
   seed.frame = g_picture_name;
-  seed.picture = g_picture_next;
-  g_picture_next = false;
+  seed.picture = g_picture_next && (OneWalkActive() || StereoPassEye() != 0);
+  if (seed.picture) g_picture_next = false;
   seed.both = OneWalkActive();
   seed.follow = g_follow;
   seed.panel = g_panel_mode;
@@ -1682,6 +1721,7 @@ void VkSceneWalkBegin(void* device7) {
               !g_size_differs && OneWalkActive();
   g_only_frame = false;
   seed.target = g_follow ? OneWalkBoundTarget() : nullptr;
+  seed.eye = StereoPassEye();
   if (g_direct) {
     BeginOnWorker(&seed);
   } else {
@@ -1913,7 +1953,7 @@ void VkSceneDraw(uint32_t type, uint32_t fvf, const void* vertices,
   push.depth[1] = range > 0.0f ? 1.0f / range : 1.0f;
   // The eyes of the draw and the move of the right eye (BOTH EYES).
   // The panel has one layer (view 0) and no move.
-  uint32_t eyes = 1u;
+  uint32_t eyes = g_walk_right && !panel ? 2u : 1u;
   uint32_t still = 1u;
   if (OneWalkActive() && !panel) {
     const int mode = OneWalkModeNow();
@@ -2309,6 +2349,12 @@ void VkSceneReport(uint64_t frames) {
   ModLog("vk scene     : vk_only=%d. %llu walks without Direct3D 9",
          g_only_mode ? 1 : 0, g_only_walks);
   g_only_walks = 0;
+  if (g_pair_walks != 0) {
+    ModLog("vk scene     : %llu walks of the right eye drew into the target "
+           "of the walk of the left eye before them, so the target has both "
+           "eyes", g_pair_walks);
+    g_pair_walks = 0;
+  }
   g_panel_reads = g_panel_read_failures = g_panel_layers = 0;
   if (g_eyes) {
     ModLog("vk scene     : %llu of %llu frames had the eye pictures of the "
