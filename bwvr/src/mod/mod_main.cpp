@@ -532,6 +532,8 @@ int g_vk_scene_follow = 1;
 int g_vk_panel = 1;
 int g_vk_only = 1;
 int g_vk_only_test = 0;
+int g_vk_upload_queue = 1;
+int g_vk_scene_reread_test = 0;
 // The OpenXR session with Vulkan, and the eye pictures of the Vulkan
 // renderer in it (docs/backend.md, "The session with Vulkan").
 int g_xr_vulkan = 0;
@@ -1357,6 +1359,11 @@ void ReadSettings() {
   g_vk_only = GetPrivateProfileIntA("bwvr", "vk_only", 1, path) != 0 ? 1 : 0;
   g_vk_only_test =
       GetPrivateProfileIntA("bwvr", "vk_only_test", 0, path) != 0 ? 1 : 0;
+  g_vk_upload_queue =
+      GetPrivateProfileIntA("bwvr", "vk_upload_queue", 1, path) != 0 ? 1 : 0;
+  g_vk_scene_reread_test =
+      static_cast<int>(GetPrivateProfileIntA("bwvr", "vk_scene_reread_test", 0,
+                                             path));
   g_xr_vulkan =
       GetPrivateProfileIntA("bwvr", "xr_vulkan", 0, path) != 0 ? 1 : 0;
   g_vk_eyes = GetPrivateProfileIntA("bwvr", "vk_eyes", 1, path) != 0 ? 1 : 0;
@@ -1659,6 +1666,7 @@ void StartVrOnce() {
     VkSceneSetFollow(g_vk_scene_follow);
     VkSceneSetPanel(g_vk_panel);
     VkSceneSetOnly(g_vk_only, g_vk_only_test);
+    VkSceneSetUploads(g_vk_upload_queue, g_vk_scene_reread_test);
     // With a session with Vulkan the renderer takes its device, so it waits
     // for the session.
     if (g_xr_vulkan != 0 && g_vr_enabled && !g_stereo_headless) {

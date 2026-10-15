@@ -128,3 +128,15 @@ void VkSceneOnlyFrame(bool can);
 // d3d7_thread.cpp, on the D3D7 thread: the walk now goes without
 // dxwrapper, so a draw goes to the renderer alone.
 bool VkSceneOnlyNow();
+
+// THE UPLOADS OF A WALK (vk_upload_queue of bwvr.ini, 1 is the default). A
+// texture that the game wrote again (a Lock or a Blt) is read at its next
+// use in a walk. 1: its copy to the GPU goes into a command buffer that the
+// end of the walk submits before the buffer of the walk, with no wait on the
+// D3D7 thread. 0: each copy goes to the GPU at once, and the D3D7 thread
+// waits until the GPU is done. Shift I (test_keys=1) changes it from the
+// next walk. vk_scene_reread_test=N (a test key): each walk reads N
+// textures again, in turn, so a desktop run makes many reads in a short
+// time.
+void VkSceneSetUploads(int queue, int reread_test);
+void VkSceneUploadsToggle(const char* keys);

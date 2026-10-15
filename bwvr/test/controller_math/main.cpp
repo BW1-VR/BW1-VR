@@ -3561,6 +3561,7 @@ void CreatureChecks() {
 #include "render_thread_checks.h"
 #include "fast_transform_checks.h"
 #include "vk_scene_checks.h"
+#include "vk_texture_checks.h"
 
 int main() {
   const float eye[3] = {120.0f, 45.0f, -300.0f};
@@ -3966,6 +3967,7 @@ int main() {
   render_thread_checks::RenderThreadChecks();
   fast_transform_checks::FastTransformChecks();
   vk_scene_checks::VkSceneChecks();
+  vk_texture_checks::VkTextureChecks();
 
   printf("\n%d checks, %d failed\n", g_checks, g_failures);
   return g_failures == 0 ? 0 : 1;

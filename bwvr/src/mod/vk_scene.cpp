@@ -86,6 +86,8 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <d3d.h>
+#include <intrin.h>
+#include <smmintrin.h>
 #include <ddraw.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -98,6 +100,7 @@
 #include "vk_core.h"
 #include "vk_scene.h"
 #include "vk_scene_math.h"
+#include "vk_texture_math.h"
 #include "vk_scene_frag.h"
 #include "vk_scene_vert.h"
 
@@ -149,6 +152,8 @@ struct Seed {
   bool follow;
   bool panel;    // vk_panel
   bool only;     // the walk goes without Direct3D 9 (vk_only)
+  bool upload_queue;  // vk_upload_queue
+  int reread;    // vk_scene_reread_test: the textures that the walk reads again
   void* target;  // the target of the eyes, or null when it is not known
 };
 
@@ -271,16 +276,46 @@ int g_texture_count = 0;
 SRWLOCK g_texture_lock = SRWLOCK_INIT;  // the dirty marks of the frame thread
 
 // THE FRAME. Two slots, so the CPU fills one while the GPU draws the other.
+// THE UPLOADS OF A WALK (vk_upload_queue=1). A texture that the walk reads
+// again goes into the upload buffer of the slot, with no wait for the GPU.
+// The end of the walk submits it before the buffer of the walk, in one
+// submit, so the queue copies each texture before a draw reads it. The
+// staging buffers stay until the fence of the slot says the GPU is done.
+const int kSlotStaging = 64;
 struct Slot {
   VkCommandPool pool;
   VkCommandBuffer cb;
+  VkCommandBuffer upload_cb;
+  bool upload_open;  // upload_cb has commands of this walk
   VkFence fence;
   vk::Buffer ring;
   VkDeviceSize used;
   bool pending;
   vk::Image garbage[64];
   int garbage_count;
+  vk::Buffer staging[kSlotStaging];
+  int staging_count;
+  // The descriptor sets of the textures that the walk read again. They go
+  // back to the pool when the fence of the slot says the GPU is done.
+  VkDescriptorSet dead_sets[1024];
+  int dead_count;
 };
+// On the D3D7 thread: vk_upload_queue for the walk now. On the frame
+// thread: the key now (the test key changes it).
+bool g_walk_upload_queue = false;
+bool g_upload_queue = true;
+uint64_t g_uploads_queued = 0;  // for the report
+uint64_t g_upload_wait_ticks = 0;  // the uploads that waited, on the CPU
+// The descriptor sets: in use now, and made since the start, against the
+// room of the pool (kMaxTextures * 8).
+int64_t g_sets_live = 0;
+uint64_t g_sets_made = 0;
+uint64_t g_set_failures = 0;
+bool g_said_set_failure = false;
+// vk_scene_reread_test=N (a test key): each walk reads N textures again,
+// so a desktop run makes many reads in a short time.
+int g_reread_test = 0;
+int g_reread_next = 0;  // on the D3D7 thread: the next texture to read
 const VkDeviceSize kRingBytes = 32u << 20;
 Slot g_slots[2];
 int g_slot = 0;
@@ -506,22 +541,32 @@ VkSampler Sampler(uint32_t mag, uint32_t min, uint32_t mip, uint32_t u,
   return sampler;
 }
 
-// The count of the bits of a mask, and the place of its lowest bit.
-void MaskShape(uint32_t mask, int* shift, int* bits) {
-  *shift = 0;
-  *bits = 0;
-  if (mask == 0) return;
-  while (((mask >> *shift) & 1u) == 0) ++*shift;
-  while (((mask >> (*shift + *bits)) & 1u) != 0) ++*bits;
-}
+// THE TABLES OF THE FORMATS OF 16 BITS (vk_texture_math.h). A table is made
+// at the first texture of its format, on the D3D7 thread.
+struct Lut16 {
+  vk_texture_math::Format format;
+  uint32_t* rgba;  // 65536 values
+};
+const int kLuts = 8;
+Lut16 g_luts[kLuts] = {};
+int g_lut_count = 0;
 
-uint32_t Expand(uint32_t pixel, uint32_t mask, uint32_t fallback) {
-  if (mask == 0) return fallback;
-  int shift, bits;
-  MaskShape(mask, &shift, &bits);
-  const uint32_t v = (pixel & mask) >> shift;
-  const uint32_t max = (1u << bits) - 1u;
-  return (v * 255u + max / 2u) / max;
+const uint32_t* LutOf(const vk_texture_math::Format& format) {
+  for (int i = 0; i < g_lut_count; ++i) {
+    const vk_texture_math::Format& g = g_luts[i].format;
+    if (g.r == format.r && g.g == format.g && g.b == format.b &&
+        g.a == format.a && g.has_alpha == format.has_alpha) {
+      return g_luts[i].rgba;
+    }
+  }
+  if (g_lut_count >= kLuts) return nullptr;
+  uint32_t* rgba = static_cast<uint32_t*>(malloc(65536 * sizeof(uint32_t)));
+  if (rgba == nullptr) return nullptr;
+  vk_texture_math::BuildLut16(format, rgba);
+  g_luts[g_lut_count].format = format;
+  g_luts[g_lut_count].rgba = rgba;
+  ++g_lut_count;
+  return rgba;
 }
 
 // THE VERTEX FORMATS. The shaders read the layout of 0x1C4: XYZRHW, the
@@ -584,6 +629,58 @@ void ConvertVertices(const uint8_t* from, const VertexLayout& layout,
   }
 }
 
+// THE READ OF A LOCKED SURFACE. A Lock of dxwrapper can give memory of the
+// GPU that the CPU reads with no cache (write combined), and there each
+// plain read waits for the bus. With SSE4.1 a row goes into a buffer of the
+// CPU with streaming loads (MOVNTDQA), 64 bytes at a time, and the
+// conversion reads that buffer. Without SSE4.1 the conversion reads the
+// surface. On the D3D7 thread.
+bool g_sse41 = false;
+bool g_sse41_known = false;
+uint8_t* g_row = nullptr;
+uint32_t g_row_size = 0;
+
+const uint8_t* ReadRow(const uint8_t* src, uint32_t bytes) {
+  if (!g_sse41_known) {
+    int regs[4];
+    __cpuid(regs, 1);
+    g_sse41 = (regs[2] & (1 << 19)) != 0;
+    g_sse41_known = true;
+  }
+  if (!g_sse41) return src;
+  if (g_row_size < bytes) {
+    _aligned_free(g_row);
+    g_row = static_cast<uint8_t*>(_aligned_malloc(bytes + 64, 64));
+    g_row_size = g_row != nullptr ? bytes : 0;
+    if (g_row == nullptr) return src;
+  }
+  // The bytes before the first address of 16, then whole blocks.
+  const uint32_t head = static_cast<uint32_t>(
+      (16 - (reinterpret_cast<uintptr_t>(src) & 15)) & 15);
+  uint32_t at = head < bytes ? head : bytes;
+  memcpy(g_row, src, at);
+  for (; at + 64 <= bytes; at += 64) {
+    __m128i* from = reinterpret_cast<__m128i*>(const_cast<uint8_t*>(src + at));
+    const __m128i a = _mm_stream_load_si128(from);
+    const __m128i b = _mm_stream_load_si128(from + 1);
+    const __m128i c = _mm_stream_load_si128(from + 2);
+    const __m128i d = _mm_stream_load_si128(from + 3);
+    __m128i* to = reinterpret_cast<__m128i*>(g_row + at);
+    _mm_storeu_si128(to, a);
+    _mm_storeu_si128(to + 1, b);
+    _mm_storeu_si128(to + 2, c);
+    _mm_storeu_si128(to + 3, d);
+  }
+  for (; at + 16 <= bytes; at += 16) {
+    _mm_storeu_si128(
+        reinterpret_cast<__m128i*>(g_row + at),
+        _mm_stream_load_si128(
+            reinterpret_cast<__m128i*>(const_cast<uint8_t*>(src + at))));
+  }
+  memcpy(g_row + at, src + at, bytes - at);
+  return g_row;
+}
+
 // Reads a surface of the game into RGBA8. False when it cannot.
 bool ReadSurface(IDirectDrawSurface7* s, uint32_t* width, uint32_t* height,
                  uint8_t** pixels) {
@@ -604,11 +701,34 @@ bool ReadSurface(IDirectDrawSurface7* s, uint32_t* width, uint32_t* height,
     ok = *pixels != nullptr;
   }
   if (ok) {
-    const bool has_alpha = (pf.dwFlags & DDPF_ALPHAPIXELS) != 0;
+    // The masks of the format, and its table (16 bits) or its channels (24
+    // and 32 bits). Each gives the values of vk_texture_math::ToRgba.
+    vk_texture_math::Format format;
+    format.r = pf.dwRBitMask;
+    format.g = pf.dwGBitMask;
+    format.b = pf.dwBBitMask;
+    format.has_alpha = (pf.dwFlags & DDPF_ALPHAPIXELS) != 0;
+    format.a = format.has_alpha ? pf.dwRGBAlphaBitMask : 0u;
+    const uint32_t* lut = bpp == 16 ? LutOf(format) : nullptr;
+    vk_texture_math::Channel r, g, b, a;
+    if (lut == nullptr) {
+      vk_texture_math::BuildChannel(format.r, 0, &r);
+      vk_texture_math::BuildChannel(format.g, 0, &g);
+      vk_texture_math::BuildChannel(format.b, 0, &b);
+      vk_texture_math::BuildChannel(format.a, 255, &a);
+    }
+    const uint32_t row_bytes = desc.dwWidth * (bpp / 8);
     for (uint32_t y = 0; y < desc.dwHeight; ++y) {
-      const uint8_t* row =
-          static_cast<const uint8_t*>(desc.lpSurface) + y * desc.lPitch;
-      uint8_t* out = *pixels + y * desc.dwWidth * 4;
+      const uint8_t* row = ReadRow(
+          static_cast<const uint8_t*>(desc.lpSurface) + y * desc.lPitch,
+          row_bytes);
+      uint32_t* out =
+          reinterpret_cast<uint32_t*>(*pixels + y * desc.dwWidth * 4);
+      if (lut != nullptr) {
+        const uint16_t* in = reinterpret_cast<const uint16_t*>(row);
+        for (uint32_t x = 0; x < desc.dwWidth; ++x) out[x] = lut[in[x]];
+        continue;
+      }
       for (uint32_t x = 0; x < desc.dwWidth; ++x) {
         uint32_t p = 0;
         if (bpp == 16) {
@@ -618,11 +738,10 @@ bool ReadSurface(IDirectDrawSurface7* s, uint32_t* width, uint32_t* height,
         } else {
           p = row[x * 3] | row[x * 3 + 1] << 8 | row[x * 3 + 2] << 16;
         }
-        out[x * 4 + 0] = static_cast<uint8_t>(Expand(p, pf.dwRBitMask, 0));
-        out[x * 4 + 1] = static_cast<uint8_t>(Expand(p, pf.dwGBitMask, 0));
-        out[x * 4 + 2] = static_cast<uint8_t>(Expand(p, pf.dwBBitMask, 0));
-        out[x * 4 + 3] = static_cast<uint8_t>(
-            has_alpha ? Expand(p, pf.dwRGBAlphaBitMask, 255) : 255);
+        out[x] = vk_texture_math::ChannelValue(p, r, format.r) |
+                 vk_texture_math::ChannelValue(p, g, format.g) << 8 |
+                 vk_texture_math::ChannelValue(p, b, format.b) << 16 |
+                 vk_texture_math::ChannelValue(p, a, format.a) << 24;
       }
     }
   }
@@ -630,31 +749,12 @@ bool ReadSurface(IDirectDrawSurface7* s, uint32_t* width, uint32_t* height,
   return ok;
 }
 
-// Copies RGBA8 pixels into a new image with each mip level, and frees the
-// pixels. On the D3D7 thread, with a wait for the GPU.
-bool Upload(uint32_t width, uint32_t height, uint8_t* pixels,
-            vk::Image* image) {
-  uint32_t levels = 1;
-  while ((width >> levels) > 0 || (height >> levels) > 0) ++levels;
-  if (!vk::MakeImage(width, height, levels, kTextureFormat,
-                     VK_IMAGE_USAGE_SAMPLED_BIT |
-                         VK_IMAGE_USAGE_TRANSFER_DST_BIT |
-                         VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
-                     VK_IMAGE_ASPECT_COLOR_BIT, image)) {
-    free(pixels);
-    return false;
-  }
-  const VkDeviceSize bytes = static_cast<VkDeviceSize>(width) * height * 4;
-  vk::Buffer staging;
-  if (!vk::MakeBuffer(bytes, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, true,
-                      &staging)) {
-    free(pixels);
-    vk::FreeImage(image);
-    return false;
-  }
-  memcpy(staging.mapped, pixels, static_cast<size_t>(bytes));
-  free(pixels);
-  VkCommandBuffer cb = vk::BeginOnce();
+// Records the copy of `staging` (width by height pixels of RGBA8) into
+// `image`, each mip level from the one before it, and the layout for the
+// fragment shader at the end.
+void RecordUpload(VkCommandBuffer cb, const vk::Image* image,
+                  const vk::Buffer& staging, uint32_t width, uint32_t height,
+                  uint32_t levels) {
   vk::Barrier(cb, image->image, VK_IMAGE_ASPECT_COLOR_BIT,
               VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
               levels);
@@ -717,11 +817,81 @@ bool Upload(uint32_t width, uint32_t height, uint8_t* pixels,
                 VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                 VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 1);
   }
-  const bool ok = vk::EndOnce(cb);
-  vk::FreeBuffer(&staging);
+}
+
+// Makes the image of RGBA8 pixels with each mip level and its staging
+// buffer, and frees the pixels. False with nothing kept when it cannot.
+bool PrepareUpload(uint32_t width, uint32_t height, uint8_t* pixels,
+                   vk::Image* image, vk::Buffer* staging, uint32_t* levels) {
+  *levels = 1;
+  while ((width >> *levels) > 0 || (height >> *levels) > 0) ++*levels;
+  if (!vk::MakeImage(width, height, *levels, kTextureFormat,
+                     VK_IMAGE_USAGE_SAMPLED_BIT |
+                         VK_IMAGE_USAGE_TRANSFER_DST_BIT |
+                         VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
+                     VK_IMAGE_ASPECT_COLOR_BIT, image)) {
+    free(pixels);
+    return false;
+  }
+  const VkDeviceSize bytes = static_cast<VkDeviceSize>(width) * height * 4;
+  if (!vk::MakeBuffer(bytes, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, true,
+                      staging)) {
+    free(pixels);
+    vk::FreeImage(image);
+    return false;
+  }
+  memcpy(staging->mapped, pixels, static_cast<size_t>(bytes));
+  free(pixels);
   ++g_uploads;
   g_upload_bytes += bytes;
+  return true;
+}
+
+// Copies RGBA8 pixels into a new image with each mip level, and frees the
+// pixels. With a wait for the GPU.
+bool Upload(uint32_t width, uint32_t height, uint8_t* pixels,
+            vk::Image* image) {
+  LARGE_INTEGER start, done;
+  QueryPerformanceCounter(&start);
+  vk::Buffer staging;
+  uint32_t levels = 1;
+  if (!PrepareUpload(width, height, pixels, image, &staging, &levels)) {
+    return false;
+  }
+  VkCommandBuffer cb = vk::BeginOnce();
+  RecordUpload(cb, image, staging, width, height, levels);
+  const bool ok = vk::EndOnce(cb);
+  vk::FreeBuffer(&staging);
+  QueryPerformanceCounter(&done);
+  g_upload_wait_ticks += static_cast<uint64_t>(done.QuadPart - start.QuadPart);
   return ok;
+}
+
+// THE UPLOADS OF A WALK: as Upload, into the upload buffer of the slot of
+// the walk, with no wait. With no room for one more staging buffer it is
+// an Upload.
+bool UploadQueued(uint32_t width, uint32_t height, uint8_t* pixels,
+                  vk::Image* image) {
+  Slot& s = g_slots[g_slot];
+  if (s.staging_count >= kSlotStaging) {
+    return Upload(width, height, pixels, image);
+  }
+  vk::Buffer staging;
+  uint32_t levels = 1;
+  if (!PrepareUpload(width, height, pixels, image, &staging, &levels)) {
+    return false;
+  }
+  if (!s.upload_open) {
+    VkCommandBufferBeginInfo begin = {
+        VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
+    begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    f.vkBeginCommandBuffer(s.upload_cb, &begin);
+    s.upload_open = true;
+  }
+  RecordUpload(s.upload_cb, image, staging, width, height, levels);
+  s.staging[s.staging_count++] = staging;
+  ++g_uploads_queued;
+  return true;
 }
 
 Texture* FindTexture(void* surface, bool make) {
@@ -763,8 +933,16 @@ Texture* TextureOf(void* surface) {
     return t->image.image != VK_NULL_HANDLE ? t : g_white;
   }
   if (t->image.image != VK_NULL_HANDLE) Retire(&t->image);
+  // The sets of the old image go back to the pool after the GPU is done.
+  Slot& s = g_slots[g_slot];
+  for (int i = 0; i < t->set_count; ++i) {
+    if (s.dead_count < 1024) s.dead_sets[s.dead_count++] = t->sets[i].set;
+  }
   t->set_count = 0;
-  if (!Upload(width, height, pixels, &t->image)) return g_white;
+  const bool ok = g_recording && g_walk_upload_queue
+                      ? UploadQueued(width, height, pixels, &t->image)
+                      : Upload(width, height, pixels, &t->image);
+  if (!ok) return g_white;
   return t;
 }
 
@@ -778,9 +956,22 @@ VkDescriptorSet SetOf(Texture* t, VkSampler sampler) {
   info.descriptorSetCount = 1;
   info.pSetLayouts = &g_set_layout;
   VkDescriptorSet set = VK_NULL_HANDLE;
-  if (f.vkAllocateDescriptorSets(vk::Get().device, &info, &set) != VK_SUCCESS) {
+  // The renderer never asks the pool for more sets than it has room for:
+  // the driver must not get an allocation past the room of the pool.
+  const bool room = g_sets_live < static_cast<int64_t>(kMaxTextures) * 8 - 16;
+  if (!room ||
+      f.vkAllocateDescriptorSets(vk::Get().device, &info, &set) != VK_SUCCESS) {
+    ++g_set_failures;
+    if (!g_said_set_failure) {
+      g_said_set_failure = true;
+      ModLog("vk scene     : the pool has no room for one more descriptor set "
+             "(%lld in use, %llu made), so a draw is not drawn",
+             g_sets_live, g_sets_made);
+    }
     return VK_NULL_HANDLE;
   }
+  ++g_sets_live;
+  ++g_sets_made;
   VkDescriptorImageInfo image = {sampler, t->image.view,
                                  VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
   VkWriteDescriptorSet write = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
@@ -793,6 +984,11 @@ VkDescriptorSet SetOf(Texture* t, VkSampler sampler) {
     t->sets[t->set_count].sampler = sampler;
     t->sets[t->set_count].set = set;
     ++t->set_count;
+  } else {
+    // No room in the texture: the set goes back to the pool after the GPU
+    // is done with this walk.
+    Slot& s = g_slots[g_slot];
+    if (s.dead_count < 1024) s.dead_sets[s.dead_count++] = set;
   }
   return set;
 }
@@ -883,6 +1079,9 @@ bool Ready() {
                                kMaxTextures * 8};
   VkDescriptorPoolCreateInfo pool_info = {
       VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
+  // A texture that the game writes again gets new sets, and its old sets go
+  // back to the pool (Slot::dead_sets).
+  pool_info.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
   pool_info.maxSets = kMaxTextures * 8;
   pool_info.poolSizeCount = 1;
   pool_info.pPoolSizes = &size;
@@ -913,7 +1112,9 @@ bool Ready() {
     cb_info.commandPool = s.pool;
     cb_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
     cb_info.commandBufferCount = 1;
-    if (f.vkAllocateCommandBuffers(device, &cb_info, &s.cb) != VK_SUCCESS) {
+    if (f.vkAllocateCommandBuffers(device, &cb_info, &s.cb) != VK_SUCCESS ||
+        f.vkAllocateCommandBuffers(device, &cb_info, &s.upload_cb) !=
+            VK_SUCCESS) {
       return Fail("a command buffer");
     }
     VkFenceCreateInfo fence = {VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
@@ -1241,6 +1442,26 @@ void BeginOnWorker(const void* data) {
   f.vkResetFences(device, 1, &s.fence);
   for (int i = 0; i < s.garbage_count; ++i) vk::FreeImage(&s.garbage[i]);
   s.garbage_count = 0;
+  for (int i = 0; i < s.staging_count; ++i) vk::FreeBuffer(&s.staging[i]);
+  s.staging_count = 0;
+  if (s.dead_count > 0) {
+    f.vkFreeDescriptorSets(device, g_pool, static_cast<uint32_t>(s.dead_count),
+                           s.dead_sets);
+    g_sets_live -= s.dead_count;
+    s.dead_count = 0;
+  }
+  s.upload_open = false;
+  // The stress test: the next N textures, in turn, are read again at their
+  // next use.
+  if (seed->reread > 0 && g_texture_count > 0) {
+    AcquireSRWLockExclusive(&g_texture_lock);
+    for (int i = 0; i < seed->reread && i < g_texture_count; ++i) {
+      g_textures[g_reread_next % g_texture_count].dirty = true;
+      g_reread_next = (g_reread_next + 1) % g_texture_count;
+    }
+    ReleaseSRWLockExclusive(&g_texture_lock);
+  }
+  g_walk_upload_queue = seed->upload_queue;
   s.used = 0;
   f.vkResetCommandPool(device, s.pool, 0);
   VkCommandBufferBeginInfo begin = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
@@ -1288,12 +1509,20 @@ void EndOnWorker(const void*) {
   Slot& s = g_slots[g_slot];
   f.vkCmdEndRendering(s.cb);
   f.vkEndCommandBuffer(s.cb);
-  VkCommandBufferSubmitInfo cb_info = {
-      VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO};
-  cb_info.commandBuffer = s.cb;
+  // THE UPLOADS OF A WALK go first, so each copy is done before a draw
+  // reads its texture.
+  VkCommandBufferSubmitInfo cb_info[2] = {
+      {VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO},
+      {VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO}};
+  uint32_t cb_count = 0;
+  if (s.upload_open) {
+    f.vkEndCommandBuffer(s.upload_cb);
+    cb_info[cb_count++].commandBuffer = s.upload_cb;
+  }
+  cb_info[cb_count++].commandBuffer = s.cb;
   VkSubmitInfo2 submit = {VK_STRUCTURE_TYPE_SUBMIT_INFO_2};
-  submit.commandBufferInfoCount = 1;
-  submit.pCommandBufferInfos = &cb_info;
+  submit.commandBufferInfoCount = cb_count;
+  submit.pCommandBufferInfos = cb_info;
   vk::LockQueue();
   const VkResult submitted =
       f.vkQueueSubmit2(vk::Get().queue, 1, &submit, s.fence);
@@ -1431,6 +1660,8 @@ void VkSceneWalkBegin(void* device7) {
   seed.both = OneWalkActive();
   seed.follow = g_follow;
   seed.panel = g_panel_mode;
+  seed.upload_queue = g_upload_queue;
+  seed.reread = g_reread_test;
   seed.only = g_only_mode && g_only_frame && g_panel_mode && g_follow &&
               !g_size_differs && OneWalkActive();
   g_only_frame = false;
@@ -1879,6 +2110,30 @@ void VkSceneOnlyToggle(const char* keys) {
 
 bool VkSceneOnlyTest() { return g_only_test; }
 
+void VkSceneSetUploads(int queue, int reread_test) {
+  g_upload_queue = queue != 0;
+  g_reread_test = reread_test > 0 ? reread_test : 0;
+  if (g_mode == 0) return;
+  ModLog("vk scene     : vk_upload_queue=%d. %s. vk_scene_reread_test=%d",
+         g_upload_queue ? 1 : 0,
+         g_upload_queue
+             ? "A texture that a walk reads again goes to the GPU in the "
+               "submit of the walk, with no wait"
+             : "A texture that a walk reads again goes to the GPU at once, "
+               "with a wait for the GPU",
+         g_reread_test);
+}
+
+void VkSceneUploadsToggle(const char* keys) {
+  g_upload_queue = !g_upload_queue;
+  ControllersGesturePulse(0.5f, g_upload_queue ? 0.30f : 0.08f);
+  ModLog("test key     : %s, vk_upload_queue is %d from the next walk: a "
+         "texture that a walk reads again goes to the GPU %s",
+         keys, g_upload_queue ? 1 : 0,
+         g_upload_queue ? "in the submit of the walk, with no wait"
+                        : "at once, with a wait for the GPU");
+}
+
 void VkSceneOnlyFrame(bool can) { g_only_frame = can && VkSceneOn(); }
 
 bool VkSceneOnlyNow() { return g_walk_only; }
@@ -1913,6 +2168,22 @@ void VkSceneReport(uint64_t frames) {
          "eye), %.1f clears for another target",
          g_follow ? 1 : 0, g_target_calls / per, g_viewport_calls / per,
          g_clears / per, g_clears_one_eye / per, g_clears_off / per);
+  {
+    LARGE_INTEGER hz;
+    QueryPerformanceFrequency(&hz);
+    const uint64_t waited = g_uploads - g_uploads_queued;
+    ModLog("vk scene     : vk_upload_queue=%d. %llu reads went in the submit "
+           "of their walk, %llu waited for the GPU (%.3f ms each). %lld "
+           "descriptor sets in use, %llu made since the start, room for %d, "
+           "%llu that the pool did not give",
+           g_upload_queue ? 1 : 0, g_uploads_queued, waited,
+           waited > 0 ? g_upload_wait_ticks * 1000.0 /
+                            static_cast<double>(hz.QuadPart) / waited
+                      : 0.0,
+           g_sets_live, g_sets_made, kMaxTextures * 8, g_set_failures);
+    g_uploads_queued = g_upload_wait_ticks = 0;
+    g_set_failures = 0;
+  }
   g_walks = g_draws = g_skipped = g_uploads = g_upload_bytes = 0;
   g_skip_format = g_skip_ring = g_skip_state = g_converted = 0;
   g_skip_target = g_target_calls = g_viewport_calls = 0;

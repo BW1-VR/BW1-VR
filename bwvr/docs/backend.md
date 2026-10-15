@@ -1192,7 +1192,8 @@ that called it. A return address is a value on the stack with a call just
 before it in its module (`scene_sample_math.h`). An old value on the stack
 can look like one.
 
-`profile_sample_thread=1` takes the samples from the render thread in place
+`profile_sample_thread=1` takes the samples from the render thread, and 2 from
+the D3D7 thread ("The thread of Direct3D 7"), in place
 of the frame thread (see "The render thread"). The render thread starts with
 its first walk, so the samples start with the walk after it. The ms of a
 module is then the time that the render thread was in it while the frame
@@ -2269,10 +2270,52 @@ the pictures of Direct3D 9 of that walk have no lit pixel.
 **The textures.** A texture of the game is a DirectDraw surface of
 dxwrapper. At its first use the renderer reads it with `Lock`, makes RGBA8
 of it, and makes its mip levels with linear blits (the textures of the
-game have no mip levels of their own). A `Lock` for a write, a
+game have no mip levels of their own). A format of 16 bits has a table of
+65536 RGBA values, made at its first texture, so a pixel takes one read of
+the table. A format of 24 or 32 bits takes the shift of each channel
+(`vk_texture_math.h`, with checks that each value is the value of the
+masks). A `Lock` for a write, a
 `Blt` or a `BltFast` of the game on a surface (`draw_merge.cpp`) marks it,
 and its next use reads it again. The game has 117 textures of 256 by 256 in
-A4R4G4B4 and 2 in X1R5G5B5 at the start of a new game.
+A4R4G4B4 and 2 in X1R5G5B5 at the start of a new game. Some scenes write
+textures in each frame: in the cut scene after the rescue of the boy at
+the start of a new game the renderer reads about 3 textures a frame again
+(1350 reads in a window of 450 frames).
+
+**The uploads of a walk** (`vk_upload_queue`, 1 is the default). The copy
+of a texture to the GPU goes into a command buffer of the slot of the walk,
+and the end of the walk submits it before the buffer of the walk, in one
+submit. So the D3D7 thread does not wait for the GPU, and each copy is done
+before a draw reads its texture. The staging buffers stay until the fence
+of the slot says the GPU is done. With 0 each copy goes to the GPU at once,
+and the D3D7 thread waits until the GPU is done. Shift I (`test_keys=1`)
+changes it from the next walk. The old image of a texture that is read
+again, and its descriptor sets, go back when the fence of the slot says
+the GPU is done. The pool has room for 32768 sets, and the renderer asks
+for a set only while the pool has room. The report of each 450 frames has
+the reads in the submit of their walk, the reads that waited, and the sets
+in use. `vk_scene_reread_test=N` (a test key) reads N textures again in
+each walk, in turn.
+
+A row of a locked surface goes into a buffer of the CPU with streaming
+loads of SSE4.1 (MOVNTDQA) before the conversion, because a `Lock` of
+dxwrapper gives memory that the CPU reads with no cache. Desktop runs in
+the start dialog with `vk_only_test=1` and `vk_scene_reread_test=3` (3
+reads in each walk, as in the cut scene after the rescue of the boy), a
+Radeon RX 7900 XTX (`perf_ab.ps1`, the median of the windows):
+
+| | The frame |
+| --- | --- |
+| No read in a walk | 2.7 ms |
+| 3 reads, each with a wait for the GPU, plain reads of the surface | 23.6 ms |
+| 3 reads in the submit of the walk, plain reads of the surface | 21.4 ms |
+| 3 reads in the submit of the walk, streaming loads | 7.0 ms |
+
+With the streaming loads the D3D7 thread has 57 percent of its samples in
+`win32u.dll` (the calls of the kernel in the `Lock` of dxwrapper) and 11
+percent in the conversion (`profile_sample_thread=2`). In a run of 150 s
+with `vk_scene_reread_test=10` the renderer made 78154 descriptor sets,
+had 150 to 190 in use, and the pool did not refuse one.
 
 **The numbers.** A desktop run at the start of a new game: the renderer draws
 each of the 1067 draws of a frame for both eyes, with 93 textures, 3
@@ -3741,7 +3784,7 @@ in front. The mod reads the keys and never takes them from the game.
 | Ctrl Shift Equals | `test_keys=1` | The ears decide the start of the loop of a bulk take, or the game camera decides and the take has no sound in the God view. A long pulse and a short pulse (`audio_take_loop`, `audio.md`, 6.4). The equals key is in the row of digits |
 | Ctrl Shift Minus | `test_keys=1` | The pieces of the stream of a take at a distance go on a curve from the top of the source to the Hand, or they are on the line of the game, from the land under the Hand. A long pulse and a short pulse (`take_stream`, `grab.md`, "The stream of a take at a distance"). The minus key is in the row of digits |
 | Ctrl Shift Left bracket | `test_keys=1` | What marks a target of the Hand steps from 1 to 0 to 2 and back: the glow on the mesh with a halo only for a target whose mesh does not glow, the halo, or the glow and the halo. A long pulse for 1, a short pulse for 0 and a longer pulse for 2 (`target_glow`, `hand-model.md`, "The glow on the mesh of a target"). The left square bracket key is right of the P key on a US keyboard |
-| Shift 8 | `test_keys=1` | The calls of each scene walk go to the render thread, or to Direct3D 9 as they come, from the next scene walk. A long pulse and a short pulse (`render_thread`, "The render thread"). The game uses Shift with 1 to 7 for its bookmarks. A hook of the messages of the game thread reads the key, so a key of a virtual keyboard that goes down and up between two frames counts. For F, G, H, J, K, L, M, N, B, V, C, X, Z, Y and U the capital letter alone (a `WM_CHAR` with no Shift) counts too, because a virtual keyboard can send it so Ctrl must be up |
+| Shift 8 | `test_keys=1` | The calls of each scene walk go to the render thread, or to Direct3D 9 as they come, from the next scene walk. A long pulse and a short pulse (`render_thread`, "The render thread"). The game uses Shift with 1 to 7 for its bookmarks. A hook of the messages of the game thread reads the key, so a key of a virtual keyboard that goes down and up between two frames counts. For F, G, H, J, K, L, M, N, B, V, C, X, Z, Y, U and I the capital letter alone (a `WM_CHAR` with no Shift) counts too, because a virtual keyboard can send it so Ctrl must be up |
 | Shift 9 | `test_keys=1` | The mod gives the answers of some calls of a texture with no lock of the device, or each call goes to Direct3D 9, from the next call. A long pulse and a short pulse (`render_thread_lock_free`, "The lock of the device"). It works only while `render_thread` is 1 or 2 in the ini. It is read as Shift 8. Ctrl must be up |
 | Shift F | `test_keys=1` | A call of a walk that sets the value that the device has already goes to Direct3D 9 or not. A long pulse and a short pulse (`render_thread_filter`, "The calls that change nothing"). It works only while `render_thread` is 1 or 2 in the ini. It is read as Shift 8. Ctrl must be up |
 | Shift G | `test_keys=1` | The render thread draws from buffers of its own, or gives each `DrawIndexedPrimitiveUP` to Direct3D 9. A long pulse and a short pulse (`render_thread_buffers`, "The buffers of the render thread"). It works only while `render_thread` is 1 in the ini. It is read as Shift 8. Ctrl must be up |
@@ -3758,6 +3801,7 @@ in front. The mod reads the keys and never takes them from the game.
 | Shift Z | `test_keys=1` | In a session with Vulkan the pixels of the CPU (an eye picture of the CPU, a card, the walls of the cut scene window) go into the swapchains with a copy of Vulkan, or through the relays of Direct3D 11, from the next write. A long pulse and a short pulse (`xr_vulkan_upload`, "The session with Vulkan"). Ctrl must be up |
 | Shift Y | `test_keys=1` | The Vulkan renderer draws the draws for the panel target into a panel of its own, and the subtitle card and the panel layer of a session with Vulkan take it, or they take the panel of Direct3D 9, from the next walk. A long pulse and a short pulse (`vk_panel`, "The Vulkan renderer"). Ctrl must be up |
 | Shift U | `test_keys=1` | A walk of one walk with the eyes of the Vulkan renderer goes to the renderer alone, with no draw for Direct3D 9, or Direct3D 9 draws it too, from the next walk. A long pulse and a short pulse (`vk_only`, "The Vulkan renderer"). Ctrl must be up |
+| Shift I | `test_keys=1` | A texture that a walk reads again goes to the GPU in the submit of the walk, with no wait, or at once with a wait for the GPU, from the next walk. A long pulse and a short pulse (`vk_upload_queue`, "The Vulkan renderer"). Ctrl must be up |
 | Ctrl Shift Numpad Slash | `test_keys=1` | The mod waits for the GPU after each eye pass, one time a frame, or one time a frame on a second thread that also gives the frame to the runtime. A long pulse, a pulse of middle length and a short pulse (`frame_send`, "One wait a frame, and a second thread"). The slash key with Shift and no Ctrl is a key of the Temple, and with no Shift it is a key of the throw |
 | Menu key | `test_keys=1` | One walk for both eyes on and off (see "One walk for both eyes"). The key beside the right Ctrl key that opens a context menu. Ctrl and Shift must be up |
 | Ctrl Menu key | `test_keys=1` | The layout of the buttons of the hand that does not point. The menu button of the left controller opens the game menu, Y opens the ring and the stick does not drive the ring, or Y opens the game menu and X and the stick open the ring. A long pulse and a short pulse on that hand (`button_layout`, `controllers.md`, 5.1). Shift must be up |
@@ -3883,11 +3927,12 @@ keys that the launcher sets.
 | `vk_scene_follow` | 1 | 1: in a walk of one walk the Vulkan renderer follows render target 0 of Direct3D 9, the viewport of Direct3D 7 and the clears, and a draw for another target does not go into the eye pictures. 0: each draw goes into the eye pictures, and the renderer makes no clear. A test key: Shift X. See "The Vulkan renderer" |
 | `vk_panel` | 1 | 1: the Vulkan renderer draws the draws for the panel target into a panel of its own, and the subtitle card and the panel layer of a session with Vulkan take it. 0: the renderer draws no draw for the panel target, and the card and the layer take the panel of Direct3D 9. A test key: Shift Y. See "The Vulkan renderer" |
 | `vk_only`, `vk_only_test` | 1, 0 | `vk_only=1`: in a session with Vulkan, a walk of one walk with the eyes of the Vulkan renderer goes to the renderer alone, and the D3D7 thread gives no draw of it to dxwrapper. 0: Direct3D 9 draws each walk too. A test key: Shift U. `vk_only_test=1` (a test key) does the same on the desktop. See "The Vulkan renderer" |
+| `vk_upload_queue`, `vk_scene_reread_test` | 1, 0 | `vk_upload_queue=1`: the copy of a texture that a walk reads again goes to the GPU in the submit of the walk, with no wait of the D3D7 thread. 0: each copy goes to the GPU at once with a wait. A test key: Shift I. `vk_scene_reread_test=N` (a test key) reads N textures again in each walk, in turn. See "The Vulkan renderer" |
 | `fast_transform` | 1 | 1: the two vertex loops of the engine run with SSE, with the bits of the game. 0: on the x87 unit. See "The vertex loops with SSE" |
 | `profile_gpu` | 0 | A test key. See "The GPU time" |
 | `hang_watch` | 0 | A test key. See "The watch of the frame thread" |
 | `profile_sample` | 0 | A test key. See "Where the time of the scene walk goes" |
-| `profile_sample_thread` | 0 | A test key: 1 takes the samples of `profile_sample` from the render thread. See "Where the time of the scene walk goes" |
+| `profile_sample_thread` | 0 | A test key: 1 takes the samples of `profile_sample` from the render thread, 2 from the D3D7 thread. See "Where the time of the scene walk goes" |
 | `profile_sample_dump` | 0 | A test key: 1 writes each sample of `profile_sample` with the modules to `bwvr-samples.txt` beside `runblack.exe`. See "Where the time of the scene walk goes" |
 | `skip_desktop_present` | 1 | See "The copy to the monitor" |
 | `blt_texture_copy` | 1 | 1: the mod makes a copy with a texture and no stretch itself. 0: each copy goes to dxwrapper. See "The copy to the monitor" |

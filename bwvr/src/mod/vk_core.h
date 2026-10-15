@@ -81,6 +81,7 @@ namespace vk {
   X(vkDestroyDescriptorPool)          \
   X(vkResetDescriptorPool)            \
   X(vkAllocateDescriptorSets)         \
+  X(vkFreeDescriptorSets)             \
   X(vkUpdateDescriptorSets)           \
   X(vkCmdPipelineBarrier2)            \
   X(vkCmdCopyBufferToImage)           \

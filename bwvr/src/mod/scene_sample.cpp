@@ -33,6 +33,7 @@
 
 #include "scene_sample.h"
 #include "scene_sample_math.h"
+#include "d3d7_thread.h"
 #include "render_thread.h"
 
 extern void ModLog(const char* format, ...);
@@ -54,7 +55,9 @@ int g_interval_us = 0;             // profile_sample
 bool g_read = false;
 bool g_failed = false;
 HANDLE g_target = nullptr;         // the frame thread, or the render thread
-bool g_render_target = false;      // profile_sample_thread=1
+// profile_sample_thread: 0 the frame thread, 1 the render thread, 2 the
+// D3D7 thread.
+int g_other = 0;
 HANDLE g_thread = nullptr;         // the thread of the samples
 volatile LONG g_in_walk = 0;
 
@@ -317,19 +320,21 @@ void Start() {
   g_scratch = new uint32_t[kRing];
   g_stacks = new uint32_t[kStackRing * kStackWords];
   ZeroMemory(g_stacks, kStackRing * kStackWords * sizeof(uint32_t));
-  // profile_sample_thread=1 takes the samples of the render thread
-  // (render_thread.cpp) in place of the frame thread. That thread starts with
-  // the first walk that has it, so SceneSampleWalk opens it then.
-  g_render_target = IniKey("profile_sample_thread", 0) == 1;
-  if (!g_render_target) {
+  // profile_sample_thread=1 takes the samples of the render thread, and 2
+  // of the D3D7 thread (d3d7_thread.cpp), in place of the frame thread. That
+  // thread starts with the first walk that has it, so SceneSampleWalk opens
+  // it then.
+  g_other = IniKey("profile_sample_thread", 0);
+  if (g_other != 1 && g_other != 2) g_other = 0;
+  if (g_other == 0) {
     g_target = OpenThread(THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT |
                               THREAD_QUERY_INFORMATION,
                           FALSE, GetCurrentThreadId());
   }
-  if (g_target != nullptr || g_render_target) {
+  if (g_target != nullptr || g_other != 0) {
     g_thread = CreateThread(nullptr, 0, SampleThread, nullptr, 0, nullptr);
   }
-  if ((g_target == nullptr && !g_render_target) || g_thread == nullptr) {
+  if ((g_target == nullptr && g_other == 0) || g_thread == nullptr) {
     g_failed = true;
     ModLog("scene sample : profile_sample=%d, but the thread of the samples "
            "could not start (error %lu)", g_interval_us, GetLastError());
@@ -339,7 +344,8 @@ void Start() {
   ModLog("scene sample : profile_sample=%d. A thread stops the %s thread "
          "for a moment each %d microseconds in each scene walk and reads the "
          "address of its code. Each 450 frames the log has the share of each "
-         "module", g_interval_us, g_render_target ? "render" : "frame",
+         "module", g_interval_us,
+         g_other == 1 ? "render" : g_other == 2 ? "D3D7" : "frame",
          g_interval_us);
 }
 
@@ -352,7 +358,9 @@ void SceneSampleWalk(bool in) {
   }
   if (g_interval_us == 0 || g_failed) return;
   if (g_target == nullptr) {
-    const DWORD id = g_render_target ? RenderThreadWorkerId() : 0;
+    const DWORD id = g_other == 1   ? RenderThreadWorkerId()
+                     : g_other == 2 ? D3D7ThreadWorkerId()
+                                    : 0;
     if (id == 0) return;
     g_target = OpenThread(THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT |
                               THREAD_QUERY_INFORMATION,
