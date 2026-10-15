@@ -2227,12 +2227,16 @@ with the pictures of Direct3D 9.
 **A test without the game.** `bwvr-xrtest 30 vulkan` shows the test
 pattern for 30 seconds through a session with Vulkan: the device of the
 runtime, the relays and the copies. At the end it writes the time of a copy
-of a relay.
+of a relay. With Virtual Desktop (VirtualDesktopXR 1.0.10, a Quest 3) on an
+AMD Radeon RX 7900 XTX the runtime takes Vulkan 1.1 to 2.0 and makes the
+device. The pattern shows in the headset, 2671 frames in 30 s (89 a
+second), with no frame that the runtime skipped. A copy of a relay takes
+0.56 ms with the wait for Direct3D 11.
 
-**Open: only a headset shows it.** A session with Vulkan has not run with a
-runtime: Virtual Desktop (VDXR) and SteamVR. The layout and the ownership of
-the relays between Direct3D 11 and Vulkan on each driver. The frame time
-with the Vulkan eyes. The scenes that no desktop run compared yet: the
+**Open: only a headset shows it.** The game in a session with Vulkan, and
+a session with Vulkan with SteamVR. The relays between Direct3D 11 and
+Vulkan on the drivers of NVIDIA and Intel. The frame time with the Vulkan
+eyes. The scenes that no desktop run compared yet: the
 story camera, the fades, the Temple and the game at night.
 
 ## How the threads wait

@@ -548,7 +548,9 @@ that moves while the Hand takes it.
     Vulkan renderer"; the same picture as Direct3D 9, with the hand and the
     overlays of the mod and both eyes in one pass). Its eye pictures go
     straight into an OpenXR session with Vulkan (`xr_vulkan=1`, "The
-    session with Vulkan"). Not run: a headset session with it. Next: the
+    session with Vulkan"; the test pattern of `bwvr-xrtest` shows in a
+    Quest 3 with Virtual Desktop). Not run: the game in a session with
+    Vulkan. Next: the
     walk without dxwrapper and Direct3D 9; (B) one draw
     for many copies of a mesh (about 870 draws of a frame are 36 meshes);
     (C) a new renderer of the land, after a count of its draws. The Quest 3
