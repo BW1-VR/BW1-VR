@@ -34,6 +34,7 @@
 #include <windows.h>
 #include <ddraw.h>
 #include <d3d.h>
+#include <intrin.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
@@ -96,6 +97,23 @@ void LogInterface(const char* who, REFIID id) {
          who, id.Data1, id.Data2, id.Data3, id.Data4[0], id.Data4[1],
          id.Data4[2], id.Data4[3], id.Data4[4], id.Data4[5], id.Data4[6],
          id.Data4[7]);
+}
+
+// A write of the CPU into the render target (a Lock for a write, a Blt from a
+// surface). Its pixels are not the picture of the walks. The first 48 go
+// into the log with the address of the caller in the game.
+volatile LONG g_target_writes = 0;
+
+void LogTargetWrite(const char* how, const RECT* rect, DWORD flags,
+                    void* caller) {
+  const LONG n = InterlockedIncrement(&g_target_writes);
+  if (n > 48) return;
+  RECT r = {};
+  if (rect != nullptr) r = *rect;
+  ModLog("vk ddraw     : write %ld of the CPU into the render target: %s, "
+         "flags 0x%lX, rect %s%ld %ld %ld %ld, from %p",
+         n, how, flags, rect != nullptr ? "" : "(all) ", r.left, r.top,
+         r.right, r.bottom, caller);
 }
 
 // The counts of the objects, for the report.
@@ -1552,6 +1570,10 @@ HRESULT Surface::Lock(LPRECT rect, LPDDSURFACEDESC2 out, DWORD flags,
   if (out == nullptr) return DDERR_INVALIDPARAMS;
   uint8_t* bits = Pixels();
   if (bits == nullptr) return DDERR_OUTOFMEMORY;
+  if ((desc_.ddsCaps.dwCaps & DDSCAPS_3DDEVICE) &&
+      (flags & DDLOCK_READONLY) == 0) {
+    LogTargetWrite("Lock", rect, flags, _ReturnAddress());
+  }
   FillDesc(out);
   out->dwFlags |= DDSD_LPSURFACE;
   const uint32_t bpp = PixelBytes(desc_.ddpfPixelFormat);
@@ -1714,6 +1736,9 @@ HRESULT Surface::Blt(LPRECT to, LPDIRECTDRAWSURFACE7 from_s, LPRECT from_rect,
   if (IsPrimary()) {
     Present();
     return DD_OK;
+  }
+  if (desc_.ddsCaps.dwCaps & DDSCAPS_3DDEVICE) {
+    LogTargetWrite("Blt", to, flags, _ReturnAddress());
   }
   // A COPY in the memory of the CPU, with a change of the format and a
   // stretch to the rect of the destination (the nearest pixel).

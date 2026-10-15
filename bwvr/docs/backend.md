@@ -2459,6 +2459,27 @@ send the image of the last walk to the session with a copy of the GPU
 game wrote into the render target with the CPU after the last walk (a
 `Blt` or a `Lock`), the pixels of the CPU are the picture.
 
+**The picture of the walk before** (`vk_keep_picture=1`, the default, a test
+key: Shift T). A render target of Direct3D 7 keeps its pixels from one scene
+to the next, and the renderer has two targets in turn. So a walk with no
+clear of the color of the whole target before its first draw or its first
+clear of a part starts with a copy of both layers of the other target. A
+walk with no draw and no clear keeps the picture too. The logos and the
+menus draw with no clear. The walks of foveated resolution and the walk of
+the right eye of a pair do not copy. The intro in stereo takes a target for
+each eye (`intro.md`, "The trails"). The log has a line for each of the
+first 24 walks that copy, and the report of 450 frames counts them. With
+`vk_keep_picture=0` each walk starts black.
+
+**Test aids of a frame with no eye pass.** The log has a line for each of
+the first 48 writes of the CPU into the render target, with the caller in
+the game (`vk ddraw : write N of the CPU into the render target`), and a
+line for each of the first 24 frames that send the pixels of the CPU to the
+session. From frame 600 on, each of the first 400 frames with no eye pass
+that sends a picture of the renderer has a line `vr flat`: the time from the
+frame of this kind before, the time of the submit, and the walks, the
+draws, the clears and the copies since then.
+
 **Two walks for the eyes.** A frame with no walk of one walk has a walk for
 each eye (`one_walk=0`, or a pose for each eye). The walk of the left eye
 draws into layer 0 of its target. The walk of the
@@ -4094,6 +4115,7 @@ in front. The mod reads the keys and never takes them from the game.
 | Shift I | `test_keys=1` | A texture that a walk reads again goes to the GPU in the submit of the walk, with no wait, or at once with a wait for the GPU, from the next walk. A long pulse and a short pulse (`vk_upload_queue`, "The Vulkan renderer"). Ctrl must be up |
 | Shift O | `test_keys=1` | Foveated rendering goes on, then on with the colour over the coarse parts (`foveation_show`), then off, from the next walk. A long pulse when it is on, a short pulse when it is off (`foveation`, "Foveated rendering"). Ctrl must be up |
 | Shift P | `test_keys=1` | Foveated resolution goes on and off, from the next walk. A long pulse and a short pulse (`fovea_res`, "Foveated resolution"). Ctrl must be up |
+| Shift T | `test_keys=1` | With `backend=vulkan`: a walk with no clear of the whole target starts with the picture of the walk before, or black, from the next walk. A long pulse and a short pulse (`vk_keep_picture`, "The picture of the walk before"). Ctrl must be up |
 | Ctrl Shift Numpad Slash | `test_keys=1` | The mod waits for the GPU after each eye pass, one time a frame, or one time a frame on a second thread that also gives the frame to the runtime. A long pulse, a pulse of middle length and a short pulse (`frame_send`, "One wait a frame, and a second thread"). The slash key with Shift and no Ctrl is a key of the Temple, and with no Shift it is a key of the throw |
 | Menu key | `test_keys=1` | One walk for both eyes on and off (see "One walk for both eyes"). The key beside the right Ctrl key that opens a context menu. Ctrl and Shift must be up |
 | Ctrl Menu key | `test_keys=1` | The layout of the buttons of the hand that does not point. The menu button of the left controller opens the game menu, Y opens the ring and the stick does not drive the ring, or Y opens the game menu and X and the stick open the ring. A long pulse and a short pulse on that hand (`button_layout`, `controllers.md`, 5.1). Shift must be up |
@@ -4224,6 +4246,7 @@ keys that the launcher sets.
 | `profile_gpu` | 0 | A test key. See "The GPU time" |
 | `hang_watch` | 0 | A test key: 1 the place of the frame thread when it makes no frame for 8 s, 2 each 8 s. With each of the two the place of a fault. See "The watch of the frame thread" |
 | `vk_lines` | 1 | With `backend=vulkan`: 1 a draw of points or lines becomes triangles of 1 pixel across, 0 it is not drawn. See "The backend of the mod on Vulkan" |
+| `vk_keep_picture` | 1 | With `backend=vulkan`: 1 a walk with no clear of the whole target before its first draw starts with the picture of the walk before, and the intro in stereo keeps the picture of each eye. 0 each walk starts black. A test key: Shift T. See "The picture of the walk before" |
 | `vk_present_late` | 1 | With `backend=vulkan`: 1 the window on the monitor shows the picture of the present before, with no wait for the GPU, 0 each present waits for its own picture. See "The backend of the mod on Vulkan" |
 | `vk_texture_reuse` | 1 | 1 a texture that a walk reads again goes into the image it has when it can, and its pixels into a ring of the slot, so a read makes no allocation of the GPU. 0 each read makes a new image and a staging buffer. See "The Vulkan renderer" |
 | `foveation` | 0 | 0 each pixel of the eye pictures has the full rate. 1 light, 2 medium, 3 strong (the launcher writes 1 and the two degrees of its sliders): the part around the centre of the fovea has the full rate, and the rest fewer shades. Only the eye pictures of the Vulkan renderer. The launcher has the row "Foveated rendering (test)". A test key: Shift O. See "Foveated rendering" |

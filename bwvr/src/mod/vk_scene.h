@@ -161,6 +161,19 @@ void VkSceneSetDirect(bool on);
 bool VkSceneLastPicture(uint64_t* image, uint32_t* layer, uint32_t* width,
                         uint32_t* height);
 bool VkSceneDirect();
+// vk_keep_picture of bwvr.ini, backend=vulkan: 1 (the default) a walk that
+// draws, or clears a part, before a clear of the whole target starts with
+// the picture of the walk before it, as a render target of Direct3D 7 keeps
+// its pixels. 0: each walk starts black. Shift T (test_keys=1) changes it
+// from the next walk.
+void VkSceneSetKeepPicture(int on);
+// A TEST AID, on the frame thread with backend=vulkan: the counts of the
+// report since its last line (the walks, the draws, the clears, the walks
+// that took the picture of the walk before, the walks that cleared the
+// whole target first).
+void VkSceneCounts(uint64_t* walks, uint64_t* draws, uint64_t* clears,
+                   uint64_t* kept, uint64_t* whole);
+void VkSceneKeepPictureToggle(const char* keys);
 // The picture of the last walk of the left eye (or of a scene with no eye
 // pass), at width by height with a linear filter, as BGRA pixels for the
 // CPU, for the window on the monitor (see vk_present_late). Null before the

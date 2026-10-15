@@ -114,6 +114,9 @@ void ModLog(const char* format, ...);
 void ControllersGesturePulse(float amplitude, float seconds);
 // stereo.cpp: the eye pass now, or -1 outside the eye passes.
 int StereoPassEye();
+// intro_vr.cpp: the eye pass of the intro in stereo with intro_eye_trails,
+// or -1.
+int IntroPassEye();
 
 namespace {
 
@@ -171,6 +174,7 @@ struct Seed {
   int reread;    // vk_scene_reread_test: the textures that the walk reads again
   void* target;  // the target of the eyes, or null when it is not known
   int eye;       // the eye pass of the walk (StereoPassEye), -1 for none
+  int intro_eye;  // the eye pass of the intro in stereo, -1 for none
   // FOVEATED RENDERING: the fovea of the walk (inner_deg 0: none), and the
   // centre of the fovea as tangents of the eye.
   foveation_math::Params fovea;
@@ -431,6 +435,20 @@ uint64_t g_last_image = 0;
 uint32_t g_last_layer = 0;
 uint32_t g_last_width = 0, g_last_height = 0;
 bool g_cpu_newer = false;
+// THE PICTURE OF THE WALK BEFORE (vk_keep_picture, backend=vulkan). In
+// Direct3D 7 the render target keeps its pixels from one scene to the next,
+// and the renderer has two targets in turn. So a walk that draws, or clears
+// a part, before a clear of the whole target starts with the picture of the
+// walk before it (a copy from the other target).
+bool g_keep_picture = true;
+bool g_walk_keep = false;          // the walk now can still take the picture
+bool g_target_drawn[2] = {false, false};  // the target has a picture
+uint64_t g_kept_walks = 0;         // for the report
+uint64_t g_cleared_walks = 0;      // walks that cleared the whole target
+// The intro in stereo: the walk now draws over the picture of its eye in the
+// target of its eye (target 0 the left eye, target 1 the right eye).
+bool g_walk_own = false;
+uint64_t g_own_walks = 0;          // for the report
 uint64_t g_gpu_walks = 0;   // for the report: the walks with a time of the GPU
 uint64_t g_gpu_ticks = 0;
 uint64_t g_gpu_odd = 0;  // the times that are not times of a walk
@@ -1265,11 +1283,13 @@ bool MakeTarget(uint32_t width, uint32_t height) {
   g_taken_serial = 0;
   g_done_image = 0;
   g_last_image = 0;
+  g_target_drawn[0] = g_target_drawn[1] = false;
   InterlockedExchange(&g_panel_walk, 0);
   for (int i = 0; i < 2; ++i) {
     if (!vk::MakeImage(width, height, 1, vk::Get().color_format,
                        VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
-                           VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
+                           VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
+                           VK_IMAGE_USAGE_TRANSFER_DST_BIT,
                        VK_IMAGE_ASPECT_COLOR_BIT, &g_colors[i], 2) ||
         !vk::MakeImage(width, height, 1, vk::Get().color_format,
                        VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
@@ -1584,6 +1604,54 @@ void UsePanel(bool panel) {
   g_rendering_panel = panel;
 }
 
+// THE PICTURE OF THE WALK BEFORE: before the first draw or part clear of a
+// walk with no clear of the whole target, a copy of both layers of the other
+// target into this one. The rendering of the eyes is open, and it is open
+// again after the copy, with the dynamic states of the walk.
+void KeepPicture() {
+  if (!g_walk_keep) return;
+  g_walk_keep = false;
+  const int before = g_target ^ 1;
+  if (!g_target_drawn[before]) return;
+  const vk::Image& from = g_colors[before];
+  const vk::Image& to = Target();
+  if (from.width != to.width || from.height != to.height) return;
+  const VkCommandBuffer cb = g_slots[g_slot].cb;
+  f.vkCmdEndRendering(cb);
+  vk::Barrier(cb, from.image, VK_IMAGE_ASPECT_COLOR_BIT,
+              VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+              VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, 1, 2);
+  vk::Barrier(cb, to.image, VK_IMAGE_ASPECT_COLOR_BIT,
+              VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+              VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, 2);
+  VkImageBlit region = {};
+  region.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 2};
+  region.srcOffsets[1] = {static_cast<int32_t>(from.width),
+                          static_cast<int32_t>(from.height), 1};
+  region.dstSubresource = region.srcSubresource;
+  region.dstOffsets[1] = region.srcOffsets[1];
+  f.vkCmdBlitImage(cb, from.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                   to.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region,
+                   VK_FILTER_NEAREST);
+  vk::Barrier(cb, from.image, VK_IMAGE_ASPECT_COLOR_BIT,
+              VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+              VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 1, 2);
+  vk::Barrier(cb, to.image, VK_IMAGE_ASPECT_COLOR_BIT,
+              VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+              VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 1, 2);
+  BeginRendering(cb, 3u, true, true);
+  ++g_kept_walks;
+  // The first ones go into the log: the walks of a frame with no eye pass
+  // have no report of 450 frames.
+  static int s_said = 0;
+  if (s_said < 24) {
+    ++s_said;
+    ModLog("vk scene     : walk %llu has no clear of the whole target before "
+           "its first draw, so it starts with the picture of the walk before",
+           g_walk_number);
+  }
+}
+
 void TargetOnWorker(const void* data) {
   const TargetArgs* a = static_cast<const TargetArgs*>(data);
   g_draw_target = a->surface;
@@ -1660,6 +1728,21 @@ void ClearOnWorker(const void* data) {
   const uint32_t eyes =
       g_walk_right ? 2u
                    : vk_scene_math::Eyes(OneWalkActive(), OneWalkModeNow());
+  // A clear of the color of the whole target in both eyes needs no picture
+  // of the walk before. A different clear comes after that picture.
+  if (g_walk_keep) {
+    const bool whole = (a->flags & D3DCLEAR_TARGET) != 0 && eyes == 3u &&
+                       rect_count == 1 && rects[0].rect.offset.x == 0 &&
+                       rects[0].rect.offset.y == 0 &&
+                       rects[0].rect.extent.width == Target().width &&
+                       rects[0].rect.extent.height == Target().height;
+    if (whole) {
+      g_walk_keep = false;
+      ++g_cleared_walks;
+    } else {
+      KeepPicture();
+    }
+  }
   if (g_walk_mres) {
     MresClear c = {};
     c.flags = a->flags;
@@ -2226,7 +2309,18 @@ void BeginOnWorker(const void* data) {
                  g_left_serial ==
                      InterlockedCompareExchange(&g_walk_serial, 0, 0) &&
                  g_left_image == Target().image;
-  if (!g_walk_right) g_target ^= 1;
+  // THE INTRO IN STEREO (backend=vulkan, vk_keep_picture=1). The effect
+  // draws over the picture of the frame before, and each eye must have its
+  // own (intro.md, "The trails"). So the walk of an eye pass takes the target
+  // of its eye and keeps its pixels.
+  g_walk_own = false;
+  if (seed->intro_eye >= 0 && seed->intro_eye <= 1 && g_keep_picture &&
+      !g_walk_right) {
+    g_target = seed->intro_eye;
+    g_walk_own = g_target_drawn[g_target];
+  } else if (!g_walk_right) {
+    g_target ^= 1;
+  }
   Slot& s = g_slots[g_slot];
   const VkDevice device = vk::Get().device;
   if (f.vkGetFenceStatus(device, s.fence) != VK_SUCCESS) {
@@ -2310,7 +2404,8 @@ void BeginOnWorker(const void* data) {
                 VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 1, 1, 1);
   } else {
     vk::Barrier(s.cb, Target().image, VK_IMAGE_ASPECT_COLOR_BIT,
-                VK_IMAGE_LAYOUT_UNDEFINED,
+                g_walk_own ? VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
+                           : VK_IMAGE_LAYOUT_UNDEFINED,
                 VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 1, 2);
   }
   vk::Barrier(s.cb, g_depth.image, VK_IMAGE_ASPECT_DEPTH_BIT,
@@ -2323,6 +2418,10 @@ void BeginOnWorker(const void* data) {
   g_walk_gaze[1] = seed->gaze[1];
   g_walk_fovea_params = seed->fovea;
   g_walk_follow = seed->follow;
+  // In direct mode the walks are on the frame thread, so the key is read
+  // here.
+  g_walk_keep = g_keep_picture && g_direct && g_walk_follow && !g_walk_right &&
+                !g_walk_mres && seed->intro_eye < 0;
   g_eye_target = seed->target;
   g_draw_target = seed->target;
   g_walk_panel = seed->panel;
@@ -2340,6 +2439,25 @@ void BeginOnWorker(const void* data) {
     f.vkCmdEndRendering(s.cb);
     BeginRendering(s.cb, 3u, true, g_walk_follow);
     ++g_pair_walks;
+  } else if (g_walk_own) {
+    // The colors of the target stay. The depth starts at the far plane: its
+    // image has no pixels of the walk before (the barrier above).
+    BeginRendering(s.cb, 3u, true, true);
+    VkClearAttachment depth = {};
+    depth.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+    depth.clearValue.depthStencil.depth = 1.0f;
+    VkClearRect rect = {};
+    rect.rect.extent = {Target().width, Target().height};
+    rect.layerCount = 1;
+    f.vkCmdClearAttachments(s.cb, 1, &depth, 1, &rect);
+    ++g_own_walks;
+    static bool s_said = false;
+    if (!s_said) {
+      s_said = true;
+      ModLog("vk scene     : the intro in stereo: the walk of eye %d draws "
+             "over the last picture of that eye, in target %d", g_target,
+             g_target);
+    }
   } else {
     BeginRendering(s.cb, 3u, false, g_walk_follow);
   }
@@ -2487,6 +2605,8 @@ void EndOnWorker(const void*) {
   g_walk_only = false;
   if (!g_recording) return;
   if (g_walk_show && g_walk_fovea) DrawFoveaMarks();
+  // A walk with no draw and no clear for the eyes keeps the picture too.
+  KeepPicture();
   g_recording = false;
   Slot& s = g_slots[g_slot];
   if (g_walk_mres) {
@@ -2524,6 +2644,8 @@ void EndOnWorker(const void*) {
     Fail("a submit");
     return;
   }
+  g_target_drawn[g_target] = true;
+  g_walk_keep = false;
   if (g_walk_both || g_walk_right) {
     g_done_image = (uint64_t)Target().image;  // a handle of 64 bits
     g_done_width = Target().width;
@@ -2692,6 +2814,7 @@ void VkSceneWalkBegin(void* device7) {
   g_only_frame = false;
   seed.target = g_follow ? OneWalkBoundTarget() : nullptr;
   seed.eye = StereoPassEye();
+  seed.intro_eye = g_direct ? IntroPassEye() : -1;
   // FOVEATED RENDERING: the angles of the picture from the camera of the
   // game, and the centre of the fovea: the gaze, or straight ahead.
   // FOVEATED RESOLUTION needs the angles and the gaze too.
@@ -3052,6 +3175,7 @@ void VkSceneDraw(uint32_t type, uint32_t fvf, const void* vertices,
 
   UsePanel(panel);
   if (panel) ++g_panel_draws;
+  if (!panel) KeepPicture();
   VkCommandBuffer cb = s.cb;
   f.vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
   f.vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, g_layout, 0,
@@ -3381,6 +3505,24 @@ void VkSceneSetPresentLate(int on) {
                           "waits for the GPU");
 }
 
+void VkSceneSetKeepPicture(int on) {
+  g_keep_picture = on != 0;
+  if (!g_direct) return;
+  ModLog("vk scene     : vk_keep_picture=%d. %s", g_keep_picture ? 1 : 0,
+         g_keep_picture
+             ? "A walk with no clear of the whole target before its first "
+               "draw starts with the picture of the walk before it, as in "
+               "Direct3D 7"
+             : "Each walk starts with a black target");
+}
+
+void VkSceneKeepPictureToggle(const char* keys) {
+  g_keep_picture = !g_keep_picture;
+  ControllersGesturePulse(0.5f, g_keep_picture ? 0.30f : 0.08f);
+  ModLog("test key     : %s, vk_keep_picture is %d from the next walk", keys,
+         g_keep_picture ? 1 : 0);
+}
+
 const uint8_t* VkScenePresentPixels(uint32_t width, uint32_t height,
                                     int* pitch) {
   if (!g_ready || !g_present_ready || width == 0 || height == 0) {
@@ -3559,6 +3701,15 @@ bool VkSceneLastPicture(uint64_t* image, uint32_t* layer, uint32_t* width,
   return true;
 }
 
+void VkSceneCounts(uint64_t* walks, uint64_t* draws, uint64_t* clears,
+                   uint64_t* kept, uint64_t* whole) {
+  *walks = g_walks;
+  *draws = g_draws;
+  *clears = g_clears;
+  *kept = g_kept_walks;
+  *whole = g_cleared_walks;
+}
+
 void VkSceneSurfaceWritten(void* surface) {
   // A write of the CPU into the render target: its pixels are the newer
   // picture.
@@ -3647,6 +3798,12 @@ void VkSceneReport(uint64_t frames) {
            g_present_late ? 1 : 0, g_present_waits,
            g_present_wait_ticks * 1000.0 / static_cast<double>(hz.QuadPart));
     g_present_waits = g_present_wait_ticks = 0;
+    ModLog("vk scene     : vk_keep_picture=%d. %llu walks started with the "
+           "picture of the walk before, and %llu walks cleared the whole "
+           "target first. %llu walks of the intro drew over the picture of "
+           "their eye",
+           g_keep_picture ? 1 : 0, g_kept_walks, g_cleared_walks, g_own_walks);
+    g_kept_walks = g_cleared_walks = g_own_walks = 0;
   }
   if (g_gpu_walks > 0) {
     ModLog("vk scene     : the GPU took %.3f ms for a walk, in %llu walks "

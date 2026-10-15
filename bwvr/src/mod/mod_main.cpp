@@ -538,6 +538,7 @@ int g_vk_only_test = 0;
 int g_vk_upload_queue = 1;
 int g_vk_present_late = 1;
 int g_vk_texture_reuse = 1;
+int g_vk_keep_picture = 1;
 // Foveated rendering (docs/backend.md, "Foveated rendering").
 int g_foveation = 0;
 int g_foveation_inner_deg = 0;
@@ -1381,6 +1382,8 @@ void ReadSettings() {
       GetPrivateProfileIntA("bwvr", "vk_present_late", 1, path) != 0 ? 1 : 0;
   g_vk_texture_reuse =
       GetPrivateProfileIntA("bwvr", "vk_texture_reuse", 1, path) != 0 ? 1 : 0;
+  g_vk_keep_picture =
+      GetPrivateProfileIntA("bwvr", "vk_keep_picture", 1, path) != 0 ? 1 : 0;
   g_foveation =
       static_cast<int>(GetPrivateProfileIntA("bwvr", "foveation", 0, path));
   g_foveation_inner_deg = static_cast<int>(
@@ -1715,6 +1718,7 @@ void StartVrOnce() {
     VkSceneSetUploads(g_vk_upload_queue, g_vk_scene_reread_test);
     VkSceneSetPresentLate(g_vk_present_late);
     VkSceneSetTextureReuse(g_vk_texture_reuse);
+    VkSceneSetKeepPicture(g_vk_keep_picture);
     VkSceneSetFoveation(g_foveation, g_foveation_inner_deg,
                         g_foveation_outer_deg, g_foveation_show);
     VkSceneSetFoveaRes(g_fovea_res, g_fovea_res_outer_pct,
@@ -1872,6 +1876,42 @@ void StartVrOnce() {
 // A log sink that throws the line away, for the quiet retries.
 void ModLogNowhere(const char*, ...) {}
 
+// A TEST AID for a frame with no eye pass with backend=vulkan (a menu, a
+// load): one line for each such frame after the first 600 frames, at most
+// 400 lines. It gives the time from the frame of this kind before, the
+// time of the submit, and what the walks since then did.
+void FlatFrameLine(uint64_t image, LARGE_INTEGER t0, LARGE_INTEGER t1) {
+  static int s_lines = 0;
+  static LARGE_INTEGER s_last = {};
+  static uint64_t s_count[5] = {};
+  static uint64_t s_image = 0;
+  uint64_t now[5] = {};
+  VkSceneCounts(&now[0], &now[1], &now[2], &now[3], &now[4]);
+  uint64_t delta[5] = {};
+  for (int i = 0; i < 5; ++i) {
+    // The report of 450 frames sets the counts back to 0.
+    delta[i] = now[i] >= s_count[i] ? now[i] - s_count[i] : now[i];
+    s_count[i] = now[i];
+  }
+  LARGE_INTEGER hz;
+  QueryPerformanceFrequency(&hz);
+  const double ms_hz = 1000.0 / static_cast<double>(hz.QuadPart);
+  const double gap =
+      s_last.QuadPart != 0 ? (t0.QuadPart - s_last.QuadPart) * ms_hz : 0.0;
+  s_last = t0;
+  const bool same = image == s_image;
+  s_image = image;
+  if (g_frame < 600 || s_lines >= 400) return;
+  ++s_lines;
+  ModLog("vr flat      : frame %llu, %.1f ms after the flat frame before, the "
+         "submit %.1f ms. Since then %llu walks, %llu draws, %llu clears, "
+         "%llu walks with the picture before, %llu walks with a clear of the "
+         "whole target. The image is %s",
+         g_frame, gap, (t1.QuadPart - t0.QuadPart) * ms_hz, delta[0],
+         delta[1], delta[2], delta[3], delta[4],
+         same ? "the same as before" : "the other target");
+}
+
 void __cdecl h_FinishFrame() {
   // After the shutdown the game draws for itself.
   if (g_shut_down) {
@@ -1959,9 +1999,13 @@ void __cdecl h_FinishFrame() {
     if (g_screen->vulkan() &&
         VkSceneLastPicture(&image, &layer, &width, &height) &&
         width >= g_screen->width() && height >= g_screen->height()) {
+      LARGE_INTEGER t0, t1;
+      QueryPerformanceCounter(&t0);
       if (!g_screen->SubmitVulkan(image, layer)) {
         ModLog("vr           : the session ended at frame %llu", g_frame);
       }
+      QueryPerformanceCounter(&t1);
+      FlatFrameLine(image, t0, t1);
       return;
     }
   }
@@ -1979,6 +2023,18 @@ void __cdecl h_FinishFrame() {
     }
   }
 
+  // backend=vulkan: the pixels of the CPU are the picture only where the
+  // game wrote them. The first frames of this kind go into the log.
+  if (VkSceneDirect()) {
+    static int s_said = 0;
+    if (s_said < 24) {
+      ++s_said;
+      ModLog("vr           : frame %llu sends the pixels of the CPU of the "
+             "render target, with no eye pass and no picture of a walk after "
+             "the last write of the CPU",
+             g_frame);
+    }
+  }
   int pitch = 0;
   const void* pixels = FrameSourceGrab(&pitch);
   if (pixels == nullptr) return;

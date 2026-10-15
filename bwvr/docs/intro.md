@@ -380,6 +380,14 @@ and a trail has the eye difference of the thing that made it.
 keeps need the Direct3D 9 device of the backend (`gpu_bridge=1`, the default).
 With no keep the log has one line that says so.
 
+With `backend=vulkan` the Vulkan renderer keeps the trails: the walk of eye 0
+draws into target 0 and the walk of eye 1 into target 1, over the last
+picture of that eye (`IntroPassEye`, `vk_keep_picture=1`, `backend.md`, "The
+picture of the walk before"). The depth starts at the far plane in each walk.
+The game also plays this effect while it loads a saved game. A desktop run of
+the logo with `backend=vulkan` shows the trails in both eyes. Only a headset
+can show that no eye flickers.
+
 The scene has the same rule for each frame of play that keeps the picture of
 the frame before (`eye_clean`, `stereo-artifacts.md`, "The frame before of
 each eye"). It uses the same keeps. The logo frees them when it ends.
