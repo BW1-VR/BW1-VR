@@ -153,6 +153,13 @@ void VkSceneUploadsToggle(const char* keys);
 // BeginScene and EndScene, and the state, the textures, the viewport, the
 // clears and the draws as they come. It turns the renderer on.
 void VkSceneSetDirect(bool on);
+// backend=vulkan, on the frame thread after a FinishFrame: the image of the
+// last walk (a VkImage in the layout of a color attachment), the layer
+// that it drew into, and its size, for the session (XrScreen::SubmitVulkan,
+// SetEyeVulkan). False when there is none, or when the CPU wrote into the
+// render target after it: then the pixels of the CPU are the picture.
+bool VkSceneLastPicture(uint64_t* image, uint32_t* layer, uint32_t* width,
+                        uint32_t* height);
 bool VkSceneDirect();
 // The picture of the last walk of the left eye (or of a scene with no eye
 // pass), at width by height with a linear filter, as BGRA pixels for the

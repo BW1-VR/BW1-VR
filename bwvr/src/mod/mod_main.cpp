@@ -1938,6 +1938,21 @@ void __cdecl h_FinishFrame() {
   // costs 18.98 ms a frame just to read the picture back, and the readback is
   // worse on this backend than on system DirectDraw, because the render
   // target lives in graphics memory.
+  // backend=vulkan: the picture of the last walk goes to the session with a
+  // copy of the GPU (the logos and the loading screens are walks too). A
+  // picture that the game wrote with the CPU keeps the path of the CPU.
+  {
+    uint64_t image = 0;
+    uint32_t layer = 0, width = 0, height = 0;
+    if (g_screen->vulkan() &&
+        VkSceneLastPicture(&image, &layer, &width, &height) &&
+        width >= g_screen->width() && height >= g_screen->height()) {
+      if (!g_screen->SubmitVulkan(image, layer)) {
+        ModLog("vr           : the session ended at frame %llu", g_frame);
+      }
+      return;
+    }
+  }
   if (GpuBridgeReady()) {
     void* texture = GpuBridgeCaptureEye(0);
     if (texture != nullptr) {

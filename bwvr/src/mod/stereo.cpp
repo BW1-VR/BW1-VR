@@ -1307,6 +1307,11 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
   VkSceneOnlyFrame(to_headset ? g_screen->vulkan() && VkSceneEyesWanted()
                               : VkSceneOnlyTest());
   const bool capture_frame = EyeCaptureWanted(g_frames + 1);
+  // The swapchain images of a frame that saves pictures, in a session with
+  // Vulkan (a test aid).
+  if (capture_frame && to_headset && g_screen->vulkan()) {
+    g_screen->CaptureSwapchainNext(g_frames + 1);
+  }
   UiPanelBeginFrame(to_headset, to_headset && g_screen->projection() && !flat,
                     g_frames + 1, capture_frame);
   InputWatchFrame();

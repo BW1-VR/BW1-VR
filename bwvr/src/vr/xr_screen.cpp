@@ -263,7 +263,8 @@ const uint32_t kMaskSize = 16;
   X(vkGetBufferMemoryRequirements)        \
   X(vkBindBufferMemory)                   \
   X(vkMapMemory)                          \
-  X(vkCmdCopyBufferToImage)
+  X(vkCmdCopyBufferToImage)               \
+  X(vkCmdCopyImageToBuffer)
 
 struct VulkanFunctions {
   PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr;
@@ -414,6 +415,11 @@ struct XrScreen::Impl {
     VkDeviceSize size;
   };
   Stage vk_stage[kVkSlots] = {};
+  // XrScreen::CaptureSwapchainNext: the eye copies that are still to be
+  // read back, and the number of their files.
+  int capture_left = 0;
+  uint64_t capture_name = 0;
+  void SaveChainPicture(VkChain* c, uint32_t index, int eye);
   // For the report.
   uint64_t vk_pushes = 0;
   uint64_t vk_copies = 0;
@@ -2617,6 +2623,13 @@ bool XrScreen::SubmitTexture(void* texture) {
   return true;
 }
 
+bool XrScreen::SubmitVulkan(uint64_t image, uint32_t layer) {
+  if (!BeginFrame()) return false;
+  for (int eye = 0; eye < eyes_; ++eye) SetEyeVulkan(eye, image, layer);
+  EndFrame();
+  return true;
+}
+
 bool XrScreen::SubmitBgra(const void* pixels, int pitch) {
   if (!BeginFrame()) return false;
   // Give both eyes the same picture. With a stereo session configured, an eye
@@ -3694,6 +3707,8 @@ XrResult XrScreen::Impl::CopyVulkan(XrSwapchain chain, uint64_t image,
     vkf.vkCmdCopyImage(cb, source, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
                        c->images[index], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                        1, &region);
+    const int eye = chain == swapchain[0] ? 0 : chain == swapchain[1] ? 1 : -1;
+    const bool capture = capture_left > 0 && eye >= 0;
     VkImageMemoryBarrier after[2] = {{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER},
                                      {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER}};
     after[0].srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
@@ -3716,12 +3731,150 @@ XrResult XrScreen::Impl::CopyVulkan(XrSwapchain chain, uint64_t image,
     vkf.vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_TRANSFER_BIT,
                              VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 0, nullptr,
                              0, nullptr, 2, after);
+    const int slot = vk_slot;
     if (EndCopy(cb)) ++vk_copies;
+    if (capture) {
+      vkf.vkWaitForFences(g_vk.device, 1, &vk_fence[slot], VK_TRUE,
+                          UINT64_MAX);
+      SaveChainPicture(c, index, eye);
+      --capture_left;
+    }
   }
   return ReleaseImage(chain, false);
 }
 
+// THE TEST AID of CaptureSwapchainNext: the swapchain image `index`, after
+// its copy, into a buffer of the CPU and into a BMP file. With a wait for
+// the GPU.
+void XrScreen::Impl::SaveChainPicture(VkChain* c, uint32_t index, int eye) {
+  const VkDeviceSize bytes = static_cast<VkDeviceSize>(c->width) * c->height * 4;
+  VkBuffer buffer = VK_NULL_HANDLE;
+  VkDeviceMemory memory = VK_NULL_HANDLE;
+  VkBufferCreateInfo info = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+  info.size = bytes;
+  info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+  info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+  if (vkf.vkCreateBuffer(g_vk.device, &info, nullptr, &buffer) != VK_SUCCESS) {
+    return;
+  }
+  VkMemoryRequirements req = {};
+  vkf.vkGetBufferMemoryRequirements(g_vk.device, buffer, &req);
+  uint32_t type = UINT32_MAX;
+  const VkMemoryPropertyFlags want = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                                     VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+  for (uint32_t i = 0; i < g_vk.memory.memoryTypeCount; ++i) {
+    if ((req.memoryTypeBits & (1u << i)) != 0 &&
+        (g_vk.memory.memoryTypes[i].propertyFlags & want) == want) {
+      type = i;
+      break;
+    }
+  }
+  VkMemoryAllocateInfo allocate = {VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
+  allocate.allocationSize = req.size;
+  allocate.memoryTypeIndex = type;
+  void* mapped = nullptr;
+  const bool made =
+      type != UINT32_MAX &&
+      vkf.vkAllocateMemory(g_vk.device, &allocate, nullptr, &memory) ==
+          VK_SUCCESS &&
+      vkf.vkBindBufferMemory(g_vk.device, buffer, memory, 0) == VK_SUCCESS &&
+      vkf.vkMapMemory(g_vk.device, memory, 0, VK_WHOLE_SIZE, 0, &mapped) ==
+          VK_SUCCESS;
+  VkCommandBuffer cb = made ? BeginCopy() : VK_NULL_HANDLE;
+  if (cb != VK_NULL_HANDLE) {
+    // The image is in the layout of a color attachment after the copy.
+    VkImageMemoryBarrier to_read = {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
+    to_read.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT |
+                            VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    to_read.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+    to_read.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    to_read.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+    to_read.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    to_read.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    to_read.image = c->images[index];
+    to_read.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    vkf.vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+                             VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0,
+                             nullptr, 1, &to_read);
+    VkBufferImageCopy copy = {};
+    copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+    copy.imageExtent = {c->width, c->height, 1};
+    vkf.vkCmdCopyImageToBuffer(cb, c->images[index],
+                               VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, buffer, 1,
+                               &copy);
+    VkImageMemoryBarrier back = to_read;
+    back.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+    back.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT |
+                         VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    back.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+    back.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    vkf.vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                             VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 0, nullptr,
+                             0, nullptr, 1, &back);
+    const int slot = vk_slot;
+    if (EndCopy(cb)) {
+      vkf.vkWaitForFences(g_vk.device, 1, &vk_fence[slot], VK_TRUE,
+                          UINT64_MAX);
+      const VkFormat format =
+          kFormats[format_index < 0 ? 0 : format_index].vk_unorm;
+      const bool bgra = format == VK_FORMAT_B8G8R8A8_UNORM;
+      char path[MAX_PATH];
+      GetModuleFileNameA(nullptr, path, MAX_PATH);
+      char* slash = strrchr(path, '\\');
+      if (slash != nullptr) slash[1] = 0;
+      char name[64];
+      _snprintf_s(name, sizeof(name), _TRUNCATE, "bwvr-xr-%s-%05llu.bmp",
+                  eye == 0 ? "left" : "right", capture_name);
+      strcat_s(path, name);
+      const uint8_t* src = static_cast<const uint8_t*>(mapped);
+      int low = 255, high = 0;
+      FILE* out = nullptr;
+      if (fopen_s(&out, path, "wb") == 0 && out != nullptr) {
+        const uint32_t w = c->width, h = c->height;
+        const uint32_t row = (w * 3 + 3) & ~3u;
+        const uint32_t data = row * h;
+        uint8_t header[54] = {'B', 'M'};
+        const uint32_t file = 54 + data, offset = 54, size40 = 40;
+        const uint32_t planes_bits = 1 | (24 << 16);
+        memcpy(header + 2, &file, 4);
+        memcpy(header + 10, &offset, 4);
+        memcpy(header + 14, &size40, 4);
+        memcpy(header + 18, &w, 4);
+        memcpy(header + 22, &h, 4);
+        memcpy(header + 26, &planes_bits, 4);
+        memcpy(header + 34, &data, 4);
+        fwrite(header, 1, 54, out);
+        std::vector<uint8_t> line(row, 0);
+        for (uint32_t y = 0; y < h; ++y) {
+          const uint8_t* p = src + static_cast<size_t>(h - 1 - y) * w * 4;
+          for (uint32_t x = 0; x < w; ++x) {
+            line[x * 3 + 0] = p[x * 4 + (bgra ? 0 : 2)];
+            line[x * 3 + 1] = p[x * 4 + 1];
+            line[x * 3 + 2] = p[x * 4 + (bgra ? 2 : 0)];
+            const int a = p[x * 4 + 3];
+            if (a < low) low = a;
+            if (a > high) high = a;
+          }
+          fwrite(line.data(), 1, row, out);
+        }
+        fclose(out);
+        log("  openxr: the swapchain image of the %s eye is in %s (format %d, "
+            "alpha %d to %d)",
+            eye == 0 ? "left" : "right", path, static_cast<int>(format), low,
+            high);
+      }
+    }
+  }
+  if (memory != VK_NULL_HANDLE) vkf.vkFreeMemory(g_vk.device, memory, nullptr);
+  if (buffer != VK_NULL_HANDLE) vkf.vkDestroyBuffer(g_vk.device, buffer, nullptr);
+}
+
 void XrScreen::UseVulkan(bool on) { impl_->vulkan = on; }
+
+void XrScreen::CaptureSwapchainNext(uint64_t name) {
+  impl_->capture_left = eyes_ > 1 ? 2 : 1;
+  impl_->capture_name = name;
+}
 
 void XrScreen::WantEyeGaze(bool on) { impl_->gaze_wanted = on; }
 

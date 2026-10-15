@@ -91,6 +91,7 @@
 #include "MinHook.h"
 #include "../common/bw_addresses.h"
 #include "../vr/xr_screen.h"
+#include "vk_scene.h"
 #include "intro_motion_math.h"
 
 extern void ModLog(const char* format, ...);
@@ -1027,7 +1028,19 @@ void IntroCameraBuilt() {
 bool IntroFinishFrame() {
   if (g_eye < 0) return false;
   bool sent = false;
-  if (g_to_headset && GpuBridgeReady()) {
+  // backend=vulkan: the picture of the walk of this eye pass, with a copy
+  // of the GPU.
+  {
+    uint64_t image = 0;
+    uint32_t layer = 0, width = 0, height = 0;
+    if (g_to_headset && g_screen->vulkan() &&
+        VkSceneLastPicture(&image, &layer, &width, &height) &&
+        width >= g_screen->width() && height >= g_screen->height()) {
+      g_screen->SetEyeVulkan(g_eye, image, layer);
+      sent = true;
+    }
+  }
+  if (!sent && g_to_headset && GpuBridgeReady()) {
     void* texture = GpuBridgeCaptureEye(g_eye);
     if (texture != nullptr) {
       g_screen->SetEyeTexture(g_eye, texture);

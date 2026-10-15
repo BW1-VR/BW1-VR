@@ -359,6 +359,14 @@ class XrScreen {
 
   // Mono convenience: one call does a whole frame.
   bool SubmitBgra(const void* pixels, int pitch);
+  // The same for a Vulkan image of the session device: layer `layer` of
+  // `image` (a VkImage in the layout of a color attachment) for both eyes.
+  bool SubmitVulkan(uint64_t image, uint32_t layer);
+  // A TEST AID: the next copy of a Vulkan eye picture into each eye
+  // swapchain is read back from the swapchain image and saved as
+  // bwvr-xr-left-N.bmp and bwvr-xr-right-N.bmp beside the game, with the
+  // lowest and the highest alpha in the log. N is `name`.
+  void CaptureSwapchainNext(uint64_t name);
 
   // The same, from a texture the GPU already holds. Menus, loading screens
   // and videos never render the scene twice, so they come through here, and

@@ -2450,6 +2450,15 @@ panel goes into the panel of the walk, with the blend of the panel. The
 subtitle card and the panel layer take that panel (`vk_panel=1`). There is
 no check target (`ui_panel=2` draws no check picture).
 
+**A frame with no eye pass** (the logos, the splash screen, the loading
+screens, the menus): the walks of the game draw on the GPU, so the pixels
+of the render target in the memory of the CPU are not the picture. The
+path of a flat frame (`mod_main.cpp`) and the logo in stereo (`intro_vr.cpp`)
+send the image of the last walk to the session with a copy of the GPU
+(`VkSceneLastPicture`, `XrScreen::SubmitVulkan`, `SetEyeVulkan`). When the
+game wrote into the render target with the CPU after the last walk (a
+`Blt` or a `Lock`), the pixels of the CPU are the picture.
+
 **Two walks for the eyes.** A frame with no walk of one walk has a walk for
 each eye (`one_walk=0`, or a pose for each eye). The walk of the left eye
 draws into layer 0 of its target. The walk of the
@@ -4004,7 +4013,7 @@ in front. The mod reads the keys and never takes them from the game.
 | --- | --- | --- |
 | F11 | Everyone | The direction of the head becomes straight ahead |
 | Ctrl F11 | `play_mode` 3 or 4 | The table or the God view goes off and on (`tabletop.md`, `god-view.md`). Press it with the mouse at rest |
-| F12 | `test_keys=1` | Saves a picture of each eye beside `runblack.exe`, and one of the frame before either eye pass. With the Vulkan renderer also its images of the eyes (`bwvr-vk-left-N.bmp`, `bwvr-vk-right-N.bmp`), which are the pictures in the headset with `backend=vulkan`, and with foveated resolution its outer and centre image of the left eye. A file `bwvr-capture-now.txt` beside `runblack.exe` does the same for a player with no keyboard: the mod looks for it each 45 frames and deletes it. Both sticks pressed in at one time do the same too, with a short pulse on both hands. Both sticks held in for 1.5 s change foveated resolution as Shift P does |
+| F12 | `test_keys=1` | Saves a picture of each eye beside `runblack.exe`, and one of the frame before either eye pass. With the Vulkan renderer also its images of the eyes (`bwvr-vk-left-N.bmp`, `bwvr-vk-right-N.bmp`), which are the pictures in the headset with `backend=vulkan`, and with foveated resolution its outer and centre image of the left eye. A file `bwvr-capture-now.txt` beside `runblack.exe` does the same for a player with no keyboard: the mod looks for it each 45 frames and deletes it. Both sticks pressed in at one time do the same too, with a short pulse on both hands. Both sticks held in for 1.5 s change foveated resolution as Shift P does. In a session with Vulkan the images of the eye swapchains are read back after their copy too (`bwvr-xr-left-N.bmp`, `bwvr-xr-right-N.bmp`, with the lowest and the highest alpha in the log): so a picture that differs in the headset shows where it changes |
 | Shift F12 | `test_keys=1` | The subtitles step through 25, 30, 35, 40 and 45 degrees below the middle of the view |
 | Ctrl F12 | `test_keys=1` | Who owns the pointer: automatic, the controllers only, or the mouse only (`controllers.md`) |
 | Ctrl Shift F12 | `test_keys=1` | The ears: the head, or the game camera (`audio.md`). Press it with the mouse at rest |

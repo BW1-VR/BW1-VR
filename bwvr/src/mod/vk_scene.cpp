@@ -423,6 +423,14 @@ bool g_walk_right = false;  // the walk now is the right eye of a pair
 LONG g_left_serial = -1;    // g_walk_serial at the end of a walk of the left eye
 VkImage g_left_image = VK_NULL_HANDLE;  // its target
 uint64_t g_pair_walks = 0;  // for the report
+// THE PICTURE OF THE LAST WALK (backend=vulkan), for a frame with no eye
+// pass: its image, the layer that the walk drew into, and its size. A write
+// of the CPU into the render target after it (a picture of a Blt) makes
+// the pixels of the CPU the newer picture.
+uint64_t g_last_image = 0;
+uint32_t g_last_layer = 0;
+uint32_t g_last_width = 0, g_last_height = 0;
+bool g_cpu_newer = false;
 uint64_t g_gpu_walks = 0;   // for the report: the walks with a time of the GPU
 uint64_t g_gpu_ticks = 0;
 uint64_t g_gpu_odd = 0;  // the times that are not times of a walk
@@ -1256,6 +1264,7 @@ bool MakeTarget(uint32_t width, uint32_t height) {
   InterlockedExchange(&g_done_serial, 0);
   g_taken_serial = 0;
   g_done_image = 0;
+  g_last_image = 0;
   InterlockedExchange(&g_panel_walk, 0);
   for (int i = 0; i < 2; ++i) {
     if (!vk::MakeImage(width, height, 1, vk::Get().color_format,
@@ -2522,6 +2531,13 @@ void EndOnWorker(const void*) {
     InterlockedIncrement(&g_done_serial);
   }
   const LONG walk = InterlockedIncrement(&g_walk_serial);
+  if (g_direct) {
+    g_last_image = (uint64_t)Target().image;  // a handle of 64 bits
+    g_last_layer = g_walk_right ? 1u : 0u;
+    g_last_width = Target().width;
+    g_last_height = Target().height;
+    g_cpu_newer = false;
+  }
   // A walk of the left eye can have the walk of the right eye after it.
   const bool left = !g_walk_both && !g_walk_right && StereoPassEye() == 0;
   g_left_serial = left ? walk : -1;
@@ -3522,7 +3538,28 @@ void VkSceneOnlyFrame(bool can) { g_only_frame = can && VkSceneOn(); }
 
 bool VkSceneOnlyNow() { return g_walk_only; }
 
+bool VkSceneLastPicture(uint64_t* image, uint32_t* layer, uint32_t* width,
+                        uint32_t* height) {
+  if (!g_direct || !VkSceneOn() || g_cpu_newer || g_last_image == 0) {
+    return false;
+  }
+  *image = g_last_image;
+  *layer = g_last_layer;
+  *width = g_last_width;
+  *height = g_last_height;
+  return true;
+}
+
 void VkSceneSurfaceWritten(void* surface) {
+  // A write of the CPU into the render target: its pixels are the newer
+  // picture.
+  if (g_direct && surface != nullptr) {
+    DDSCAPS2 caps = {};
+    if (SUCCEEDED(static_cast<IDirectDrawSurface7*>(surface)->GetCaps(&caps)) &&
+        (caps.dwCaps & DDSCAPS_3DDEVICE) != 0) {
+      g_cpu_newer = true;
+    }
+  }
   if (!VkSceneOn() || g_textures == nullptr) return;
   AcquireSRWLockExclusive(&g_texture_lock);
   Texture* t = FindTexture(surface, false);
