@@ -1839,6 +1839,19 @@ void XrScreen::SetPanelTexture(void* texture) {
   s.panel_acquired = static_cast<int>(image);
 }
 
+void XrScreen::SetPanelVulkan(uint64_t image) {
+  Impl& s = *impl_;
+  s.panel_acquired = -1;
+  if (!s.vulkan || !s.frame_open || !should_render_ || image == 0 ||
+      s.panel_swapchain == XR_NULL_HANDLE) {
+    return;
+  }
+  if (s.Check(s.CopyVulkan(s.panel_swapchain, image, 0),
+              "the copy of a Vulkan panel")) {
+    s.panel_acquired = 0;
+  }
+}
+
 void XrScreen::SetPanelQuads(const PanelQuad quads[2]) {
   for (int i = 0; i < 2; ++i) impl_->panel_quads[i] = quads[i];
   // The Creature panel shows only in the frame that staged it.
@@ -2338,8 +2351,11 @@ void XrScreen::EndFrameLate(const LateFrame& frame, bool on_thread) {
   }
   if (!should_render_ || s.panel_swapchain == XR_NULL_HANDLE) {
     s.late.panel_texture = nullptr;
+    s.late.panel_vulkan = 0;
   }
-  s.panel_acquired = s.late.panel_texture != nullptr ? 0 : -1;
+  if (!s.vulkan) s.late.panel_vulkan = 0;
+  s.panel_acquired =
+      s.late.panel_texture != nullptr || s.late.panel_vulkan != 0 ? 0 : -1;
   if (!BuildFrame()) return;
   ++s.late_frames;
   if (on_thread && s.StartSendThread()) {
@@ -2425,7 +2441,9 @@ void XrScreen::Impl::RunLate() {
             : XR_SUCCESS;
   }
   late_result[2] =
-      late.panel_texture != nullptr
+      late.panel_vulkan != 0
+          ? CopyVulkan(panel_swapchain, late.panel_vulkan, 0)
+      : late.panel_texture != nullptr
           ? CopyLate(panel_swapchain, panel_images, late.panel_texture)
           : XR_SUCCESS;
   QueryPerformanceCounter(&copied);

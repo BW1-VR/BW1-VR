@@ -2206,6 +2206,28 @@ percent at frame 1560. Open: no comparison of one walk had an advisor in
 view. The advisors come at a different frame in each run of the strokes,
 so a run cannot ask for a frame with an advisor.
 
+**The panel** (`vk_panel`, 1 is the default). The panel target of Direct3D 9
+(`ui-layer.md`) has a panel image in the renderer, one for each target of
+the eyes, of their size, with a depth of its own. A draw while the panel
+target is bound goes into that image, for no eye: the rendering of the
+eyes ends, and a rendering of the panel starts. Its first rendering in a
+walk clears it to 0 and the depth to 1, as the first bind of the panel
+target clears that target. The alpha has the blend of the panel target
+(one and inverse source alpha), so the panel holds the color multiplied
+by the alpha. The next draw for the eyes ends the rendering of the panel
+and starts the rendering of the eyes again, with their pixels and depth.
+The subtitle card takes the part of the panel that drew at half the size
+(a blit with a linear filter, a copy to the CPU and a wait for the GPU, as
+with Direct3D 9). In a session with Vulkan with `ui_panel=1` the panel
+layer takes the panel image with one copy on the GPU. With 0 the renderer
+draws no draw for the panel target, and the card and the layer take the
+panel of Direct3D 9. Shift Y (`test_keys=1`) changes it from the next walk.
+A frame that saves pictures also saves the part of both panels for the
+card, with no fade, as `bwvr-subtitle-card-vk-N.bmp` and
+`bwvr-subtitle-card-d3d9-N.bmp`, and `vk_scene_test_frame=N` writes the
+whole panel as `bwvr-vk-panel-N.bmp`. The report of each 450 frames counts
+the walks with the panel, the draws into it and the copies.
+
 **The textures.** A texture of the game is a DirectDraw surface of
 dxwrapper. At its first use the renderer reads it with `Lock`, makes RGBA8
 of it, and makes its mip levels with linear blits (the textures of the
@@ -3696,6 +3718,7 @@ in front. The mod reads the keys and never takes them from the game.
 | Shift C | `test_keys=1` | In a session with Vulkan the eye pictures come from the Vulkan renderer, or from Direct3D 9, from the next frame. A long pulse and a short pulse (`vk_eyes`, "The session with Vulkan"). Ctrl must be up |
 | Shift X | `test_keys=1` | The Vulkan renderer follows the render target, the viewport and the clears of a walk, or it draws each draw into the eye pictures, from the next walk. A long pulse and a short pulse (`vk_scene_follow`, "The Vulkan renderer"). Ctrl must be up |
 | Shift Z | `test_keys=1` | In a session with Vulkan the pixels of the CPU (an eye picture of the CPU, a card, the walls of the cut scene window) go into the swapchains with a copy of Vulkan, or through the relays of Direct3D 11, from the next write. A long pulse and a short pulse (`xr_vulkan_upload`, "The session with Vulkan"). Ctrl must be up |
+| Shift Y | `test_keys=1` | The Vulkan renderer draws the draws for the panel target into a panel of its own, and the subtitle card and the panel layer of a session with Vulkan take it, or they take the panel of Direct3D 9, from the next walk. A long pulse and a short pulse (`vk_panel`, "The Vulkan renderer"). Ctrl must be up |
 | Ctrl Shift Numpad Slash | `test_keys=1` | The mod waits for the GPU after each eye pass, one time a frame, or one time a frame on a second thread that also gives the frame to the runtime. A long pulse, a pulse of middle length and a short pulse (`frame_send`, "One wait a frame, and a second thread"). The slash key with Shift and no Ctrl is a key of the Temple, and with no Shift it is a key of the throw |
 | Menu key | `test_keys=1` | One walk for both eyes on and off (see "One walk for both eyes"). The key beside the right Ctrl key that opens a context menu. Ctrl and Shift must be up |
 | Ctrl Menu key | `test_keys=1` | The layout of the buttons of the hand that does not point. The menu button of the left controller opens the game menu, Y opens the ring and the stick does not drive the ring, or Y opens the game menu and X and the stick open the ring. A long pulse and a short pulse on that hand (`button_layout`, `controllers.md`, 5.1). Shift must be up |
@@ -3819,6 +3842,7 @@ keys that the launcher sets.
 | `vk_eyes` | 1 | With `xr_vulkan=1`: 1 the eye pictures of a frame of one walk come from the Vulkan renderer, 0 from Direct3D 9. A test key: Shift C. See "The session with Vulkan" |
 | `xr_vulkan_upload` | 1 | With `xr_vulkan=1`: 1 the pixels of the CPU (an eye picture of the CPU, a card, the walls of the cut scene window) go into the swapchain images with a copy of Vulkan. 0 they go into the relays of Direct3D 11, and the release of an image copies its relay. A test key: Shift Z. See "The session with Vulkan" |
 | `vk_scene_follow` | 1 | 1: in a walk of one walk the Vulkan renderer follows render target 0 of Direct3D 9, the viewport of Direct3D 7 and the clears, and a draw for another target does not go into the eye pictures. 0: each draw goes into the eye pictures, and the renderer makes no clear. A test key: Shift X. See "The Vulkan renderer" |
+| `vk_panel` | 1 | 1: the Vulkan renderer draws the draws for the panel target into a panel of its own, and the subtitle card and the panel layer of a session with Vulkan take it. 0: the renderer draws no draw for the panel target, and the card and the layer take the panel of Direct3D 9. A test key: Shift Y. See "The Vulkan renderer" |
 | `fast_transform` | 1 | 1: the two vertex loops of the engine run with SSE, with the bits of the game. 0: on the x87 unit. See "The vertex loops with SSE" |
 | `profile_gpu` | 0 | A test key. See "The GPU time" |
 | `hang_watch` | 0 | A test key. See "The watch of the frame thread" |

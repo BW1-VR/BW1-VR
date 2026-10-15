@@ -22,6 +22,10 @@ Marks, as in `tabletop.md`:
   switches the Direct3D 9 target around those draw calls in eye pass 0 and
   skips them in eye pass 1. dxwrapper's Dd7to9 does not see the switch, so
   the mod puts the target, the depth surface and its own states back.
+- With the Vulkan renderer (`vk_panel=1`) the draws for the panel target
+  also go into a panel image of the renderer, and the subtitle card and the
+  panel layer of a session with Vulkan take that image (`backend.md`, "The
+  Vulkan renderer").
 - The target reaches OpenXR the way the eyes do: a shared texture, one copy,
   and a third swapchain. It goes out as `XrCompositionLayerQuad` layers in
   the LOCAL space, after the projection layer, with the source alpha flag.

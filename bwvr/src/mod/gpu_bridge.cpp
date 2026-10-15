@@ -1698,6 +1698,10 @@ bool GpuBridgePanelUsable() {
 
 bool GpuBridgePanelShared() { return g_ready && g_panel_opened != nullptr; }
 
+bool GpuBridgeIsPanel(const void* surface) {
+  return surface != nullptr && surface == g_panel;
+}
+
 void GpuBridgePanelNewFrame(bool check) {
   if (g_bound >= 0 && g_device != nullptr) RestoreGameState();
   g_panel_cleared = false;

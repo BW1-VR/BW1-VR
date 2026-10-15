@@ -78,3 +78,32 @@ void VkSceneEyesToggle(const char* keys);
 // when the walk had the size of the swapchains. One line of the log when it
 // did not.
 bool VkSceneEyesFor(uint32_t width, uint32_t height, uint64_t* image);
+
+// THE PANEL (vk_panel of bwvr.ini, 1 is the default). In a walk the mod
+// binds the panel target of Direct3D 9 for the help text, the subtitle box,
+// the Creature panel and the menus (gpu_bridge.cpp, GpuBridgePanelBind).
+// With 1 the renderer draws the draws for that target into a panel image of
+// its own, of the size of the eyes, cleared to 0 and the depth to 1 at its
+// first draw in a walk. The subtitle card and the panel layer of a session
+// with Vulkan then take that image. 0: the draws for the panel target are
+// not drawn, and the card and the layer take the panel of Direct3D 9.
+// Shift Y (test_keys=1) changes it from the next walk.
+void VkSceneSetPanel(int on);
+void VkScenePanelToggle(const char* keys);
+// True when the card and the panel layer take the panel of the renderer.
+bool VkScenePanelOn();
+// On the frame thread after the walks of a frame: the panel image of the
+// last walk of this frame that drew into the panel, when it has this size.
+// image is a VkImage of one layer, in the layout of a color attachment and
+// in vk::Core::color_format. False when no walk of this frame drew into the
+// panel, or when the panel has another size.
+bool VkScenePanelFor(uint32_t width, uint32_t height, uint64_t* image);
+// THE SUBTITLE CARD, as GpuBridgePanelReadHalf: the rect x, y, width and
+// height of the panel of this frame at half the size, as pixels for the
+// CPU: BGRA, the color multiplied by the alpha, each pixel the mean of four.
+// The pixels stay valid until VkScenePanelReadDone. Null when no walk of
+// this frame drew into the panel, or when a step failed. It waits for the
+// GPU.
+const void* VkScenePanelReadHalf(const int rect[4], int* pitch,
+                                 uint32_t* width, uint32_t* height);
+void VkScenePanelReadDone();

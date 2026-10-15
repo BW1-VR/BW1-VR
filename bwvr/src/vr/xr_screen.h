@@ -174,6 +174,9 @@ struct LateFrame {
   uint32_t eye_layer[2];
   // As for SetPanelTexture. Null: the frame has no panel.
   void* panel_texture;
+  // As for SetPanelVulkan, in a session with Vulkan. 0: the panel takes
+  // panel_texture.
+  uint64_t panel_vulkan;
   // Returns when the GPU has finished the textures. It runs on the thread
   // that sends the frame, and it must not write a line of the log. Null: the
   // textures are finished.
@@ -294,6 +297,9 @@ class XrScreen {
   void EnablePanel(bool on);
   bool panel_ready() const;
   void SetPanelTexture(void* texture);
+  // The panel from a Vulkan image of the session device, in a session with
+  // Vulkan: as SetEyeVulkan, an image of one layer of the render size.
+  void SetPanelVulkan(uint64_t image);
   void SetPanelQuads(const PanelQuad quads[2]);
   // The third quad, the Creature panel (docs/ui-layer.md, "The Creature
   // panel"). Set it before SetPanelQuads in the same frame, and

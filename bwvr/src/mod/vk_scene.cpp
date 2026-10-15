@@ -67,6 +67,21 @@
 // the D3D7 thread (D3D7ThreadPost), so it comes in the order of the draws. A
 // call on the D3D7 thread is in that order already. Without one walk the
 // target of the eyes is not known, and each draw goes into the image.
+//
+// THE PANEL (vk_panel=1). The panel target of Direct3D 9 (GpuBridgeIsPanel)
+// has a panel image here, one for each target of the eyes, of their size,
+// with a depth of its own. A draw while the panel target is bound goes into
+// that image, for no eye: the rendering of the eyes ends, and a rendering
+// of the panel starts. Its first rendering in a walk clears it to 0 and its
+// depth to 1, as GpuBridgePanelBind clears the panel target at its first
+// bind. The alpha has the blend of the panel target (ONE, INVSRCALPHA), so
+// the panel holds the color multiplied by the alpha. The next draw for the
+// eyes ends the rendering of the panel and starts the one of the eyes again,
+// with their pixels and depth. A clear while the panel target is bound is
+// the clear of GpuBridgePanelBind, and the first rendering makes it. The
+// subtitle card (VkScenePanelReadHalf) and the panel layer of a session with
+// Vulkan (VkScenePanelFor) read the panel of the last walk that drew into
+// it in the frame.
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -77,6 +92,7 @@
 #include <string.h>
 
 #include "d3d7_thread.h"
+#include "ui_panel.h"
 #include "one_walk.h"
 #include "one_walk_math.h"
 #include "vk_core.h"
@@ -131,7 +147,14 @@ struct Seed {
   bool picture;    // the walk writes its images to files
   bool both;  // a walk of one walk: both layers get a picture
   bool follow;
+  bool panel;    // vk_panel
   void* target;  // the target of the eyes, or null when it is not known
+};
+
+// A bind of render target 0 of Direct3D 9 in a walk.
+struct TargetArgs {
+  void* surface;
+  uint32_t panel;  // 1: the surface is the panel target
 };
 
 // A clear of Direct3D 9 in the walk. A clear with more rects clears the
@@ -153,6 +176,32 @@ vk::Image g_depth = {};
 const VkFormat kDepthFormat = VK_FORMAT_D32_SFLOAT;
 // The texture images are RGBA8.
 const VkFormat kTextureFormat = VK_FORMAT_R8G8B8A8_UNORM;
+
+// THE PANEL: an image for each target of the eyes, and one depth.
+vk::Image g_panels[2] = {};
+vk::Image g_panel_depth = {};
+bool g_walk_panel = false;       // vk_panel, for the walk now
+bool g_draw_panel = false;       // render target 0 is the panel target now
+bool g_panel_drawn = false;      // the walk drew into the panel
+bool g_rendering_panel = false;  // the rendering now is the one of the panel
+// On the frame thread: vk_panel now (the test key changes it).
+bool g_panel_mode = true;
+// The panel of the last walk that drew into it. The D3D7 thread writes it
+// at the end of the walk, and the frame thread reads it after the end.
+// g_walk_serial counts the walks, and g_panel_walk is the count of the walk
+// that drew into the panel. g_frame_walks is the count at the start of the
+// frame (VkSceneFrame).
+volatile LONG g_walk_serial = 0;
+volatile LONG g_panel_walk = 0;
+LONG g_frame_walks = 0;
+int g_panel_index = 0;  // in g_panels
+LONG g_panel_taken = 0;  // the walk of the last VkScenePanelFor
+// The half size copy for the subtitle card.
+vk::Image g_half = {};
+vk::Buffer g_half_buffer = {};
+bool g_half_locked = false;
+// Pipelines of the panel: no multiview, and the alpha blend of the panel.
+const uint32_t kPanelKey = 1u << 24;
 
 // The last walk that ended, for VkSceneEyes. The D3D7 thread writes it
 // before the end of the walk, and the frame thread reads it after the end.
@@ -243,6 +292,12 @@ uint64_t g_viewport_calls = 0;
 uint64_t g_clears = 0;           // made
 uint64_t g_clears_one_eye = 0;   // of them for one eye only
 uint64_t g_clears_off = 0;       // for another target, not made
+uint64_t g_clears_panel = 0;     // while the panel target is bound
+uint64_t g_panel_draws = 0;      // draws into the panel
+uint64_t g_panel_walks = 0;      // walks that drew into the panel
+uint64_t g_panel_reads = 0;      // half size copies for the subtitle card
+uint64_t g_panel_read_failures = 0;
+uint64_t g_panel_layers = 0;     // panels for the panel layer of a session
 uint32_t g_said_formats[8] = {};  // the formats that the log has
 int g_said_format_count = 0;
 uint64_t g_uploads = 0;
@@ -335,13 +390,18 @@ VkPipeline Pipeline(uint32_t key) {
   depth.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
   VkPipelineColorBlendAttachmentState blend = {};
   blend.colorWriteMask = 0xF;
-  if (key != 0) {
+  const bool panel = (key & kPanelKey) != 0;
+  if ((key & ~kPanelKey) != 0) {
     blend.blendEnable = VK_TRUE;
     blend.srcColorBlendFactor = Factor((key >> 8) & 255);
     blend.dstColorBlendFactor = Factor(key & 255);
     blend.colorBlendOp = VK_BLEND_OP_ADD;
-    blend.srcAlphaBlendFactor = blend.srcColorBlendFactor;
-    blend.dstAlphaBlendFactor = blend.dstColorBlendFactor;
+    // The panel target has a separate blend of the alpha (gpu_bridge.cpp,
+    // kPanelAlpha): ONE and INVSRCALPHA.
+    blend.srcAlphaBlendFactor =
+        panel ? VK_BLEND_FACTOR_ONE : blend.srcColorBlendFactor;
+    blend.dstAlphaBlendFactor =
+        panel ? VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA : blend.dstColorBlendFactor;
     blend.alphaBlendOp = VK_BLEND_OP_ADD;
   }
   VkPipelineColorBlendStateCreateInfo blend_state = {
@@ -359,7 +419,8 @@ VkPipeline Pipeline(uint32_t key) {
   dynamic_state.pDynamicStates = dynamic;
   VkPipelineRenderingCreateInfo rendering = {
       VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
-  rendering.viewMask = 3;
+  // The panel has one layer and no eye.
+  rendering.viewMask = panel ? 0u : 3u;
   rendering.colorAttachmentCount = 1;
   const VkFormat color_format = vk::Get().color_format;
   rendering.pColorAttachmentFormats = &color_format;
@@ -735,20 +796,31 @@ bool MakeTarget(uint32_t width, uint32_t height) {
   vk::FreeImage(&g_colors[0]);
   vk::FreeImage(&g_colors[1]);
   vk::FreeImage(&g_depth);
+  vk::FreeImage(&g_panels[0]);
+  vk::FreeImage(&g_panels[1]);
+  vk::FreeImage(&g_panel_depth);
   InterlockedExchange(&g_done_serial, 0);
   g_taken_serial = 0;
   g_done_image = 0;
+  InterlockedExchange(&g_panel_walk, 0);
   for (int i = 0; i < 2; ++i) {
     if (!vk::MakeImage(width, height, 1, vk::Get().color_format,
                        VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
                            VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
-                       VK_IMAGE_ASPECT_COLOR_BIT, &g_colors[i], 2)) {
+                       VK_IMAGE_ASPECT_COLOR_BIT, &g_colors[i], 2) ||
+        !vk::MakeImage(width, height, 1, vk::Get().color_format,
+                       VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
+                           VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
+                       VK_IMAGE_ASPECT_COLOR_BIT, &g_panels[i])) {
       return false;
     }
   }
   return vk::MakeImage(width, height, 1, kDepthFormat,
                        VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
-                       VK_IMAGE_ASPECT_DEPTH_BIT, &g_depth, 2);
+                       VK_IMAGE_ASPECT_DEPTH_BIT, &g_depth, 2) &&
+         vk::MakeImage(width, height, 1, kDepthFormat,
+                       VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
+                       VK_IMAGE_ASPECT_DEPTH_BIT, &g_panel_depth);
 }
 
 bool Ready() {
@@ -849,27 +921,29 @@ bool Ready() {
   return true;
 }
 
-// Writes the image of one eye to a file of 24 bits, bottom up.
-void WritePicture(uint64_t frame, uint32_t eye) {
-  const uint32_t w = Target().width, h = Target().height;
+// Writes one layer of an image (an eye or the panel) to a file of 24 bits,
+// bottom up. `what` is the word in the name of the file.
+void WritePicture(const vk::Image& image, uint32_t layer, const char* what,
+                  uint64_t frame) {
+  const uint32_t w = image.width, h = image.height;
   vk::Buffer read;
   if (!vk::MakeBuffer(static_cast<VkDeviceSize>(w) * h * 4,
                       VK_BUFFER_USAGE_TRANSFER_DST_BIT, true, &read)) {
     return;
   }
   VkCommandBuffer cb = vk::BeginOnce();
-  vk::Barrier(cb, Target().image, VK_IMAGE_ASPECT_COLOR_BIT,
+  vk::Barrier(cb, image.image, VK_IMAGE_ASPECT_COLOR_BIT,
               VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-              VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, 1, 2);
+              VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, 1, image.layers);
   VkBufferImageCopy copy = {};
-  copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, eye, 1};
+  copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, layer, 1};
   copy.imageExtent = {w, h, 1};
-  f.vkCmdCopyImageToBuffer(cb, Target().image,
+  f.vkCmdCopyImageToBuffer(cb, image.image,
                            VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, read.buffer,
                            1, &copy);
-  vk::Barrier(cb, Target().image, VK_IMAGE_ASPECT_COLOR_BIT,
+  vk::Barrier(cb, image.image, VK_IMAGE_ASPECT_COLOR_BIT,
               VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-              VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 1, 2);
+              VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 1, image.layers);
   if (!vk::EndOnce(cb)) {
     vk::FreeBuffer(&read);
     return;
@@ -879,7 +953,7 @@ void WritePicture(uint64_t frame, uint32_t eye) {
   char* slash = strrchr(path, '\\');
   if (slash != nullptr) slash[1] = 0;
   char name[64];
-  sprintf_s(name, "bwvr-vk-%s-%05llu.bmp", eye == 0 ? "left" : "right",
+  sprintf_s(name, "bwvr-vk-%s-%05llu.bmp", what,
             frame);
   strcat_s(path, name);
   FILE* out = nullptr;
@@ -900,7 +974,7 @@ void WritePicture(uint64_t frame, uint32_t eye) {
     uint8_t* line = static_cast<uint8_t*>(calloc(row, 1));
     const uint8_t* rgba = static_cast<const uint8_t*>(read.mapped);
     // The target is RGBA or BGRA (THE EYES IN THE HEADSET). The file is BGR.
-    const bool bgra = Target().format == VK_FORMAT_B8G8R8A8_UNORM;
+    const bool bgra = image.format == VK_FORMAT_B8G8R8A8_UNORM;
     const int red = bgra ? 2 : 0, blue = bgra ? 0 : 2;
     for (uint32_t y = 0; y < h; ++y) {
       const uint8_t* src = rgba + (h - 1 - y) * w * 4;
@@ -913,41 +987,49 @@ void WritePicture(uint64_t frame, uint32_t eye) {
     }
     free(line);
     fclose(out);
-    ModLog("vk scene     : the image of the %s eye of frame %llu is in %s",
-           eye == 0 ? "left" : "right", frame, path);
+    ModLog("vk scene     : the image %s of frame %llu is in %s", what,
+           frame, path);
   }
   vk::FreeBuffer(&read);
 }
 
-// Starts the rendering into the target of the walk, for the layers of
-// view_mask (bit 0 the left eye, bit 1 the right eye). load keeps the
-// pixels and the depth that the target has, else both are cleared: the
-// color to 0 and the depth to 1. keep_depth stores the depth at the end of
-// the rendering, for a rendering after it in the same walk.
-void BeginRendering(VkCommandBuffer cb, uint32_t view_mask, bool load,
-                    bool keep_depth) {
+// Starts a rendering into color_image and depth_image, for the layers of
+// view_mask (bit 0 the left eye, bit 1 the right eye, 0 for an image of one
+// layer with no eye). load keeps the pixels and the depth that the images
+// have, else both are cleared: the color to 0 and the depth to 1. keep_depth
+// stores the depth at the end of the rendering, for a rendering after it in
+// the same walk.
+void BeginRenderingOf(VkCommandBuffer cb, const vk::Image& color_image,
+                      const vk::Image& depth_image, uint32_t view_mask,
+                      bool load, bool keep_depth) {
   VkRenderingAttachmentInfo color = {
       VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
-  color.imageView = Target().view;
+  color.imageView = color_image.view;
   color.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
   color.loadOp = load ? VK_ATTACHMENT_LOAD_OP_LOAD : VK_ATTACHMENT_LOAD_OP_CLEAR;
   color.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
   VkRenderingAttachmentInfo depth = {
       VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
-  depth.imageView = g_depth.view;
+  depth.imageView = depth_image.view;
   depth.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
   depth.loadOp = load ? VK_ATTACHMENT_LOAD_OP_LOAD : VK_ATTACHMENT_LOAD_OP_CLEAR;
   depth.storeOp = keep_depth ? VK_ATTACHMENT_STORE_OP_STORE
                              : VK_ATTACHMENT_STORE_OP_DONT_CARE;
   depth.clearValue.depthStencil.depth = 1.0f;
   VkRenderingInfo rendering = {VK_STRUCTURE_TYPE_RENDERING_INFO};
-  rendering.renderArea = {{0, 0}, {Target().width, Target().height}};
+  rendering.renderArea = {{0, 0}, {color_image.width, color_image.height}};
   rendering.layerCount = 1;
   rendering.viewMask = view_mask;
   rendering.colorAttachmentCount = 1;
   rendering.pColorAttachments = &color;
   rendering.pDepthAttachment = &depth;
   f.vkCmdBeginRendering(cb, &rendering);
+}
+
+// Starts the rendering into the target of the walk (BeginRenderingOf).
+void BeginRendering(VkCommandBuffer cb, uint32_t view_mask, bool load,
+                    bool keep_depth) {
+  BeginRenderingOf(cb, Target(), g_depth, view_mask, load, keep_depth);
 }
 
 // The part of a rect of pixels that is in the target. False when nothing
@@ -986,8 +1068,37 @@ bool OffTarget() {
   return vk_scene_math::OffTarget(g_walk_follow, g_eye_target, g_draw_target);
 }
 
+// True when a draw goes into the panel (THE PANEL).
+bool ForPanel() { return g_walk_follow && g_walk_panel && g_draw_panel; }
+
+// Ends the rendering now and starts the one of the panel (panel) or of the
+// eyes. The dynamic states stay.
+void UsePanel(bool panel) {
+  if (panel == g_rendering_panel) return;
+  const VkCommandBuffer cb = g_slots[g_slot].cb;
+  f.vkCmdEndRendering(cb);
+  if (panel) {
+    vk::Image& image = g_panels[g_target];
+    if (!g_panel_drawn) {
+      vk::Barrier(cb, image.image, VK_IMAGE_ASPECT_COLOR_BIT,
+                  VK_IMAGE_LAYOUT_UNDEFINED,
+                  VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 1);
+      vk::Barrier(cb, g_panel_depth.image, VK_IMAGE_ASPECT_DEPTH_BIT,
+                  VK_IMAGE_LAYOUT_UNDEFINED,
+                  VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, 1);
+    }
+    BeginRenderingOf(cb, image, g_panel_depth, 0u, g_panel_drawn, true);
+    g_panel_drawn = true;
+  } else {
+    BeginRendering(cb, 3u, true, true);
+  }
+  g_rendering_panel = panel;
+}
+
 void TargetOnWorker(const void* data) {
-  memcpy(&g_draw_target, data, sizeof(g_draw_target));
+  const TargetArgs* a = static_cast<const TargetArgs*>(data);
+  g_draw_target = a->surface;
+  g_draw_panel = a->panel != 0;
   ++g_target_calls;
 }
 
@@ -1003,10 +1114,16 @@ void ViewportOnWorker(const void* data) {
 // for the color and the depth that the flags name.
 void ClearOnWorker(const void* data) {
   if (!g_recording || !g_walk_follow) return;
+  // The clear of the panel target is the first rendering of the panel.
+  if (ForPanel()) {
+    ++g_clears_panel;
+    return;
+  }
   if (OffTarget()) {
     ++g_clears_off;
     return;
   }
+  UsePanel(false);
   const ClearArgs* a = static_cast<const ClearArgs*>(data);
   VkClearAttachment attachments[2] = {};
   uint32_t count = 0;
@@ -1125,6 +1242,10 @@ void BeginOnWorker(const void* data) {
   g_walk_follow = seed->follow;
   g_eye_target = seed->target;
   g_draw_target = seed->target;
+  g_walk_panel = seed->panel;
+  g_draw_panel = false;
+  g_panel_drawn = false;
+  g_rendering_panel = false;
   BeginRendering(s.cb, 3u, false, g_walk_follow);
   if (g_walk_follow) {
     SetViewportState(s.cb);
@@ -1169,10 +1290,19 @@ void EndOnWorker(const void*) {
     g_done_height = Target().height;
     InterlockedIncrement(&g_done_serial);
   }
+  const LONG walk = InterlockedIncrement(&g_walk_serial);
+  if (g_panel_drawn) {
+    g_panel_index = g_target;
+    InterlockedExchange(&g_panel_walk, walk);
+    ++g_panel_walks;
+  }
   if (g_picture) {
     f.vkWaitForFences(vk::Get().device, 1, &s.fence, VK_TRUE, UINT64_MAX);
-    WritePicture(g_picture_frame, 0);
-    WritePicture(g_picture_frame, 1);
+    WritePicture(Target(), 0, "left", g_picture_frame);
+    WritePicture(Target(), 1, "right", g_picture_frame);
+    if (g_panel_drawn) {
+      WritePicture(g_panels[g_target], 0, "panel", g_picture_frame);
+    }
   }
 }
 
@@ -1278,12 +1408,15 @@ void VkSceneWalkBegin(void* device7) {
   g_picture_next = false;
   seed.both = OneWalkActive();
   seed.follow = g_follow;
+  seed.panel = g_panel_mode;
   seed.target = g_follow ? OneWalkBoundTarget() : nullptr;
   D3D7ThreadPost(&BeginOnWorker, &seed, sizeof(seed));
 }
 
 void VkSceneFrame(uint64_t frame, uint64_t name) {
   if (!VkSceneOn()) return;
+  // The walks of the frames before this one are over (D3D7ThreadWalk).
+  g_frame_walks = InterlockedCompareExchange(&g_walk_serial, 0, 0);
   g_picture_next =
       g_test_frame > 0 && frame == static_cast<uint64_t>(g_test_frame);
   g_picture_name = name;
@@ -1311,7 +1444,8 @@ void VkSceneFollowToggle(const char* keys) {
 
 void VkSceneTarget(void* surface) {
   if (!VkSceneOn() || !D3D7ThreadActive()) return;
-  Deliver(&TargetOnWorker, &surface, sizeof(surface));
+  TargetArgs a = {surface, GpuBridgeIsPanel(surface) ? 1u : 0u};
+  Deliver(&TargetOnWorker, &a, sizeof(a));
 }
 
 void VkSceneViewport(const void* viewport7) {
@@ -1365,7 +1499,9 @@ void VkSceneDraw(uint32_t type, uint32_t fvf, const void* vertices,
                  uint32_t vertex_count, const uint16_t* indices,
                  uint32_t index_count) {
   if (!g_recording) return;
-  if (OffTarget()) {
+  // A draw for the panel target goes into the panel (THE PANEL).
+  const bool panel = ForPanel();
+  if (!panel && OffTarget()) {
     ++g_skipped;
     ++g_skip_target;
     return;
@@ -1410,7 +1546,7 @@ void VkSceneDraw(uint32_t type, uint32_t fvf, const void* vertices,
           ? (1u << 16) | (rs[D3DRENDERSTATE_SRCBLEND] & 255) << 8 |
                 (rs[D3DRENDERSTATE_DESTBLEND] & 255)
           : 0u;
-  VkPipeline pipeline = Pipeline(blend);
+  VkPipeline pipeline = Pipeline(blend | (panel ? kPanelKey : 0u));
   if (pipeline == VK_NULL_HANDLE) {
     ++g_skipped;
     ++g_skip_state;
@@ -1447,6 +1583,8 @@ void VkSceneDraw(uint32_t type, uint32_t fvf, const void* vertices,
   s.used += index_bytes;
   s.used = (s.used + 31) & ~31ull;
 
+  UsePanel(panel);
+  if (panel) ++g_panel_draws;
   VkCommandBuffer cb = s.cb;
   f.vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
   f.vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, g_layout, 0,
@@ -1491,9 +1629,10 @@ void VkSceneDraw(uint32_t type, uint32_t fvf, const void* vertices,
   push.depth[0] = g_viewport.dvMinZ;
   push.depth[1] = range > 0.0f ? 1.0f / range : 1.0f;
   // The eyes of the draw and the move of the right eye (BOTH EYES).
+  // The panel has one layer (view 0) and no move.
   uint32_t eyes = 1u;
   uint32_t still = 1u;
-  if (OneWalkActive()) {
+  if (OneWalkActive() && !panel) {
     const int mode = OneWalkModeNow();
     eyes = mode == kOneWalkLeftOnly ? 1u : mode == kOneWalkRightOnly ? 2u : 3u;
     if (mode == kOneWalkBoth) {
@@ -1541,6 +1680,153 @@ void VkSceneDraw(uint32_t type, uint32_t fvf, const void* vertices,
   ++g_draws;
 }
 
+void VkSceneSetPanel(int on) {
+  g_panel_mode = on != 0;
+  if (g_mode == 0) return;
+  ModLog("vk scene     : vk_panel=%d. %s", g_panel_mode ? 1 : 0,
+         g_panel_mode
+             ? "The renderer draws the draws for the panel target into a "
+               "panel of its own, and the subtitle card and the panel layer "
+               "take it"
+             : "The renderer does not draw the draws for the panel target, "
+               "and the subtitle card and the panel layer take the panel of "
+               "Direct3D 9");
+}
+
+void VkScenePanelToggle(const char* keys) {
+  g_panel_mode = !g_panel_mode;
+  ControllersGesturePulse(0.5f, g_panel_mode ? 0.30f : 0.08f);
+  ModLog("test key     : %s, vk_panel is %d from the next walk: the subtitle "
+         "card and the panel layer take the panel of %s",
+         keys, g_panel_mode ? 1 : 0,
+         g_panel_mode ? "the Vulkan renderer" : "Direct3D 9");
+}
+
+bool VkScenePanelOn() { return g_panel_mode && VkSceneOn() && g_ready; }
+
+namespace {
+// The panel of the last walk of this frame that drew into it, or null.
+const vk::Image* PanelOfFrame() {
+  if (!VkScenePanelOn()) return nullptr;
+  const LONG walk = InterlockedCompareExchange(&g_panel_walk, 0, 0);
+  if (walk == 0 || walk <= g_frame_walks) return nullptr;
+  const vk::Image& image = g_panels[g_panel_index];
+  return image.image != VK_NULL_HANDLE ? &image : nullptr;
+}
+}  // namespace
+
+bool VkScenePanelFor(uint32_t width, uint32_t height, uint64_t* image) {
+  const vk::Image* panel = PanelOfFrame();
+  if (panel == nullptr || panel->width != width || panel->height != height) {
+    return false;
+  }
+  // One copy into the swapchain for each walk that drew into the panel.
+  const LONG walk = InterlockedCompareExchange(&g_panel_walk, 0, 0);
+  if (walk == g_panel_taken) return false;
+  g_panel_taken = walk;
+  *image = (uint64_t)panel->image;  // a handle of 64 bits
+  ++g_panel_layers;
+  return true;
+}
+
+const void* VkScenePanelReadHalf(const int rect[4], int* pitch,
+                                 uint32_t* width, uint32_t* height) {
+  const vk::Image* panel = PanelOfFrame();
+  if (panel == nullptr || g_half_locked) return nullptr;
+  const uint32_t panel_w = panel->width, panel_h = panel->height;
+  // As GpuBridgePanelReadHalf: even numbers, inside the panel.
+  int x0 = rect[0] & ~1, y0 = rect[1] & ~1;
+  int x1 = (rect[0] + rect[2] + 1) & ~1, y1 = (rect[1] + rect[3] + 1) & ~1;
+  if (x0 < 0) x0 = 0;
+  if (y0 < 0) y0 = 0;
+  if (x1 > static_cast<int>(panel_w & ~1u)) x1 = static_cast<int>(panel_w & ~1u);
+  if (y1 > static_cast<int>(panel_h & ~1u)) y1 = static_cast<int>(panel_h & ~1u);
+  if (x1 - x0 < 2 || y1 - y0 < 2) {
+    ++g_panel_read_failures;
+    return nullptr;
+  }
+  const uint32_t out_w = static_cast<uint32_t>(x1 - x0) / 2;
+  const uint32_t out_h = static_cast<uint32_t>(y1 - y0) / 2;
+  // One image of half the size of the panel takes each part.
+  const uint32_t half_w = panel_w / 2, half_h = panel_h / 2;
+  if (g_half.image == VK_NULL_HANDLE || g_half.width != half_w ||
+      g_half.height != half_h || g_half.format != panel->format) {
+    vk::FreeImage(&g_half);
+    vk::FreeBuffer(&g_half_buffer);
+    if (!vk::MakeImage(half_w, half_h, 1, panel->format,
+                       VK_IMAGE_USAGE_TRANSFER_DST_BIT |
+                           VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
+                       VK_IMAGE_ASPECT_COLOR_BIT, &g_half) ||
+        !vk::MakeBuffer(static_cast<VkDeviceSize>(half_w) * half_h * 4,
+                        VK_BUFFER_USAGE_TRANSFER_DST_BIT, true,
+                        &g_half_buffer)) {
+      vk::FreeImage(&g_half);
+      vk::FreeBuffer(&g_half_buffer);
+      ++g_panel_read_failures;
+      return nullptr;
+    }
+  }
+  // Each pixel the mean of four: a blit with a linear filter of an even rect
+  // to half its size, as the StretchRect of Direct3D 9.
+  VkCommandBuffer cb = vk::BeginOnce();
+  if (cb == VK_NULL_HANDLE) {
+    ++g_panel_read_failures;
+    return nullptr;
+  }
+  vk::Barrier(cb, panel->image, VK_IMAGE_ASPECT_COLOR_BIT,
+              VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+              VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, 1);
+  vk::Barrier(cb, g_half.image, VK_IMAGE_ASPECT_COLOR_BIT,
+              VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+              1);
+  VkImageBlit blit = {};
+  blit.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+  blit.srcOffsets[0] = {x0, y0, 0};
+  blit.srcOffsets[1] = {x1, y1, 1};
+  blit.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+  blit.dstOffsets[0] = {0, 0, 0};
+  blit.dstOffsets[1] = {static_cast<int32_t>(out_w),
+                        static_cast<int32_t>(out_h), 1};
+  f.vkCmdBlitImage(cb, panel->image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                   g_half.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit,
+                   VK_FILTER_LINEAR);
+  vk::Barrier(cb, g_half.image, VK_IMAGE_ASPECT_COLOR_BIT,
+              VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+              VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, 1);
+  VkBufferImageCopy copy = {};
+  copy.bufferRowLength = out_w;
+  copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+  copy.imageExtent = {out_w, out_h, 1};
+  f.vkCmdCopyImageToBuffer(cb, g_half.image,
+                           VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                           g_half_buffer.buffer, 1, &copy);
+  vk::Barrier(cb, panel->image, VK_IMAGE_ASPECT_COLOR_BIT,
+              VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+              VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 1);
+  if (!vk::EndOnce(cb)) {
+    ++g_panel_read_failures;
+    return nullptr;
+  }
+  // The card is BGRA.
+  uint8_t* pixels = static_cast<uint8_t*>(g_half_buffer.mapped);
+  if (panel->format != VK_FORMAT_B8G8R8A8_UNORM) {
+    const size_t count = static_cast<size_t>(out_w) * out_h;
+    for (size_t i = 0; i < count; ++i) {
+      const uint8_t red = pixels[i * 4];
+      pixels[i * 4] = pixels[i * 4 + 2];
+      pixels[i * 4 + 2] = red;
+    }
+  }
+  g_half_locked = true;
+  ++g_panel_reads;
+  *pitch = static_cast<int>(out_w) * 4;
+  *width = out_w;
+  *height = out_h;
+  return pixels;
+}
+
+void VkScenePanelReadDone() { g_half_locked = false; }
+
 void VkSceneSurfaceWritten(void* surface) {
   if (!VkSceneOn() || g_textures == nullptr) return;
   AcquireSRWLockExclusive(&g_texture_lock);
@@ -1575,6 +1861,15 @@ void VkSceneReport(uint64_t frames) {
   g_skip_format = g_skip_ring = g_skip_state = g_converted = 0;
   g_skip_target = g_target_calls = g_viewport_calls = 0;
   g_clears = g_clears_one_eye = g_clears_off = 0;
+  ModLog("vk scene     : vk_panel=%d. %llu walks drew into the panel, a "
+         "frame: %.1f draws into it, %.1f clears of the panel target. %llu "
+         "half size copies for the subtitle card (%llu failed), %llu panels "
+         "for the panel layer",
+         g_panel_mode ? 1 : 0, g_panel_walks, g_panel_draws / per,
+         g_clears_panel / per, g_panel_reads, g_panel_read_failures,
+         g_panel_layers);
+  g_panel_walks = g_panel_draws = g_clears_panel = 0;
+  g_panel_reads = g_panel_read_failures = g_panel_layers = 0;
   if (g_eyes) {
     ModLog("vk scene     : %llu of %llu frames had the eye pictures of the "
            "Vulkan renderer in the headset", g_eye_frames, frames);

@@ -603,16 +603,15 @@ float FrameSeparation() {
 //
 // A virtual keyboard can also send a capital letter as the character alone
 // (VK_PACKET), with no Shift. Then only a WM_CHAR of the capital letter
-// comes. So a WM_CHAR of F, G, H, J, K, L, M, N, B, V, C, X or Z is the same key, unless the WM_KEYDOWN
-// of that key came less than 200 ms before it: a real keyboard sends both.
-// The digits have no such second way, because the character of Shift 8 and
-// Shift 9 is not the same on each keyboard layout.
+// comes. So a WM_CHAR of a letter of ShiftKeyIndex is the same key, unless
+// the WM_KEYDOWN of that key came less than 200 ms before it: a real
+// keyboard sends both. The digits have no such second way, because the
+// character of Shift 8 and Shift 9 is not the same on each keyboard layout.
 // Shift 8, Shift 9, Shift F, Shift G, Shift H, Shift J, Shift K, Shift L,
-// Shift M, Shift N, Shift B, Shift V, Shift C, Shift X, Shift Z
-static volatile LONG g_shift_key[15] = {0, 0, 0, 0, 0, 0, 0, 0,
-                                        0, 0, 0, 0, 0, 0, 0};
-static DWORD g_shift_key_at[15] = {0, 0, 0, 0, 0, 0, 0, 0,
-                                   0, 0, 0, 0, 0, 0, 0};
+// Shift M, Shift N, Shift B, Shift V, Shift C, Shift X, Shift Z, Shift Y
+static const int kShiftKeys = 16;
+static volatile LONG g_shift_key[kShiftKeys] = {};
+static DWORD g_shift_key_at[kShiftKeys] = {};
 static HHOOK g_message_hook = nullptr;
 static bool g_message_hook_tried = false;
 
@@ -632,6 +631,7 @@ static int ShiftKeyIndex(WPARAM key) {
          : key == 'C' ? 12
          : key == 'X' ? 13
          : key == 'Z' ? 14
+         : key == 'Y' ? 15
                       : -1;
 }
 
@@ -916,6 +916,9 @@ void PollHotkeys() {
   }
   if (InterlockedExchange(&g_shift_key[14], 0) != 0) {
     XrVulkanUploadToggle("Shift and Z");
+  }
+  if (InterlockedExchange(&g_shift_key[15], 0) != 0) {
+    VkScenePanelToggle("Shift and Y");
   }
   // An A/B of one walk (docs/backend.md, "One walk for both eyes"). The
   // menu key (VK_APPS) has no action in the game and no other test key.
@@ -1523,9 +1526,15 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
     // capture, or the one wait of the frame (frame_send.cpp).
     if (eye == 0) UiPanelAfterFirstEye(g_frames + 1, capture_frame);
     void* ui_texture = nullptr;
-    if (eye == 0 && to_headset && GpuBridgeReady() &&
-        UiPanelMode() == kUiPanelLayer) {
-      ui_texture = GpuBridgeCaptureUi();
+    uint64_t ui_vulkan = 0;
+    if (eye == 0 && to_headset && UiPanelMode() == kUiPanelLayer) {
+      // In a session with Vulkan with vk_panel=1: the panel of the Vulkan
+      // renderer (vk_scene.h), with no copy of Direct3D 9.
+      if (g_screen->vulkan() && VkScenePanelOn()) {
+        VkScenePanelFor(g_screen->width(), g_screen->height(), &ui_vulkan);
+      } else if (GpuBridgeReady()) {
+        ui_texture = GpuBridgeCaptureUi();
+      }
     }
     bool sent = false;
     long eye_rect[2][4];
@@ -1587,16 +1596,19 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
         sent = late.eye_texture[eye] != nullptr;
       }
     }
-    if (ui_texture != nullptr && sent) {
+    if ((ui_texture != nullptr || ui_vulkan != 0) && sent) {
       bwvr::PanelQuad quads[2];
       const bw::tech::InfoTransform* info = Info();
       if (!IsBadReadPtr(info, sizeof(*info)) &&
           UiPanelQuads(static_cast<uint32_t>(info->res_x),
                        static_cast<uint32_t>(info->res_y), quads)) {
-        if (send_mode == 0) {
+        if (send_mode == 0 && ui_vulkan != 0) {
+          g_screen->SetPanelVulkan(ui_vulkan);
+        } else if (send_mode == 0) {
           g_screen->SetPanelTexture(ui_texture);
         } else {
           late.panel_texture = ui_texture;
+          late.panel_vulkan = ui_vulkan;
         }
         g_screen->SetPanelQuads(quads);
       }
