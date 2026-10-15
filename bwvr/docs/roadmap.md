@@ -570,8 +570,11 @@ that moves while the Hand takes it.
     that the game makes. Next for the backend: a headset session. Foveated
     rendering (`foveation`, `backend.md`, "Foveated rendering") gives the eye
     pictures of the renderer fewer shades away from the gaze of an eye
-    tracker, or from straight ahead. Not run in a headset, and not run with
-    an eye tracker. (B) one draw
+    tracker, or from straight ahead, and foveated resolution
+    (`fovea_res`, "Foveated resolution") makes each eye picture from an outer
+    image with fewer pixels and a centre image with more. On a Radeon RX
+    7900 XTX neither takes time off the GPU, because the time is in the
+    draws. Not run in a headset, and not run with an eye tracker. (B) one draw
     for many copies of a mesh (about 870 draws of a frame are 36 meshes);
     (C) a new renderer of the land, after a count of its draws. The Quest 3
     cannot run `runblack.exe`; a port there needs an x86 emulator with Wine

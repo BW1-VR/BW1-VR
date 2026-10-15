@@ -170,6 +170,17 @@ const uint8_t* VkScenePresentPixels(uint32_t width, uint32_t height,
 void VkSceneSetFoveation(int level, int inner_deg, int outer_deg, int show);
 // The test key: foveation goes on, on with the colour of show, and off.
 void VkSceneFoveationToggle(const char* keys);
+// FOVEATED RESOLUTION (fovea_res of bwvr.ini, docs/backend.md, "Foveated
+// resolution"). on: 0 (the default) the eye pictures have the pixels of the
+// render. 1: the draws of the eyes of a walk go into an outer image with
+// outer_pct percent of the pixels on each side (fovea_res_outer_pct, 50)
+// and into a centre image with center_pct percent (fovea_res_center_pct,
+// 100) of a rect inset_deg degrees on each side of the centre of the fovea
+// (fovea_res_center_deg, 25). The eye picture is made from the two. Only the
+// eye pictures of the Vulkan renderer have it.
+void VkSceneSetFoveaRes(int on, int outer_pct, int center_pct, int inset_deg);
+// The test key: fovea_res goes between 0 and 1.
+void VkSceneFoveaResToggle(const char* keys);
 // stereo.cpp, on the frame thread before the walks of a frame: the centre of
 // the fovea as tangents of the eye (x right, y up), from an eye tracker.
 // valid false: straight ahead.

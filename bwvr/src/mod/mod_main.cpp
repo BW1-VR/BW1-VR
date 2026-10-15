@@ -544,6 +544,11 @@ int g_foveation_inner_deg = 0;
 int g_foveation_outer_deg = 0;
 int g_foveation_gaze = 1;
 int g_foveation_show = 0;
+// Foveated resolution (docs/backend.md, "Foveated resolution").
+int g_fovea_res = 0;
+int g_fovea_res_outer_pct = 50;
+int g_fovea_res_center_pct = 100;
+int g_fovea_res_center_deg = 25;
 int g_vk_scene_reread_test = 0;
 // The OpenXR session with Vulkan, and the eye pictures of the Vulkan
 // renderer in it (docs/backend.md, "The session with Vulkan").
@@ -1386,6 +1391,14 @@ void ReadSettings() {
       GetPrivateProfileIntA("bwvr", "foveation_gaze", 1, path) != 0 ? 1 : 0;
   g_foveation_show =
       GetPrivateProfileIntA("bwvr", "foveation_show", 0, path) != 0 ? 1 : 0;
+  g_fovea_res =
+      GetPrivateProfileIntA("bwvr", "fovea_res", 0, path) != 0 ? 1 : 0;
+  g_fovea_res_outer_pct = static_cast<int>(
+      GetPrivateProfileIntA("bwvr", "fovea_res_outer_pct", 50, path));
+  g_fovea_res_center_pct = static_cast<int>(
+      GetPrivateProfileIntA("bwvr", "fovea_res_center_pct", 100, path));
+  g_fovea_res_center_deg = static_cast<int>(
+      GetPrivateProfileIntA("bwvr", "fovea_res_center_deg", 25, path));
   g_vk_scene_reread_test =
       static_cast<int>(GetPrivateProfileIntA("bwvr", "vk_scene_reread_test", 0,
                                              path));
@@ -1704,11 +1717,14 @@ void StartVrOnce() {
     VkSceneSetTextureReuse(g_vk_texture_reuse);
     VkSceneSetFoveation(g_foveation, g_foveation_inner_deg,
                         g_foveation_outer_deg, g_foveation_show);
-    if (g_foveation != 0 && g_vk_scene == 0 && !vk_eyes && !direct) {
-      ModLog("vk scene     : foveation=%d, but the eye pictures come from "
-             "Direct3D 9, which has no shading rate. Foveated rendering "
-             "needs backend=vulkan, or xr_vulkan=1 with vk_eyes=1",
-             g_foveation);
+    VkSceneSetFoveaRes(g_fovea_res, g_fovea_res_outer_pct,
+                       g_fovea_res_center_pct, g_fovea_res_center_deg);
+    if ((g_foveation != 0 || g_fovea_res != 0) && g_vk_scene == 0 &&
+        !vk_eyes && !direct) {
+      ModLog("vk scene     : foveation=%d and fovea_res=%d, but the eye "
+             "pictures come from Direct3D 9. Both need backend=vulkan, or "
+             "xr_vulkan=1 with vk_eyes=1",
+             g_foveation, g_fovea_res);
     }
     // With a session with Vulkan the renderer takes its device, so it waits
     // for the session.

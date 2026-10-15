@@ -2505,8 +2505,10 @@ before it, so the time has no wait for other work).
 
 **Desktop runs** of a new game to the choice of the Creature (Radeon RX
 7900 XTX, render 4080 by 3264, one walk, no rate of 4 by 4 on this GPU): the
-GPU takes 1.0 to 1.5 ms for a walk with `foveation=0`, 0.65 to 1.0 ms with
-2 and 0.63 to 0.99 ms with 3, in the same windows of 450 frames. With 3 the
+GPU takes 0.44 to 0.99 ms for a walk with `foveation=0`, and 0.43 to 1.03
+ms with 2, in the same windows of 450 frames. So on this GPU the time of a
+walk is in its draws and not in its shades, and foveated rendering takes no
+time off. A GPU that has less time for each pixel can gain. With 3 the
 image of the left eye at frame 421 has 99.0 percent of its blocks of 2 by 2
 pixels in one color at more than 30 percent of the width or of the height
 from the middle, and 48.9 percent with 0. With `foveation_show=1` the
@@ -2523,6 +2525,59 @@ The cause is not known.
 In a headset session (`foveation=3`, dxwrapper with the eye
 pictures of the renderer) the map was in each walk, and the parts with 2 by
 2 looked the same as with the full rate. Not run: an eye tracker.
+
+## Foveated resolution
+
+`fovea_res=1` (0 is the default, a test key: Shift P, the launcher rows
+"Foveated resolution (test)", "Resolution outside the middle", "Resolution
+of the middle" and "Size of the middle") makes each eye picture of the
+Vulkan renderer from two images with their own resolutions:
+
+| Key | Default | The image |
+| --- | --- | --- |
+| `fovea_res_outer_pct` | 50 | The whole view, with this percentage of the pixels of the eye picture on each side (10 to 100) |
+| `fovea_res_center_pct` | 100 | A rect around the centre of the fovea, with this percentage of the pixels of the eye picture on each side (25 to 300) |
+| `fovea_res_center_deg` | 25 | The degrees of that rect on each side of the centre (5 to 80) |
+
+The centre of the fovea is the one of "Foveated rendering": the gaze of an
+eye tracker, or straight ahead (the middle of the picture). The rect stays
+in the picture, and its size does not change with the gaze.
+
+**How.** The game gives each vertex in pixels of its render, so the same
+draws can go into an image of another size with another viewport: the
+pixel of an image is (the pixel of the game - an origin) times a scale
+(`fovea_res_math.h`, checks in `fovea_res_checks.h`). In a walk with
+foveated resolution a draw of the eyes is a record (its pipeline, its set,
+its states, its push constants, its vertices in the ring and its viewport),
+and so is a clear. The draws for the panel go into the panel as before. At
+the end of the walk the records go into the outer image and then into the
+centre image (two layers each, a layer for each eye), each with its own
+depth. Then the eye picture is made from the two: the outer image over the
+whole picture with a linear filter, and the centre image over its rect,
+with an edge of 8 percent of the rect where it goes from the outer image to
+the centre image. The present, the session and the pictures of a test take
+the eye picture as before. A smaller image gives a coarser mip level of a
+texture, as the game would at that resolution.
+
+With `fovea_res=1` the walk has no map of "Foveated rendering". With
+`foveation_show=1` the outer image has a blue colour, so the edge of the
+middle shows. The log has the sizes of the two images and their share of
+the pixels of the picture at the first walk.
+
+**Desktop runs** (Radeon RX 7900 XTX, render 4080 by 3264, one walk, the
+flight to the choice of the Creature, the same windows of 450 frames): the
+GPU takes 0.44 to 0.99 ms for a walk with `fovea_res=0`, 0.60 to 1.67 ms with
+the defaults, and 0.44 to 1.18 ms with 35 percent outside and 20 degrees. A
+walk has about 640 draws in the outer image and 440 to 560 of them in the
+centre image: the pass of the centre image leaves out a draw whose rect of
+vertices is not in the centre. So on this GPU the second pass of the draws
+and the picture from the two images cost more than the pixels save. The
+camera of the game on the desktop has about 70 degrees across, so a centre
+of 25 degrees on each side is 2717 by 2717 pixels of the picture: in a
+headset of about 110 degrees it is 1332 by 1332. The picture at frame 421
+has no edge between the two images, and with `foveation_show=1` the rect of
+the centre with its soft edge shows. Not run: a headset session, an eye
+tracker, the test key.
 
 ## The session with Vulkan
 
@@ -3994,6 +4049,7 @@ in front. The mod reads the keys and never takes them from the game.
 | Shift U | `test_keys=1` | A walk of one walk with the eyes of the Vulkan renderer goes to the renderer alone, with no draw for Direct3D 9, or Direct3D 9 draws it too, from the next walk. A long pulse and a short pulse (`vk_only`, "The Vulkan renderer"). Ctrl must be up |
 | Shift I | `test_keys=1` | A texture that a walk reads again goes to the GPU in the submit of the walk, with no wait, or at once with a wait for the GPU, from the next walk. A long pulse and a short pulse (`vk_upload_queue`, "The Vulkan renderer"). Ctrl must be up |
 | Shift O | `test_keys=1` | Foveated rendering goes on, then on with the colour over the coarse parts (`foveation_show`), then off, from the next walk. A long pulse when it is on, a short pulse when it is off (`foveation`, "Foveated rendering"). Ctrl must be up |
+| Shift P | `test_keys=1` | Foveated resolution goes on and off, from the next walk. A long pulse and a short pulse (`fovea_res`, "Foveated resolution"). Ctrl must be up |
 | Ctrl Shift Numpad Slash | `test_keys=1` | The mod waits for the GPU after each eye pass, one time a frame, or one time a frame on a second thread that also gives the frame to the runtime. A long pulse, a pulse of middle length and a short pulse (`frame_send`, "One wait a frame, and a second thread"). The slash key with Shift and no Ctrl is a key of the Temple, and with no Shift it is a key of the throw |
 | Menu key | `test_keys=1` | One walk for both eyes on and off (see "One walk for both eyes"). The key beside the right Ctrl key that opens a context menu. Ctrl and Shift must be up |
 | Ctrl Menu key | `test_keys=1` | The layout of the buttons of the hand that does not point. The menu button of the left controller opens the game menu, Y opens the ring and the stick does not drive the ring, or Y opens the game menu and X and the stick open the ring. A long pulse and a short pulse on that hand (`button_layout`, `controllers.md`, 5.1). Shift must be up |
@@ -4130,6 +4186,8 @@ keys that the launcher sets.
 | `foveation_inner_deg`, `foveation_outer_deg` | 0, 0 | The degrees of the full rate and of 2 by 2 around the centre of the fovea. 0 takes the degrees of the level. See "Foveated rendering" |
 | `foveation_show` | 0 | A test key: 1 a colour over the coarse parts of the eye pictures, blue for 2 by 2 and red for 4 by 4. Shift O goes to it too. See "Foveated rendering" |
 | `foveation_gaze` | 1 | 1 the centre of the fovea follows the gaze of an eye tracker when the headset has one (`XR_EXT_eye_gaze_interaction`), 0 it stays straight ahead. See "Foveated rendering" |
+| `fovea_res` | 0 | 1 each eye picture of the Vulkan renderer comes from an outer image and a centre image with their own resolutions. A test key: Shift P. See "Foveated resolution" |
+| `fovea_res_outer_pct`, `fovea_res_center_pct`, `fovea_res_center_deg` | 50, 100, 25 | The resolution of the outer image and of the centre image in percent on each side, and the degrees of the centre on each side. See "Foveated resolution" |
 | `profile_sample` | 0 | A test key. See "Where the time of the scene walk goes" |
 | `profile_sample_thread` | 0 | A test key: 1 takes the samples of `profile_sample` from the render thread, 2 from the D3D7 thread. See "Where the time of the scene walk goes" |
 | `profile_sample_dump` | 0 | A test key: 1 writes each sample of `profile_sample` with the modules to `bwvr-samples.txt` beside `runblack.exe`. See "Where the time of the scene walk goes" |

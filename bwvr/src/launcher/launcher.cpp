@@ -120,12 +120,35 @@ const Setting kSettings[] = {
     {kValues, "foveation", "Foveated rendering (test)",
      "Off=0|Light=1|Medium=2|Strong=3", 0,
      "The middle of each eye picture keeps its full detail, and the parts "
-     "around it get fewer shades of color. This takes time off the GPU. "
+     "around it get fewer shades of color. This can take time off a GPU "
+     "that is slow for each pixel. "
      "With an eye tracker (for example Quest Pro) the sharp part follows "
      "your gaze. With no eye tracker (for example Quest 3) it stays in the "
      "middle of the view. It works only when the mod draws the eye pictures "
      "with its Vulkan renderer: with the headset session with Vulkan, and "
      "your GPU needs variable rate shading."},
+    {kBool, "fovea_res", "Foveated resolution (test)", nullptr, 0,
+     "The mod draws each eye picture from two pictures: one of the whole "
+     "view with fewer pixels, and one of the middle with more pixels. The "
+     "middle follows your gaze with an eye tracker, and stays in the middle "
+     "of the view with none. The three rows below set the two resolutions "
+     "and the size of the middle. It works only when the mod draws the eye "
+     "pictures with its Vulkan renderer: with the headset session with "
+     "Vulkan."},
+    {kValues, "fovea_res_outer_pct", "Resolution outside the middle",
+     "25%=25|35%=35|50%=50|70%=70|100%=100", 50,
+     "The pixels of the whole view, as a percentage of the resolution of "
+     "the eye picture on each side. 50% is a quarter of the pixels."},
+    {kValues, "fovea_res_center_pct", "Resolution of the middle",
+     "75%=75|100%=100|125%=125|150%=150|200%=200", 100,
+     "The pixels of the middle, as a percentage of the resolution of the eye "
+     "picture on each side. More than 100% makes the middle smoother than "
+     "the eye picture alone."},
+    {kValues, "fovea_res_center_deg", "Size of the middle",
+     "15 degrees=15|20 degrees=20|25 degrees=25|30 degrees=30|40 degrees=40",
+     25,
+     "How far the middle goes from its centre to each side. A larger middle "
+     "is sharp further out and costs more frame time."},
 
     {kGroup, nullptr, "View", nullptr, 0, nullptr},
     {kValues, "play_mode", "Play mode",

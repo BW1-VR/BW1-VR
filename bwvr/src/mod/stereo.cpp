@@ -612,8 +612,8 @@ float FrameSeparation() {
 // character of Shift 8 and Shift 9 is not the same on each keyboard layout.
 // Shift 8, Shift 9, Shift F, Shift G, Shift H, Shift J, Shift K, Shift L,
 // Shift M, Shift N, Shift B, Shift V, Shift C, Shift X, Shift Z, Shift Y,
-// Shift U, Shift I, Shift O
-static const int kShiftKeys = 19;
+// Shift U, Shift I, Shift O, Shift P
+static const int kShiftKeys = 20;
 static volatile LONG g_shift_key[kShiftKeys] = {};
 static DWORD g_shift_key_at[kShiftKeys] = {};
 static HHOOK g_message_hook = nullptr;
@@ -639,6 +639,7 @@ static int ShiftKeyIndex(WPARAM key) {
          : key == 'U' ? 16
          : key == 'I' ? 17
          : key == 'O' ? 18
+         : key == 'P' ? 19
                       : -1;
 }
 
@@ -944,6 +945,9 @@ void PollHotkeys() {
   }
   if (InterlockedExchange(&g_shift_key[18], 0) != 0) {
     VkSceneFoveationToggle("Shift and O");
+  }
+  if (InterlockedExchange(&g_shift_key[19], 0) != 0) {
+    VkSceneFoveaResToggle("Shift and P");
   }
   // An A/B of one walk (docs/backend.md, "One walk for both eyes"). The
   // menu key (VK_APPS) has no action in the game and no other test key.

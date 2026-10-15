@@ -93,6 +93,8 @@
 #include <stdio.h>
 #include <string.h>
 
+#include <vector>
+
 #include "d3d7_thread.h"
 #include "ui_panel.h"
 #include "one_walk.h"
@@ -100,6 +102,7 @@
 #include "vk_core.h"
 #include "vk_scene.h"
 #include "../common/bw_addresses.h"
+#include "fovea_res_math.h"
 #include "foveation_math.h"
 #include "vk_scene_math.h"
 #include "vk_texture_math.h"
@@ -173,6 +176,11 @@ struct Seed {
   foveation_math::Params fovea;
   float gaze[2];
   bool fovea_show;  // foveation_show: the marks of the coarse parts
+  // FOVEATED RESOLUTION: the walk goes into an outer image and a centre
+  // image (fovea_res), with their factors in percent and the degrees of
+  // the centre.
+  bool mres;
+  float mres_outer, mres_center, mres_deg;
 };
 
 // A bind of render target 0 of Direct3D 9 in a walk.
@@ -293,6 +301,9 @@ const int kMaxTextures = 4096;
 Texture* g_textures = nullptr;
 int g_texture_count = 0;
 SRWLOCK g_texture_lock = SRWLOCK_INIT;  // the dirty marks of the frame thread
+// FOVEATED RESOLUTION: the layers of the outer and the centre image as
+// textures for the eye picture, [image][eye].
+Texture g_mres_texture[2][2] = {};
 
 // THE FRAME. Two slots, so the CPU fills one while the GPU draws the other.
 // THE UPLOADS OF A WALK (vk_upload_queue=1). A texture that the walk reads
@@ -427,6 +438,56 @@ int g_rate_cx = -1, g_rate_cy = -1;
 bool g_walk_fovea = false;  // the renderings of the walk use the map
 uint64_t g_fovea_walks = 0;  // for the report
 uint64_t g_fovea_maps = 0;
+// FOVEATED RESOLUTION (fovea_res, docs/backend.md, "Foveated resolution").
+// The draws of the eyes of a walk are kept as records and go at the end of
+// the walk into an outer image with fewer pixels and a centre image with
+// more (fovea_res_math.h). Then the eye picture is made from the two: the
+// outer image over the whole picture and the centre image over its rect,
+// with a soft edge. On the frame thread: the key now. On the D3D7 thread:
+// the walk now and the images.
+bool g_mres_mode = false;
+float g_mres_outer = 50.0f, g_mres_center = 100.0f, g_mres_deg = 25.0f;
+bool g_walk_mres = false;
+fovea_res_math::Layout g_mres = {};
+vk::Image g_mres_color[2] = {};  // 0 the outer image, 1 the centre image
+vk::Image g_mres_depth[2] = {};
+VkImageView g_mres_view[2][2] = {};  // the view of each layer, [image][eye]
+bool g_said_mres_size = false;
+// The values of the push constants of a draw.
+struct DrawPush {
+  float viewport[4];
+  float depth[4];
+  uint32_t ops[4];
+  float alpha[4];
+  float fog_color[4];
+};
+// A draw or a clear of the walk, in pixels of the game.
+struct MresRecord {
+  int clear;  // -1 a draw, else the index of the clear
+  VkPipeline pipeline;
+  VkDescriptorSet set;
+  uint32_t cull, zenable, zwrite, zfunc, type;
+  DrawPush push;
+  VkDeviceSize vertex_at, index_at;
+  uint32_t vertex_count, index_count;
+  float viewport[4];  // x, y, width, height of the viewport of the game
+  // The rect of its vertices in pixels of the game, x0, y0, x1, y1, with
+  // the move of the right eye. The pass of the centre image leaves out a
+  // draw whose rect is not in the rect of the centre.
+  float bounds[4];
+};
+struct MresClear {
+  uint32_t flags, color;
+  float z;
+  uint32_t eyes;
+  uint32_t count;
+  float rects[16][4];  // x0, y0, x1, y1
+};
+std::vector<MresRecord> g_mres_records;
+std::vector<MresClear> g_mres_clears;
+uint64_t g_mres_walks = 0;  // for the report
+uint64_t g_mres_draws = 0;  // draws of the walks
+uint64_t g_mres_center_draws = 0;  // of them in the centre image
 uint64_t g_fovea_marks = 0;  // walks with the marks of the test
 uint64_t g_gaze_frames = 0;
 
@@ -1481,7 +1542,9 @@ bool ForPanel() { return g_walk_follow && g_walk_panel && g_draw_panel; }
 void UsePanel(bool panel) {
   if (panel == g_rendering_panel) return;
   const VkCommandBuffer cb = g_slots[g_slot].cb;
-  f.vkCmdEndRendering(cb);
+  // With foveated resolution only the rendering of the panel is open in a
+  // walk: the draws of the eyes are records.
+  if (!g_walk_mres || g_rendering_panel) f.vkCmdEndRendering(cb);
   if (panel) {
     vk::Image& image = g_panels[g_target];
     if (!g_panel_drawn) {
@@ -1494,7 +1557,7 @@ void UsePanel(bool panel) {
     }
     BeginRenderingOf(cb, image, g_panel_depth, 0u, g_panel_drawn, true);
     g_panel_drawn = true;
-  } else {
+  } else if (!g_walk_mres) {
     BeginRendering(cb, 3u, true, true);
   }
   g_rendering_panel = panel;
@@ -1576,6 +1639,26 @@ void ClearOnWorker(const void* data) {
   const uint32_t eyes =
       g_walk_right ? 2u
                    : vk_scene_math::Eyes(OneWalkActive(), OneWalkModeNow());
+  if (g_walk_mres) {
+    MresClear c = {};
+    c.flags = a->flags;
+    c.color = a->color;
+    c.z = a->z;
+    c.eyes = eyes;
+    c.count = rect_count;
+    for (uint32_t i = 0; i < rect_count && i < 16; ++i) {
+      c.rects[i][0] = static_cast<float>(rects[i].rect.offset.x);
+      c.rects[i][1] = static_cast<float>(rects[i].rect.offset.y);
+      c.rects[i][2] = c.rects[i][0] + static_cast<float>(rects[i].rect.extent.width);
+      c.rects[i][3] = c.rects[i][1] + static_cast<float>(rects[i].rect.extent.height);
+    }
+    MresRecord r = {};
+    r.clear = static_cast<int>(g_mres_clears.size());
+    g_mres_clears.push_back(c);
+    g_mres_records.push_back(r);
+    ++g_clears;
+    return;
+  }
   if (eyes != 3u) {
     f.vkCmdEndRendering(cb);
     BeginRendering(cb, eyes, true, true);
@@ -1597,6 +1680,390 @@ void Deliver(D3D7ThreadFn fn, const void* data, unsigned bytes) {
   } else {
     D3D7ThreadPost(fn, data, bytes);
   }
+}
+
+// FOVEATED RESOLUTION: the layout of the walk, and the two images in its
+// sizes. False when the walk has no foveated resolution.
+void FreeMresImages() {
+  const VkDevice device = vk::Get().device;
+  for (int i = 0; i < 2; ++i) {
+    for (int e = 0; e < 2; ++e) {
+      Texture& t = g_mres_texture[i][e];
+      for (int k = 0; k < t.set_count; ++k) {
+        f.vkFreeDescriptorSets(device, g_pool, 1, &t.sets[k].set);
+        --g_sets_live;
+      }
+      memset(&t, 0, sizeof(t));
+      if (g_mres_view[i][e] != VK_NULL_HANDLE) {
+        f.vkDestroyImageView(device, g_mres_view[i][e], nullptr);
+        g_mres_view[i][e] = VK_NULL_HANDLE;
+      }
+    }
+    vk::FreeImage(&g_mres_color[i]);
+    vk::FreeImage(&g_mres_depth[i]);
+  }
+}
+
+bool PrepareMres(const Seed* seed) {
+  g_mres_records.clear();
+  g_mres_clears.clear();
+  if (!seed->mres || seed->fovea.tan_h <= 0.0f || seed->fovea.tan_v <= 0.0f) {
+    return false;
+  }
+  const uint32_t width = Target().width, height = Target().height;
+  g_mres = fovea_res_math::MakeLayout(
+      width, height, seed->fovea.tan_h, seed->fovea.tan_v, seed->gaze[0],
+      seed->gaze[1], seed->mres_outer, seed->mres_center, seed->mres_deg);
+  const uint32_t sizes[2][2] = {{g_mres.outer_w, g_mres.outer_h},
+                                {g_mres.center_w, g_mres.center_h}};
+  if (g_mres_color[0].width != sizes[0][0] ||
+      g_mres_color[0].height != sizes[0][1] ||
+      g_mres_color[1].width != sizes[1][0] ||
+      g_mres_color[1].height != sizes[1][1]) {
+    if (g_mres_color[0].image != VK_NULL_HANDLE) {
+      vk::LockQueue();
+      f.vkDeviceWaitIdle(vk::Get().device);
+      vk::UnlockQueue();
+    }
+    FreeMresImages();
+    for (int i = 0; i < 2; ++i) {
+      if (!vk::MakeImage(sizes[i][0], sizes[i][1], 1, vk::Get().color_format,
+                         VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
+                             VK_IMAGE_USAGE_SAMPLED_BIT,
+                         VK_IMAGE_ASPECT_COLOR_BIT, &g_mres_color[i], 2) ||
+          !vk::MakeImage(sizes[i][0], sizes[i][1], 1, kDepthFormat,
+                         VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
+                         VK_IMAGE_ASPECT_DEPTH_BIT, &g_mres_depth[i], 2)) {
+        FreeMresImages();
+        return false;
+      }
+      for (int e = 0; e < 2; ++e) {
+        VkImageViewCreateInfo view = {VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+        view.image = g_mres_color[i].image;
+        view.viewType = VK_IMAGE_VIEW_TYPE_2D;
+        view.format = vk::Get().color_format;
+        view.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1,
+                                 static_cast<uint32_t>(e), 1};
+        if (f.vkCreateImageView(vk::Get().device, &view, nullptr,
+                                &g_mres_view[i][e]) != VK_SUCCESS) {
+          FreeMresImages();
+          return false;
+        }
+        g_mres_texture[i][e].image.view = g_mres_view[i][e];
+      }
+    }
+    if (!g_said_mres_size) {
+      g_said_mres_size = true;
+      ModLog("vk scene     : fovea_res: the picture is %u by %u, the outer "
+             "image %u by %u, the centre image %u by %u for a rect of %.0f "
+             "by %.0f pixels. The two images have %.0f percent of the pixels "
+             "of the picture",
+             width, height, g_mres.outer_w, g_mres.outer_h, g_mres.center_w,
+             g_mres.center_h, g_mres.inset_w, g_mres.inset_h,
+             100.0f * fovea_res_math::PixelShare(g_mres, width, height));
+    }
+  }
+  ++g_mres_walks;
+  return true;
+}
+
+// The rect of a viewport of the game in an image of a pass, cut to the
+// image. False when no pixel is in it.
+bool PassScissor(const float vp[4], float ox, float oy, float sx, float sy,
+                 const vk::Image& image, VkRect2D* out) {
+  float r[4];
+  fovea_res_math::MapRect(vp[0], vp[1], vp[0] + vp[2], vp[1] + vp[3], ox, oy,
+                          sx, sy, r);
+  const vk_scene_math::Rect asked = {static_cast<int64_t>(floorf(r[0])),
+                                     static_cast<int64_t>(floorf(r[1])),
+                                     static_cast<int64_t>(ceilf(r[2])),
+                                     static_cast<int64_t>(ceilf(r[3]))};
+  vk_scene_math::Rect in;
+  if (!vk_scene_math::InTarget(asked, image.width, image.height, &in)) {
+    return false;
+  }
+  out->offset = {static_cast<int32_t>(in.x0), static_cast<int32_t>(in.y0)};
+  out->extent = {static_cast<uint32_t>(in.x1 - in.x0),
+                 static_cast<uint32_t>(in.y1 - in.y0)};
+  return true;
+}
+
+// The states of a draw that are not in the pipeline (D3D values).
+void DrawStates(VkCommandBuffer cb, uint32_t cull, uint32_t zenable,
+                uint32_t zwrite, uint32_t zfunc, uint32_t type) {
+  // D3DCULL_: 1 none, 2 clockwise, 3 counter-clockwise. The device culls the
+  // faces of that turn on the screen. y goes down on both screens.
+  f.vkCmdSetCullMode(cb, cull == 2 || cull == 3 ? VK_CULL_MODE_BACK_BIT
+                                                : VK_CULL_MODE_NONE);
+  f.vkCmdSetFrontFace(cb, cull == 2 ? VK_FRONT_FACE_COUNTER_CLOCKWISE
+                                    : VK_FRONT_FACE_CLOCKWISE);
+  f.vkCmdSetDepthTestEnable(cb, zenable != 0 ? VK_TRUE : VK_FALSE);
+  f.vkCmdSetDepthWriteEnable(cb, zenable != 0 && zwrite != 0 ? VK_TRUE
+                                                             : VK_FALSE);
+  static const VkCompareOp kCompare[9] = {
+      VK_COMPARE_OP_LESS_OR_EQUAL, VK_COMPARE_OP_NEVER,
+      VK_COMPARE_OP_LESS,          VK_COMPARE_OP_EQUAL,
+      VK_COMPARE_OP_LESS_OR_EQUAL, VK_COMPARE_OP_GREATER,
+      VK_COMPARE_OP_NOT_EQUAL,     VK_COMPARE_OP_GREATER_OR_EQUAL,
+      VK_COMPARE_OP_ALWAYS};
+  f.vkCmdSetDepthCompareOp(cb, kCompare[zfunc <= 8 ? zfunc : 0]);
+  // D3DPT_: 4 list, 5 strip, 6 fan.
+  f.vkCmdSetPrimitiveTopology(cb,
+                              type == 5   ? VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP
+                              : type == 6 ? VK_PRIMITIVE_TOPOLOGY_TRIANGLE_FAN
+                                          : VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
+}
+
+// Vertices of the format 0x1C4 into the ring of the slot. UINT64_MAX when
+// the ring has no room.
+VkDeviceSize RingVertices(Slot& s, const void* data, VkDeviceSize bytes) {
+  if (s.used + bytes > kRingBytes) return UINT64_MAX;
+  const VkDeviceSize at = s.used;
+  memcpy(static_cast<uint8_t*>(s.ring.mapped) + at, data,
+         static_cast<size_t>(bytes));
+  s.used = (s.used + bytes + 31) & ~31ull;
+  return at;
+}
+
+// A clear of the records in an image of a pass.
+void PlayClear(VkCommandBuffer cb, const MresClear& c, vk::Image& color,
+               vk::Image& depth, float ox, float oy, float sx, float sy) {
+  VkClearAttachment attachments[2] = {};
+  uint32_t count = 0;
+  if (c.flags & D3DCLEAR_TARGET) {
+    attachments[count].aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    vk_scene_math::ClearColor(c.color,
+                              attachments[count].clearValue.color.float32);
+    ++count;
+  }
+  if (c.flags & D3DCLEAR_ZBUFFER) {
+    attachments[count].aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+    attachments[count].clearValue.depthStencil.depth =
+        vk_scene_math::ClearDepth(c.z);
+    ++count;
+  }
+  if (count == 0) return;
+  VkClearRect rects[16];
+  uint32_t rect_count = 0;
+  for (uint32_t i = 0; i < c.count && i < 16; ++i) {
+    const float vp[4] = {c.rects[i][0], c.rects[i][1],
+                         c.rects[i][2] - c.rects[i][0],
+                         c.rects[i][3] - c.rects[i][1]};
+    if (PassScissor(vp, ox, oy, sx, sy, color, &rects[rect_count].rect)) {
+      rects[rect_count].baseArrayLayer = 0;
+      rects[rect_count].layerCount = 1;
+      ++rect_count;
+    }
+  }
+  if (rect_count == 0) return;
+  if (c.eyes != 3u) {
+    f.vkCmdEndRendering(cb);
+    BeginRenderingOf(cb, color, depth, c.eyes, true, true);
+  }
+  f.vkCmdClearAttachments(cb, count, attachments, rect_count, rects);
+  if (c.eyes != 3u) {
+    f.vkCmdEndRendering(cb);
+    BeginRenderingOf(cb, color, depth, 3u, true, true);
+  }
+}
+
+void ComposeMres(Slot& s);
+
+// The records of the walk into the outer image and the centre image, then
+// the eye picture from the two.
+void PlayMres(Slot& s) {
+  const VkCommandBuffer cb = s.cb;
+  for (int pass = 0; pass < 2; ++pass) {
+    vk::Image& color = g_mres_color[pass];
+    vk::Image& depth = g_mres_depth[pass];
+    const float ox = pass == 1 ? g_mres.inset_x0 : 0.0f;
+    const float oy = pass == 1 ? g_mres.inset_y0 : 0.0f;
+    const float sx = pass == 1 ? g_mres.center_scale_x : g_mres.outer_scale_x;
+    const float sy = pass == 1 ? g_mres.center_scale_y : g_mres.outer_scale_y;
+    if (g_walk_right) {
+      // Layer 0 has the left eye of the walk before: the barrier keeps it.
+      vk::Barrier(cb, color.image, VK_IMAGE_ASPECT_COLOR_BIT,
+                  VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                  VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 1, 1);
+      vk::Barrier(cb, color.image, VK_IMAGE_ASPECT_COLOR_BIT,
+                  VK_IMAGE_LAYOUT_UNDEFINED,
+                  VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 1, 1, 1);
+    } else {
+      vk::Barrier(cb, color.image, VK_IMAGE_ASPECT_COLOR_BIT,
+                  VK_IMAGE_LAYOUT_UNDEFINED,
+                  VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 1, 2);
+    }
+    vk::Barrier(cb, depth.image, VK_IMAGE_ASPECT_DEPTH_BIT,
+                VK_IMAGE_LAYOUT_UNDEFINED,
+                VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, 1, 2);
+    if (g_walk_right) {
+      BeginRenderingOf(cb, color, depth, 2u, false, true);
+      f.vkCmdEndRendering(cb);
+      BeginRenderingOf(cb, color, depth, 3u, true, true);
+    } else {
+      BeginRenderingOf(cb, color, depth, 3u, false, true);
+    }
+    float last_vp[4] = {-1.0f, -1.0f, -1.0f, -1.0f};
+    bool in_view = false;
+    VkPipeline last_pipeline = VK_NULL_HANDLE;
+    VkDescriptorSet last_set = VK_NULL_HANDLE;
+    for (const MresRecord& r : g_mres_records) {
+      if (r.clear >= 0) {
+        PlayClear(cb, g_mres_clears[r.clear], color, depth, ox, oy, sx, sy);
+        continue;
+      }
+      if (memcmp(r.viewport, last_vp, sizeof(last_vp)) != 0) {
+        memcpy(last_vp, r.viewport, sizeof(last_vp));
+        const VkViewport viewport = {(r.viewport[0] - ox) * sx,
+                                     (r.viewport[1] - oy) * sy,
+                                     r.viewport[2] * sx, r.viewport[3] * sy,
+                                     0.0f, 1.0f};
+        f.vkCmdSetViewport(cb, 0, 1, &viewport);
+        VkRect2D scissor = {{0, 0}, {0, 0}};
+        in_view = PassScissor(r.viewport, ox, oy, sx, sy, color, &scissor);
+        if (in_view) f.vkCmdSetScissor(cb, 0, 1, &scissor);
+      }
+      if (!in_view) continue;
+      if (pass == 1 && (r.bounds[2] < g_mres.inset_x0 - 1.0f ||
+                        r.bounds[0] > g_mres.inset_x0 + g_mres.inset_w + 1.0f ||
+                        r.bounds[3] < g_mres.inset_y0 - 1.0f ||
+                        r.bounds[1] > g_mres.inset_y0 + g_mres.inset_h + 1.0f)) {
+        continue;
+      }
+      ++(pass == 1 ? g_mres_center_draws : g_mres_draws);
+      if (r.pipeline != last_pipeline) {
+        f.vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, r.pipeline);
+        last_pipeline = r.pipeline;
+      }
+      if (r.set != last_set) {
+        f.vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                                  g_layout, 0, 1, &r.set, 0, nullptr);
+        last_set = r.set;
+      }
+      DrawStates(cb, r.cull, r.zenable, r.zwrite, r.zfunc, r.type);
+      f.vkCmdPushConstants(
+          cb, g_layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+          0, sizeof(r.push), &r.push);
+      f.vkCmdBindVertexBuffers(cb, 0, 1, &s.ring.buffer, &r.vertex_at);
+      if (r.index_count > 0) {
+        f.vkCmdBindIndexBuffer(cb, s.ring.buffer, r.index_at,
+                               VK_INDEX_TYPE_UINT16);
+        f.vkCmdDrawIndexed(cb, r.index_count, 1, 0, 0, 0);
+      } else {
+        f.vkCmdDraw(cb, r.vertex_count, 1, 0, 0);
+      }
+    }
+    f.vkCmdEndRendering(cb);
+    vk::Barrier(cb, color.image, VK_IMAGE_ASPECT_COLOR_BIT,
+                VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 1, 2);
+  }
+  ComposeMres(s);
+}
+
+// THE EYE PICTURE from the two images: for each eye the outer image over
+// the whole picture, and the centre image over its rect, with an edge of 8
+// percent of the rect where its alpha goes from 1 to 0. With the marks of
+// the test the outer image has a blue colour.
+void ComposeMres(Slot& s) {
+  const VkCommandBuffer cb = s.cb;
+  const uint32_t width = Target().width, height = Target().height;
+  BeginRenderingOf(cb, Target(), g_depth, 3u, false, false);
+  const VkViewport viewport = {0.0f, 0.0f, static_cast<float>(width),
+                               static_cast<float>(height), 0.0f, 1.0f};
+  f.vkCmdSetViewport(cb, 0, 1, &viewport);
+  const VkRect2D scissor = {{0, 0}, {width, height}};
+  f.vkCmdSetScissor(cb, 0, 1, &scissor);
+  DrawStates(cb, D3DCULL_NONE, 0, 0, D3DCMP_ALWAYS, D3DPT_TRIANGLELIST);
+  const VkPipeline opaque = Pipeline(0);
+  const VkPipeline blended =
+      Pipeline((1u << 16) | (D3DBLEND_SRCALPHA << 8) | D3DBLEND_INVSRCALPHA);
+  const VkSampler sampler = Sampler(2, 2, 1, 3, 3, 1);
+  if (opaque == VK_NULL_HANDLE || blended == VK_NULL_HANDLE) {
+    f.vkCmdEndRendering(cb);
+    return;
+  }
+  struct Vertex {
+    float x, y, z, rhw;
+    uint32_t diffuse, specular;
+    float u, v;
+  };
+  const float x0 = -0.5f, y0 = -0.5f;
+  const float x1 = static_cast<float>(width) - 0.5f;
+  const float y1 = static_cast<float>(height) - 0.5f;
+  // The centre: a grid of 4 by 4 points, alpha 1 inside the edge.
+  const float ix0 = g_mres.inset_x0 - 0.5f, iy0 = g_mres.inset_y0 - 0.5f;
+  const float iw = g_mres.inset_w, ih = g_mres.inset_h;
+  const float edge = 0.08f * (iw < ih ? iw : ih);
+  const float gx[4] = {ix0, ix0 + edge, ix0 + iw - edge, ix0 + iw};
+  const float gy[4] = {iy0, iy0 + edge, iy0 + ih - edge, iy0 + ih};
+  for (int eye = 0; eye < 2; ++eye) {
+    DrawPush push = {};
+    push.viewport[2] = 2.0f / static_cast<float>(width);
+    push.viewport[3] = 2.0f / static_cast<float>(height);
+    push.depth[1] = 1.0f;
+    // D3DTOP_SELECTARG1 = 2, D3DTOP_MODULATE = 4. D3DTA_DIFFUSE = 0,
+    // D3DTA_TEXTURE = 2.
+    push.ops[0] = g_walk_show ? (4u | 2u << 8 | 0u << 16) : (2u | 2u << 8);
+    push.ops[1] = 2u | 0u << 8;
+    push.ops[2] = 1u;  // a texture
+    push.ops[3] = 1u | (1u << eye) << 8;  // still, the eye
+    const uint32_t tint = g_walk_show ? 0xFF90B8FFu : 0xFFFFFFFFu;
+    const Vertex outer[6] = {{x0, y0, 0, 1, tint, 0, 0, 0},
+                             {x1, y0, 0, 1, tint, 0, 1, 0},
+                             {x1, y1, 0, 1, tint, 0, 1, 1},
+                             {x0, y0, 0, 1, tint, 0, 0, 0},
+                             {x1, y1, 0, 1, tint, 0, 1, 1},
+                             {x0, y1, 0, 1, tint, 0, 0, 1}};
+    const VkDescriptorSet outer_set = SetOf(&g_mres_texture[0][eye], sampler);
+    const VkDescriptorSet center_set = SetOf(&g_mres_texture[1][eye], sampler);
+    if (outer_set == VK_NULL_HANDLE || center_set == VK_NULL_HANDLE) continue;
+    VkDeviceSize at = RingVertices(s, outer, sizeof(outer));
+    if (at == UINT64_MAX) continue;
+    f.vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, opaque);
+    f.vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, g_layout, 0,
+                              1, &outer_set, 0, nullptr);
+    f.vkCmdPushConstants(cb, g_layout,
+                         VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+                         0, sizeof(push), &push);
+    f.vkCmdBindVertexBuffers(cb, 0, 1, &s.ring.buffer, &at);
+    f.vkCmdDraw(cb, 6, 1, 0, 0);
+    // The centre with its soft edge.
+    Vertex center[54];
+    int n = 0;
+    for (int j = 0; j < 3; ++j) {
+      for (int i = 0; i < 3; ++i) {
+        const int corner[6][2] = {{i, j},         {i + 1, j},
+                                  {i + 1, j + 1}, {i, j},
+                                  {i + 1, j + 1}, {i, j + 1}};
+        for (int k = 0; k < 6; ++k) {
+          const int ci = corner[k][0], cj = corner[k][1];
+          const bool inside = ci >= 1 && ci <= 2 && cj >= 1 && cj <= 2;
+          Vertex& v = center[n++];
+          v.x = gx[ci];
+          v.y = gy[cj];
+          v.z = 0.0f;
+          v.rhw = 1.0f;
+          v.diffuse = inside ? 0xFFFFFFFFu : 0x00FFFFFFu;
+          v.specular = 0;
+          v.u = (gx[ci] - ix0) / iw;
+          v.v = (gy[cj] - iy0) / ih;
+        }
+      }
+    }
+    at = RingVertices(s, center, sizeof(center));
+    if (at == UINT64_MAX) continue;
+    push.ops[0] = 2u | 2u << 8;  // the texture alone
+    f.vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, blended);
+    f.vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, g_layout, 0,
+                              1, &center_set, 0, nullptr);
+    f.vkCmdPushConstants(cb, g_layout,
+                         VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
+                         0, sizeof(push), &push);
+    f.vkCmdBindVertexBuffers(cb, 0, 1, &s.ring.buffer, &at);
+    f.vkCmdDraw(cb, 54, 1, 0, 0);
+  }
+  f.vkCmdEndRendering(cb);
 }
 
 // FOVEATED RENDERING: the map of the rates for the walk, into the image in
@@ -1684,6 +2151,7 @@ bool PrepareFovea(Slot& s, const Seed* seed) {
 void BeginOnWorker(const void* data) {
   const Seed* seed = static_cast<const Seed*>(data);
   g_walk_only = false;
+  g_walk_mres = false;
   if (!Ready()) return;
   memcpy(g_rs, seed->rs, sizeof(g_rs));
   memcpy(g_ts, seed->ts, sizeof(g_ts));
@@ -1803,8 +2271,9 @@ void BeginOnWorker(const void* data) {
   vk::Barrier(s.cb, g_depth.image, VK_IMAGE_ASPECT_DEPTH_BIT,
               VK_IMAGE_LAYOUT_UNDEFINED,
               VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, 1, 2);
-  g_walk_fovea = PrepareFovea(s, seed);
-  g_walk_show = g_walk_fovea && seed->fovea_show;
+  g_walk_mres = PrepareMres(seed);
+  g_walk_fovea = !g_walk_mres && PrepareFovea(s, seed);
+  g_walk_show = (g_walk_fovea || g_walk_mres) && seed->fovea_show;
   g_walk_gaze[0] = seed->gaze[0];
   g_walk_gaze[1] = seed->gaze[1];
   g_walk_fovea_params = seed->fovea;
@@ -1815,7 +2284,10 @@ void BeginOnWorker(const void* data) {
   g_draw_panel = false;
   g_panel_drawn = false;
   g_rendering_panel = false;
-  if (g_walk_right) {
+  if (g_walk_mres) {
+    // The draws of the eyes are records until the end of the walk.
+    if (g_walk_right) ++g_pair_walks;
+  } else if (g_walk_right) {
     // A clear of layer 1 alone, then the rendering of both layers with the
     // pixels of layer 0. The draws of the walk go to layer 1 alone (the
     // eyes of the push constants).
@@ -1969,10 +2441,16 @@ void DrawFoveaMarks() {
 void EndOnWorker(const void*) {
   g_walk_only = false;
   if (!g_recording) return;
-  if (g_walk_show) DrawFoveaMarks();
+  if (g_walk_show && g_walk_fovea) DrawFoveaMarks();
   g_recording = false;
   Slot& s = g_slots[g_slot];
-  f.vkCmdEndRendering(s.cb);
+  if (g_walk_mres) {
+    if (g_rendering_panel) f.vkCmdEndRendering(s.cb);
+    g_rendering_panel = false;
+    PlayMres(s);
+  } else {
+    f.vkCmdEndRendering(s.cb);
+  }
   if (s.query != VK_NULL_HANDLE) {
     f.vkCmdWriteTimestamp2(s.cb, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
                            s.query, 1);
@@ -2150,12 +2628,16 @@ void VkSceneWalkBegin(void* device7) {
   seed.eye = StereoPassEye();
   // FOVEATED RENDERING: the angles of the picture from the camera of the
   // game, and the centre of the fovea: the gaze, or straight ahead.
-  if (g_fovea_level > 0) {
-    const foveation_math::Level level = foveation_math::LevelOf(g_fovea_level);
-    seed.fovea.inner_deg =
-        g_fovea_inner_ini > 0.0f ? g_fovea_inner_ini : level.inner_deg;
-    seed.fovea.outer_deg =
-        g_fovea_outer_ini > 0.0f ? g_fovea_outer_ini : level.outer_deg;
+  // FOVEATED RESOLUTION needs the angles and the gaze too.
+  if (g_fovea_level > 0 || g_mres_mode) {
+    if (g_fovea_level > 0) {
+      const foveation_math::Level level =
+          foveation_math::LevelOf(g_fovea_level);
+      seed.fovea.inner_deg =
+          g_fovea_inner_ini > 0.0f ? g_fovea_inner_ini : level.inner_deg;
+      seed.fovea.outer_deg =
+          g_fovea_outer_ini > 0.0f ? g_fovea_outer_ini : level.outer_deg;
+    }
     seed.fovea.quarter = vk::Get().rate_quarter;
     const bw::tech::InfoTransform* info =
         reinterpret_cast<const bw::tech::InfoTransform*>(
@@ -2169,6 +2651,10 @@ void VkSceneWalkBegin(void* device7) {
     seed.fovea_show = g_fovea_show;
     seed.gaze[0] = g_gaze_valid ? g_gaze_now[0] : 0.0f;
     seed.gaze[1] = g_gaze_valid ? g_gaze_now[1] : 0.0f;
+    seed.mres = g_mres_mode;
+    seed.mres_outer = g_mres_outer;
+    seed.mres_center = g_mres_center;
+    seed.mres_deg = g_mres_deg;
   }
   if (g_direct) {
     BeginOnWorker(&seed);
@@ -2361,44 +2847,8 @@ void VkSceneDraw(uint32_t type, uint32_t fvf, const void* vertices,
   s.used += index_bytes;
   s.used = (s.used + 31) & ~31ull;
 
-  UsePanel(panel);
-  if (panel) ++g_panel_draws;
-  VkCommandBuffer cb = s.cb;
-  f.vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
-  f.vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, g_layout, 0,
-                            1, &set, 0, nullptr);
-  // D3DCULL_: 1 none, 2 clockwise, 3 counter-clockwise. The device culls the
-  // faces of that turn on the screen. y goes down on both screens.
-  const uint32_t cull = rs[D3DRENDERSTATE_CULLMODE];
-  f.vkCmdSetCullMode(cb, cull == 2 || cull == 3 ? VK_CULL_MODE_BACK_BIT
-                                                : VK_CULL_MODE_NONE);
-  f.vkCmdSetFrontFace(cb, cull == 2 ? VK_FRONT_FACE_COUNTER_CLOCKWISE
-                                    : VK_FRONT_FACE_CLOCKWISE);
-  const uint32_t zenable = rs[D3DRENDERSTATE_ZENABLE];
-  f.vkCmdSetDepthTestEnable(cb, zenable != 0 ? VK_TRUE : VK_FALSE);
-  f.vkCmdSetDepthWriteEnable(
-      cb, zenable != 0 && rs[D3DRENDERSTATE_ZWRITEENABLE] != 0 ? VK_TRUE
-                                                                : VK_FALSE);
-  static const VkCompareOp kCompare[9] = {
-      VK_COMPARE_OP_LESS_OR_EQUAL, VK_COMPARE_OP_NEVER,
-      VK_COMPARE_OP_LESS,          VK_COMPARE_OP_EQUAL,
-      VK_COMPARE_OP_LESS_OR_EQUAL, VK_COMPARE_OP_GREATER,
-      VK_COMPARE_OP_NOT_EQUAL,     VK_COMPARE_OP_GREATER_OR_EQUAL,
-      VK_COMPARE_OP_ALWAYS};
-  const uint32_t zfunc = rs[D3DRENDERSTATE_ZFUNC];
-  f.vkCmdSetDepthCompareOp(cb, kCompare[zfunc <= 8 ? zfunc : 0]);
-  // D3DPT_: 4 list, 5 strip, 6 fan.
-  f.vkCmdSetPrimitiveTopology(cb,
-                              type == 5   ? VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP
-                              : type == 6 ? VK_PRIMITIVE_TOPOLOGY_TRIANGLE_FAN
-                                          : VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
-  struct Push {
-    float viewport[4];
-    float depth[4];
-    uint32_t ops[4];
-    float alpha[4];
-    float fog_color[4];
-  } push = {};
+  // The values of the push constants.
+  DrawPush push = {};
   push.viewport[0] = static_cast<float>(g_viewport.dwX);
   push.viewport[1] = static_cast<float>(g_viewport.dwY);
   push.viewport[2] = 2.0f / static_cast<float>(g_viewport.dwWidth);
@@ -2445,6 +2895,59 @@ void VkSceneDraw(uint32_t type, uint32_t fvf, const void* vertices,
   push.fog_color[1] = static_cast<float>((fog >> 8) & 255) / 255.0f;
   push.fog_color[2] = static_cast<float>(fog & 255) / 255.0f;
   push.fog_color[3] = 1.0f;
+  // FOVEATED RESOLUTION: a draw of the eyes is a record until the end of
+  // the walk.
+  if (g_walk_mres && !panel) {
+    MresRecord r = {};
+    r.clear = -1;
+    r.pipeline = pipeline;
+    r.set = set;
+    r.cull = rs[D3DRENDERSTATE_CULLMODE];
+    r.zenable = rs[D3DRENDERSTATE_ZENABLE];
+    r.zwrite = rs[D3DRENDERSTATE_ZWRITEENABLE];
+    r.zfunc = rs[D3DRENDERSTATE_ZFUNC];
+    r.type = type;
+    r.push = push;
+    r.vertex_at = vertex_at;
+    r.index_at = index_at;
+    r.vertex_count = vertex_count;
+    r.index_count = index_count;
+    if (g_walk_follow) {
+      r.viewport[0] = static_cast<float>(g_viewport.dwX);
+      r.viewport[1] = static_cast<float>(g_viewport.dwY);
+      r.viewport[2] = static_cast<float>(g_viewport.dwWidth);
+      r.viewport[3] = static_cast<float>(g_viewport.dwHeight);
+    } else {
+      r.viewport[2] = static_cast<float>(Target().width);
+      r.viewport[3] = static_cast<float>(Target().height);
+    }
+    // The rect of the vertices, and of the right eye with its move.
+    const float* v = static_cast<const float*>(vertices);
+    float b[4] = {1e30f, 1e30f, -1e30f, -1e30f};
+    const float shift = still == 0u ? push.depth[2] : 0.0f;
+    for (uint32_t i = 0; i < vertex_count; ++i, v += 8) {
+      const float x = v[0], y = v[1];
+      const float xr = x + shift * v[3];
+      const float lo = x < xr ? x : xr, hi = x < xr ? xr : x;
+      if (lo < b[0]) b[0] = lo;
+      if (y < b[1]) b[1] = y;
+      if (hi > b[2]) b[2] = hi;
+      if (y > b[3]) b[3] = y;
+    }
+    memcpy(r.bounds, b, sizeof(b));
+    g_mres_records.push_back(r);
+    ++g_draws;
+    return;
+  }
+
+  UsePanel(panel);
+  if (panel) ++g_panel_draws;
+  VkCommandBuffer cb = s.cb;
+  f.vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+  f.vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, g_layout, 0,
+                            1, &set, 0, nullptr);
+  DrawStates(cb, rs[D3DRENDERSTATE_CULLMODE], rs[D3DRENDERSTATE_ZENABLE],
+             rs[D3DRENDERSTATE_ZWRITEENABLE], rs[D3DRENDERSTATE_ZFUNC], type);
   f.vkCmdPushConstants(cb, g_layout,
                        VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
                        0, sizeof(push), &push);
@@ -2639,6 +3142,32 @@ void VkSceneFoveationToggle(const char* keys) {
   ModLog("test key     : %s, foveation is %d%s from the next walk", keys,
          g_fovea_level,
          g_fovea_show ? ", with the marks of the coarse parts" : "");
+}
+
+void VkSceneSetFoveaRes(int on, int outer_pct, int center_pct,
+                        int inset_deg) {
+  g_mres_mode = on != 0;
+  g_mres_outer = static_cast<float>(
+      outer_pct < 10 ? 10 : (outer_pct > 100 ? 100 : outer_pct));
+  g_mres_center = static_cast<float>(
+      center_pct < 25 ? 25 : (center_pct > 300 ? 300 : center_pct));
+  g_mres_deg = static_cast<float>(
+      inset_deg < 5 ? 5 : (inset_deg > 80 ? 80 : inset_deg));
+  if (!g_mres_mode) return;
+  ModLog("vk scene     : fovea_res=1. The eye pictures of the Vulkan renderer "
+         "come from an outer image with %.0f percent of the pixels on each "
+         "side and a centre image with %.0f percent, %.0f degrees on each "
+         "side of the centre of the fovea (the gaze of an eye tracker, or "
+         "straight ahead)",
+         g_mres_outer, g_mres_center, g_mres_deg);
+}
+
+void VkSceneFoveaResToggle(const char* keys) {
+  g_mres_mode = !g_mres_mode;
+  ControllersGesturePulse(0.5f, g_mres_mode ? 0.30f : 0.08f);
+  ModLog("test key     : %s, fovea_res is %d from the next walk (outer %.0f "
+         "percent, centre %.0f percent, %.0f degrees)",
+         keys, g_mres_mode ? 1 : 0, g_mres_outer, g_mres_center, g_mres_deg);
 }
 
 void VkSceneSetGaze(bool valid, float gx, float gy) {
@@ -2989,6 +3518,16 @@ void VkSceneReport(uint64_t frames) {
                static_cast<double>(g_gpu_walks),
            g_gpu_walks, g_gpu_odd);
     g_gpu_walks = g_gpu_ticks = g_gpu_odd = 0;
+  }
+  if (g_mres_walks > 0) {
+    ModLog("vk scene     : fovea_res=%d. %llu walks in the outer image (%u by "
+           "%u) and the centre image (%u by %u). A walk: %.0f draws in the "
+           "outer image, %.0f of them in the centre image",
+           g_mres_mode ? 1 : 0, g_mres_walks, g_mres.outer_w, g_mres.outer_h,
+           g_mres.center_w, g_mres.center_h,
+           g_mres_draws / static_cast<double>(g_mres_walks),
+           g_mres_center_draws / static_cast<double>(g_mres_walks));
+    g_mres_walks = g_mres_draws = g_mres_center_draws = 0;
   }
   if (g_fovea_level > 0 || g_fovea_walks > 0) {
     ModLog("vk scene     : foveation=%d. %llu walks with the map of the rates, "
