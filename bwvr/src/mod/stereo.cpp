@@ -261,6 +261,8 @@ void UiDepthTakeSubmit(double* ms, uint64_t* calls, uint64_t frames);
 
 // eye_capture.cpp: write the two eye images to disk for inspection.
 bool EyeCaptureWanted(uint64_t stereo_frame);
+// eye_capture.cpp: bwvr-capture-now.txt arms the next frame.
+void EyeCaptureCheckFile(uint64_t stereo_frame);
 void EyeCaptureSave(uint64_t stereo_frame, int eye, const void* pixels,
                     int pitch, uint32_t width, uint32_t height);
 
@@ -1274,6 +1276,7 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
   if (RenderThreadFrame(ControllersFrameCount())) {
     EyeCaptureArmNow(g_frames + 1);
   }
+  if (g_test_keys) EyeCaptureCheckFile(g_frames);
   VkSceneFrame(ControllersFrameCount(), g_frames + 1,
                EyeCaptureWanted(g_frames + 1));
   // FOVEATED RENDERING: the gaze of an eye tracker is the centre of the

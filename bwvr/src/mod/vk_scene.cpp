@@ -498,6 +498,7 @@ struct MresClear {
 std::vector<MresRecord> g_mres_records;
 std::vector<MresClear> g_mres_clears;
 uint64_t g_mres_walks = 0;  // for the report
+uint64_t g_mres_remade = 0;  // the images made again, since the start
 uint64_t g_mres_draws = 0;  // draws of the walks
 uint64_t g_mres_center_draws = 0;  // of them in the centre image
 uint64_t g_fovea_marks = 0;  // walks with the marks of the test
@@ -1391,7 +1392,8 @@ bool Ready() {
 // Writes one layer of an image (an eye or the panel) to a file of 24 bits,
 // bottom up. `what` is the word in the name of the file.
 void WritePicture(const vk::Image& image, uint32_t layer, const char* what,
-                  uint64_t frame) {
+                  uint64_t frame,
+                  VkImageLayout layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL) {
   const uint32_t w = image.width, h = image.height;
   vk::Buffer read;
   if (!vk::MakeBuffer(static_cast<VkDeviceSize>(w) * h * 4,
@@ -1399,8 +1401,7 @@ void WritePicture(const vk::Image& image, uint32_t layer, const char* what,
     return;
   }
   VkCommandBuffer cb = vk::BeginOnce();
-  vk::Barrier(cb, image.image, VK_IMAGE_ASPECT_COLOR_BIT,
-              VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+  vk::Barrier(cb, image.image, VK_IMAGE_ASPECT_COLOR_BIT, layout,
               VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, 1, image.layers);
   VkBufferImageCopy copy = {};
   copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, layer, 1};
@@ -1409,8 +1410,7 @@ void WritePicture(const vk::Image& image, uint32_t layer, const char* what,
                            VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, read.buffer,
                            1, &copy);
   vk::Barrier(cb, image.image, VK_IMAGE_ASPECT_COLOR_BIT,
-              VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-              VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 1, image.layers);
+              VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, layout, 1, image.layers);
   if (!vk::EndOnce(cb)) {
     vk::FreeBuffer(&read);
     return;
@@ -1719,19 +1719,29 @@ void FreeMresImages() {
 bool PrepareMres(const Seed* seed) {
   g_mres_records.clear();
   g_mres_clears.clear();
-  if (!seed->mres || seed->fovea.tan_h <= 0.0f || seed->fovea.tan_v <= 0.0f) {
+  // Only a walk of the eyes: another walk of the game (with the angle of
+  // the game, not the one of the headset) keeps the pixels of the render.
+  if (!seed->mres || seed->fovea.tan_h <= 0.0f || seed->fovea.tan_v <= 0.0f ||
+      (seed->eye < 0 && !seed->both)) {
     return false;
   }
   const uint32_t width = Target().width, height = Target().height;
   g_mres = fovea_res_math::MakeLayout(
       width, height, seed->fovea.tan_h, seed->fovea.tan_v, seed->gaze[0],
       seed->gaze[1], seed->mres_outer, seed->mres_center, seed->mres_deg);
-  const uint32_t sizes[2][2] = {{g_mres.outer_w, g_mres.outer_h},
-                                {g_mres.center_w, g_mres.center_h}};
-  if (g_mres_color[0].width != sizes[0][0] ||
-      g_mres_color[0].height != sizes[0][1] ||
-      g_mres_color[1].width != sizes[1][0] ||
-      g_mres_color[1].height != sizes[1][1]) {
+  // The images only grow: a smaller layout uses the top left part of them,
+  // so a change of the layout does not stop the GPU to make new images.
+  uint32_t sizes[2][2] = {{g_mres.outer_w, g_mres.outer_h},
+                          {g_mres.center_w, g_mres.center_h}};
+  if (g_mres_color[0].width < sizes[0][0] ||
+      g_mres_color[0].height < sizes[0][1] ||
+      g_mres_color[1].width < sizes[1][0] ||
+      g_mres_color[1].height < sizes[1][1]) {
+    for (int i = 0; i < 2; ++i) {
+      if (g_mres_color[i].width > sizes[i][0]) sizes[i][0] = g_mres_color[i].width;
+      if (g_mres_color[i].height > sizes[i][1]) sizes[i][1] = g_mres_color[i].height;
+    }
+    ++g_mres_remade;
     if (g_mres_color[0].image != VK_NULL_HANDLE) {
       vk::LockQueue();
       f.vkDeviceWaitIdle(vk::Get().device);
@@ -1782,7 +1792,7 @@ bool PrepareMres(const Seed* seed) {
 // The rect of a viewport of the game in an image of a pass, cut to the
 // image. False when no pixel is in it.
 bool PassScissor(const float vp[4], float ox, float oy, float sx, float sy,
-                 const vk::Image& image, VkRect2D* out) {
+                 uint32_t used_w, uint32_t used_h, VkRect2D* out) {
   float r[4];
   fovea_res_math::MapRect(vp[0], vp[1], vp[0] + vp[2], vp[1] + vp[3], ox, oy,
                           sx, sy, r);
@@ -1791,9 +1801,7 @@ bool PassScissor(const float vp[4], float ox, float oy, float sx, float sy,
                                      static_cast<int64_t>(ceilf(r[2])),
                                      static_cast<int64_t>(ceilf(r[3]))};
   vk_scene_math::Rect in;
-  if (!vk_scene_math::InTarget(asked, image.width, image.height, &in)) {
-    return false;
-  }
+  if (!vk_scene_math::InTarget(asked, used_w, used_h, &in)) return false;
   out->offset = {static_cast<int32_t>(in.x0), static_cast<int32_t>(in.y0)};
   out->extent = {static_cast<uint32_t>(in.x1 - in.x0),
                  static_cast<uint32_t>(in.y1 - in.y0)};
@@ -1839,7 +1847,8 @@ VkDeviceSize RingVertices(Slot& s, const void* data, VkDeviceSize bytes) {
 
 // A clear of the records in an image of a pass.
 void PlayClear(VkCommandBuffer cb, const MresClear& c, vk::Image& color,
-               vk::Image& depth, float ox, float oy, float sx, float sy) {
+               vk::Image& depth, float ox, float oy, float sx, float sy,
+               uint32_t used_w, uint32_t used_h) {
   VkClearAttachment attachments[2] = {};
   uint32_t count = 0;
   if (c.flags & D3DCLEAR_TARGET) {
@@ -1861,7 +1870,8 @@ void PlayClear(VkCommandBuffer cb, const MresClear& c, vk::Image& color,
     const float vp[4] = {c.rects[i][0], c.rects[i][1],
                          c.rects[i][2] - c.rects[i][0],
                          c.rects[i][3] - c.rects[i][1]};
-    if (PassScissor(vp, ox, oy, sx, sy, color, &rects[rect_count].rect)) {
+    if (PassScissor(vp, ox, oy, sx, sy, used_w, used_h,
+                    &rects[rect_count].rect)) {
       rects[rect_count].baseArrayLayer = 0;
       rects[rect_count].layerCount = 1;
       ++rect_count;
@@ -1892,6 +1902,9 @@ void PlayMres(Slot& s) {
     const float oy = pass == 1 ? g_mres.inset_y0 : 0.0f;
     const float sx = pass == 1 ? g_mres.center_scale_x : g_mres.outer_scale_x;
     const float sy = pass == 1 ? g_mres.center_scale_y : g_mres.outer_scale_y;
+    // The part of the image that the layout uses.
+    const uint32_t used_w = pass == 1 ? g_mres.center_w : g_mres.outer_w;
+    const uint32_t used_h = pass == 1 ? g_mres.center_h : g_mres.outer_h;
     if (g_walk_right) {
       // Layer 0 has the left eye of the walk before: the barrier keeps it.
       vk::Barrier(cb, color.image, VK_IMAGE_ASPECT_COLOR_BIT,
@@ -1921,7 +1934,8 @@ void PlayMres(Slot& s) {
     VkDescriptorSet last_set = VK_NULL_HANDLE;
     for (const MresRecord& r : g_mres_records) {
       if (r.clear >= 0) {
-        PlayClear(cb, g_mres_clears[r.clear], color, depth, ox, oy, sx, sy);
+        PlayClear(cb, g_mres_clears[r.clear], color, depth, ox, oy, sx, sy,
+                  used_w, used_h);
         continue;
       }
       if (memcmp(r.viewport, last_vp, sizeof(last_vp)) != 0) {
@@ -1932,7 +1946,8 @@ void PlayMres(Slot& s) {
                                      0.0f, 1.0f};
         f.vkCmdSetViewport(cb, 0, 1, &viewport);
         VkRect2D scissor = {{0, 0}, {0, 0}};
-        in_view = PassScissor(r.viewport, ox, oy, sx, sy, color, &scissor);
+        in_view = PassScissor(r.viewport, ox, oy, sx, sy, used_w, used_h,
+                              &scissor);
         if (in_view) f.vkCmdSetScissor(cb, 0, 1, &scissor);
       }
       if (!in_view) continue;
@@ -2021,12 +2036,21 @@ void ComposeMres(Slot& s) {
     push.ops[2] = 1u;  // a texture
     push.ops[3] = 1u | (1u << eye) << 8;  // still, the eye
     const uint32_t tint = g_walk_show ? 0xFF90B8FFu : 0xFFFFFFFFu;
+    // The used part of each image.
+    const float ou = static_cast<float>(g_mres.outer_w) /
+                     static_cast<float>(g_mres_color[0].width);
+    const float ov = static_cast<float>(g_mres.outer_h) /
+                     static_cast<float>(g_mres_color[0].height);
+    const float cu = static_cast<float>(g_mres.center_w) /
+                     static_cast<float>(g_mres_color[1].width);
+    const float cv = static_cast<float>(g_mres.center_h) /
+                     static_cast<float>(g_mres_color[1].height);
     const Vertex outer[6] = {{x0, y0, 0, 1, tint, 0, 0, 0},
-                             {x1, y0, 0, 1, tint, 0, 1, 0},
-                             {x1, y1, 0, 1, tint, 0, 1, 1},
+                             {x1, y0, 0, 1, tint, 0, ou, 0},
+                             {x1, y1, 0, 1, tint, 0, ou, ov},
                              {x0, y0, 0, 1, tint, 0, 0, 0},
-                             {x1, y1, 0, 1, tint, 0, 1, 1},
-                             {x0, y1, 0, 1, tint, 0, 0, 1}};
+                             {x1, y1, 0, 1, tint, 0, ou, ov},
+                             {x0, y1, 0, 1, tint, 0, 0, ov}};
     const VkDescriptorSet outer_set = SetOf(&g_mres_texture[0][eye], sampler);
     const VkDescriptorSet center_set = SetOf(&g_mres_texture[1][eye], sampler);
     if (outer_set == VK_NULL_HANDLE || center_set == VK_NULL_HANDLE) continue;
@@ -2058,8 +2082,8 @@ void ComposeMres(Slot& s) {
           v.rhw = 1.0f;
           v.diffuse = inside ? 0xFFFFFFFFu : 0x00FFFFFFu;
           v.specular = 0;
-          v.u = (gx[ci] - ix0) / iw;
-          v.v = (gy[cj] - iy0) / ih;
+          v.u = (gx[ci] - ix0) / iw * cu;
+          v.v = (gy[cj] - iy0) / ih * cv;
         }
       }
     }
@@ -2519,6 +2543,13 @@ void EndOnWorker(const void*) {
     WritePicture(Target(), 1, "right", g_picture_frame);
     if (g_panel_drawn) {
       WritePicture(g_panels[g_target], 0, "panel", g_picture_frame);
+    }
+    // FOVEATED RESOLUTION: the two images of the left eye too.
+    if (g_walk_mres) {
+      WritePicture(g_mres_color[0], 0, "outer", g_picture_frame,
+                   VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+      WritePicture(g_mres_color[1], 0, "centre", g_picture_frame,
+                   VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     }
   }
 }
@@ -3582,11 +3613,13 @@ void VkSceneReport(uint64_t frames) {
   if (g_mres_walks > 0) {
     ModLog("vk scene     : fovea_res=%d. %llu walks in the outer image (%u by "
            "%u) and the centre image (%u by %u). A walk: %.0f draws in the "
-           "outer image, %.0f of them in the centre image",
+           "outer image, %.0f of them in the centre image. The images were "
+           "made %llu times since the start",
            g_mres_mode ? 1 : 0, g_mres_walks, g_mres.outer_w, g_mres.outer_h,
            g_mres.center_w, g_mres.center_h,
            g_mres_draws / static_cast<double>(g_mres_walks),
-           g_mres_center_draws / static_cast<double>(g_mres_walks));
+           g_mres_center_draws / static_cast<double>(g_mres_walks),
+           g_mres_remade);
     g_mres_walks = g_mres_draws = g_mres_center_draws = 0;
   }
   if (g_fovea_level > 0 || g_fovea_walks > 0) {

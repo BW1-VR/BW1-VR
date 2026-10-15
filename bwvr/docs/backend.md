@@ -2575,7 +2575,11 @@ the centre image. The present, the session and the pictures of a test take
 the eye picture as before. A smaller image gives a coarser mip level of a
 texture, as the game would at that resolution.
 
-With `fovea_res=1` the walk has no map of "Foveated rendering". With
+Only a walk of the eyes has the two images: another walk of the game keeps
+the pixels of the render. The two images only grow: a smaller layout uses
+the top left part of them, so a change of the angle of the camera does not
+stop the GPU to make new images. The report counts how many times they
+were made. With `fovea_res=1` the walk has no map of "Foveated rendering". With
 `foveation_show=1` the outer image has a blue colour, so the edge of the
 middle shows. The log has the sizes of the two images and their share of
 the pixels of the picture at the first walk.
@@ -4000,7 +4004,7 @@ in front. The mod reads the keys and never takes them from the game.
 | --- | --- | --- |
 | F11 | Everyone | The direction of the head becomes straight ahead |
 | Ctrl F11 | `play_mode` 3 or 4 | The table or the God view goes off and on (`tabletop.md`, `god-view.md`). Press it with the mouse at rest |
-| F12 | `test_keys=1` | Saves a picture of each eye beside `runblack.exe`, and one of the frame before either eye pass. With the Vulkan renderer also its images of the eyes (`bwvr-vk-left-N.bmp`, `bwvr-vk-right-N.bmp`), which are the pictures in the headset with `backend=vulkan` |
+| F12 | `test_keys=1` | Saves a picture of each eye beside `runblack.exe`, and one of the frame before either eye pass. With the Vulkan renderer also its images of the eyes (`bwvr-vk-left-N.bmp`, `bwvr-vk-right-N.bmp`), which are the pictures in the headset with `backend=vulkan`, and with foveated resolution its outer and centre image of the left eye. A file `bwvr-capture-now.txt` beside `runblack.exe` does the same for a player with no keyboard: the mod looks for it each 45 frames and deletes it |
 | Shift F12 | `test_keys=1` | The subtitles step through 25, 30, 35, 40 and 45 degrees below the middle of the view |
 | Ctrl F12 | `test_keys=1` | Who owns the pointer: automatic, the controllers only, or the mouse only (`controllers.md`) |
 | Ctrl Shift F12 | `test_keys=1` | The ears: the head, or the game camera (`audio.md`). Press it with the mouse at rest |
