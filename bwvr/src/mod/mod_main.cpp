@@ -235,6 +235,7 @@ void NearPlaneSetOptions(int cm_24, int cm_16);
 void NearPlaneInstall();
 // proxy/ddraw_proxy.cpp
 void ProxyForceSystemDDraw();
+void ProxyCreateStarts(unsigned char ex[2], unsigned char old[2]);
 void GpuBridgeInstall();
 // d3d9_backend.cpp
 void D3D9BackendLoad(const char* dir, const char* ini);
@@ -2360,6 +2361,10 @@ BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, LPVOID reserved) {
     } else {
       ProxyForceSystemDDraw();
     }
+    // The first bytes of the two exports that make a DirectDraw object,
+    // before the backend can put its hot patch on them (ProxyCreateStarts).
+    unsigned char start_ex[2], start_old[2];
+    ProxyCreateStarts(start_ex, start_old);
     if (!ProxyLoadRealDDraw()) return FALSE;
     // A test key: the count of each call of DirectDraw and Direct3D 7. After
     // the backend loads, and before the game makes its DirectDraw object.
@@ -2367,8 +2372,27 @@ BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, LPVOID reserved) {
       char ini[MAX_PATH];
       lstrcpynA(ini, g_dir, MAX_PATH);
       lstrcatA(ini, "bwvr.ini");
-      DdrawCensusInstall(static_cast<int>(
-          GetPrivateProfileIntA("bwvr", "ddraw_census", 0, ini)));
+      const int census =
+          static_cast<int>(GetPrivateProfileIntA("bwvr", "ddraw_census", 0, ini));
+      DdrawCensusInstall(census);
+      // dxwrapper puts a hot patch on the two exports of the mod that make a
+      // DirectDraw object, so the count sees the calls of the start only
+      // with another backend (backend=system).
+      if (census != 0) {
+        unsigned char now_ex[2], now_old[2];
+        ProxyCreateStarts(now_ex, now_old);
+        const bool patched = now_ex[0] != start_ex[0] ||
+                             now_ex[1] != start_ex[1] ||
+                             now_old[0] != start_old[0] ||
+                             now_old[1] != start_old[1];
+        ModLog("ddraw census : %s",
+               patched ? "the backend put a hot patch on DirectDrawCreateEx "
+                         "and DirectDrawCreate of the mod, so the count starts "
+                         "at the first walk. backend=system counts the start"
+                       : "the exports of the mod have no hot patch of the "
+                         "backend, so the count starts with the first "
+                         "DirectDraw object");
+      }
     }
     if (game_ok) Startup();
   } else if (reason == DLL_PROCESS_DETACH) {

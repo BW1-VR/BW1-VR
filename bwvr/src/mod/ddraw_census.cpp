@@ -7,8 +7,8 @@
 // with a call, the count in the scene walks and outside them, and the
 // interfaces that the game asks for with QueryInterface.
 //
-// HOW. A hook on DirectDrawCreateEx and DirectDrawCreate of the backend sees
-// the first DirectDraw object. Its table of methods goes to counting thunks
+// HOW. The two exports of the proxy that make a DirectDraw object give
+// it to this file (ddraw_proxy.h). Its table of methods goes to counting thunks
 // (as in d3d7_count.cpp: inc of the count, then a jump to the method). Hooks
 // on the methods that make objects (CreateSurface, CreatePalette,
 // CreateClipper, QueryInterface, CreateDevice, CreateVertexBuffer,
@@ -29,10 +29,9 @@
 #include "MinHook.h"
 #include "../common/bw_addresses.h"
 #include "ddraw_census.h"
+#include "../proxy/ddraw_proxy.h"
 
 void ModLog(const char* format, ...);
-// proxy/ddraw_proxy.cpp
-void* ProxyRealExport(const char* name);
 
 namespace {
 
@@ -179,8 +178,6 @@ typedef HRESULT(WINAPI* CreateVertexBufferFn)(void*,
                                               LPDIRECT3DVERTEXBUFFER7*, DWORD);
 typedef HRESULT(WINAPI* GetAttachedFn)(void*, LPDDSCAPS2,
                                        LPDIRECTDRAWSURFACE7*);
-typedef HRESULT(WINAPI* CreateExFn)(GUID*, LPVOID*, REFIID, IUnknown*);
-typedef HRESULT(WINAPI* CreateFn)(GUID*, LPDIRECTDRAW*, IUnknown*);
 
 QueryFn o_Query[kKinds] = {nullptr};
 CreateSurfaceFn o_CreateSurface = nullptr;
@@ -189,8 +186,6 @@ CreateClipperFn o_CreateClipper = nullptr;
 CreateDeviceFn o_CreateDevice = nullptr;
 CreateVertexBufferFn o_CreateVertexBuffer = nullptr;
 GetAttachedFn o_GetAttached = nullptr;
-CreateExFn o_CreateEx = nullptr;
-CreateFn o_Create = nullptr;
 
 void NoteQuery(int kind, REFIID id) {
   EnterCriticalSection(&g_lock);
@@ -228,11 +223,165 @@ HRESULT WINAPI h_Query(void* self, REFIID id, void** out) {
   return hr;
 }
 
+// THE SHAPES. Each kind of call that a backend must make in its own way,
+// as a line of text (the flags, the caps and the format), with its count.
+const int kMaxShapes = 256;
+struct Shape {
+  char text[200];
+  LONG count;
+};
+Shape g_shapes[kMaxShapes];
+int g_shape_count = 0;
+LONG g_shapes_lost = 0;
+
+void NoteShape(const char* text) {
+  EnterCriticalSection(&g_lock);
+  int i = 0;
+  for (; i < g_shape_count; ++i) {
+    if (strcmp(g_shapes[i].text, text) == 0) break;
+  }
+  if (i == g_shape_count) {
+    if (g_shape_count >= kMaxShapes) {
+      ++g_shapes_lost;
+      LeaveCriticalSection(&g_lock);
+      return;
+    }
+    strcpy_s(g_shapes[i].text, text);
+    g_shapes[i].count = 0;
+    ++g_shape_count;
+  }
+  ++g_shapes[i].count;
+  LeaveCriticalSection(&g_lock);
+}
+
+// The caps and the format of a surface, as text.
+void DescribeDesc(const DDSURFACEDESC2& d, char* out, size_t size) {
+  const DDPIXELFORMAT& p = d.ddpfPixelFormat;
+  sprintf_s(out, size,
+            "flags 0x%lX caps 0x%lX caps2 0x%lX %lux%lu back %lu pf flags "
+            "0x%lX bits %lu r %lX g %lX b %lX a %lX fourcc %lX",
+            d.dwFlags, d.ddsCaps.dwCaps, d.ddsCaps.dwCaps2,
+            (d.dwFlags & DDSD_WIDTH) ? d.dwWidth : 0,
+            (d.dwFlags & DDSD_HEIGHT) ? d.dwHeight : 0,
+            (d.dwFlags & DDSD_BACKBUFFERCOUNT) ? d.dwBackBufferCount : 0,
+            (d.dwFlags & DDSD_PIXELFORMAT) ? p.dwFlags : 0,
+            (d.dwFlags & DDSD_PIXELFORMAT) ? p.dwRGBBitCount : 0,
+            (d.dwFlags & DDSD_PIXELFORMAT) ? p.dwRBitMask : 0,
+            (d.dwFlags & DDSD_PIXELFORMAT) ? p.dwGBitMask : 0,
+            (d.dwFlags & DDSD_PIXELFORMAT) ? p.dwBBitMask : 0,
+            (d.dwFlags & DDSD_PIXELFORMAT) ? p.dwRGBAlphaBitMask : 0,
+            (d.dwFlags & DDSD_PIXELFORMAT) ? p.dwFourCC : 0);
+}
+
+// The caps of a surface, as text: its own caps and its format.
+void DescribeSurface(void* surface, char* out, size_t size) {
+  if (surface == nullptr) {
+    strcpy_s(out, size, "none");
+    return;
+  }
+  DDSURFACEDESC2 d = {};
+  d.dwSize = sizeof(d);
+  if (FAILED(static_cast<IDirectDrawSurface7*>(surface)->GetSurfaceDesc(&d))) {
+    strcpy_s(out, size, "no desc");
+    return;
+  }
+  sprintf_s(out, size, "caps 0x%lX bits %lu", d.ddsCaps.dwCaps,
+            d.ddpfPixelFormat.dwRGBBitCount);
+}
+
 HRESULT WINAPI h_CreateSurface(void* self, LPDDSURFACEDESC2 desc,
                                LPDIRECTDRAWSURFACE7* out, IUnknown* outer) {
   const HRESULT hr = o_CreateSurface(self, desc, out, outer);
+  if (desc != nullptr) {
+    char d[180], line[200];
+    DescribeDesc(*desc, d, sizeof(d));
+    // The size of a texture is one shape for each size class.
+    sprintf_s(line, "CreateSurface %s -> %s", d, SUCCEEDED(hr) ? "ok" : "fail");
+    NoteShape(line);
+  }
   if (SUCCEEDED(hr) && out != nullptr && *out != nullptr) Patch(kSurface, *out);
   return hr;
+}
+
+typedef HRESULT(WINAPI* BltFn)(void*, LPRECT, void*, LPRECT, DWORD,
+                               LPDDBLTFX);
+typedef HRESULT(WINAPI* BltFastFn)(void*, DWORD, DWORD, void*, LPRECT, DWORD);
+typedef HRESULT(WINAPI* LockFn)(void*, LPRECT, LPDDSURFACEDESC2, DWORD,
+                                HANDLE);
+typedef HRESULT(WINAPI* FlipFn)(void*, void*, DWORD);
+typedef HRESULT(WINAPI* GetDcFn)(void*, HDC*);
+typedef HRESULT(WINAPI* CoopFn)(void*, HWND, DWORD);
+typedef HRESULT(WINAPI* ModeFn)(void*, DWORD, DWORD, DWORD, DWORD, DWORD);
+BltFn o_Blt = nullptr;
+BltFastFn o_BltFast = nullptr;
+LockFn o_Lock = nullptr;
+FlipFn o_Flip = nullptr;
+GetDcFn o_GetDc = nullptr;
+CoopFn o_Coop = nullptr;
+ModeFn o_Mode = nullptr;
+
+HRESULT WINAPI h_Blt(void* self, LPRECT to, void* from, LPRECT from_rect,
+                     DWORD flags, LPDDBLTFX fx) {
+  char a[48], b[48], line[200];
+  DescribeSurface(self, a, sizeof(a));
+  DescribeSurface(from, b, sizeof(b));
+  sprintf_s(line, "Blt to %s from %s flags 0x%lX rects %d %d fill %d%s", a, b,
+            flags, to != nullptr, from_rect != nullptr,
+            (flags & DDBLT_COLORFILL) != 0, g_in_walk ? " (walk)" : "");
+  NoteShape(line);
+  return o_Blt(self, to, from, from_rect, flags, fx);
+}
+
+HRESULT WINAPI h_BltFast(void* self, DWORD x, DWORD y, void* from,
+                         LPRECT from_rect, DWORD flags) {
+  char a[48], b[48], line[200];
+  DescribeSurface(self, a, sizeof(a));
+  DescribeSurface(from, b, sizeof(b));
+  sprintf_s(line, "BltFast to %s from %s flags 0x%lX%s", a, b, flags,
+            g_in_walk ? " (walk)" : "");
+  NoteShape(line);
+  return o_BltFast(self, x, y, from, from_rect, flags);
+}
+
+HRESULT WINAPI h_Lock(void* self, LPRECT rect, LPDDSURFACEDESC2 desc,
+                      DWORD flags, HANDLE event) {
+  char a[48], line[200];
+  DescribeSurface(self, a, sizeof(a));
+  sprintf_s(line, "Lock of %s flags 0x%lX rect %d%s", a, flags,
+            rect != nullptr, g_in_walk ? " (walk)" : "");
+  NoteShape(line);
+  return o_Lock(self, rect, desc, flags, event);
+}
+
+HRESULT WINAPI h_Flip(void* self, void* to, DWORD flags) {
+  char line[200];
+  sprintf_s(line, "Flip flags 0x%lX to %d", flags, to != nullptr);
+  NoteShape(line);
+  return o_Flip(self, to, flags);
+}
+
+HRESULT WINAPI h_GetDc(void* self, HDC* dc) {
+  char a[48], line[200];
+  DescribeSurface(self, a, sizeof(a));
+  sprintf_s(line, "GetDC of %s", a);
+  NoteShape(line);
+  return o_GetDc(self, dc);
+}
+
+HRESULT WINAPI h_Coop(void* self, HWND window, DWORD flags) {
+  char line[200];
+  sprintf_s(line, "SetCooperativeLevel flags 0x%lX", flags);
+  NoteShape(line);
+  return o_Coop(self, window, flags);
+}
+
+HRESULT WINAPI h_Mode(void* self, DWORD w, DWORD h, DWORD bits, DWORD rate,
+                      DWORD flags) {
+  char line[200];
+  sprintf_s(line, "SetDisplayMode %lux%lu bits %lu rate %lu flags 0x%lX", w,
+            h, bits, rate, flags);
+  NoteShape(line);
+  return o_Mode(self, w, h, bits, rate, flags);
 }
 
 HRESULT WINAPI h_CreatePalette(void* self, DWORD flags, LPPALETTEENTRY entries,
@@ -317,9 +466,23 @@ void Patch(Kind kind, void* object) {
                reinterpret_cast<void**>(&o_CreatePalette));
     HookMethod(table, 6, reinterpret_cast<void*>(&h_CreateSurface),
                reinterpret_cast<void**>(&o_CreateSurface));
+    HookMethod(table, 20, reinterpret_cast<void*>(&h_Coop),
+               reinterpret_cast<void**>(&o_Coop));
+    HookMethod(table, 21, reinterpret_cast<void*>(&h_Mode),
+               reinterpret_cast<void**>(&o_Mode));
   } else if (kind == kSurface) {
     HookMethod(table, 12, reinterpret_cast<void*>(&h_GetAttached),
                reinterpret_cast<void**>(&o_GetAttached));
+    HookMethod(table, 5, reinterpret_cast<void*>(&h_Blt),
+               reinterpret_cast<void**>(&o_Blt));
+    HookMethod(table, 7, reinterpret_cast<void*>(&h_BltFast),
+               reinterpret_cast<void**>(&o_BltFast));
+    HookMethod(table, 11, reinterpret_cast<void*>(&h_Flip),
+               reinterpret_cast<void**>(&o_Flip));
+    HookMethod(table, 17, reinterpret_cast<void*>(&h_GetDc),
+               reinterpret_cast<void**>(&o_GetDc));
+    HookMethod(table, 25, reinterpret_cast<void*>(&h_Lock),
+               reinterpret_cast<void**>(&o_Lock));
   } else if (kind == kDirect3D) {
     HookMethod(table, 4, reinterpret_cast<void*>(&h_CreateDevice),
                reinterpret_cast<void**>(&o_CreateDevice));
@@ -346,9 +509,24 @@ void Patch(Kind kind, void* object) {
   LeaveCriticalSection(&g_lock);
 }
 
-HRESULT WINAPI h_CreateEx(GUID* driver, LPVOID* out, REFIID id,
-                          IUnknown* outer) {
-  const HRESULT hr = o_CreateEx(driver, out, id, outer);
+// QueryInterface of the IDirectDraw of DirectDrawCreate. An IDirectDraw7
+// that it gives goes to the thunks.
+QueryFn o_QueryOld = nullptr;
+HRESULT WINAPI h_QueryOld(void* self, REFIID id, void** out) {
+  const HRESULT hr = o_QueryOld(self, id, out);
+  NoteQuery(kDirectDraw, id);
+  if (SUCCEEDED(hr) && out != nullptr && *out != nullptr &&
+      KindOf(id) == kDirectDraw) {
+    Patch(kDirectDraw, *out);
+  }
+  return hr;
+}
+
+// The two exports of the proxy that make a DirectDraw object
+// (ddraw_proxy.h). The calls from the first object on count.
+HRESULT CreateExOfProxy(ProxyCreateExFn real, GUID* driver, void** out,
+                        REFIID id, IUnknown* outer) {
+  const HRESULT hr = real(driver, out, id, outer);
   ModLog("ddraw census : the game called DirectDrawCreateEx, 0x%08lX", hr);
   if (SUCCEEDED(hr) && out != nullptr && *out != nullptr) {
     const Kind kind = KindOf(id);
@@ -358,14 +536,142 @@ HRESULT WINAPI h_CreateEx(GUID* driver, LPVOID* out, REFIID id,
   return hr;
 }
 
-HRESULT WINAPI h_Create(GUID* driver, LPDIRECTDRAW* out, IUnknown* outer) {
-  const HRESULT hr = o_Create(driver, out, outer);
+// DirectDrawCreate gives an IDirectDraw (the interface of DirectX 1). The
+// game asks it for IDirectDraw7, and that QueryInterface patches the table
+// of IDirectDraw7.
+HRESULT CreateOfProxy(ProxyCreateFn real, GUID* driver, void** out,
+                      IUnknown* outer) {
+  const HRESULT hr = real(driver, out, outer);
   ModLog("ddraw census : the game called DirectDrawCreate (an old "
          "interface), 0x%08lX", hr);
+  if (SUCCEEDED(hr) && out != nullptr && *out != nullptr) {
+    IUnknown* old = static_cast<IUnknown*>(*out);
+    void** table = *reinterpret_cast<void***>(old);
+    // Its QueryInterface: slot 0 of the table of IDirectDraw.
+    static bool s_hooked = false;
+    if (!s_hooked) {
+      s_hooked = true;
+      HookMethod(table, 0, reinterpret_cast<void*>(&h_QueryOld),
+                 reinterpret_cast<void**>(&o_QueryOld));
+    }
+  }
   return hr;
 }
 
+// THE ANSWERS OF THE BACKEND, at the first walk: the caps of the device, the
+// texture formats, the formats of the Z buffer, the identifier of the
+// device and the desc of the render target. A backend of the mod gives the
+// same answers.
+HRESULT CALLBACK LogTextureFormat(LPDDPIXELFORMAT p, LPVOID) {
+  ModLog("ddraw census : a texture format: flags 0x%lX fourcc %lX bits %lu r "
+         "%lX g %lX b %lX a %lX",
+         p->dwFlags, p->dwFourCC, p->dwRGBBitCount, p->dwRBitMask,
+         p->dwGBitMask, p->dwBBitMask, p->dwRGBAlphaBitMask);
+  return D3DENUMRET_OK;
+}
+
+HRESULT CALLBACK LogDevice(LPSTR description, LPSTR name, LPD3DDEVICEDESC7 d,
+                           LPVOID) {
+  ModLog("ddraw census : a device: \"%s\" \"%s\", guid %08lX, caps 0x%lX",
+         description, name, d->deviceGUID.Data1, d->dwDevCaps);
+  return D3DENUMRET_OK;
+}
+
+void LogBytes(const char* what, const void* data, size_t size) {
+  const uint8_t* b = static_cast<const uint8_t*>(data);
+  char line[1100];
+  for (size_t at = 0; at < size; at += 256) {
+    int used = 0;
+    for (size_t i = at; i < size && i < at + 256; i += 4) {
+      uint32_t v = 0;
+      memcpy(&v, b + i, size - i >= 4 ? 4 : size - i);
+      used += sprintf_s(line + used, sizeof(line) - used, "%08X ", v);
+    }
+    ModLog("ddraw census : %s +%u: %s", what, static_cast<unsigned>(at), line);
+  }
+}
+
+void DumpAnswers(IDirect3DDevice7* device) {
+  D3DDEVICEDESC7 caps = {};
+  if (SUCCEEDED(device->GetCaps(&caps))) {
+    LogBytes("D3DDEVICEDESC7", &caps, sizeof(caps));
+    ModLog("ddraw census : the device caps 0x%lX, the texture caps 0x%lX, the "
+           "texture filter caps 0x%lX, the max texture %lu by %lu, the stages "
+           "%u, the textures %u, the src blend caps 0x%lX, the dest blend "
+           "caps 0x%lX, the raster caps 0x%lX, the z compare caps 0x%lX",
+           caps.dwDevCaps, caps.dpcTriCaps.dwTextureCaps,
+           caps.dpcTriCaps.dwTextureFilterCaps, caps.dwMaxTextureWidth,
+           caps.dwMaxTextureHeight, caps.wMaxTextureBlendStages,
+           caps.wMaxSimultaneousTextures, caps.dpcTriCaps.dwSrcBlendCaps,
+           caps.dpcTriCaps.dwDestBlendCaps, caps.dpcTriCaps.dwRasterCaps,
+           caps.dpcTriCaps.dwZCmpCaps);
+  }
+  device->EnumTextureFormats(&LogTextureFormat, nullptr);
+  IDirect3D7* d3d = nullptr;
+  if (SUCCEEDED(device->GetDirect3D(&d3d)) && d3d != nullptr) {
+    d3d->EnumDevices(&LogDevice, nullptr);
+    if (caps.deviceGUID.Data1 != 0) {
+      ModLog("ddraw census : the device of the game has the guid "
+             "{%08lX-%04X-%04X-...}", caps.deviceGUID.Data1,
+             caps.deviceGUID.Data2, caps.deviceGUID.Data3);
+      d3d->EnumZBufferFormats(caps.deviceGUID, &LogTextureFormat, nullptr);
+    }
+    d3d->Release();
+  }
+  IDirectDrawSurface7* target = nullptr;
+  if (SUCCEEDED(device->GetRenderTarget(&target)) && target != nullptr) {
+    DDSURFACEDESC2 desc = {};
+    desc.dwSize = sizeof(desc);
+    if (SUCCEEDED(target->GetSurfaceDesc(&desc))) {
+      char d[180];
+      DescribeDesc(desc, d, sizeof(d));
+      ModLog("ddraw census : the render target: %s, pitch %ld", d,
+             desc.lPitch);
+    }
+    IDirectDraw7* dd = nullptr;
+    if (SUCCEEDED(target->GetDDInterface(reinterpret_cast<void**>(&dd))) &&
+        dd != nullptr) {
+      DDDEVICEIDENTIFIER2 id = {};
+      if (SUCCEEDED(dd->GetDeviceIdentifier(&id, 0))) {
+        ModLog("ddraw census : the device identifier: \"%s\" \"%s\", vendor "
+               "0x%lX device 0x%lX sub 0x%lX revision %lu, the driver "
+               "version %lu.%lu",
+               id.szDriver, id.szDescription, id.dwVendorId, id.dwDeviceId,
+               id.dwSubSysId, id.dwRevision, id.liDriverVersion.HighPart,
+               id.liDriverVersion.LowPart);
+      }
+      DDCAPS dd_caps = {};
+      dd_caps.dwSize = sizeof(dd_caps);
+      if (SUCCEEDED(dd->GetCaps(&dd_caps, nullptr))) {
+        ModLog("ddraw census : the DirectDraw caps 0x%lX caps2 0x%lX, the "
+               "video memory %lu of %lu bytes",
+               dd_caps.dwCaps, dd_caps.dwCaps2, dd_caps.dwVidMemFree,
+               dd_caps.dwVidMemTotal);
+      }
+      DDSURFACEDESC2 mode = {};
+      mode.dwSize = sizeof(mode);
+      if (SUCCEEDED(dd->GetDisplayMode(&mode))) {
+        char d[180];
+        DescribeDesc(mode, d, sizeof(d));
+        ModLog("ddraw census : the display mode: %s", d);
+      }
+      dd->Release();
+    }
+    target->Release();
+  }
+}
+
 void Report(const char* when) {
+  EnterCriticalSection(&g_lock);
+  for (int i = 0; i < g_shape_count; ++i) {
+    ModLog("ddraw census : %s, shape: %s: %ld", when, g_shapes[i].text,
+           g_shapes[i].count);
+  }
+  if (g_shapes_lost > 0) {
+    ModLog("ddraw census : %ld calls of more shapes than %d", g_shapes_lost,
+           kMaxShapes);
+  }
+  LeaveCriticalSection(&g_lock);
   char line[4096];
   for (int k = 0; k < kKinds; ++k) {
     if (g_table[k] == nullptr) continue;
@@ -404,23 +710,17 @@ void DdrawCensusInstall(int on) {
   g_thunks = static_cast<uint8_t*>(
       VirtualAlloc(nullptr, kKinds * kMaxSlots * kThunkBytes,
                    MEM_COMMIT | MEM_RESERVE, PAGE_EXECUTE_READWRITE));
-  void* create_ex = ProxyRealExport("DirectDrawCreateEx");
-  void* create = ProxyRealExport("DirectDrawCreate");
-  bool ok = g_thunks != nullptr && create_ex != nullptr;
+  const bool ok = g_thunks != nullptr;
   if (ok) {
-    ok = MH_CreateHook(create_ex, reinterpret_cast<void*>(&h_CreateEx),
-                       reinterpret_cast<void**>(&o_CreateEx)) == MH_OK &&
-         MH_EnableHook(create_ex) == MH_OK;
-  }
-  if (ok && create != nullptr &&
-      MH_CreateHook(create, reinterpret_cast<void*>(&h_Create),
-                    reinterpret_cast<void**>(&o_Create)) == MH_OK) {
-    MH_EnableHook(create);
+    ProxyCreateHooks hooks = {};
+    hooks.create_ex = &CreateExOfProxy;
+    hooks.create = &CreateOfProxy;
+    ProxySetCreateHooks(hooks);
   }
   ModLog("ddraw census : ddraw_census=1. %s",
          ok ? "Each call of DirectDraw and Direct3D 7 counts, from the "
-              "first DirectDraw object"
-            : "the hook of DirectDrawCreateEx FAILED");
+              "first DirectDraw object that the exports of the proxy give"
+            : "no room for the thunks, so nothing counts");
 }
 
 void DdrawCensusWalk(bool begin) {
@@ -435,6 +735,7 @@ void DdrawCensusWalk(bool begin) {
     if (device != nullptr) {
       ModLog("ddraw census : no create was seen, so the tables come from the "
              "device of the game at the first walk");
+      DumpAnswers(device);
       IDirectDrawSurface7* target = nullptr;
       IDirect3D7* d3d = nullptr;
       IUnknown* dd = nullptr;
