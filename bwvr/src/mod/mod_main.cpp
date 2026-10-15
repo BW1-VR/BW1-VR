@@ -1781,6 +1781,15 @@ void StartVrOnce() {
     }
     delete screen;
     ++g_vr_tries;
+    // backend=vulkan: the window of the game needs the renderer. After three
+    // tries (about 9 s) it draws with a device of its own, and a session
+    // that starts later gets no image of it (VkSceneEyesWanted).
+    if (g_vr_tries == 3 && VkSceneDirect() && vk::Pending()) {
+      vk::WaitForExternal(false);
+      ModLog("vr           : no session after 3 tries, so the Vulkan renderer "
+             "draws with a device of its own. A session that starts later "
+             "gets no picture of it: start the game with the headset ready");
+    }
     if (g_vr_tries == 1) {
       ModLog("vr           : waiting for the headset, will keep trying for "
              "%d seconds", (kMaxVrTries * kVrRetryMs) / 1000);
@@ -1896,7 +1905,10 @@ void __cdecl h_FinishFrame() {
   if (g_filter_survey && (g_frame % 1800) == 0) TextureFilterReport();
   if ((g_frame % 1800) == 0) GdiWatchReport();
 
-  if (!g_vr_enabled && !g_stereo_headless) return;
+  if (!g_vr_enabled && !g_stereo_headless) {
+    vk::WaitForExternal(false);
+    return;
+  }
   StartVrOnce();
   // The backend can replace its device while the game runs, for example when
   // the game goes full screen. This starts the GPU path again on the new one.
@@ -2453,6 +2465,14 @@ BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, LPVOID reserved) {
       if (vulkan) {
         VkDdrawInstall(static_cast<int>(
             GetPrivateProfileIntA("bwvr", "vk_lines", 1, ini)));
+        // With a headset the renderer draws with the Vulkan device of the
+        // session, so its images can go into the swapchains. It waits for
+        // the session from the first walk (StartVrOnce lets it go when no
+        // session comes).
+        if (GetPrivateProfileIntA("bwvr", "vr", 1, ini) != 0 &&
+            GetPrivateProfileIntA("bwvr", "stereo_headless", 0, ini) == 0) {
+          vk::WaitForExternal(true);
+        }
       }
       const int census =
           vulkan ? 0

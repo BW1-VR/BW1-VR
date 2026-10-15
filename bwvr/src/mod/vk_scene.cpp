@@ -2596,7 +2596,14 @@ void VkSceneSetEyes(bool on) {
   }
 }
 
-bool VkSceneEyesWanted() { return g_eyes && VkSceneOn(); }
+// The images of the renderer go to a session only when the renderer draws
+// with the device of the session (vk::UseExternal): an image of another
+// device is not an image of the session.
+bool SameDeviceAsSession() { return vk::Started() && vk::Get().external; }
+
+bool VkSceneEyesWanted() {
+  return g_eyes && VkSceneOn() && SameDeviceAsSession();
+}
 
 void VkSceneEyesToggle(const char* keys) {
   g_eyes = !g_eyes;
@@ -3100,6 +3107,7 @@ const vk::Image* PanelOfFrame() {
 }  // namespace
 
 bool VkScenePanelFor(uint32_t width, uint32_t height, uint64_t* image) {
+  if (!SameDeviceAsSession()) return false;
   const vk::Image* panel = PanelOfFrame();
   if (panel == nullptr || panel->width != width || panel->height != height) {
     return false;
@@ -3540,7 +3548,8 @@ bool VkSceneOnlyNow() { return g_walk_only; }
 
 bool VkSceneLastPicture(uint64_t* image, uint32_t* layer, uint32_t* width,
                         uint32_t* height) {
-  if (!g_direct || !VkSceneOn() || g_cpu_newer || g_last_image == 0) {
+  if (!g_direct || !VkSceneOn() || g_cpu_newer || g_last_image == 0 ||
+      !SameDeviceAsSession()) {
     return false;
   }
   *image = g_last_image;

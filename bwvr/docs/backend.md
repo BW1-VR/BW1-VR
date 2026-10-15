@@ -2471,8 +2471,22 @@ session. The pass of the left eye sends no picture, and the pixels of the
 render target of the backend do not go to the headset, because they are
 not the picture of the walk.
 
-**Not run yet:** a headset session, a video, the Main Menu, a saved game,
-the Temple.
+**The device of the session.** The images of the renderer go into the
+swapchains with a copy of the GPU, so the renderer must draw with the
+Vulkan device of the OpenXR session (`vk::UseExternal`). With a headset
+(`vr=1` and no `stereo_headless`) the renderer waits for that device from
+the first walk (`vk::WaitForExternal`): the log says "the renderer waits
+for the Vulkan of the OpenXR session", and the walks before the session
+draw nothing. When the start of VR fails three times (about 9 s), or VR is
+off, the renderer draws with a device of its own. A session that starts
+after that gets no picture of the renderer (`VkSceneEyesWanted`,
+`VkScenePanelFor` and `VkSceneLastPicture` are false), and the log says so.
+Then start the game with the headset ready.
+
+**Only a headset can show:** the colors and the flicker of the eye
+pictures with the device of the session.
+
+**Not run yet:** a video, the Main Menu, a saved game, the Temple.
 
 ## Foveated rendering
 
