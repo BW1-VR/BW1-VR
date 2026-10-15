@@ -249,6 +249,9 @@ const uint32_t kMergeIndices = 1u << 20;
 uint8_t* g_merge_vertices = nullptr;
 WORD* g_merge_indices = nullptr;
 volatile LONG g_failed_calls = 0;
+// The draws of walks without Direct3D 9 (vk_only), which only the Vulkan
+// renderer drew.
+volatile LONG g_only_draws = 0;
 volatile LONG64 g_busy_ticks = 0;
 LARGE_INTEGER g_frequency = {};
 
@@ -394,6 +397,11 @@ uint32_t Play(uint8_t* at) {
       WORD* indices = reinterpret_cast<WORD*>(vertices + a->vertex_bytes);
       VkSceneDraw(a->type, a->fvf, vertices, a->vertex_count, indices,
                   a->index_count);
+      // A walk without Direct3D 9 (vk_only): the renderer alone draws.
+      if (VkSceneOnlyNow()) {
+        InterlockedIncrement(&g_only_draws);
+        break;
+      }
       hr = o_DrawIndexed(a->x, a->type, a->fvf, vertices, a->vertex_count,
                          indices, a->index_count, a->flags, a->version);
       break;
@@ -401,6 +409,10 @@ uint32_t Play(uint8_t* at) {
     case kOpDraw: {
       ArgDraw* a = reinterpret_cast<ArgDraw*>(p);
       VkSceneDraw(a->type, a->fvf, a + 1, a->vertex_count, nullptr, 0);
+      if (VkSceneOnlyNow()) {
+        InterlockedIncrement(&g_only_draws);
+        break;
+      }
       hr = o_Draw(a->x, a->type, a->fvf, a + 1, a->vertex_count, a->flags,
                   a->version);
       break;
@@ -445,6 +457,8 @@ uint32_t PlayRow(uint32_t read, uint32_t* write_io) {
       reinterpret_cast<const Header*>(g_queue + (read & (kQueueBytes - 1)));
   const ArgDraw* a = reinterpret_cast<const ArgDraw*>(h + 1);
   if (a->type != D3DPT_TRIANGLELIST || g_merge_vertices == nullptr) return 0;
+  // A walk without Direct3D 9 gives each draw to the renderer as it is.
+  if (VkSceneOnlyNow()) return 0;
   const uint32_t stride = a->vertex_bytes / (a->vertex_count ? a->vertex_count : 1);
   uint32_t vertices = a->vertex_count;
   uint32_t indices = a->index_count;
@@ -999,9 +1013,11 @@ void D3D7ThreadReport(uint64_t frames) {
   {
     const LONG in = InterlockedExchange(&g_merge_in, 0);
     const LONG out = InterlockedExchange(&g_merge_out, 0);
+    const LONG only = InterlockedExchange(&g_only_draws, 0);
     ModLog("d3d7 thread  : d3d7_thread_merge=%d. A frame: %.0f draws in rows "
-           "went to dxwrapper as %.0f draws",
-           g_merge ? 1 : 0, in / per, out / per);
+           "went to dxwrapper as %.0f draws. %.0f draws of walks without "
+           "Direct3D 9 went to the Vulkan renderer alone (vk_only)",
+           g_merge ? 1 : 0, in / per, out / per, only / per);
   }
   g_walks = 0;
   memset(g_records, 0, sizeof(g_records));

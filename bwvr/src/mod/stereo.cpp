@@ -608,8 +608,9 @@ float FrameSeparation() {
 // keyboard sends both. The digits have no such second way, because the
 // character of Shift 8 and Shift 9 is not the same on each keyboard layout.
 // Shift 8, Shift 9, Shift F, Shift G, Shift H, Shift J, Shift K, Shift L,
-// Shift M, Shift N, Shift B, Shift V, Shift C, Shift X, Shift Z, Shift Y
-static const int kShiftKeys = 16;
+// Shift M, Shift N, Shift B, Shift V, Shift C, Shift X, Shift Z, Shift Y,
+// Shift U
+static const int kShiftKeys = 17;
 static volatile LONG g_shift_key[kShiftKeys] = {};
 static DWORD g_shift_key_at[kShiftKeys] = {};
 static HHOOK g_message_hook = nullptr;
@@ -632,6 +633,7 @@ static int ShiftKeyIndex(WPARAM key) {
          : key == 'X' ? 13
          : key == 'Z' ? 14
          : key == 'Y' ? 15
+         : key == 'U' ? 16
                       : -1;
 }
 
@@ -919,6 +921,9 @@ void PollHotkeys() {
   }
   if (InterlockedExchange(&g_shift_key[15], 0) != 0) {
     VkScenePanelToggle("Shift and Y");
+  }
+  if (InterlockedExchange(&g_shift_key[16], 0) != 0) {
+    VkSceneOnlyToggle("Shift and U");
   }
   // An A/B of one walk (docs/backend.md, "One walk for both eyes"). The
   // menu key (VK_APPS) has no action in the game and no other test key.
@@ -1246,6 +1251,11 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
     EyeCaptureArmNow(g_frames + 1);
   }
   VkSceneFrame(ControllersFrameCount(), g_frames + 1);
+  // The walk of one walk of this frame can go without Direct3D 9 (vk_only)
+  // when its eye pictures come from the Vulkan renderer: in a session with
+  // Vulkan, or on the desktop with vk_only_test=1.
+  VkSceneOnlyFrame(to_headset ? g_screen->vulkan() && VkSceneEyesWanted()
+                              : VkSceneOnlyTest());
   const bool capture_frame = EyeCaptureWanted(g_frames + 1);
   UiPanelBeginFrame(to_headset, to_headset && g_screen->projection() && !flat,
                     g_frames + 1, capture_frame);

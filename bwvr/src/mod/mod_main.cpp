@@ -530,6 +530,8 @@ int g_vk_scene = 0;
 int g_vk_scene_test_frame = 0;
 int g_vk_scene_follow = 1;
 int g_vk_panel = 1;
+int g_vk_only = 1;
+int g_vk_only_test = 0;
 // The OpenXR session with Vulkan, and the eye pictures of the Vulkan
 // renderer in it (docs/backend.md, "The session with Vulkan").
 int g_xr_vulkan = 0;
@@ -1352,6 +1354,9 @@ void ReadSettings() {
   g_vk_scene_follow =
       GetPrivateProfileIntA("bwvr", "vk_scene_follow", 1, path) != 0 ? 1 : 0;
   g_vk_panel = GetPrivateProfileIntA("bwvr", "vk_panel", 1, path) != 0 ? 1 : 0;
+  g_vk_only = GetPrivateProfileIntA("bwvr", "vk_only", 1, path) != 0 ? 1 : 0;
+  g_vk_only_test =
+      GetPrivateProfileIntA("bwvr", "vk_only_test", 0, path) != 0 ? 1 : 0;
   g_xr_vulkan =
       GetPrivateProfileIntA("bwvr", "xr_vulkan", 0, path) != 0 ? 1 : 0;
   g_vk_eyes = GetPrivateProfileIntA("bwvr", "vk_eyes", 1, path) != 0 ? 1 : 0;
@@ -1653,6 +1658,7 @@ void StartVrOnce() {
     VkSceneSetEyes(vk_eyes);
     VkSceneSetFollow(g_vk_scene_follow);
     VkSceneSetPanel(g_vk_panel);
+    VkSceneSetOnly(g_vk_only, g_vk_only_test);
     // With a session with Vulkan the renderer takes its device, so it waits
     // for the session.
     if (g_xr_vulkan != 0 && g_vr_enabled && !g_stereo_headless) {

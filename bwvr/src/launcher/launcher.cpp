@@ -664,7 +664,7 @@ const char* const kRetiredKeys[] = {
     "subtitle_card_test", "subtitle_selftest", "profile_sample",
     "profile_sample_thread", "profile_sample_dump", "profile_gpu",
     "hang_watch", "gpu_flush_ab", "ab_test", "d3d7_count", "fast_transform_check",
-    "test_cores", "vk_scene", "vk_scene_test_frame", "vk_scene_follow", "vk_eyes", "xr_vulkan_upload", "vk_panel", "ddraw_census", "test_smt", "test_spin_walk_us", "test_spin_idle_us",
+    "test_cores", "vk_scene", "vk_scene_test_frame", "vk_scene_follow", "vk_eyes", "xr_vulkan_upload", "vk_panel", "vk_only", "vk_only_test", "ddraw_census", "test_smt", "test_spin_walk_us", "test_spin_idle_us",
     "test_wake_records",
     "render_thread_test_frame",
     "temple_test_camera_trace",

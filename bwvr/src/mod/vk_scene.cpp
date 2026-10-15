@@ -148,6 +148,7 @@ struct Seed {
   bool both;  // a walk of one walk: both layers get a picture
   bool follow;
   bool panel;    // vk_panel
+  bool only;     // the walk goes without Direct3D 9 (vk_only)
   void* target;  // the target of the eyes, or null when it is not known
 };
 
@@ -202,6 +203,17 @@ vk::Buffer g_half_buffer = {};
 bool g_half_locked = false;
 // Pipelines of the panel: no multiview, and the alpha blend of the panel.
 const uint32_t kPanelKey = 1u << 24;
+
+// THE WALK WITHOUT DIRECT3D 9 (vk_only). On the frame thread: the key now,
+// the test key of the desktop, the frame of stereo.cpp, and a walk of
+// another size than the swapchains (VkSceneEyesFor). On the D3D7 thread:
+// the walk now.
+bool g_only_mode = true;
+bool g_only_test = false;
+bool g_only_frame = false;
+bool g_size_differs = false;
+volatile bool g_walk_only = false;
+uint64_t g_only_walks = 0;  // for the report
 
 // The last walk that ended, for VkSceneEyes. The D3D7 thread writes it
 // before the end of the walk, and the frame thread reads it after the end.
@@ -1196,6 +1208,7 @@ void Deliver(D3D7ThreadFn fn, const void* data, unsigned bytes) {
 // THE WALK, on the D3D7 thread.
 void BeginOnWorker(const void* data) {
   const Seed* seed = static_cast<const Seed*>(data);
+  g_walk_only = false;
   if (!Ready()) return;
   memcpy(g_rs, seed->rs, sizeof(g_rs));
   memcpy(g_ts, seed->ts, sizeof(g_ts));
@@ -1262,9 +1275,14 @@ void BeginOnWorker(const void* data) {
   g_picture = seed->picture;
   g_picture_frame = seed->frame;
   ++g_walks;
+  // Without Direct3D 9 only when the renderer follows the target and has
+  // the panel, so each draw has its place.
+  g_walk_only = seed->only && g_walk_follow && g_walk_panel;
+  if (g_walk_only) ++g_only_walks;
 }
 
 void EndOnWorker(const void*) {
+  g_walk_only = false;
   if (!g_recording) return;
   g_recording = false;
   Slot& s = g_slots[g_slot];
@@ -1352,8 +1370,12 @@ bool VkSceneEyesFor(uint32_t width, uint32_t height, uint64_t* image) {
              "%u, so the eye pictures come from Direct3D 9",
              w, h, width, height);
     }
+    // Direct3D 9 draws the next walks again, until a walk has the size of
+    // the swapchains.
+    g_size_differs = true;
     return false;
   }
+  g_size_differs = false;
   ++g_eye_frames;
   return true;
 }
@@ -1409,6 +1431,9 @@ void VkSceneWalkBegin(void* device7) {
   seed.both = OneWalkActive();
   seed.follow = g_follow;
   seed.panel = g_panel_mode;
+  seed.only = g_only_mode && g_only_frame && g_panel_mode && g_follow &&
+              !g_size_differs && OneWalkActive();
+  g_only_frame = false;
   seed.target = g_follow ? OneWalkBoundTarget() : nullptr;
   D3D7ThreadPost(&BeginOnWorker, &seed, sizeof(seed));
 }
@@ -1827,6 +1852,37 @@ const void* VkScenePanelReadHalf(const int rect[4], int* pitch,
 
 void VkScenePanelReadDone() { g_half_locked = false; }
 
+void VkSceneSetOnly(int on, int test) {
+  g_only_mode = on != 0;
+  g_only_test = test != 0;
+  if (g_mode == 0) return;
+  ModLog("vk scene     : vk_only=%d, vk_only_test=%d. %s", g_only_mode ? 1 : 0,
+         g_only_test ? 1 : 0,
+         !g_only_mode
+             ? "Direct3D 9 draws each walk too"
+         : g_only_test
+             ? "In a walk of one walk the renderer alone draws, also on the "
+               "desktop: the pictures of Direct3D 9 have no scene"
+             : "In a walk of one walk whose eye pictures come from the "
+               "renderer, the renderer alone draws");
+}
+
+void VkSceneOnlyToggle(const char* keys) {
+  g_only_mode = !g_only_mode;
+  ControllersGesturePulse(0.5f, g_only_mode ? 0.30f : 0.08f);
+  ModLog("test key     : %s, vk_only is %d from the next walk: %s", keys,
+         g_only_mode ? 1 : 0,
+         g_only_mode ? "a walk with the eyes of the renderer goes without "
+                       "Direct3D 9"
+                     : "Direct3D 9 draws each walk too");
+}
+
+bool VkSceneOnlyTest() { return g_only_test; }
+
+void VkSceneOnlyFrame(bool can) { g_only_frame = can && VkSceneOn(); }
+
+bool VkSceneOnlyNow() { return g_walk_only; }
+
 void VkSceneSurfaceWritten(void* surface) {
   if (!VkSceneOn() || g_textures == nullptr) return;
   AcquireSRWLockExclusive(&g_texture_lock);
@@ -1869,6 +1925,9 @@ void VkSceneReport(uint64_t frames) {
          g_clears_panel / per, g_panel_reads, g_panel_read_failures,
          g_panel_layers);
   g_panel_walks = g_panel_draws = g_clears_panel = 0;
+  ModLog("vk scene     : vk_only=%d. %llu walks without Direct3D 9",
+         g_only_mode ? 1 : 0, g_only_walks);
+  g_only_walks = 0;
   g_panel_reads = g_panel_read_failures = g_panel_layers = 0;
   if (g_eyes) {
     ModLog("vk scene     : %llu of %llu frames had the eye pictures of the "

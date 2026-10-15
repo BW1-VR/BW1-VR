@@ -107,3 +107,24 @@ bool VkScenePanelFor(uint32_t width, uint32_t height, uint64_t* image);
 const void* VkScenePanelReadHalf(const int rect[4], int* pitch,
                                  uint32_t* width, uint32_t* height);
 void VkScenePanelReadDone();
+
+// THE WALK WITHOUT DIRECT3D 9 (vk_only of bwvr.ini, 1 is the default). In a
+// walk of one walk whose eye pictures come from the renderer, the D3D7
+// thread gives no draw to dxwrapper: the renderer alone draws them. The
+// calls that set a state still go to dxwrapper, because the next walk reads
+// its state from the device. It needs vk_panel=1, so the help text has a
+// panel. stereo.cpp says for each frame when its walk can go without
+// Direct3D 9 (VkSceneOnlyFrame): in a session with Vulkan with the eyes of
+// the renderer, or on the desktop with vk_only_test=1. 0: Direct3D 9 draws
+// each walk too. Shift U (test_keys=1) changes it from the next walk.
+void VkSceneSetOnly(int on, int test);
+void VkSceneOnlyToggle(const char* keys);
+// vk_only_test of bwvr.ini: the walks of the desktop go without Direct3D 9
+// too, so a desktop run shows the pictures of the renderer alone.
+bool VkSceneOnlyTest();
+// stereo.cpp, on the frame thread before the walks of a frame: the walk of
+// one walk of this frame can go without Direct3D 9.
+void VkSceneOnlyFrame(bool can);
+// d3d7_thread.cpp, on the D3D7 thread: the walk now goes without
+// dxwrapper, so a draw goes to the renderer alone.
+bool VkSceneOnlyNow();

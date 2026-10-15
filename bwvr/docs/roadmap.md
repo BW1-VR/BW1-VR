@@ -548,10 +548,22 @@ that moves while the Hand takes it.
     Vulkan renderer"; the same picture as Direct3D 9, with the hand and the
     overlays of the mod and both eyes in one pass). Its eye pictures go
     straight into an OpenXR session with Vulkan (`xr_vulkan=1`, "The
-    session with Vulkan"; the test pattern of `bwvr-xrtest` shows in a
-    Quest 3 with Virtual Desktop). Not run: the game in a session with
-    Vulkan. Next: the
-    walk without dxwrapper and Direct3D 9; (B) one draw
+    session with Vulkan"), and so do the pixels of the CPU: the cards, the
+    walls of the cut scene window and an eye picture of the CPU
+    (`xr_vulkan_upload`). The draws for the panel target go into a panel
+    of the renderer, which the subtitle card and the panel layer take
+    (`vk_panel`). In a session with Vulkan a walk of one walk goes to the
+    renderer alone, and the D3D7 thread gives no draw of it to dxwrapper
+    (`vk_only`, "The walk without Direct3D 9"; on the desktop the render
+    thread then has 1 draw of a frame in place of 773). Not run in a
+    headset: `xr_vulkan_upload`, `vk_panel` in a session, `vk_only`. Still
+    on Direct3D 9: a menu, a loading screen, a video and a frame of two
+    walks, which go through the GPU bridge and a relay of Direct3D 11, and
+    the calls that set a state. Next: (A2) a backend of the mod that makes
+    DirectDraw 7 and Direct3D 7 on Vulkan in place of dxwrapper, so these
+    frames and the window of the monitor need no Direct3D 9 and no
+    Direct3D 11. `ddraw_census=1` lists the methods that the game calls;
+    the calls of the start are not counted yet. (B) one draw
     for many copies of a mesh (about 870 draws of a frame are 36 meshes);
     (C) a new renderer of the land, after a count of its draws. The Quest 3
     cannot run `runblack.exe`; a port there needs an x86 emulator with Wine
