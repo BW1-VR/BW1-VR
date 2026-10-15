@@ -68,6 +68,7 @@ namespace vk {
   X(vkCreateFence)                    \
   X(vkDestroyFence)                   \
   X(vkWaitForFences)                  \
+  X(vkGetFenceStatus)                 \
   X(vkResetFences)                    \
   X(vkCreateShaderModule)             \
   X(vkDestroyShaderModule)            \

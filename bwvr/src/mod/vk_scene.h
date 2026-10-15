@@ -92,6 +92,10 @@ void VkSceneSetPanel(int on);
 void VkScenePanelToggle(const char* keys);
 // True when the card and the panel layer take the panel of the renderer.
 bool VkScenePanelOn();
+// backend=vulkan (gpu_bridge.cpp, GpuBridgePanelBind): the draws after this
+// go into the panel (true) or into the eye pictures (false). With no
+// Direct3D 9 the panel target is not a surface, so the bind comes here.
+void VkScenePanelBind(bool panel);
 // On the frame thread after the walks of a frame: the panel image of the
 // last walk of this frame that drew into the panel, when it has this size.
 // image is a VkImage of one layer, in the layout of a color attachment and
@@ -150,7 +154,17 @@ void VkSceneSetDirect(bool on);
 bool VkSceneDirect();
 // The picture of the last walk of the left eye (or of a scene with no eye
 // pass), at width by height with a linear filter, as BGRA pixels for the
-// CPU, for the window on the monitor. It waits for the GPU. Null before the
-// first walk.
+// CPU, for the window on the monitor (see vk_present_late). Null before the
+// first walk, and with vk_present_late=1 also at the first present after a
+// change of the size.
 const uint8_t* VkScenePresentPixels(uint32_t width, uint32_t height,
                                     int* pitch);
+// vk_texture_reuse of bwvr.ini: 1 (the default) a texture that a walk reads
+// again with the same size goes into the image it has, when no draw of the
+// walk drew with it yet, and its pixels go into a ring of the slot. 0: each
+// read makes a new image and a staging buffer.
+void VkSceneSetTextureReuse(int on);
+// vk_present_late of bwvr.ini: 1 (the default) VkScenePresentPixels gives
+// the picture of the present before, with no wait for the GPU. 0: it waits
+// for the picture of this present.
+void VkSceneSetPresentLate(int on);

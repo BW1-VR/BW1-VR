@@ -65,6 +65,7 @@
 bool D3D9BackendDxvk();
 #include "thread_wait.h"
 #include "ui_panel.h"
+#include "vk_scene.h"
 
 extern void ModLog(const char* format, ...);
 // comfort_camera.cpp: true for a moment after a snap turn or a jump.
@@ -279,6 +280,8 @@ uint64_t g_half_failures = 0;
 
 // The state of the switch. g_bound is -1 when the game's target is bound.
 int g_bound = -1;
+// backend=vulkan: the panel of the Vulkan renderer is bound (VkScenePanelBind).
+bool g_vk_bound = false;
 IDirect3DSurface9* g_saved_target = nullptr;
 IDirect3DSurface9* g_saved_depth = nullptr;
 D3DVIEWPORT9 g_saved_viewport;
@@ -1692,17 +1695,27 @@ void GpuBridgePanelWant(bool target, bool share) {
   g_panel_share = target && share;
 }
 
+// With backend=vulkan there is no Direct3D 9: the panel is the panel of the
+// Vulkan renderer (VkScenePanelBind), and a session with Vulkan takes it.
 bool GpuBridgePanelUsable() {
+  if (VkSceneDirect()) return g_panel_wanted && VkScenePanelOn();
   return g_panel_wanted && !g_panel_failed && g_device != nullptr;
 }
 
-bool GpuBridgePanelShared() { return g_ready && g_panel_opened != nullptr; }
+bool GpuBridgePanelShared() {
+  if (VkSceneDirect()) return VkScenePanelOn();
+  return g_ready && g_panel_opened != nullptr;
+}
 
 bool GpuBridgeIsPanel(const void* surface) {
   return surface != nullptr && surface == g_panel;
 }
 
 void GpuBridgePanelNewFrame(bool check) {
+  if (g_vk_bound) {
+    VkScenePanelBind(false);
+    g_vk_bound = false;
+  }
   if (g_bound >= 0 && g_device != nullptr) RestoreGameState();
   g_panel_cleared = false;
   g_check_cleared = false;
@@ -1714,6 +1727,17 @@ void GpuBridgePanelNewFrame(bool check) {
 // False when the batch must draw into the eye as before.
 bool GpuBridgePanelBind(int which) {
   DrawMergeFlush();
+  if (VkSceneDirect()) {
+    // The renderer clears the panel at its first draw in a walk, and draws
+    // it with the blend of the panel. There is no check target.
+    if (which != 0 || !GpuBridgePanelUsable()) return false;
+    // A bind of render target 0 of the game can come between two batches,
+    // so each batch binds the panel again.
+    if (!g_vk_bound) ++g_panel_binds;
+    VkScenePanelBind(true);
+    g_vk_bound = true;
+    return true;
+  }
   if (!GpuBridgePanelUsable() || g_read_locked) return false;
   which = which == 1 ? 1 : 0;
   // The check target only follows a panel draw of the same batch.
@@ -1776,6 +1800,11 @@ bool GpuBridgePanelBind(int which) {
 // back. Does nothing when the game's target is bound.
 void GpuBridgePanelUnbind() {
   DrawMergeFlush();
+  if (g_vk_bound) {
+    VkScenePanelBind(false);
+    g_vk_bound = false;
+    return;
+  }
   if (g_bound < 0) return;
   if (g_device == nullptr) {
     g_bound = -1;

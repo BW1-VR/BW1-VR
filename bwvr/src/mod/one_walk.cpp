@@ -747,6 +747,27 @@ void OneWalkToggle() { OneWalkSetWanted(!g_wanted); }
 
 bool OneWalkBeginPass(float separation) {
   if (g_active) return true;
+  // backend=vulkan: the Vulkan renderer draws each batch of the walk into
+  // both layers of its target, and moves the vertices of the right layer by
+  // the move per rhw (vk_scene.cpp, MULTIVIEW). So there is no wide target
+  // and no hook of Direct3D 9.
+  if (VkSceneDirect()) {
+    g_separation = separation;
+    g_mode = kOneWalkBoth;
+    g_active = true;
+    g_bound = nullptr;
+    float* max_screen = reinterpret_cast<float*>(bw::tech::kMaxScreen);
+    g_saved_max_x = max_screen[0];
+    g_max_moved = g_saved_max_x > 0.0f;
+    // As with the wide target: the game keeps half an eye more on the
+    // right, which the right eye sees.
+    const bw::tech::InfoTransform* info =
+        reinterpret_cast<const bw::tech::InfoTransform*>(
+            bw::tech::kInfoTransform);
+    if (g_max_moved) max_screen[0] = g_saved_max_x + info->half_res_x;
+    ++g_passes;
+    return true;
+  }
   IDirect3DDevice9* device =
       static_cast<IDirect3DDevice9*>(GpuBridgeDeviceObject());
   if (device == nullptr || !Install(device)) return false;
@@ -961,6 +982,15 @@ void OneWalkForgetDevice() {
 void OneWalkReport(uint64_t frames) {
   if (g_passes == 0) return;
   const double per = static_cast<double>(g_passes);
+  // backend=vulkan: the renderer draws the right eye. Its report has the
+  // draws (vk_scene.cpp), and the counts of the hooks here stay 0.
+  if (VkSceneDirect()) {
+    ModLog("one walk     : %llu of %llu frames in one walk. The Vulkan "
+           "renderer draws each batch into both eyes (backend=vulkan)",
+           g_passes, frames);
+    g_passes = 0;
+    return;
+  }
   // The right copies that the render thread made (render_thread_right_eye).
   RenderThreadRightEyeCounts later;
   RenderThreadTakeRightEyeCounts(&later);

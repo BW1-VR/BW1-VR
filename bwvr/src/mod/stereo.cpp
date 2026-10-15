@@ -1366,12 +1366,13 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
   // sideways offset alone, so not with a pose for each eye. A flat frame of
   // the cut scene window has two eye cameras side by side, which is that
   // case. With a headset it needs the GPU path, because the backend's own
-  // target does not hold the eyes.
+  // target does not hold the eyes, or backend=vulkan, whose renderer draws
+  // both eyes into the layers of its target.
   const bool pose_per_eye = g_head_tracking && !flat && !HeadCameraEnabled() &&
                             (to_headset || HeadPoseFakeOn());
   const bool one_walk = OneWalkWanted() && !pose_per_eye &&
                         !g_headless_grab &&
-                        (!to_headset || GpuBridgeReady());
+                        (!to_headset || GpuBridgeReady() || VkSceneDirect());
   bool one_walk_done = false;
   // one_walk_check=1: on a frame that saves pictures, the right eye also gets
   // its own walk, as without one walk, and its picture is saved as "walk2"
@@ -1560,7 +1561,9 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
     // renderer, with no copy of Direct3D 9 (vk_eyes, docs/backend.md, "The
     // session with Vulkan").
     uint64_t vk_image = 0;
-    const bool vk_eyes = to_headset && wide && g_screen->vulkan() &&
+    const bool vk_eyes = to_headset &&
+                         (wide || (walked_once && VkSceneDirect())) &&
+                         g_screen->vulkan() &&
                          VkSceneEyesWanted() &&
                          VkSceneEyesFor(g_screen->width(), g_screen->height(),
                                         &vk_image);

@@ -563,11 +563,11 @@ that moves while the Hand takes it.
     7 and Direct3D 7 on Vulkan in place of dxwrapper (`backend=vulkan`,
     `backend.md`, "The backend of the mod on Vulkan"): on the desktop the
     game runs from the logos to the start dialog of a new game with no
-    Direct3D 9, and the renderer draws each draw. The walks of the two
-    eyes of a frame give one image with both eyes for a session with
-    Vulkan. `ddraw_census=1` with `backend=system` lists the calls that the
-    game makes. Next for the backend: a headset session, one walk, and the
-    panel target. (B) one draw
+    Direct3D 9, and the renderer draws each draw. One walk, or the two
+    walks of the eyes, give one image with both eyes for a session with
+    Vulkan, and the help text goes into the panel of the renderer for the
+    subtitle card. `ddraw_census=1` with `backend=system` lists the calls
+    that the game makes. Next for the backend: a headset session. (B) one draw
     for many copies of a mesh (about 870 draws of a frame are 36 meshes);
     (C) a new renderer of the land, after a count of its draws. The Quest 3
     cannot run `runblack.exe`; a port there needs an x86 emulator with Wine

@@ -275,6 +275,7 @@ struct Texture {
   void* surface;
   vk::Image image;
   bool dirty;
+  uint64_t used_walk;  // g_walk_number of the last walk that drew with it
   struct SetSlot {
     VkSampler sampler;
     VkDescriptorSet set;
@@ -306,6 +307,10 @@ struct Slot {
   int garbage_count;
   vk::Buffer staging[kSlotStaging];
   int staging_count;
+  // THE RING OF THE STAGING (vk_texture_reuse=1): the pixels of the reads of
+  // the walk, one after the other. It is empty again after the fence.
+  vk::Buffer stage_ring;
+  VkDeviceSize stage_used;
   // The descriptor sets of the textures that the walk read again. They go
   // back to the pool when the fence of the slot says the GPU is done.
   VkDescriptorSet dead_sets[1024];
@@ -317,6 +322,18 @@ bool g_walk_upload_queue = false;
 bool g_upload_queue = true;
 uint64_t g_uploads_queued = 0;  // for the report
 uint64_t g_upload_wait_ticks = 0;  // the uploads that waited, on the CPU
+// vk_texture_reuse of bwvr.ini: 1 (the default) a texture that the walk
+// reads again with the same size goes into the image it has, when no draw of
+// the walk drew with it yet, and the pixels go into the ring of the slot. So
+// a read makes no allocation of the GPU. 0: each read makes a new image and
+// a staging buffer of its own.
+bool g_texture_reuse = true;
+const VkDeviceSize kStageRingBytes = 32ull << 20;
+uint64_t g_walk_number = 0;      // counts each walk, from the start
+uint64_t g_reused = 0;           // for the report
+uint64_t g_ring_stages = 0;
+uint64_t g_fence_waits = 0;      // walks that waited for the fence of their slot
+uint64_t g_fence_wait_ticks = 0;
 // The descriptor sets: in use now, and made since the start, against the
 // room of the pool (kMaxTextures * 8).
 int64_t g_sets_live = 0;
@@ -772,15 +789,16 @@ bool ReadSurface(IDirectDrawSurface7* s, uint32_t* width, uint32_t* height,
 // `image`, each mip level from the one before it, and the layout for the
 // fragment shader at the end.
 void RecordUpload(VkCommandBuffer cb, const vk::Image* image,
-                  const vk::Buffer& staging, uint32_t width, uint32_t height,
-                  uint32_t levels) {
+                  VkBuffer staging, VkDeviceSize offset, uint32_t width,
+                  uint32_t height, uint32_t levels) {
   vk::Barrier(cb, image->image, VK_IMAGE_ASPECT_COLOR_BIT,
               VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
               levels);
   VkBufferImageCopy copy = {};
+  copy.bufferOffset = offset;
   copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
   copy.imageExtent = {width, height, 1};
-  f.vkCmdCopyBufferToImage(cb, staging.buffer, image->image,
+  f.vkCmdCopyBufferToImage(cb, staging, image->image,
                            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copy);
   // Each level from the one before it, with a linear blit.
   for (uint32_t level = 1; level < levels; ++level) {
@@ -878,7 +896,7 @@ bool Upload(uint32_t width, uint32_t height, uint8_t* pixels,
     return false;
   }
   VkCommandBuffer cb = vk::BeginOnce();
-  RecordUpload(cb, image, staging, width, height, levels);
+  RecordUpload(cb, image, staging.buffer, 0, width, height, levels);
   const bool ok = vk::EndOnce(cb);
   vk::FreeBuffer(&staging);
   QueryPerformanceCounter(&done);
@@ -889,9 +907,89 @@ bool Upload(uint32_t width, uint32_t height, uint8_t* pixels,
 // THE UPLOADS OF A WALK: as Upload, into the upload buffer of the slot of
 // the walk, with no wait. With no room for one more staging buffer it is
 // an Upload.
+// The pixels in the ring of the staging of the slot of the walk. False when
+// the ring has no room. Frees nothing.
+bool StageInRing(const uint8_t* pixels, VkDeviceSize bytes,
+                 VkDeviceSize* offset) {
+  Slot& s = g_slots[g_slot];
+  const VkDeviceSize room = (bytes + 15) & ~static_cast<VkDeviceSize>(15);
+  if (s.stage_ring.buffer == VK_NULL_HANDLE &&
+      !vk::MakeBuffer(kStageRingBytes, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, true,
+                      &s.stage_ring)) {
+    return false;
+  }
+  if (s.stage_used + room > kStageRingBytes) return false;
+  memcpy(static_cast<uint8_t*>(s.stage_ring.mapped) + s.stage_used, pixels,
+         static_cast<size_t>(bytes));
+  *offset = s.stage_used;
+  s.stage_used += room;
+  ++g_ring_stages;
+  ++g_uploads;
+  g_upload_bytes += bytes;
+  return true;
+}
+
+void OpenUploads() {
+  Slot& s = g_slots[g_slot];
+  if (s.upload_open) return;
+  VkCommandBufferBeginInfo begin = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
+  begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+  f.vkBeginCommandBuffer(s.upload_cb, &begin);
+  s.upload_open = true;
+}
+
+uint32_t LevelsOf(uint32_t width, uint32_t height) {
+  uint32_t levels = 1;
+  while ((width >> levels) > 0 || (height >> levels) > 0) ++levels;
+  return levels;
+}
+
+// vk_texture_reuse=1: the pixels go into the image that the texture has.
+// The upload buffer of the slot runs before the buffer of the walk, so no
+// draw of this walk may have drawn with the image before (the caller looks).
+// The draws of the walks before it come first in the queue. False with the
+// pixels kept when the ring has no room.
+bool UploadInPlace(uint32_t width, uint32_t height, const uint8_t* pixels,
+                   vk::Image* image) {
+  VkDeviceSize offset = 0;
+  const VkDeviceSize bytes = static_cast<VkDeviceSize>(width) * height * 4;
+  if (!StageInRing(pixels, bytes, &offset)) return false;
+  OpenUploads();
+  RecordUpload(g_slots[g_slot].upload_cb, image,
+               g_slots[g_slot].stage_ring.buffer, offset, width, height,
+               LevelsOf(width, height));
+  ++g_uploads_queued;
+  ++g_reused;
+  return true;
+}
+
 bool UploadQueued(uint32_t width, uint32_t height, uint8_t* pixels,
                   vk::Image* image) {
   Slot& s = g_slots[g_slot];
+  // vk_texture_reuse=1: the pixels go into the ring, and only the image is
+  // new.
+  if (g_texture_reuse) {
+    const uint32_t levels = LevelsOf(width, height);
+    if (!vk::MakeImage(width, height, levels, kTextureFormat,
+                       VK_IMAGE_USAGE_SAMPLED_BIT |
+                           VK_IMAGE_USAGE_TRANSFER_DST_BIT |
+                           VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
+                       VK_IMAGE_ASPECT_COLOR_BIT, image)) {
+      free(pixels);
+      return false;
+    }
+    VkDeviceSize offset = 0;
+    if (StageInRing(pixels, static_cast<VkDeviceSize>(width) * height * 4,
+                    &offset)) {
+      free(pixels);
+      OpenUploads();
+      RecordUpload(s.upload_cb, image, s.stage_ring.buffer, offset, width,
+                   height, levels);
+      ++g_uploads_queued;
+      return true;
+    }
+    vk::FreeImage(image);
+  }
   if (s.staging_count >= kSlotStaging) {
     return Upload(width, height, pixels, image);
   }
@@ -900,14 +998,8 @@ bool UploadQueued(uint32_t width, uint32_t height, uint8_t* pixels,
   if (!PrepareUpload(width, height, pixels, image, &staging, &levels)) {
     return false;
   }
-  if (!s.upload_open) {
-    VkCommandBufferBeginInfo begin = {
-        VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
-    begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    f.vkBeginCommandBuffer(s.upload_cb, &begin);
-    s.upload_open = true;
-  }
-  RecordUpload(s.upload_cb, image, staging, width, height, levels);
+  OpenUploads();
+  RecordUpload(s.upload_cb, image, staging.buffer, 0, width, height, levels);
   s.staging[s.staging_count++] = staging;
   ++g_uploads_queued;
   return true;
@@ -950,6 +1042,15 @@ Texture* TextureOf(void* surface) {
   if (!ReadSurface(static_cast<IDirectDrawSurface7*>(surface), &width, &height,
                    &pixels)) {
     return t->image.image != VK_NULL_HANDLE ? t : g_white;
+  }
+  // The image it has, when it has the size and no draw of this walk drew
+  // with it.
+  if (g_texture_reuse && g_recording && g_walk_upload_queue &&
+      t->image.image != VK_NULL_HANDLE && t->image.width == width &&
+      t->image.height == height && t->used_walk != g_walk_number &&
+      UploadInPlace(width, height, pixels, &t->image)) {
+    free(pixels);
+    return t;
   }
   if (t->image.image != VK_NULL_HANDLE) Retire(&t->image);
   // The sets of the old image go back to the pool after the GPU is done.
@@ -1462,8 +1563,16 @@ void BeginOnWorker(const void* data) {
   if (!g_walk_right) g_target ^= 1;
   Slot& s = g_slots[g_slot];
   const VkDevice device = vk::Get().device;
-  f.vkWaitForFences(device, 1, &s.fence, VK_TRUE, UINT64_MAX);
+  if (f.vkGetFenceStatus(device, s.fence) != VK_SUCCESS) {
+    LARGE_INTEGER t0, t1;
+    QueryPerformanceCounter(&t0);
+    f.vkWaitForFences(device, 1, &s.fence, VK_TRUE, UINT64_MAX);
+    QueryPerformanceCounter(&t1);
+    ++g_fence_waits;
+    g_fence_wait_ticks += static_cast<uint64_t>(t1.QuadPart - t0.QuadPart);
+  }
   f.vkResetFences(device, 1, &s.fence);
+  s.stage_used = 0;
   for (int i = 0; i < s.garbage_count; ++i) vk::FreeImage(&s.garbage[i]);
   s.garbage_count = 0;
   for (int i = 0; i < s.staging_count; ++i) vk::FreeBuffer(&s.staging[i]);
@@ -1540,6 +1649,7 @@ void BeginOnWorker(const void* data) {
   g_picture = seed->picture;
   g_picture_frame = seed->frame;
   ++g_walks;
+  ++g_walk_number;
   // Without Direct3D 9 only when the renderer follows the target and has
   // the panel, so each draw has its place.
   g_walk_only = seed->only && g_walk_follow && g_walk_panel;
@@ -1764,6 +1874,12 @@ void VkSceneTarget(void* surface) {
   Deliver(&TargetOnWorker, &a, sizeof(a));
 }
 
+void VkScenePanelBind(bool panel) {
+  if (!VkSceneOn() || !g_direct) return;
+  TargetArgs a = {nullptr, panel ? 1u : 0u};
+  Deliver(&TargetOnWorker, &a, sizeof(a));
+}
+
 void VkSceneViewport(const void* viewport7) {
   if (!VkSceneOn() || (!g_direct && !D3D7ThreadActive()) ||
       viewport7 == nullptr) {
@@ -1876,6 +1992,7 @@ void VkSceneDraw(uint32_t type, uint32_t fvf, const void* vertices,
     return;
   }
   Texture* texture = TextureOf(g_texture);
+  texture->used_walk = g_walk_number;
   const uint32_t* ts = g_ts[0];
   VkSampler sampler =
       Sampler(ts[D3DTSS_MAGFILTER], ts[D3DTSS_MINFILTER], ts[D3DTSS_MIPFILTER],
@@ -2158,9 +2275,86 @@ void VkSceneSetDirect(bool on) {
 bool VkSceneDirect() { return g_direct; }
 
 namespace {
-vk::Image g_small = {};
-vk::Buffer g_small_buffer = {};
+// THE WINDOW. Two entries in turn. A present records a blit of the picture
+// to the size of the window and a copy to the CPU, and submits them with no
+// wait. vk_present_late=1 gives the pixels of the entry before it, which the
+// GPU made one present ago, so the frame thread does not wait for the walks
+// of its own frame. 0: the present waits for its own copy.
+struct PresentEntry {
+  vk::Image image;
+  vk::Buffer buffer;
+  VkCommandPool pool;
+  VkCommandBuffer cb;
+  VkFence fence;
+  bool pending;  // submitted, and its pixels not given yet
+};
+PresentEntry g_present[2] = {};
+int g_present_next = 0;
+bool g_present_late = true;
+bool g_present_made = false;
+uint64_t g_present_waits = 0;      // for the report: presents that waited
+uint64_t g_present_wait_ticks = 0;
+
+bool MakePresentEntries() {
+  const VkDevice device = vk::Get().device;
+  for (int i = 0; i < 2; ++i) {
+    PresentEntry& e = g_present[i];
+    VkCommandPoolCreateInfo pool = {VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
+    pool.queueFamilyIndex = vk::Get().queue_family;
+    if (f.vkCreateCommandPool(device, &pool, nullptr, &e.pool) != VK_SUCCESS) {
+      return false;
+    }
+    VkCommandBufferAllocateInfo cb_info = {
+        VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
+    cb_info.commandPool = e.pool;
+    cb_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    cb_info.commandBufferCount = 1;
+    if (f.vkAllocateCommandBuffers(device, &cb_info, &e.cb) != VK_SUCCESS) {
+      return false;
+    }
+    VkFenceCreateInfo fence = {VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
+    fence.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+    if (f.vkCreateFence(device, &fence, nullptr, &e.fence) != VK_SUCCESS) {
+      return false;
+    }
+  }
+  return true;
+}
+
+// Waits for the fence of an entry, and counts a wait that took time.
+void WaitPresent(PresentEntry& e) {
+  const VkDevice device = vk::Get().device;
+  if (f.vkGetFenceStatus(device, e.fence) == VK_SUCCESS) return;
+  LARGE_INTEGER t0, t1;
+  QueryPerformanceCounter(&t0);
+  f.vkWaitForFences(device, 1, &e.fence, VK_TRUE, UINT64_MAX);
+  QueryPerformanceCounter(&t1);
+  ++g_present_waits;
+  g_present_wait_ticks += static_cast<uint64_t>(t1.QuadPart - t0.QuadPart);
+}
 }  // namespace
+
+void VkSceneSetTextureReuse(int on) {
+  g_texture_reuse = on != 0;
+  if (g_mode == 0) return;
+  ModLog("vk scene     : vk_texture_reuse=%d. %s", g_texture_reuse ? 1 : 0,
+         g_texture_reuse
+             ? "A texture that a walk reads again goes into the image it has "
+               "when it can, and its pixels into the ring of the slot"
+             : "Each read of a texture makes a new image and a staging "
+               "buffer");
+}
+
+void VkSceneSetPresentLate(int on) {
+  g_present_late = on != 0;
+  if (!g_direct) return;
+  ModLog("vk scene     : vk_present_late=%d. The window shows %s",
+         g_present_late ? 1 : 0,
+         g_present_late ? "the picture of one present ago, and the frame "
+                          "thread does not wait for the GPU"
+                        : "the picture of this frame, and the frame thread "
+                          "waits for the GPU");
+}
 
 const uint8_t* VkScenePresentPixels(uint32_t width, uint32_t height,
                                     int* pitch) {
@@ -2169,31 +2363,42 @@ const uint8_t* VkScenePresentPixels(uint32_t width, uint32_t height,
   }
   const vk::Image& source = g_colors[g_present_index];
   if (source.image == VK_NULL_HANDLE) return nullptr;
-  if (g_small.image == VK_NULL_HANDLE || g_small.width != width ||
-      g_small.height != height || g_small.format != source.format) {
-    vk::LockQueue();
-    f.vkDeviceWaitIdle(vk::Get().device);
-    vk::UnlockQueue();
-    vk::FreeImage(&g_small);
-    vk::FreeBuffer(&g_small_buffer);
+  if (!g_present_made) {
+    if (!MakePresentEntries()) {
+      Fail("the entries of the window");
+      return nullptr;
+    }
+    g_present_made = true;
+  }
+  const VkDevice device = vk::Get().device;
+  PresentEntry& e = g_present[g_present_next];
+  // The copy of two presents ago is done, or nearly.
+  WaitPresent(e);
+  e.pending = false;
+  if (e.image.image == VK_NULL_HANDLE || e.image.width != width ||
+      e.image.height != height || e.image.format != source.format) {
+    vk::FreeImage(&e.image);
+    vk::FreeBuffer(&e.buffer);
     if (!vk::MakeImage(width, height, 1, source.format,
                        VK_IMAGE_USAGE_TRANSFER_DST_BIT |
                            VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
-                       VK_IMAGE_ASPECT_COLOR_BIT, &g_small) ||
+                       VK_IMAGE_ASPECT_COLOR_BIT, &e.image) ||
         !vk::MakeBuffer(static_cast<VkDeviceSize>(width) * height * 4,
-                        VK_BUFFER_USAGE_TRANSFER_DST_BIT, true,
-                        &g_small_buffer)) {
-      vk::FreeImage(&g_small);
-      vk::FreeBuffer(&g_small_buffer);
+                        VK_BUFFER_USAGE_TRANSFER_DST_BIT, true, &e.buffer)) {
+      vk::FreeImage(&e.image);
+      vk::FreeBuffer(&e.buffer);
       return nullptr;
     }
   }
-  VkCommandBuffer cb = vk::BeginOnce();
-  if (cb == VK_NULL_HANDLE) return nullptr;
+  f.vkResetCommandPool(device, e.pool, 0);
+  VkCommandBuffer cb = e.cb;
+  VkCommandBufferBeginInfo begin = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
+  begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+  f.vkBeginCommandBuffer(cb, &begin);
   vk::Barrier(cb, source.image, VK_IMAGE_ASPECT_COLOR_BIT,
               VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
               VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, 1, source.layers);
-  vk::Barrier(cb, g_small.image, VK_IMAGE_ASPECT_COLOR_BIT,
+  vk::Barrier(cb, e.image.image, VK_IMAGE_ASPECT_COLOR_BIT,
               VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
               1);
   VkImageBlit blit = {};
@@ -2204,22 +2409,50 @@ const uint8_t* VkScenePresentPixels(uint32_t width, uint32_t height,
   blit.dstOffsets[1] = {static_cast<int32_t>(width),
                         static_cast<int32_t>(height), 1};
   f.vkCmdBlitImage(cb, source.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                   g_small.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1,
+                   e.image.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1,
                    &blit, VK_FILTER_LINEAR);
-  vk::Barrier(cb, g_small.image, VK_IMAGE_ASPECT_COLOR_BIT,
+  vk::Barrier(cb, e.image.image, VK_IMAGE_ASPECT_COLOR_BIT,
               VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
               VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, 1);
   VkBufferImageCopy copy = {};
   copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
   copy.imageExtent = {width, height, 1};
-  f.vkCmdCopyImageToBuffer(cb, g_small.image,
+  f.vkCmdCopyImageToBuffer(cb, e.image.image,
                            VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                           g_small_buffer.buffer, 1, &copy);
+                           e.buffer.buffer, 1, &copy);
   vk::Barrier(cb, source.image, VK_IMAGE_ASPECT_COLOR_BIT,
               VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
               VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 1, source.layers);
-  if (!vk::EndOnce(cb)) return nullptr;
-  uint8_t* pixels = static_cast<uint8_t*>(g_small_buffer.mapped);
+  f.vkEndCommandBuffer(cb);
+  VkCommandBufferSubmitInfo cb_info = {
+      VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO};
+  cb_info.commandBuffer = cb;
+  VkSubmitInfo2 submit = {VK_STRUCTURE_TYPE_SUBMIT_INFO_2};
+  submit.commandBufferInfoCount = 1;
+  submit.pCommandBufferInfos = &cb_info;
+  f.vkResetFences(device, 1, &e.fence);
+  vk::LockQueue();
+  const VkResult submitted =
+      f.vkQueueSubmit2(vk::Get().queue, 1, &submit, e.fence);
+  vk::UnlockQueue();
+  if (submitted != VK_SUCCESS) {
+    Fail("a submit of the window");
+    return nullptr;
+  }
+  e.pending = true;
+  PresentEntry* out = &e;
+  if (g_present_late) {
+    PresentEntry& last = g_present[g_present_next ^ 1];
+    g_present_next ^= 1;
+    if (!last.pending || last.image.width != width ||
+        last.image.height != height) {
+      return nullptr;
+    }
+    out = &last;
+  }
+  WaitPresent(*out);
+  out->pending = false;
+  uint8_t* pixels = static_cast<uint8_t*>(out->buffer.mapped);
   // The window takes BGRA.
   if (source.format != VK_FORMAT_B8G8R8A8_UNORM) {
     const size_t count = static_cast<size_t>(width) * height;
@@ -2349,6 +2582,25 @@ void VkSceneReport(uint64_t frames) {
   ModLog("vk scene     : vk_only=%d. %llu walks without Direct3D 9",
          g_only_mode ? 1 : 0, g_only_walks);
   g_only_walks = 0;
+  {
+    LARGE_INTEGER hz;
+    QueryPerformanceFrequency(&hz);
+    ModLog("vk scene     : vk_texture_reuse=%d. %llu reads went into the image "
+           "they had, %llu put their pixels into the ring of the slot. %llu "
+           "walks waited for the fence of their slot, %.2f ms in all",
+           g_texture_reuse ? 1 : 0, g_reused, g_ring_stages, g_fence_waits,
+           g_fence_wait_ticks * 1000.0 / static_cast<double>(hz.QuadPart));
+    g_reused = g_ring_stages = g_fence_waits = g_fence_wait_ticks = 0;
+  }
+  if (g_direct) {
+    LARGE_INTEGER hz;
+    QueryPerformanceFrequency(&hz);
+    ModLog("vk scene     : vk_present_late=%d. %llu presents to the window "
+           "waited for the GPU, %.2f ms in all",
+           g_present_late ? 1 : 0, g_present_waits,
+           g_present_wait_ticks * 1000.0 / static_cast<double>(hz.QuadPart));
+    g_present_waits = g_present_wait_ticks = 0;
+  }
   if (g_pair_walks != 0) {
     ModLog("vk scene     : %llu walks of the right eye drew into the target "
            "of the walk of the left eye before them, so the target has both "

@@ -2303,6 +2303,19 @@ the reads in the submit of their walk, the reads that waited, and the sets
 in use. `vk_scene_reread_test=N` (a test key) reads N textures again in
 each walk, in turn.
 
+**A read with no allocation** (`vk_texture_reuse`, 1 is the default). A
+read of the walk puts its pixels into a ring of 32 MiB of the slot, which is
+empty again after the fence of the slot. A texture that the walk reads again
+with the same size goes into the image that it has, with its descriptor
+sets, when no draw of this walk drew with it yet: the uploads of the walk
+run before its draws, and the draws of the walks before it come first in
+the queue. A texture that a draw of this walk used gets a new image, as
+before. So a read makes no allocation of the GPU, which is a call of the
+kernel (`NtGdiDdDDICreateAllocation`, and `NtGdiDdDDIFreeGpuVirtualAddress`
+when it goes back). With 0 each read makes a new image and a staging buffer
+of its own. The report has the reads into their image, the reads in the
+ring, and the waits of a walk for the fence of its slot.
+
 A row of a locked surface goes into a buffer of the CPU with streaming
 loads of SSE4.1 (MOVNTDQA) before the conversion, because a `Lock` of
 dxwrapper gives memory that the CPU reads with no cache. Desktop runs in
@@ -2368,6 +2381,10 @@ DXT5 block by block, and fills with a color. The `Blt` to the primary is
 the present: the picture of the last walk of the left eye goes to the
 window at the size of its client area (`VkScenePresentPixels`, a blit with
 a linear filter on the GPU, a copy to the CPU, `SetDIBitsToDevice`). The
+blit and the copy go to the GPU with no wait, and the window shows the copy
+of the present before (`vk_present_late=1`), so the frame thread does not
+wait for the walks of its own frame. With `vk_present_late=0` each present
+waits for its own copy. The
 device keeps each state for its Get methods, makes the state blocks, and
 gives each call to the Vulkan renderer on the frame thread
 (`VkSceneSetDirect`): each `BeginScene` and `EndScene` is a walk, and the
@@ -2382,13 +2399,19 @@ report of each 450 frames counts them. The merge of draw calls
 texture with a `Lock` in a draw, and the hook of the `Lock` sends the row
 of the merge.
 
-**A desktop run** of the start dialog of a new game (`hand_run.ps1 -Kind
-fixed -NewGame`, a Radeon RX 7900 XTX, render 4080 by 3264): the game runs
-from the logos to the start dialog. The windows of 450 frames have 194 to
-270 frames a second and 958 to 2309 draws a frame, and the renderer draws
-each draw. At frame 421 the image of the left eye and the image of the
-renderer with dxwrapper differ in 0.035 percent of the pixels by more than
-24 levels, and the image and the picture of Direct3D 9 in 0.180 percent.
+**A desktop run** of a new game to the choice of the Creature (`hand_run.ps1
+-Kind fixed -NewGame`, a Radeon RX 7900 XTX, render 4080 by 3264, one walk):
+the game runs from the logos through the flight of the camera into the
+valley of the Creatures. The renderer draws each draw. A frame is 1.2 to 1.9
+ms in most windows of 450 frames, and 2.1 to 2.7 ms in the valley, where the
+worst frame of a window is 3.6 to 4.3 ms. With `vk_texture_reuse=0` a frame
+in the valley is 4.1 to 5.4 ms and the worst 9.7 ms, and the scene walks
+there are half calls of the kernel (`profile_sample`). With
+`vk_texture_reuse=0` and `vk_present_late=0` a frame is 2.9 to 3.2 ms, and 5.8
+to 7.5 ms in the valley. At frame 421 the images of the eyes and the images
+of the renderer with dxwrapper and one walk differ in 0.021 percent (the
+left eye) and 0.018 percent (the right eye) of the pixels by more than 24
+levels.
 
 **Points and lines.** The renderer draws triangles. So a draw of points or
 lines of XYZRHW vertices becomes a list of triangles (`vk_prim_math.h`): a
@@ -2398,9 +2421,26 @@ vertex. Each corner has the color, the depth and the texture coordinates
 of the vertex of its end. The draw has no cull, because Direct3D 7 culls no
 point and no line. `vk_lines=0` draws no point and no line.
 
-**Two walks for the eyes.** One walk needs the targets of Direct3D 9
-(`one_walk.cpp`), so with the backend each frame has a walk for each eye.
-The walk of the left eye draws into layer 0 of its target. The walk of the
+**One walk.** With the backend one walk has no wide target and no hook of
+Direct3D 9 (`OneWalkBeginPass`). The renderer draws each batch of the walk
+into both layers of its target and moves the vertices of the right layer by
+the move per rhw, as in a session with Vulkan with dxwrapper ("The Vulkan
+renderer", "Both eyes"). The game keeps half an eye more on the right, as
+with the wide target. A batch of the interface goes to one layer
+(`kOneWalkLeftOnly`, `kOneWalkRightOnly`). After the walk both layers go to
+the session with Vulkan. In the headset one walk needs a frame with no pose
+for each eye, as with dxwrapper.
+
+**The panel.** The panel target of the interface is the panel of the
+renderer ("The panel"). `GpuBridgePanelBind` and `GpuBridgePanelUnbind`
+give the bind to the renderer (`VkScenePanelBind`), so each batch for the
+panel goes into the panel of the walk, with the blend of the panel. The
+subtitle card and the panel layer take that panel (`vk_panel=1`). There is
+no check target (`ui_panel=2` draws no check picture).
+
+**Two walks for the eyes.** A frame with no walk of one walk has a walk for
+each eye (`one_walk=0`, or a pose for each eye). The walk of the left eye
+draws into layer 0 of its target. The walk of the
 right eye that comes just after it takes the same target: it keeps layer
 0, clears layer 1 and draws into it (the eyes of the push constants, and a
 clear of layer 1 alone). After the pass of the right eye both layers go to
@@ -2410,10 +2450,8 @@ session. The pass of the left eye sends no picture, and the pixels of the
 render target of the backend do not go to the headset, because they are
 not the picture of the walk.
 
-**Not made yet.** One walk for both eyes. The panel target of the
-interface (`gpu_bridge.cpp`), so the help text stays in the eye pictures.
-Not run: a headset session, a video, the Main Menu, a saved game, the
-Temple.
+**Not run yet:** a headset session, a video, the Main Menu, a saved game,
+the Temple.
 
 ## The session with Vulkan
 
@@ -4014,6 +4052,8 @@ keys that the launcher sets.
 | `profile_gpu` | 0 | A test key. See "The GPU time" |
 | `hang_watch` | 0 | A test key: 1 the place of the frame thread when it makes no frame for 8 s, 2 each 8 s. With each of the two the place of a fault. See "The watch of the frame thread" |
 | `vk_lines` | 1 | With `backend=vulkan`: 1 a draw of points or lines becomes triangles of 1 pixel across, 0 it is not drawn. See "The backend of the mod on Vulkan" |
+| `vk_present_late` | 1 | With `backend=vulkan`: 1 the window on the monitor shows the picture of the present before, with no wait for the GPU, 0 each present waits for its own picture. See "The backend of the mod on Vulkan" |
+| `vk_texture_reuse` | 1 | 1 a texture that a walk reads again goes into the image it has when it can, and its pixels into a ring of the slot, so a read makes no allocation of the GPU. 0 each read makes a new image and a staging buffer. See "The Vulkan renderer" |
 | `profile_sample` | 0 | A test key. See "Where the time of the scene walk goes" |
 | `profile_sample_thread` | 0 | A test key: 1 takes the samples of `profile_sample` from the render thread, 2 from the D3D7 thread. See "Where the time of the scene walk goes" |
 | `profile_sample_dump` | 0 | A test key: 1 writes each sample of `profile_sample` with the modules to `bwvr-samples.txt` beside `runblack.exe`. See "Where the time of the scene walk goes" |
