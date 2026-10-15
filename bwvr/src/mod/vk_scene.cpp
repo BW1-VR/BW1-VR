@@ -3114,6 +3114,10 @@ void VkSceneSetFoveation(int level, int inner_deg, int outer_deg,
   g_fovea_show = show != 0;
   g_fovea_inner_ini = static_cast<float>(inner_deg);
   g_fovea_outer_ini = static_cast<float>(outer_deg);
+  // The ring of 2 by 2 is never inside the fovea.
+  if (g_fovea_inner_ini > 0.0f && g_fovea_outer_ini < g_fovea_inner_ini) {
+    g_fovea_outer_ini = g_fovea_inner_ini;
+  }
   if (g_fovea_level == 0) return;
   const foveation_math::Level l = foveation_math::LevelOf(g_fovea_level);
   ModLog("vk scene     : foveation=%d. The eye pictures of the Vulkan renderer "

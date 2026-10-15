@@ -23,6 +23,9 @@
 #include <stdlib.h>
 #include <string.h>
 
+#define VK_NO_PROTOTYPES
+#include <vulkan/vulkan.h>
+
 #include "../common/exe_check.h"
 #include "../common/version.h"
 
@@ -45,6 +48,8 @@ enum Kind {
   kChoice,      // one of a list, stored as the index
   kValues,      // one of a "label=value" list, stored as the value
   kScale,       // a slider, as a percentage of what the headset asks for
+  kSlider,      // a slider with a value of its own: "low|high|step|unit"
+  kRenderer,    // the renderer: "backend" in the ini, as text
 };
 
 struct Setting {
@@ -103,52 +108,70 @@ const Setting kSettings[] = {
      "frame time in busy places."},
 
     {kGroup, nullptr, "Performance", nullptr, 0, nullptr},
-    {kBool, "d3d9_backend", "Draw with Vulkan (DXVK)", nullptr, 0,
-     "The game draws through DXVK and Vulkan in place of the Direct3D 9 of "
-     "Windows. This takes about half of the time of the driver off each "
-     "frame. The mod uses it only when your GPU has Vulkan 1.3 and the file "
-     "dxvk\\d3d9.dll is in the game folder. Else, and when a start with it "
-     "fails, the game draws as before. The change counts from the next "
-     "start."},
-    {kBool, "xr_vulkan", "Headset session with Vulkan (test)", nullptr, 0,
-     "The headset gets the pictures through Vulkan in place of Direct3D 11, "
-     "and the mod draws the scene of each eye with a Vulkan renderer of its "
-     "own. Your GPU needs Vulkan 1.3. When the session with Vulkan does not "
-     "start, the mod starts one with Direct3D 11. This is a test: the "
-     "pictures can differ from the ones of the game. The change counts from "
-     "the next start."},
-    {kValues, "foveation", "Foveated rendering (test)",
-     "Off=0|Light=1|Medium=2|Strong=3", 0,
-     "The middle of each eye picture keeps its full detail, and the parts "
-     "around it get fewer shades of color. This can take time off a GPU "
-     "that is slow for each pixel. "
-     "With an eye tracker (for example Quest Pro) the sharp part follows "
-     "your gaze. With no eye tracker (for example Quest 3) it stays in the "
-     "middle of the view. It works only when the mod draws the eye pictures "
-     "with its Vulkan renderer: with the headset session with Vulkan, and "
-     "your GPU needs variable rate shading."},
-    {kBool, "fovea_res", "Foveated resolution (test)", nullptr, 0,
+    {kRenderer, "backend", "Renderer", "Vulkan|Direct3D 9", 1,
+     "Vulkan: the mod draws the game with a Vulkan renderer of its own, and "
+     "the pictures go to the headset through Vulkan. Your GPU needs Vulkan "
+     "1.3: with no Vulkan 1.3 the launcher keeps Direct3D 9. Direct3D 9: "
+     "the game draws through dxwrapper and Direct3D 9, as in the versions "
+     "before. The change counts from the next start."},
+    {kBool, "d3d9_backend", "Direct3D 9 through DXVK", nullptr, 0,
+     "Only with the renderer Direct3D 9. The game draws through DXVK and "
+     "Vulkan in place of the Direct3D 9 of Windows. This takes about half "
+     "of the time of the driver off each frame. The mod uses it only when "
+     "your GPU has Vulkan 1.3 and the file dxvk\\d3d9.dll is in the game "
+     "folder. Else, and when a start with it fails, the game draws as "
+     "before. The change counts from the next start."},
+    {kBool, "xr_vulkan", "Headset session with Vulkan", nullptr, 0,
+     "Only with the renderer Direct3D 9: the renderer Vulkan always has a "
+     "session with Vulkan. The headset gets the pictures through Vulkan in "
+     "place of Direct3D 11, and the mod draws the scene of each eye with its "
+     "Vulkan renderer. Your GPU needs Vulkan 1.3. When the session with "
+     "Vulkan does not start, the mod starts one with Direct3D 11. The change "
+     "counts from the next start."},
+
+    {kGroup, nullptr, "Foveated rendering", nullptr, 0, nullptr},
+    {kBool, "foveation", "Fewer shades away from the middle", nullptr, 0,
+     "The middle of each eye picture keeps all its shades of color, and the "
+     "parts around it get one shade for 2 by 2 pixels (4 by 4 at the edge "
+     "when the GPU has it). The edges of things stay sharp. This can take "
+     "time off a GPU that is slow for each pixel. With an eye tracker (for "
+     "example Quest Pro) the middle follows your gaze. With no eye tracker "
+     "(for example Quest 3) it stays in the middle of the view. It needs "
+     "the Vulkan renderer, or the headset session with Vulkan, and a GPU "
+     "with variable rate shading."},
+    {kSlider, "foveation_inner_deg", "All shades within", "10|45|1| degrees",
+     22,
+     "How far the part with all shades goes from the middle to each side. "
+     "Smaller saves more."},
+    {kSlider, "foveation_outer_deg", "One shade for 2 by 2 within",
+     "15|70|1| degrees", 35,
+     "Past this angle a shade is for 4 by 4 pixels, when the GPU has it. It "
+     "is at least the angle above."},
+    {kBool, "fovea_res", "Fewer pixels away from the middle", nullptr, 0,
      "The mod draws each eye picture from two pictures: one of the whole "
-     "view with fewer pixels, and one of the middle with more pixels. The "
-     "middle follows your gaze with an eye tracker, and stays in the middle "
-     "of the view with none. The three rows below set the two resolutions "
-     "and the size of the middle. It works only when the mod draws the eye "
-     "pictures with its Vulkan renderer: with the headset session with "
-     "Vulkan."},
-    {kValues, "fovea_res_outer_pct", "Resolution outside the middle",
-     "25%=25|35%=35|50%=50|70%=70|100%=100", 50,
-     "The pixels of the whole view, as a percentage of the resolution of "
-     "the eye picture on each side. 50% is a quarter of the pixels."},
-    {kValues, "fovea_res_center_pct", "Resolution of the middle",
-     "75%=75|100%=100|125%=125|150%=150|200%=200", 100,
-     "The pixels of the middle, as a percentage of the resolution of the eye "
-     "picture on each side. More than 100% makes the middle smoother than "
-     "the eye picture alone."},
-    {kValues, "fovea_res_center_deg", "Size of the middle",
-     "15 degrees=15|20 degrees=20|25 degrees=25|30 degrees=30|40 degrees=40",
+     "view with fewer pixels, and one of the middle with more. The middle "
+     "follows your gaze with an eye tracker, and stays in the middle of the "
+     "view with none. The three sliders below set the two resolutions and "
+     "the size of the middle. It needs the Vulkan renderer, or the headset "
+     "session with Vulkan."},
+    {kSlider, "fovea_res_outer_pct", "Resolution of the whole view",
+     "20|100|5|%", 50,
+     "The pixels of the whole view, as a percentage of the eye picture on "
+     "each side. 50% is a quarter of the pixels."},
+    {kSlider, "fovea_res_center_pct", "Resolution of the middle", "50|200|5|%",
+     100,
+     "The pixels of the middle, as a percentage of the eye picture on each "
+     "side. More than 100% makes the middle smoother than the eye picture "
+     "alone."},
+    {kSlider, "fovea_res_center_deg", "Size of the middle", "10|45|1| degrees",
      25,
      "How far the middle goes from its centre to each side. A larger middle "
      "is sharp further out and costs more frame time."},
+    {kBool, "foveation_show", "Show the parts with fewer details", nullptr, 0,
+     "A blue colour over the parts with fewer shades or fewer pixels, so "
+     "you can find the settings that you like. Turn it off to play. With "
+     "the test keys, Shift O and Shift P change the two kinds while you "
+     "play."},
 
     {kGroup, nullptr, "View", nullptr, 0, nullptr},
     {kValues, "play_mode", "Play mode",
@@ -396,6 +419,10 @@ int ReadIni(const char* key, int fallback) {
   return GetPrivateProfileIntA("bwvr", key, fallback, g_ini_path);
 }
 
+void ReadIniText(const char* key, char* out, DWORD size) {
+  GetPrivateProfileStringA("bwvr", key, "", out, size, g_ini_path);
+}
+
 // True when Windows refused a write to bwvr.ini. Under Program Files an
 // unelevated write fails, and the launcher must not say "Saved." then.
 bool g_write_failed = false;
@@ -486,6 +513,87 @@ void SayScale(int index, int percent) {
   _snprintf_s(text, sizeof(text), _TRUNCATE, "%s: %d%% (%d x %d)",
               kSettings[index].label, percent, w, h);
   SetWindowTextA(g_label[index], text);
+}
+
+// THE SLIDERS WITH A VALUE OF THEIR OWN (kSlider). The spec is
+// "low|high|step|unit". The value is on the step.
+int SliderValue(int index) {
+  int low = 0, high = 0, step = 0;
+  ScaleRange(kSettings[index].choices, &low, &high, &step);
+  int value = static_cast<int>(
+      SendMessageA(g_control[index], TBM_GETPOS, 0, 0));
+  if (step > 1) value = low + (value - low + step / 2) / step * step;
+  if (value < low) value = low;
+  if (value > high) value = high;
+  return value;
+}
+
+void SaySlider(int index, int value) {
+  if (g_label[index] == nullptr) return;
+  // The unit is the text after the third '|'.
+  const char* unit = kSettings[index].choices;
+  for (int bars = 0; unit != nullptr && *unit != 0 && bars < 3; ++unit) {
+    if (*unit == '|') ++bars;
+    if (bars == 3) {
+      ++unit;
+      break;
+    }
+  }
+  char text[128];
+  _snprintf_s(text, sizeof(text), _TRUNCATE, "%s: %d%s",
+              kSettings[index].label, value,
+              unit != nullptr ? unit : "");
+  SetWindowTextA(g_label[index], text);
+}
+
+// THE RENDERER VULKAN needs a GPU with Vulkan 1.3. The launcher asks the
+// Vulkan of Windows, with no device: an instance, the list of the GPUs and
+// their versions.
+bool g_said_no_vulkan = false;
+
+bool HasVulkan13() {
+  HMODULE library = LoadLibraryA("vulkan-1.dll");
+  if (library == nullptr) return false;
+  bool found = false;
+  PFN_vkGetInstanceProcAddr get_proc =
+      reinterpret_cast<PFN_vkGetInstanceProcAddr>(
+          GetProcAddress(library, "vkGetInstanceProcAddr"));
+  PFN_vkCreateInstance create =
+      get_proc != nullptr
+          ? reinterpret_cast<PFN_vkCreateInstance>(
+                get_proc(nullptr, "vkCreateInstance"))
+          : nullptr;
+  VkApplicationInfo app = {VK_STRUCTURE_TYPE_APPLICATION_INFO};
+  app.pApplicationName = "Black & White VR Mod launcher";
+  app.apiVersion = VK_API_VERSION_1_3;
+  VkInstanceCreateInfo info = {VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
+  info.pApplicationInfo = &app;
+  VkInstance instance = VK_NULL_HANDLE;
+  if (create != nullptr &&
+      create(&info, nullptr, &instance) == VK_SUCCESS) {
+    PFN_vkEnumeratePhysicalDevices enumerate =
+        reinterpret_cast<PFN_vkEnumeratePhysicalDevices>(
+            get_proc(instance, "vkEnumeratePhysicalDevices"));
+    PFN_vkGetPhysicalDeviceProperties properties =
+        reinterpret_cast<PFN_vkGetPhysicalDeviceProperties>(
+            get_proc(instance, "vkGetPhysicalDeviceProperties"));
+    PFN_vkDestroyInstance destroy = reinterpret_cast<PFN_vkDestroyInstance>(
+        get_proc(instance, "vkDestroyInstance"));
+    if (enumerate != nullptr && properties != nullptr) {
+      VkPhysicalDevice devices[16];
+      uint32_t count = 16;
+      if (enumerate(instance, &count, devices) >= 0) {
+        for (uint32_t i = 0; i < count && i < 16; ++i) {
+          VkPhysicalDeviceProperties p;
+          properties(devices[i], &p);
+          if (p.apiVersion >= VK_API_VERSION_1_3) found = true;
+        }
+      }
+    }
+    if (destroy != nullptr) destroy(instance, nullptr);
+  }
+  FreeLibrary(library);
+  return found;
 }
 
 // --- pre-flight, the same checks the script did ----------------------------
@@ -581,6 +689,24 @@ void CheckEverything() {
 int ChoiceValue(const char* choices, int index);
 int ChoiceIndex(const char* choices, int value);
 
+// The rows that only the renderer Direct3D 9 uses are grey with the
+// renderer Vulkan.
+void UpdateRendererRows() {
+  bool vulkan = false;
+  for (int i = 0; i < kSettingCount; ++i) {
+    if (kSettings[i].kind == kRenderer && g_control[i] != nullptr) {
+      vulkan = SendMessageA(g_control[i], CB_GETCURSEL, 0, 0) == 0;
+    }
+  }
+  for (int i = 0; i < kSettingCount; ++i) {
+    const char* key = kSettings[i].key;
+    if (key == nullptr || g_control[i] == nullptr) continue;
+    if (strcmp(key, "d3d9_backend") == 0 || strcmp(key, "xr_vulkan") == 0) {
+      EnableWindow(g_control[i], vulkan ? FALSE : TRUE);
+    }
+  }
+}
+
 void LoadAll() {
   for (int i = 0; i < kSettingCount; ++i) {
     const Setting& s = kSettings[i];
@@ -609,6 +735,23 @@ void LoadAll() {
         if (strcmp(s.key, "play_mode") == 0 && value == 0) value = 4;
         SendMessageA(g_control[i], CB_SETCURSEL, ChoiceIndex(s.choices, value),
                      0);
+        break;
+      }
+      case kSlider: {
+        int low = 0, high = 0, step = 0;
+        ScaleRange(s.choices, &low, &high, &step);
+        int value = ReadIni(s.key, s.fallback);
+        if (value < low) value = low;
+        if (value > high) value = high;
+        SendMessageA(g_control[i], TBM_SETPOS, TRUE, value);
+        SaySlider(i, value);
+        break;
+      }
+      case kRenderer: {
+        char text[MAX_PATH] = {0};
+        ReadIniText(s.key, text, sizeof(text));
+        SendMessageA(g_control[i], CB_SETCURSEL,
+                     _stricmp(text, "vulkan") == 0 ? 0 : 1, 0);
         break;
       }
       case kScale: {
@@ -787,13 +930,28 @@ void SaveAll() {
         WriteRegistryInt("ScreenH", h);
         break;
       }
+      case kSlider:
+        WriteIni(s.key, SliderValue(i));
+        break;
+      case kRenderer: {
+        // Vulkan only with a GPU that has Vulkan 1.3: else the game would
+        // have no picture.
+        bool vulkan =
+            SendMessageA(g_control[i], CB_GETCURSEL, 0, 0) == 0;
+        if (vulkan && !HasVulkan13()) {
+          vulkan = false;
+          SendMessageA(g_control[i], CB_SETCURSEL, 1, 0);
+          g_said_no_vulkan = true;
+        }
+        WriteIniText(s.key, vulkan ? "vulkan" : "dxwrapper\\ddraw.dll");
+        break;
+      }
       default:
         break;
     }
   }
   // These are not offered as choices, because getting them wrong stops the mod
   // working at all and there is only one right answer.
-  WriteIniText("backend", "dxwrapper\\ddraw.dll");
   WriteIni("gpu_bridge", 1);
   WriteIni("vr", 1);
   WriteIni("stereo", 1);
@@ -854,8 +1012,12 @@ HANDLE g_plain_game = nullptr;
 int g_headset_screen_w = 0;
 int g_headset_screen_h = 0;
 
+// The renderer of the headset: the plain game has dxwrapper.
+char g_headset_backend[MAX_PATH] = {0};
+
 void WriteHeadsetStart() {
   WriteIni("vr", 1);
+  if (g_headset_backend[0] != 0) WriteIniText("backend", g_headset_backend);
   WriteRegistryInt("ScreenW", g_headset_screen_w);
   WriteRegistryInt("ScreenH", g_headset_screen_h);
   WriteRegistryInt("FullScreen", 0);
@@ -863,6 +1025,8 @@ void WriteHeadsetStart() {
 
 void PlayNoVr() {
   SaveAll();
+  ReadIniText("backend", g_headset_backend, sizeof(g_headset_backend));
+  WriteIniText("backend", "dxwrapper\\ddraw.dll");
   g_headset_screen_w = ReadRegistryInt("ScreenW", 0);
   g_headset_screen_h = ReadRegistryInt("ScreenH", 0);
   WriteIni("vr", 0);
@@ -999,7 +1163,8 @@ void BuildControls() {
     if (s.kind != kBool) {
       // A slider says its value in its own label, so it needs the whole width
       // rather than the label column.
-      const int width = s.kind == kScale ? col_w : label_w;
+      const int width =
+          s.kind == kScale || s.kind == kSlider ? col_w : label_w;
       HWND label = CreateWindowExA(0, "STATIC", s.label,
                                    WS_CHILD | WS_VISIBLE | SS_LEFT, x,
                                    y + Scaled(4), width, row - Scaled(6),
@@ -1026,7 +1191,8 @@ void BuildControls() {
             reinterpret_cast<HMENU>(static_cast<INT_PTR>(id++)), nullptr,
             nullptr);
         break;
-      case kScale: {
+      case kScale:
+      case kSlider: {
         // TBS_NOTICKS keeps the slider inside one ordinary row, which matters
         // because the whole layout counts rows rather than pixels. A taller
         // control would mean the column break and the window height stopped
@@ -1046,6 +1212,7 @@ void BuildControls() {
       }
       case kChoice:
       case kValues:
+      case kRenderer:
         control = CreateWindowExA(
             0, "COMBOBOX", "",
             WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL,
@@ -1131,6 +1298,7 @@ void BuildControls() {
 LRESULT CALLBACK Proc(HWND window, UINT message, WPARAM w, LPARAM l) {
   switch (message) {
     case WM_COMMAND:
+      if (HIWORD(w) == CBN_SELCHANGE) UpdateRendererRows();
       switch (LOWORD(w)) {
         case 1:
           Play(false);
@@ -1143,6 +1311,9 @@ LRESULT CALLBACK Proc(HWND window, UINT message, WPARAM w, LPARAM l) {
           if (g_write_failed) {
             SayStatus("Windows did not let the launcher write bwvr.ini in the "
                       "game folder.");
+          } else if (g_said_no_vulkan) {
+            SayStatus("Saved. Your GPU has no Vulkan 1.3, so the renderer "
+                      "stays Direct3D 9.");
           } else {
             SayStatus("Saved.");
           }
@@ -1164,8 +1335,12 @@ LRESULT CALLBACK Proc(HWND window, UINT message, WPARAM w, LPARAM l) {
     case WM_HSCROLL: {
       HWND from = reinterpret_cast<HWND>(l);
       for (int i = 0; i < kSettingCount; ++i) {
-        if (g_control[i] != from || kSettings[i].kind != kScale) continue;
-        SayScale(i, static_cast<int>(SendMessageA(from, TBM_GETPOS, 0, 0)));
+        if (g_control[i] != from) continue;
+        if (kSettings[i].kind == kScale) {
+          SayScale(i, static_cast<int>(SendMessageA(from, TBM_GETPOS, 0, 0)));
+        } else if (kSettings[i].kind == kSlider) {
+          SaySlider(i, SliderValue(i));
+        }
         break;
       }
       return 0;
@@ -1198,7 +1373,53 @@ void MakeFonts() {
 
 }  // namespace
 
-int WINAPI WinMain(HINSTANCE instance, HINSTANCE, LPSTR, int) {
+// A TEST AID: "--picture <file>" saves a picture of the window as a BMP
+// file and ends. "--game <folder>" names the folder of the game when the
+// launcher is not in it. The window is outside the screen, at the bottom of the
+// order of the windows, and is never active. Nothing is written to the ini.
+bool SavePicture(const char* path) {
+  RECT r;
+  GetWindowRect(g_window, &r);
+  const int w = r.right - r.left, h = r.bottom - r.top;
+  HDC screen = GetDC(nullptr);
+  HDC dc = CreateCompatibleDC(screen);
+  BITMAPINFO info = {};
+  info.bmiHeader.biSize = sizeof(info.bmiHeader);
+  info.bmiHeader.biWidth = w;
+  info.bmiHeader.biHeight = h;
+  info.bmiHeader.biPlanes = 1;
+  info.bmiHeader.biBitCount = 32;
+  info.bmiHeader.biCompression = BI_RGB;
+  void* bits = nullptr;
+  HBITMAP bitmap =
+      CreateDIBSection(screen, &info, DIB_RGB_COLORS, &bits, nullptr, 0);
+  ReleaseDC(nullptr, screen);
+  if (bitmap == nullptr) {
+    DeleteDC(dc);
+    return false;
+  }
+  HGDIOBJ old = SelectObject(dc, bitmap);
+  const BOOL printed = PrintWindow(g_window, dc, 2);  // PW_RENDERFULLCONTENT
+  SelectObject(dc, old);
+  bool ok = false;
+  FILE* file = nullptr;
+  if (printed && fopen_s(&file, path, "wb") == 0 && file != nullptr) {
+    BITMAPFILEHEADER head = {};
+    head.bfType = 0x4D42;
+    head.bfOffBits = sizeof(head) + sizeof(info.bmiHeader);
+    head.bfSize = head.bfOffBits + static_cast<DWORD>(w) * h * 4;
+    fwrite(&head, sizeof(head), 1, file);
+    fwrite(&info.bmiHeader, sizeof(info.bmiHeader), 1, file);
+    fwrite(bits, static_cast<size_t>(w) * h * 4, 1, file);
+    fclose(file);
+    ok = true;
+  }
+  DeleteObject(bitmap);
+  DeleteDC(dc);
+  return ok;
+}
+
+int WINAPI WinMain(HINSTANCE instance, HINSTANCE, LPSTR command, int) {
   SetProcessDPIAware();
   HDC screen = GetDC(nullptr);
   if (screen != nullptr) {
@@ -1210,7 +1431,21 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE, LPSTR, int) {
                                                          ICC_BAR_CLASSES};
   InitCommonControlsEx(&controls);
 
-  if (!FindGame()) {
+  (void)command;
+  const char* picture = nullptr;
+  const char* game = nullptr;
+  for (int i = 1; i + 1 < __argc; ++i) {
+    if (strcmp(__argv[i], "--picture") == 0) picture = __argv[i + 1];
+    if (strcmp(__argv[i], "--game") == 0) game = __argv[i + 1];
+  }
+  bool found = FindGame();
+  if (!found && picture != nullptr && game != nullptr &&
+      FileThere(game, "runblack.exe")) {
+    TakeGameDir(game);
+    found = true;
+  }
+  if (!found) {
+    if (picture != nullptr) return 1;
     MessageBoxA(nullptr,
                 "Cannot find runblack.exe. Install the " BWVR_PRODUCT_NAME
                 " in the folder that holds your Black & White game.",
@@ -1231,7 +1466,8 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE, LPSTR, int) {
   RegisterClassA(&wc);
 
   g_window = CreateWindowExA(
-      0, kWindowClass, kTitle, WS_OVERLAPPEDWINDOW & ~WS_THICKFRAME &
+      picture != nullptr ? WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW : 0,
+      kWindowClass, kTitle, WS_OVERLAPPEDWINDOW & ~WS_THICKFRAME &
                                    ~WS_MAXIMIZEBOX,
       CW_USEDEFAULT, CW_USEDEFAULT, Scaled(700), Scaled(560), nullptr, nullptr,
       instance, nullptr);
@@ -1244,7 +1480,28 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE, LPSTR, int) {
 
   BuildControls();
   LoadAll();
+  UpdateRendererRows();
   CheckEverything();
+  if (picture != nullptr) {
+    SetWindowPos(g_window, HWND_BOTTOM, -30000, -30000, 0, 0,
+                 SWP_NOSIZE | SWP_NOACTIVATE);
+    ShowWindow(g_window, SW_SHOWNOACTIVATE);
+    // Each control paints itself now, and the messages of the paint go out
+    // before the picture.
+    RedrawWindow(g_window, nullptr, nullptr,
+                 RDW_INVALIDATE | RDW_UPDATENOW | RDW_ALLCHILDREN);
+    const DWORD until = GetTickCount() + 300;
+    MSG pending;
+    while (GetTickCount() < until) {
+      while (PeekMessageA(&pending, nullptr, 0, 0, PM_REMOVE)) {
+        DispatchMessageA(&pending);
+      }
+      Sleep(10);
+    }
+    const bool saved = SavePicture(picture);
+    DestroyWindow(g_window);
+    return saved ? 0 : 1;
+  }
   ShowWindow(g_window, SW_SHOW);
   UpdateWindow(g_window);
 

@@ -2358,8 +2358,10 @@ right eye differ, and 0.3 percent in a box around the hand, on its edges.
 mod, in place of dxwrapper and Direct3D 9. The proxy then loads no backend
 DLL: system DirectDraw gives only the exports that the mod does not make
 (the enumeration of the displays). The two exports that make a DirectDraw
-object go to the mod (`ProxySetCreateHooks`, `ddraw_proxy.h`). Now it is a
-test: the default stays dxwrapper.
+object go to the mod (`ProxySetCreateHooks`, `ddraw_proxy.h`). The launcher
+row "Renderer" chooses Vulkan or Direct3D 9: it writes `backend=vulkan` only
+when the GPU has Vulkan 1.3, else dxwrapper. With no key the proxy takes
+dxwrapper.
 
 **What the game uses.** `ddraw_census=1` with `backend=system` counts each
 call from the start (dxwrapper puts a hot patch on `DirectDrawCreateEx`
@@ -2455,8 +2457,11 @@ the Temple.
 
 ## Foveated rendering
 
-`foveation` (0 is the default, a test key: Shift O, the launcher row
-"Foveated rendering (test)") gives the eye pictures of the Vulkan renderer
+`foveation` (0 is the default, a test key: Shift O, the launcher row "Fewer
+shades away from the middle" in the group "Foveated rendering", with the
+sliders "All shades within" and "One shade for 2 by 2 within" for
+`foveation_inner_deg` and `foveation_outer_deg`) gives the eye pictures of
+the Vulkan renderer
 fewer shades away from the centre of the fovea (`VK_KHR_fragment_shading_rate`
 with a shading rate attachment). The levels: 1 light, 2 medium, 3 strong.
 
@@ -2528,9 +2533,10 @@ pictures of the renderer) the map was in each walk, and the parts with 2 by
 
 ## Foveated resolution
 
-`fovea_res=1` (0 is the default, a test key: Shift P, the launcher rows
-"Foveated resolution (test)", "Resolution outside the middle", "Resolution
-of the middle" and "Size of the middle") makes each eye picture of the
+`fovea_res=1` (0 is the default, a test key: Shift P, the launcher row
+"Fewer pixels away from the middle" in the group "Foveated rendering", with
+the sliders "Resolution of the whole view", "Resolution of the middle" and
+"Size of the middle") makes each eye picture of the
 Vulkan renderer from two images with their own resolutions:
 
 | Key | Default | The image |
@@ -2583,7 +2589,8 @@ tracker, the test key.
 
 `xr_vulkan=1` (0 is the default) makes the OpenXR session a session with
 Vulkan (`XR_KHR_vulkan_enable2`, `xr_screen.cpp`). The launcher has the row
-"Headset session with Vulkan (test)".
+"Headset session with Vulkan", which is grey with the renderer Vulkan:
+`backend=vulkan` always has a session with Vulkan.
 
 **The device.** The runtime makes the Vulkan instance and the device, on
 the GPU that it names. The mod asks for Vulkan 1.3 with dynamic rendering,
@@ -4103,7 +4110,7 @@ keys that the launcher sets.
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| `backend` | dxwrapper when installed | See "Settings" |
+| `backend` | dxwrapper when installed | The launcher row "Renderer": Vulkan writes `vulkan` when the GPU has Vulkan 1.3 (the launcher asks the Vulkan of Windows), Direct3D 9 writes `dxwrapperddraw.dll`. See "Settings" and "The backend of the mod on Vulkan" |
 | `gpu_bridge` | 1 | The GPU path |
 | `frame_send` | 0 | 0: the mod waits for the GPU after each eye pass. 1: one wait a frame. 2: one wait a frame on a second thread, which also gives the frame to the runtime. See "One wait a frame, and a second thread" |
 | `draw_merge` | 1 | 1: in an eye pass of the scene, a row of draw calls of the game with one state goes to Direct3D as one draw call. 0: each draw call goes as it comes. See "One draw call for a row of draw calls" |
@@ -4182,7 +4189,7 @@ keys that the launcher sets.
 | `vk_lines` | 1 | With `backend=vulkan`: 1 a draw of points or lines becomes triangles of 1 pixel across, 0 it is not drawn. See "The backend of the mod on Vulkan" |
 | `vk_present_late` | 1 | With `backend=vulkan`: 1 the window on the monitor shows the picture of the present before, with no wait for the GPU, 0 each present waits for its own picture. See "The backend of the mod on Vulkan" |
 | `vk_texture_reuse` | 1 | 1 a texture that a walk reads again goes into the image it has when it can, and its pixels into a ring of the slot, so a read makes no allocation of the GPU. 0 each read makes a new image and a staging buffer. See "The Vulkan renderer" |
-| `foveation` | 0 | 0 each pixel of the eye pictures has the full rate. 1 light, 2 medium, 3 strong: the part around the centre of the fovea has the full rate, and the rest fewer shades. Only the eye pictures of the Vulkan renderer. The launcher has the row "Foveated rendering (test)". A test key: Shift O. See "Foveated rendering" |
+| `foveation` | 0 | 0 each pixel of the eye pictures has the full rate. 1 light, 2 medium, 3 strong (the launcher writes 1 and the two degrees of its sliders): the part around the centre of the fovea has the full rate, and the rest fewer shades. Only the eye pictures of the Vulkan renderer. The launcher has the row "Foveated rendering (test)". A test key: Shift O. See "Foveated rendering" |
 | `foveation_inner_deg`, `foveation_outer_deg` | 0, 0 | The degrees of the full rate and of 2 by 2 around the centre of the fovea. 0 takes the degrees of the level. See "Foveated rendering" |
 | `foveation_show` | 0 | A test key: 1 a colour over the coarse parts of the eye pictures, blue for 2 by 2 and red for 4 by 4. Shift O goes to it too. See "Foveated rendering" |
 | `foveation_gaze` | 1 | 1 the centre of the fovea follows the gaze of an eye tracker when the headset has one (`XR_EXT_eye_gaze_interaction`), 0 it stays straight ahead. See "Foveated rendering" |
