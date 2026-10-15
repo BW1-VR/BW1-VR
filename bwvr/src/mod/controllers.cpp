@@ -3666,8 +3666,19 @@ void LogBothButtons() {
 // A TEST AID: both sticks pressed in at one time ask for the pictures of
 // F12 (stereo.cpp reads it with test_keys=1), for a player with no
 // keyboard. Both hands get a short pulse.
+// Both sticks held in for 1.5 s ask for the test key of foveated
+// resolution (Shift P), with a long pulse.
 bool g_capture_before = false;
 bool g_capture_asked = false;
+ULONGLONG g_capture_since = 0;
+bool g_capture_held_done = false;
+bool g_fovea_toggle_asked = false;
+
+bool ControllersFoveaToggleAsked() {
+  const bool asked = g_fovea_toggle_asked;
+  g_fovea_toggle_asked = false;
+  return asked;
+}
 
 bool ControllersCaptureAsked() {
   const bool asked = g_capture_asked;
@@ -3699,6 +3710,13 @@ void ControllersFrame() {
     if (both && !g_capture_before) {
       g_capture_asked = true;
       ControllersGesturePulse(0.6f, 0.15f);
+      g_capture_since = GetTickCount64();
+      g_capture_held_done = false;
+    }
+    if (both && !g_capture_held_done &&
+        GetTickCount64() - g_capture_since >= 1500) {
+      g_capture_held_done = true;
+      g_fovea_toggle_asked = true;
     }
     g_capture_before = both;
   }

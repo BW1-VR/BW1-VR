@@ -265,6 +265,8 @@ bool EyeCaptureWanted(uint64_t stereo_frame);
 void EyeCaptureCheckFile(uint64_t stereo_frame);
 // controllers.cpp: both sticks pressed in at one time, one time.
 bool ControllersCaptureAsked();
+// controllers.cpp: both sticks held in for 1.5 s, one time.
+bool ControllersFoveaToggleAsked();
 void EyeCaptureSave(uint64_t stereo_frame, int eye, const void* pixels,
                     int pitch, uint32_t width, uint32_t height);
 
@@ -1283,6 +1285,10 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
   if (ControllersCaptureAsked() && g_test_keys) {
     ModLog("eye capture  : both sticks asked for a picture");
     EyeCaptureArmNow(g_frames + 1);
+  }
+  // Both sticks held in for 1.5 s: the test key of foveated resolution.
+  if (ControllersFoveaToggleAsked() && g_test_keys) {
+    VkSceneFoveaResToggle("both sticks held in");
   }
   VkSceneFrame(ControllersFrameCount(), g_frames + 1,
                EyeCaptureWanted(g_frames + 1));
