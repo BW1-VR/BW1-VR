@@ -2252,11 +2252,22 @@ for the bridge of Direct3D 9 ("The GPU bridge").
 Direct3D 11: BGRA with sRGB first. Each image of a swapchain has a relay: a
 Direct3D 11 texture with an NT handle, and a Vulkan image on its memory.
 Each write of Direct3D 11 for a swapchain image goes into its relay: the
-eye textures of the bridge, a menu, a loading screen, the interface panel,
-the cards, the walls of the cut scene window and the pixels of the CPU. The
-release of the image copies the relay into it with Vulkan. Vulkan has no
-wait for the work of Direct3D 11, so before that copy the CPU waits for an
-event query of Direct3D 11.
+eye textures of the bridge, a menu, a loading screen and the interface
+panel. The release of the image copies the relay into it with Vulkan.
+Vulkan has no wait for the work of Direct3D 11, so before that copy the CPU
+waits for an event query of Direct3D 11.
+
+**The pixels of the CPU** (`xr_vulkan_upload`, 1 is the default). An eye
+picture of the CPU (`SetEyeImage`, `SubmitBgra`), the cards and the walls of
+the cut scene window do not go through a relay. The CPU writes the part
+that shows into a buffer of Vulkan, and Vulkan copies it into the
+swapchain image, in the queue of the session. So these writes have no wait
+for Direct3D 11. Each slot of the copies has its own buffer, and the fence
+of the slot says when the GPU has read it. With 0 they go into the relays,
+as the textures of the bridge do. Shift Z (`test_keys=1`) changes it from
+the next write. The report of the session has the count and the time of
+these copies. `bwvr-xrtest 30 vulkan` sends the test pattern this way, and
+`bwvr-xrtest 30 vulkan relay` through a relay.
 
 **The eyes of the Vulkan renderer** (`vk_eyes`, 1 is the default with
 `xr_vulkan=1`). In a frame of one walk the renderer draws both eyes, a
@@ -2292,10 +2303,11 @@ longest frame of a window of 450 frames was 16 ms in most windows with the
 Vulkan eyes and 32 ms with the eyes of Direct3D 9. A window with a copy of
 a relay (a card, the panel, a menu) had 32 ms too.
 
-**Open: only a headset shows it.** The eyes of the Creature showed their
-lids and no eyeballs with the Vulkan eyes: the renderer did not draw 1.6 to
-20 draws a frame there. The log of the next session names their format.
-Whether the black flicker (at the start of a session, and while the Hand
+**Open: only a headset shows it.** Whether the eyes of the Creature have
+their eyeballs with the Vulkan eyes. In a session the renderer drew each
+draw of each window of 450 frames (0.0 not drawn, 3.5 to 12 draws a frame
+in another format of XYZRHW, "What it draws"). Whether a window with a card
+has no frames of 32 ms with `xr_vulkan_upload=1`. Whether the black flicker (at the start of a session, and while the Hand
 strokes the Creature) shows with `vk_scene_follow=1`. In desktop runs
 with 0 the left eye has the subtitle box and the Creature panel, and with
 1 it has neither ("The Vulkan renderer"). A session with Vulkan with
@@ -3683,6 +3695,7 @@ in front. The mod reads the keys and never takes them from the game.
 | Shift B | `test_keys=1` | The threads of the mod spin for a short time and then sleep, or they spin. A long pulse and a short pulse (`thread_wait`, "How the threads wait"). Ctrl must be up |
 | Shift C | `test_keys=1` | In a session with Vulkan the eye pictures come from the Vulkan renderer, or from Direct3D 9, from the next frame. A long pulse and a short pulse (`vk_eyes`, "The session with Vulkan"). Ctrl must be up |
 | Shift X | `test_keys=1` | The Vulkan renderer follows the render target, the viewport and the clears of a walk, or it draws each draw into the eye pictures, from the next walk. A long pulse and a short pulse (`vk_scene_follow`, "The Vulkan renderer"). Ctrl must be up |
+| Shift Z | `test_keys=1` | In a session with Vulkan the pixels of the CPU (an eye picture of the CPU, a card, the walls of the cut scene window) go into the swapchains with a copy of Vulkan, or through the relays of Direct3D 11, from the next write. A long pulse and a short pulse (`xr_vulkan_upload`, "The session with Vulkan"). Ctrl must be up |
 | Ctrl Shift Numpad Slash | `test_keys=1` | The mod waits for the GPU after each eye pass, one time a frame, or one time a frame on a second thread that also gives the frame to the runtime. A long pulse, a pulse of middle length and a short pulse (`frame_send`, "One wait a frame, and a second thread"). The slash key with Shift and no Ctrl is a key of the Temple, and with no Shift it is a key of the throw |
 | Menu key | `test_keys=1` | One walk for both eyes on and off (see "One walk for both eyes"). The key beside the right Ctrl key that opens a context menu. Ctrl and Shift must be up |
 | Ctrl Menu key | `test_keys=1` | The layout of the buttons of the hand that does not point. The menu button of the left controller opens the game menu, Y opens the ring and the stick does not drive the ring, or Y opens the game menu and X and the stick open the ring. A long pulse and a short pulse on that hand (`button_layout`, `controllers.md`, 5.1). Shift must be up |
@@ -3804,6 +3817,7 @@ keys that the launcher sets.
 | `vk_scene`, `vk_scene_test_frame` | 0, 0 | Test keys: 1 draws each walk also with the Vulkan renderer, both eyes, and frame N writes its images to files. See "The Vulkan renderer" |
 | `xr_vulkan` | 0 | 0: the OpenXR session has Direct3D 11. 1: the session has Vulkan, and the Vulkan renderer draws with its device. When it cannot start, the next try has Direct3D 11. There is no test key: the choice is made at the start. See "The session with Vulkan" |
 | `vk_eyes` | 1 | With `xr_vulkan=1`: 1 the eye pictures of a frame of one walk come from the Vulkan renderer, 0 from Direct3D 9. A test key: Shift C. See "The session with Vulkan" |
+| `xr_vulkan_upload` | 1 | With `xr_vulkan=1`: 1 the pixels of the CPU (an eye picture of the CPU, a card, the walls of the cut scene window) go into the swapchain images with a copy of Vulkan. 0 they go into the relays of Direct3D 11, and the release of an image copies its relay. A test key: Shift Z. See "The session with Vulkan" |
 | `vk_scene_follow` | 1 | 1: in a walk of one walk the Vulkan renderer follows render target 0 of Direct3D 9, the viewport of Direct3D 7 and the clears, and a draw for another target does not go into the eye pictures. 0: each draw goes into the eye pictures, and the renderer makes no clear. A test key: Shift X. See "The Vulkan renderer" |
 | `fast_transform` | 1 | 1: the two vertex loops of the engine run with SSE, with the bits of the game. 0: on the x87 unit. See "The vertex loops with SSE" |
 | `profile_gpu` | 0 | A test key. See "The GPU time" |

@@ -69,6 +69,8 @@ void StereoSetCaptureInterval(int seconds);
 void StereoSetHeadlessGrab(bool on);
 void StereoSetUiDepth(bool adaptive, float ceiling_pixels);
 void StereoSetScreen(bwvr::XrScreen* screen);
+// controllers.cpp
+void ControllersGesturePulse(float amplitude, float seconds);
 // frame_send.cpp: the way of the eye pictures to the headset.
 void FrameSendSetOptions(int key);
 void FrameSendSetScreen(bwvr::XrScreen* screen);
@@ -531,6 +533,8 @@ int g_vk_scene_follow = 1;
 // renderer in it (docs/backend.md, "The session with Vulkan").
 int g_xr_vulkan = 0;
 int g_vk_eyes = 1;
+// The pixels of the CPU in a session with Vulkan (XrScreen::SetVulkanUpload).
+int g_xr_vulkan_upload = 1;
 int g_render_thread_late_end = 1;
 int g_thread_wait = 1;
 int g_test_cores = 0;
@@ -1349,6 +1353,8 @@ void ReadSettings() {
   g_xr_vulkan =
       GetPrivateProfileIntA("bwvr", "xr_vulkan", 0, path) != 0 ? 1 : 0;
   g_vk_eyes = GetPrivateProfileIntA("bwvr", "vk_eyes", 1, path) != 0 ? 1 : 0;
+  g_xr_vulkan_upload =
+      GetPrivateProfileIntA("bwvr", "xr_vulkan_upload", 1, path) != 0 ? 1 : 0;
   g_render_thread_late_end =
       GetPrivateProfileIntA("bwvr", "render_thread_late_end", 1, path) != 0
           ? 1
@@ -1678,6 +1684,7 @@ void StartVrOnce() {
 
   bwvr::XrScreen* screen = new bwvr::XrScreen();
   screen->UseVulkan(g_xr_vulkan != 0);
+  screen->SetVulkanUpload(g_xr_vulkan_upload != 0);
   screen->SetPlacement(g_distance, g_width);
   screen->EnablePanel(g_stereo && g_ui_panel.mode == kUiPanelLayer);
   // Only the first failure and every tenth after it reach the log. A message
@@ -1733,7 +1740,11 @@ void StartVrOnce() {
     external.unlock = &bwvr::XrScreen::UnlockQueue;
     vk::UseExternal(external);
     ModLog("vr           : xr_vulkan=1. A session with Vulkan. The Vulkan "
-           "renderer takes its device");
+           "renderer takes its device. xr_vulkan_upload=%d: %s",
+           g_xr_vulkan_upload,
+           g_xr_vulkan_upload != 0
+               ? "the pixels of the CPU go into the swapchains with Vulkan"
+               : "the pixels of the CPU go through the relays of Direct3D 11");
   }
 
   // WRITE THE HEADSET'S OWN SIZE BACK TO THE SETTINGS.
@@ -2281,6 +2292,19 @@ void EndOfDll(bool process_ends) {
 }
 
 }  // namespace
+
+// The test key of xr_vulkan_upload (stereo.cpp, Shift Z). It changes the
+// key for the next session too.
+void XrVulkanUploadToggle(const char* keys) {
+  g_xr_vulkan_upload = g_xr_vulkan_upload != 0 ? 0 : 1;
+  if (g_screen != nullptr) g_screen->SetVulkanUpload(g_xr_vulkan_upload != 0);
+  ControllersGesturePulse(0.5f, g_xr_vulkan_upload != 0 ? 0.30f : 0.08f);
+  ModLog("test key     : %s, xr_vulkan_upload is %d now: the pixels of the "
+         "CPU go %s from the next write",
+         keys, g_xr_vulkan_upload,
+         g_xr_vulkan_upload != 0 ? "into the swapchains with Vulkan"
+                                 : "through the relays of Direct3D 11");
+}
 
 void ModLog(const char* format, ...) {
   if (g_log == nullptr) return;

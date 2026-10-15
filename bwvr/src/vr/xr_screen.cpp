@@ -257,7 +257,13 @@ const uint32_t kMaskSize = 16;
   X(vkAllocateMemory)                     \
   X(vkFreeMemory)                         \
   X(vkBindImageMemory)                    \
-  X(vkGetMemoryWin32HandlePropertiesKHR)
+  X(vkGetMemoryWin32HandlePropertiesKHR)  \
+  X(vkCreateBuffer)                       \
+  X(vkDestroyBuffer)                      \
+  X(vkGetBufferMemoryRequirements)        \
+  X(vkBindBufferMemory)                   \
+  X(vkMapMemory)                          \
+  X(vkCmdCopyBufferToImage)
 
 struct VulkanFunctions {
   PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr;
@@ -367,8 +373,10 @@ struct XrScreen::Impl {
   // images. Each image has a RELAY: a Direct3D 11 texture that Vulkan shares
   // through an NT handle. Each write of Direct3D 11 into a swapchain image
   // goes into its relay, and the release of the image (Release) copies the
-  // relay into the image with Vulkan. So the textures of the bridge and the
-  // pixels of the CPU take the way of a session with Direct3D 11.
+  // relay into the image with Vulkan. So the textures of the bridge take the
+  // way of a session with Direct3D 11. The pixels of the CPU go into the
+  // image with a copy of Vulkan (THE PIXELS OF THE CPU), or with
+  // xr_vulkan_upload=0 into the relay too.
   bool vulkan = false;
   bool vk_failed = false;  // XrScreen::VulkanFailed
   struct Relay {
@@ -394,11 +402,25 @@ struct XrScreen::Impl {
   VkFence vk_fence[kVkSlots] = {};
   int vk_slot = 0;
   ID3D11Query* d3d11_done = nullptr;
+  // THE PIXELS OF THE CPU (XrScreen::SetVulkanUpload). Each slot of the
+  // copies has a buffer that the CPU can write. The fence of the slot says
+  // when the GPU has read it.
+  bool vk_upload = true;
+  struct Stage {
+    VkBuffer buffer;
+    VkDeviceMemory memory;
+    uint8_t* mapped;
+    VkDeviceSize size;
+  };
+  Stage vk_stage[kVkSlots] = {};
   // For the report.
   uint64_t vk_pushes = 0;
   uint64_t vk_copies = 0;
   uint64_t vk_push_ticks = 0;
+  uint64_t vk_uploads = 0;
+  uint64_t vk_upload_ticks = 0;
   bool vk_said_push_failed = false;
+  bool vk_said_upload_failed = false;
 
   float distance = 2.0f;
   float quad_width = 2.6f;
@@ -554,6 +576,18 @@ struct XrScreen::Impl {
   VkCommandBuffer BeginCopy();
   bool EndCopy(VkCommandBuffer cb);
   XrResult CopyVulkan(XrSwapchain chain, uint64_t image, uint32_t layer);
+  // True when a write of the CPU into this swapchain goes with Vulkan
+  // (THE PIXELS OF THE CPU).
+  bool UploadsWithVulkan(XrSwapchain chain) {
+    return vulkan && vk_upload && FindChain(chain) != nullptr;
+  }
+  // The rect x, y, w, h of `pixels` (rows of `pitch` bytes, 4 bytes for each
+  // pixel) into the acquired image `image` of the swapchain, at the same
+  // place. swap_red_blue swaps bytes 0 and 2 of each pixel.
+  bool UploadVulkan(XrSwapchain chain, uint32_t image, const uint8_t* pixels,
+                    uint32_t pitch, int32_t x, int32_t y, int32_t w,
+                    int32_t h, bool swap_red_blue);
+  void FreeStages();
 
   bool CreateInput();                  // Start, after the LOCAL space
   void SuggestProfile(const Profile& info);
@@ -1404,6 +1438,23 @@ void XrScreen::SetEyeImage(int index, const void* pixels, int pitch) {
   QueryPerformanceCounter(&t1);
 
   D3D11_MAPPED_SUBRESOURCE mapped;
+  if (s.UploadsWithVulkan(s.swapchain[eye])) {
+    // THE PIXELS OF THE CPU: the bytes as they are, as into the staging
+    // texture of Direct3D 11.
+    s.UploadVulkan(s.swapchain[eye], image, static_cast<const uint8_t*>(pixels),
+                   static_cast<uint32_t>(pitch), 0, 0,
+                   static_cast<int32_t>(s.width),
+                   static_cast<int32_t>(s.height), false);
+    QueryPerformanceCounter(&t2);
+    s.ReleaseImage(s.swapchain[eye], false);
+    s.acquired[eye] = static_cast<int>(image);
+    QueryPerformanceCounter(&t3);
+    s.wait_ticks += t1.QuadPart - t0.QuadPart;
+    s.copy_ticks += t2.QuadPart - t1.QuadPart;
+    s.submit_ticks += t3.QuadPart - t2.QuadPart;
+    ++s.uploads;
+    return;
+  }
   if (SUCCEEDED(s.context->Map(s.staging, 0, D3D11_MAP_WRITE_DISCARD, 0,
                                &mapped))) {
     const uint8_t* source = static_cast<const uint8_t*>(pixels);
@@ -1581,12 +1632,17 @@ bool XrScreen::Impl::SendCard(int index, const CardLayer& card,
   image_wait.timeout = XR_INFINITE_DURATION;
   const bool waited = Check(xrWaitSwapchainImage(chain.swapchain, &image_wait),
                             "xrWaitSwapchainImage(card)");
-  if (waited && image < chain.image_count) {
+  // The card is BGRA. A swapchain with red first needs the two swapped.
+  const bool red_first = format == DXGI_FORMAT_R8G8B8A8_UNORM_SRGB ||
+                         format == DXGI_FORMAT_R8G8B8A8_UNORM;
+  const bool with_vulkan = UploadsWithVulkan(chain.swapchain);
+  if (waited && image < chain.image_count && with_vulkan) {
+    UploadVulkan(chain.swapchain, image, card.pixels, chain.width * 4, x, y, w,
+                 h, red_first);
+  } else if (waited && image < chain.image_count) {
     const uint32_t pitch = chain.width * 4;
     const uint8_t* source = card.pixels;
-    // The card is BGRA. A swapchain with red first needs the two swapped.
-    if (format == DXGI_FORMAT_R8G8B8A8_UNORM_SRGB ||
-        format == DXGI_FORMAT_R8G8B8A8_UNORM) {
+    if (red_first) {
       if (chain.swizzle == nullptr) {
         chain.swizzle = new uint8_t[pitch * chain.height];
       }
@@ -1612,7 +1668,7 @@ bool XrScreen::Impl::SendCard(int index, const CardLayer& card,
     context->UpdateSubresource(chain.images[image], 0, &box,
                                source + y * pitch + x * 4, pitch, 0);
   }
-  ReleaseImage(chain.swapchain);
+  ReleaseImage(chain.swapchain, !with_vulkan);
   if (!waited || image >= chain.image_count) return miss();
   chain.misses = 0;
 
@@ -1700,6 +1756,7 @@ bool XrScreen::Impl::SendMask(const WindowLayer& window,
   image_wait.timeout = XR_INFINITE_DURATION;
   const bool waited = Check(xrWaitSwapchainImage(mask_swapchain, &image_wait),
                             "xrWaitSwapchainImage(walls)");
+  const bool with_vulkan = UploadsWithVulkan(mask_swapchain);
   if (waited && image < mask_image_count) {
     // Black has no color to multiply, so only the alpha changes. It is the
     // last byte of a pixel in each format the swapchain can have.
@@ -1711,10 +1768,16 @@ bool XrScreen::Impl::SendMask(const WindowLayer& window,
       pixels[i * 4 + 2] = 0;
       pixels[i * 4 + 3] = static_cast<uint8_t>(alpha * 255.0f + 0.5f);
     }
-    context->UpdateSubresource(mask_images[image], 0, nullptr, pixels,
-                               kMaskSize * 4, 0);
+    if (with_vulkan) {
+      UploadVulkan(mask_swapchain, image, pixels, kMaskSize * 4, 0, 0,
+                   static_cast<int32_t>(kMaskSize),
+                   static_cast<int32_t>(kMaskSize), false);
+    } else {
+      context->UpdateSubresource(mask_images[image], 0, nullptr, pixels,
+                                 kMaskSize * 4, 0);
+    }
   }
-  ReleaseImage(mask_swapchain);
+  ReleaseImage(mask_swapchain, !with_vulkan);
   if (!waited || image >= mask_image_count) return false;
 
   for (int k = 0; k < 4; ++k) {
@@ -1791,18 +1854,25 @@ void XrScreen::StagePanelQuad(const PanelQuad& quad) {
 
 void XrScreen::ReportUpload(uint64_t frames) {
   Impl& s = *impl_;
-  if (s.vulkan && (s.vk_pushes > 0 || s.vk_copies > 0)) {
-    const double hz =
-        s.frequency.QuadPart > 0 ? static_cast<double>(s.frequency.QuadPart)
-                                 : 1.0;
+  if (s.vulkan && (s.vk_pushes > 0 || s.vk_copies > 0 || s.vk_uploads > 0)) {
+    LARGE_INTEGER hz_now;
+    QueryPerformanceFrequency(&hz_now);
+    const double hz = static_cast<double>(hz_now.QuadPart);
     s.log("  openxr: Vulkan: %llu copies of a relay, %.3f ms each with the "
-          "wait for Direct3D 11, and %llu copies of a Vulkan eye picture",
+          "wait for Direct3D 11, %llu copies of a Vulkan eye picture, and "
+          "%llu copies of pixels of the CPU, %.3f ms each "
+          "(xr_vulkan_upload=%d)",
           s.vk_pushes,
           s.vk_pushes > 0 ? s.vk_push_ticks * 1000.0 / hz / s.vk_pushes : 0.0,
-          s.vk_copies);
+          s.vk_copies, s.vk_uploads,
+          s.vk_uploads > 0 ? s.vk_upload_ticks * 1000.0 / hz / s.vk_uploads
+                           : 0.0,
+          s.vk_upload ? 1 : 0);
     s.vk_pushes = 0;
     s.vk_copies = 0;
     s.vk_push_ticks = 0;
+    s.vk_uploads = 0;
+    s.vk_upload_ticks = 0;
   }
   if (s.panel_frames > 0) {
     s.log("  ui panel     : %llu menu and %llu help quad layers over the "
@@ -2911,6 +2981,7 @@ void XrScreen::Impl::StopVulkan() {
     }
     vk_cb[i] = VK_NULL_HANDLE;
   }
+  FreeStages();
   if (vk_pool != VK_NULL_HANDLE) {
     vkf.vkDestroyCommandPool(g_vk.device, vk_pool, nullptr);
     vk_pool = VK_NULL_HANDLE;
@@ -3295,6 +3366,148 @@ bool XrScreen::Impl::Push(VkChain& chain, uint32_t image) {
   return ok;
 }
 
+void XrScreen::Impl::FreeStages() {
+  for (int i = 0; i < kVkSlots; ++i) {
+    Stage& stage = vk_stage[i];
+    if (stage.buffer != VK_NULL_HANDLE) {
+      vkf.vkDestroyBuffer(g_vk.device, stage.buffer, nullptr);
+    }
+    // The free of the memory also ends its map.
+    if (stage.memory != VK_NULL_HANDLE) {
+      vkf.vkFreeMemory(g_vk.device, stage.memory, nullptr);
+    }
+    memset(&stage, 0, sizeof(stage));
+  }
+}
+
+// THE PIXELS OF THE CPU. The CPU writes the rect into the buffer of the slot
+// of this copy, and the GPU copies the buffer into the image. The image is
+// in the layout of a color attachment after the acquire, and it has that
+// layout again before the release. The rest of the image keeps its pixels.
+bool XrScreen::Impl::UploadVulkan(XrSwapchain chain, uint32_t image,
+                                  const uint8_t* pixels, uint32_t pitch,
+                                  int32_t x, int32_t y, int32_t w, int32_t h,
+                                  bool swap_red_blue) {
+  LARGE_INTEGER start, done;
+  QueryPerformanceCounter(&start);
+  VkChain* c = FindChain(chain);
+  if (c == nullptr || image >= c->count || pixels == nullptr || w <= 0 ||
+      h <= 0) {
+    return false;
+  }
+  // BeginCopy waits for the fence of this slot, so the GPU does not read
+  // its buffer any more.
+  const int slot = vk_slot;
+  VkCommandBuffer cb = BeginCopy();
+  if (cb == VK_NULL_HANDLE) return false;
+  Stage& stage = vk_stage[slot];
+  const VkDeviceSize bytes = static_cast<VkDeviceSize>(w) * h * 4;
+  if (stage.size < bytes) {
+    if (stage.buffer != VK_NULL_HANDLE) {
+      vkf.vkDestroyBuffer(g_vk.device, stage.buffer, nullptr);
+    }
+    if (stage.memory != VK_NULL_HANDLE) {
+      vkf.vkFreeMemory(g_vk.device, stage.memory, nullptr);
+    }
+    memset(&stage, 0, sizeof(stage));
+    VkBufferCreateInfo info = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+    info.size = bytes;
+    info.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+    info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    bool ok = vkf.vkCreateBuffer(g_vk.device, &info, nullptr, &stage.buffer) ==
+              VK_SUCCESS;
+    VkMemoryRequirements req = {};
+    if (ok) vkf.vkGetBufferMemoryRequirements(g_vk.device, stage.buffer, &req);
+    uint32_t type = UINT32_MAX;
+    const VkMemoryPropertyFlags want = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                                       VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+    for (uint32_t i = 0; ok && i < g_vk.memory.memoryTypeCount; ++i) {
+      if ((req.memoryTypeBits & (1u << i)) != 0 &&
+          (g_vk.memory.memoryTypes[i].propertyFlags & want) == want) {
+        type = i;
+        break;
+      }
+    }
+    VkMemoryAllocateInfo allocate = {VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
+    allocate.allocationSize = req.size;
+    allocate.memoryTypeIndex = type;
+    ok = ok && type != UINT32_MAX &&
+         vkf.vkAllocateMemory(g_vk.device, &allocate, nullptr,
+                              &stage.memory) == VK_SUCCESS &&
+         vkf.vkBindBufferMemory(g_vk.device, stage.buffer, stage.memory, 0) ==
+             VK_SUCCESS;
+    void* mapped = nullptr;
+    ok = ok && vkf.vkMapMemory(g_vk.device, stage.memory, 0, VK_WHOLE_SIZE, 0,
+                               &mapped) == VK_SUCCESS;
+    if (!ok) {
+      if (stage.buffer != VK_NULL_HANDLE) {
+        vkf.vkDestroyBuffer(g_vk.device, stage.buffer, nullptr);
+      }
+      if (stage.memory != VK_NULL_HANDLE) {
+        vkf.vkFreeMemory(g_vk.device, stage.memory, nullptr);
+      }
+      memset(&stage, 0, sizeof(stage));
+      EndCopy(cb);
+      return false;
+    }
+    stage.mapped = static_cast<uint8_t*>(mapped);
+    stage.size = bytes;
+  }
+  const size_t row_bytes = static_cast<size_t>(w) * 4;
+  for (int32_t row = 0; row < h; ++row) {
+    const uint8_t* in = pixels + static_cast<size_t>(y + row) * pitch +
+                        static_cast<size_t>(x) * 4;
+    uint8_t* out = stage.mapped + static_cast<size_t>(row) * row_bytes;
+    if (!swap_red_blue) {
+      memcpy(out, in, row_bytes);
+      continue;
+    }
+    for (int32_t i = 0; i < w; ++i, in += 4, out += 4) {
+      out[0] = in[2];
+      out[1] = in[1];
+      out[2] = in[0];
+      out[3] = in[3];
+    }
+  }
+  VkImageMemoryBarrier before = {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
+  before.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+  before.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+  before.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+  before.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+  before.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+  before.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+  before.image = c->images[image];
+  before.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+  vkf.vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+                           VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0,
+                           nullptr, 1, &before);
+  VkBufferImageCopy region = {};
+  region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+  region.imageOffset = {x, y, 0};
+  region.imageExtent = {static_cast<uint32_t>(w), static_cast<uint32_t>(h), 1};
+  vkf.vkCmdCopyBufferToImage(cb, stage.buffer, c->images[image],
+                             VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+  VkImageMemoryBarrier after = before;
+  after.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+  after.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT |
+                        VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+  after.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+  after.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+  vkf.vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                           VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 0, nullptr, 0,
+                           nullptr, 1, &after);
+  const bool ok = EndCopy(cb);
+  QueryPerformanceCounter(&done);
+  vk_upload_ticks += static_cast<uint64_t>(done.QuadPart - start.QuadPart);
+  ++vk_uploads;
+  if (!ok && !vk_said_upload_failed) {
+    vk_said_upload_failed = true;
+    log("  openxr: a copy of the pixels of the CPU into a swapchain image "
+        "failed");
+  }
+  return ok;
+}
+
 // One layer of a Vulkan image into the next image of a swapchain: acquire,
 // wait, one copy on the GPU, release. The work that drew the image is in the
 // queue before this copy, and the barrier waits for it.
@@ -3369,6 +3582,10 @@ XrResult XrScreen::Impl::CopyVulkan(XrSwapchain chain, uint64_t image,
 }
 
 void XrScreen::UseVulkan(bool on) { impl_->vulkan = on; }
+
+void XrScreen::SetVulkanUpload(bool on) { impl_->vk_upload = on; }
+
+bool XrScreen::vulkan_upload() const { return impl_->vk_upload; }
 
 bool XrScreen::vulkan() const { return impl_->vulkan; }
 

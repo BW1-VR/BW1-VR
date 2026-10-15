@@ -79,6 +79,8 @@
 
 // d3d9_backend.cpp: the start with DXVK did not fail.
 void D3D9BackendConfirm();
+// mod_main.cpp: the test key of xr_vulkan_upload.
+void XrVulkanUploadToggle(const char* keys);
 
 extern void ModLog(const char* format, ...);
 
@@ -601,15 +603,15 @@ float FrameSeparation() {
 //
 // A virtual keyboard can also send a capital letter as the character alone
 // (VK_PACKET), with no Shift. Then only a WM_CHAR of the capital letter
-// comes. So a WM_CHAR of F, G, H, J, K, L, M, N, B, V, C or X is the same key, unless the WM_KEYDOWN
+// comes. So a WM_CHAR of F, G, H, J, K, L, M, N, B, V, C, X or Z is the same key, unless the WM_KEYDOWN
 // of that key came less than 200 ms before it: a real keyboard sends both.
 // The digits have no such second way, because the character of Shift 8 and
 // Shift 9 is not the same on each keyboard layout.
 // Shift 8, Shift 9, Shift F, Shift G, Shift H, Shift J, Shift K, Shift L,
-// Shift M, Shift N, Shift B, Shift V, Shift C, Shift X
-static volatile LONG g_shift_key[14] = {0, 0, 0, 0, 0, 0, 0,
+// Shift M, Shift N, Shift B, Shift V, Shift C, Shift X, Shift Z
+static volatile LONG g_shift_key[15] = {0, 0, 0, 0, 0, 0, 0, 0,
                                         0, 0, 0, 0, 0, 0, 0};
-static DWORD g_shift_key_at[14] = {0, 0, 0, 0, 0, 0, 0,
+static DWORD g_shift_key_at[15] = {0, 0, 0, 0, 0, 0, 0, 0,
                                    0, 0, 0, 0, 0, 0, 0};
 static HHOOK g_message_hook = nullptr;
 static bool g_message_hook_tried = false;
@@ -629,6 +631,7 @@ static int ShiftKeyIndex(WPARAM key) {
          : key == 'V' ? 11
          : key == 'C' ? 12
          : key == 'X' ? 13
+         : key == 'Z' ? 14
                       : -1;
 }
 
@@ -910,6 +913,9 @@ void PollHotkeys() {
   }
   if (InterlockedExchange(&g_shift_key[13], 0) != 0) {
     VkSceneFollowToggle("Shift and X");
+  }
+  if (InterlockedExchange(&g_shift_key[14], 0) != 0) {
+    XrVulkanUploadToggle("Shift and Z");
   }
   // An A/B of one walk (docs/backend.md, "One walk for both eyes"). The
   // menu key (VK_APPS) has no action in the game and no other test key.

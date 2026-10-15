@@ -217,6 +217,15 @@ class XrScreen {
   // must be in the queue before this call. The image keeps its layout.
   void SetEyeVulkan(int index, uint64_t image, uint32_t layer);
 
+  // THE PIXELS OF THE CPU in a session with Vulkan (xr_vulkan_upload). On:
+  // an eye picture of SetEyeImage or SubmitBgra, a card and the walls of the
+  // cut scene window go from the CPU into the swapchain image with a copy of
+  // Vulkan, with no relay and no wait for Direct3D 11. Off: they go into the
+  // relay with Direct3D 11, and the release copies the relay. The change
+  // takes effect at the next write.
+  void SetVulkanUpload(bool on);
+  bool vulkan_upload() const;
+
   // The size of each eye picture, as Start had it.
   uint32_t width() const;
   uint32_t height() const;
