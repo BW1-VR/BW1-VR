@@ -84,6 +84,7 @@ add_library(bwvr_mod SHARED
     near_plane.cpp
     net_check.cpp
     dx_check.cpp
+    file_read_ahead.cpp
     hang_watch.cpp
     gesture_air.cpp
     audio_listener.cpp

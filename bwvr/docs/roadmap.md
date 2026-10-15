@@ -489,17 +489,17 @@ that moves while the Hand takes it.
     the sounds. With `test_keys=1`, Ctrl and Pause change the
     key while the game runs. A sound that QMixer plays (an advisor, the
     speech of a story) keeps the wait.
-  - **Slow frames that stay.** The Creature reads an animation from the disk
-    at its first use, and the game turn then takes 4 to 34 ms. The time is in
-    1900 to 19,000 small calls of `ReadFile` on a file that Windows has in
-    memory, so a load of the files into the memory of Windows does not make
-    it shorter. A candidate: read the animation in one call and give the
-    small reads from that copy. The first
+  - **Slow frames that stay.** The first
     use of a texture or of an effect file makes an eye pass 8 to 15 ms
     longer, when Windows does not have the file in memory. One time a minute
     the game writes the alignment of the player and the mind of the Creature.
     Its file calls take 2 ms most times, and they took 28 ms one time. A load
     of these files before the game needs them is not built.
+  - **The read ahead of the files in a headset** (`file_read_ahead=1`,
+    `backend.md`, "The read ahead of the files of the game"). On the desktop
+    the worst game turn after the start is 7.2 ms in place of 30.7 ms. Not
+    shown: a session in a headset, and the load of a saved game with the
+    read ahead. With `test_keys=1`, Shift Q changes the key in play.
   - **The texture of 32 by 32 that the land draw writes.** With two writes
     in one scene walk, its two locks take 0.6 ms for each eye pass. That is
     1.2 to 1.5 ms of a frame of 8.7 to 10 ms at the door of the Temple. With

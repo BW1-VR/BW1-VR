@@ -153,6 +153,9 @@ void PassGuardLogHand(int count);
 void UiDepthDumpNextFrame();
 void PassGuardSetEye(int eye);
 void PassGuardReport();
+// file_read_ahead.cpp: the read ahead of the files of LHFile.
+void FileReadAheadReport();
+void FileReadAheadToggle(const char* keys);
 void FrameTimersReport(uint64_t frames);
 void FovReport();
 void FovSetAbsolute(float radians);
@@ -620,8 +623,8 @@ float FrameSeparation() {
 // character of Shift 8 and Shift 9 is not the same on each keyboard layout.
 // Shift 8, Shift 9, Shift F, Shift G, Shift H, Shift J, Shift K, Shift L,
 // Shift M, Shift N, Shift B, Shift V, Shift C, Shift X, Shift Z, Shift Y,
-// Shift U, Shift I, Shift O, Shift P
-static const int kShiftKeys = 22;
+// Shift U, Shift I, Shift O, Shift P, Shift T, Shift W, Shift Q
+static const int kShiftKeys = 23;
 static volatile LONG g_shift_key[kShiftKeys] = {};
 static DWORD g_shift_key_at[kShiftKeys] = {};
 static HHOOK g_message_hook = nullptr;
@@ -650,6 +653,7 @@ static int ShiftKeyIndex(WPARAM key) {
          : key == 'P' ? 19
          : key == 'T' ? 20
          : key == 'W' ? 21
+         : key == 'Q' ? 22
                       : -1;
 }
 
@@ -758,6 +762,9 @@ bool GameHasFocus() {
 //               d3d7_thread.cpp)
 //   Shift N     the end of a walk does not wait for the render thread, or
 //               it waits (render_thread_late_end, render_thread.cpp)
+//   Shift Q     a small read of a file of LHFile comes from a copy of the
+//               next 256 KB of the file, or from ReadFile (file_read_ahead,
+//               file_read_ahead.cpp)
 //   Ctrl Shift Numpad Slash  the mod waits for the GPU after each eye pass,
 //               one time a frame, or one time a frame on a second thread
 //               that also gives the frame to the runtime (frame_send,
@@ -964,6 +971,11 @@ void PollHotkeys() {
   }
   if (InterlockedExchange(&g_shift_key[21], 0) != 0) {
     XrHoldToggle("Shift and W");
+  }
+  // An A/B of the read ahead of the files of LHFile (docs/backend.md, "The
+  // read ahead of the files of the game").
+  if (InterlockedExchange(&g_shift_key[22], 0) != 0) {
+    FileReadAheadToggle("Shift and Q");
   }
   // An A/B of one walk (docs/backend.md, "One walk for both eyes"). The
   // menu key (VK_APPS) has no action in the game and no other test key.
@@ -1935,6 +1947,7 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
     GpuBridgeReport(g_timed_now);
     OneWalkReport(g_timed_now);
     PassGuardReport();
+    FileReadAheadReport();
     FrameTimersReport(g_frames);
     FrameTimeReport();
     TickDirectReport();

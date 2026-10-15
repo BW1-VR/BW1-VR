@@ -34,6 +34,7 @@ Other docs: `software-tnl.md` (the CPU transform and the camera matrix),
 | `src/mod/frame_send.cpp` | The way of the eye pictures to the headset: when the mod waits for the GPU, and on which thread (`frame_send`) |
 | `src/mod/draw_merge.cpp` | One draw call for a row of draw calls of the game with one state (`draw_merge`) |
 | `src/mod/present_watch.cpp` | Skips the copy to the monitor |
+| `src/mod/file_read_ahead.cpp` | The read ahead of the files of `LHFile`: a small read comes from a copy of the file (`file_read_ahead`) |
 | `src/mod/stereo.cpp` | The scene walk twice, the hotkeys, the view setup |
 | `src/mod/head_camera.cpp`, `head_pose.cpp`, `eye_camera.cpp` | The head on the camera, the per eye matrix |
 | `src/mod/fov.cpp` | `LH3DTech::ChangeFov` hook |
@@ -1409,7 +1410,7 @@ order of their cost:
 | Cause | How long | How often | The part |
 | --- | --- | --- | --- |
 | The audio DLL calls `Sleep(20)` on the frame thread when it stops a sound that plays (`audio.md`, 7.6). `GAudio::ProcessAudioGameTurn` stops each positional sound that is out of range, in the game turn | 20.5 to 21 ms for each stop. Two stops in one turn are 41 ms, and three are 62 ms | With `audio_stop_wait=1`: 1 stop in 10 s at the door of the Temple with the head down, 4 to 8 at the village, and none at the far zooms. With `audio_stop_wait=0`, the default, only a sound that QMixer plays keeps the wait: 2 stops in a run of 110 s, and none in a scene of the measure | game turn |
-| The Creature reads an animation from the disk at its first use (`Creature::ProcessSubAction`, `Morphable::GetSetAnim` `0x00619690`, `CAnim::ReadBinary` `0x00860860`). One animation is 1900 to 19,000 calls of `ReadFile` from `0x007BE18D`, on a file that is open already. A call takes 1.2 to 1.5 microseconds when Windows has the file in memory | The game turn takes 4 to 34 ms. The time is in the count of the calls, so a load of the file into the memory of Windows does not make it shorter | 3 times in the first 20 s of play, and 3 times in the 60 s after them. The same animations load in each run, at about the same frames | game turn |
+| The Creature reads an animation from the disk at its first use (`Creature::ProcessSubAction`, `Morphable::GetSetAnim` `0x00619690`, `CAnim::ReadBinary` `0x00860860`). One animation is 1900 to 19,000 reads of `LHFile::ReadData` on a file that is open already | With `file_read_ahead=0` each read is a call of `ReadFile` (1.2 to 1.5 microseconds when Windows has the file in memory), and the game turn takes 4 to 34 ms. With `file_read_ahead=1`, the default, the reads come from a copy ("The read ahead of the files of the game"), and the game turn takes 7.2 ms at most | 3 times in the first 20 s of play, and 3 times in the 60 s after them. The same animations load in each run, at about the same frames | game turn |
 | The first use of a texture or of an effect file in a scene walk: 2 to 5 calls of `CreateFile`, and the load | The eye pass takes 8 to 15 ms more when Windows does not have the file in memory. When it has, the calls take 0.03 ms each | 8 times in the first minute of the first run of a row of runs, and no time in the runs after it | eye 0 |
 | Each 600 game turns the game writes the mind of the Creature and two more files to the disk, and the alignment of the player to the registry | The game turn takes 3 to 4 ms, with 2 ms in 10 calls of `CreateFile`. In the first run of a row of runs those calls took 28 ms | One time a minute | game turn |
 
@@ -1455,6 +1456,62 @@ wait) in the window, and the count of the calls of 20 ms or more.
 Only a headset session can show what the wait, the copy to the bridge and the
 frame to the runtime cost in a slow frame. Only a person can say if a sound
 that stops sounds the same with `audio_stop_wait` 0 and 1.
+
+### The read ahead of the files of the game
+
+`LHFile` is the file class of the engine. `LHFile::ReadData` (`0x007BE120`)
+gives each read to `ReadFile`, with no buffer of its own. A load of an
+animation of the Creature makes thousands of reads of some bytes each in one
+game turn. With `file_read_ahead=1` (the default) the mod gives such a read
+from a copy of the file (`file_read_ahead.cpp`, `file_read_ahead_math.h`):
+
+- The mod changes the address in five instructions of `LHFile` that read
+  a function of Windows from the import table of the game: `CreateFileA` in
+  `LHFile::Open` (`0x007BD5BD`), `ReadFile` in `LHFile::ReadData`
+  (`0x007BE187`), `SetFilePointer` in `LHFile::SetLHFilePointer`
+  (`0x007BDD38`) and in `LHFile::VerifyFile` (`0x007BD804`), and
+  `CloseHandle` in `LHFile::Close` (`0x007BDBEE`). Each instruction then
+  reads a function of the mod. No other code of the game changes. The mod
+  first checks the bytes of each instruction, and with a byte that it does
+  not know it changes none.
+- Only a file that `LHFile::Open` opens with `GENERIC_READ` and
+  `FILE_SHARE_READ` gets a read ahead. That is the read mode of `LHFile`
+  (2). Nobody can write such a file while it is open, so the copy stays
+  true. A file that `LHFile` opens to write (the modes 0 and 3) goes to
+  Windows as before. `LHFile::WriteData` is not changed.
+- A read of less than 64 KB comes from a copy of the next 256 KB of the
+  file. The mod reads the copy with one call of `ReadFile`. A larger read
+  goes to Windows. A seek from the start or from the position only sets
+  the position that the game sees. Each other call first puts the file
+  pointer of Windows at that position. So the game gets the same bytes, the
+  same counts and the same results as from Windows. The checks in
+  `test/controller_math/read_ahead_checks.h` compare a row of 20,000 random
+  reads and seeks with a file that has no read ahead.
+- The parse of the file stays on the thread of the game, because the
+  engine is not safe for a second thread. Only the count of the calls into
+  the kernel changes.
+
+For each 450 frames in which the game read a file of `LHFile`, the log has
+this line:
+
+```
+read ahead   : file_read_ahead=1. In the window the game read 36445 times from files of LHFile. 36441 reads came from a copy, with 46 calls of ReadFile for the copies. 10 files opened since the start
+```
+
+Two desktop runs of one recipe (a new game, the first story and the
+Creature pens, `backend=vulkan`, `profile=1`), one with each value:
+
+| | `file_read_ahead=0` | `file_read_ahead=1` |
+| --- | --- | --- |
+| Frames with 2 ms or more in file calls, after the load of the start | 25 | 0 |
+| Report windows with a worst game turn of more than 8 ms, after the start | 11 | 0 |
+| The worst game turn after the start | 30.7 ms | 7.2 ms |
+| The game turn of the frame of the start with 35,287 reads | 69.3 ms | 29.5 ms |
+
+`file_read_ahead=0` gives each read to `ReadFile`, as the plain game does.
+With `test_keys=1`, Shift Q changes the value while the game runs. Each open
+file gives its position back to Windows at its next call. Not shown: a
+session in a headset, and a load of a saved game with the read ahead.
 
 ### The clock of the game and the hooks of dxwrapper
 
@@ -4179,6 +4236,7 @@ in front. The mod reads the keys and never takes them from the game.
 | Shift O | `test_keys=1` | Foveated rendering goes on, then on with the colour over the coarse parts (`foveation_show`), then off, from the next walk. A long pulse when it is on, a short pulse when it is off (`foveation`, "Foveated rendering"). Ctrl must be up |
 | Shift P | `test_keys=1` | Foveated resolution goes on and off, from the next walk. A long pulse and a short pulse (`fovea_res`, "Foveated resolution"). Ctrl must be up |
 | Shift T | `test_keys=1` | With `backend=vulkan`: a walk with no clear of the whole target starts with the picture of the walk before, or black, from the next walk. A long pulse and a short pulse (`vk_keep_picture`, "The picture of the walk before"). Ctrl must be up |
+| Shift Q | `test_keys=1` | The read ahead of the files of LHFile goes on and off, from the next call on each file. The log has the line `read ahead   : test key` (`file_read_ahead`, "The read ahead of the files of the game"). Ctrl must be up |
 | Ctrl Shift Numpad Slash | `test_keys=1` | The mod waits for the GPU after each eye pass, one time a frame, or one time a frame on a second thread that also gives the frame to the runtime. A long pulse, a pulse of middle length and a short pulse (`frame_send`, "One wait a frame, and a second thread"). The slash key with Shift and no Ctrl is a key of the Temple, and with no Shift it is a key of the throw |
 | Menu key | `test_keys=1` | One walk for both eyes on and off (see "One walk for both eyes"). The key beside the right Ctrl key that opens a context menu. Ctrl and Shift must be up |
 | Ctrl Menu key | `test_keys=1` | The layout of the buttons of the hand that does not point. The menu button of the left controller opens the game menu, Y opens the ring and the stick does not drive the ring, or Y opens the game menu and X and the stick open the ring. A long pulse and a short pulse on that hand (`button_layout`, `controllers.md`, 5.1). Shift must be up |
@@ -4328,6 +4386,7 @@ keys that the launcher sets.
 | `anisotropy`, `force_mips` | 16, 1 | Texture filter. `force_mips` forces the mip filter |
 | `skip_snapshot` | 1 | |
 | `test_keys` | 0 | The test keys |
+| `file_read_ahead` | 1 | 1: a read of less than 64 KB from a file that LHFile opens to read comes from a copy of the next 256 KB of the file. 0: each read goes to `ReadFile`, as in the plain game. A test key: Shift Q. See "The read ahead of the files of the game" |
 | `profile` | 0 | A test key. 1 is the frame cost measure with a timer on each Direct3D draw call, 2 is the measure with no such timer. See "The frame cost measure" |
 | `draw_probe`, `capture_every_seconds` | 0 | Reports and eye pictures |
 | `eye_test_luma` | 0 | A test key. 1: the log names each run of frames with one dark eye and each run of black frames. See "Testing without a headset" |

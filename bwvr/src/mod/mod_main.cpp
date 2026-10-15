@@ -232,6 +232,8 @@ void Depth24Install();
 void NetCheckInstall(bool own_answer);
 // dx_check.cpp: the game's check for DirectX 7.
 void DxCheckInstall(bool own_answer);
+// file_read_ahead.cpp: the read ahead of the files of LHFile.
+void FileReadAheadInstall(bool on, bool test_keys);
 // near_plane.cpp: the near plane of the game camera.
 void NearPlaneSetOptions(int cm_24, int cm_16);
 void NearPlaneInstall();
@@ -2217,6 +2219,11 @@ void EarlyHooks() {
   // rights. It comes before the backend loads.
   g_dx_check_own = GetPrivateProfileIntA("bwvr", "dx_check", 0, path) == 0;
   DxCheckInstall(g_dx_check_own);
+  // Before the game opens its first file with LHFile. It works with vr
+  // turned off too.
+  FileReadAheadInstall(
+      GetPrivateProfileIntA("bwvr", "file_read_ahead", 1, path) != 0,
+      GetPrivateProfileIntA("bwvr", "test_keys", 0, path) != 0);
   // Before anything loads d3d9.dll: DXVK in place of the Direct3D 9 of
   // Windows, when it is wanted and the PC can run it.
   D3D9BackendLoad(g_dir, path);

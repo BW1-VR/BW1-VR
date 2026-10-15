@@ -3556,6 +3556,7 @@ void CreatureChecks() {
 #include "one_walk_checks.h"
 #include "walk_checks.h"
 #include "blt_copy_checks.h"
+#include "read_ahead_checks.h"
 #include "target_glow_checks.h"
 #include "scene_sample_checks.h"
 #include "render_thread_checks.h"
@@ -3964,6 +3965,7 @@ int main() {
   one_walk_checks::OneWalkChecks();
   walk_checks::WalkChecks();
   blt_copy_checks::BltCopyChecks();
+  read_ahead_checks::ReadAheadChecks();
   take_stream_checks::TakeStreamChecks();
   target_glow_checks::TargetGlowChecks();
   scene_sample_checks::SceneSampleChecks();
