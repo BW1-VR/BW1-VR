@@ -23,6 +23,17 @@ VkCommandPool g_pool = VK_NULL_HANDLE;
 VkFence g_fence = VK_NULL_HANDLE;
 CRITICAL_SECTION g_once_lock;
 
+// THE VULKAN OF AN OPENXR SESSION (vk_core.h).
+volatile LONG g_wait_external = 0;
+volatile LONG g_have_external = 0;
+External g_external = {};
+// The lock of the queue: the one of the session, or this one.
+SRWLOCK g_own_queue_lock = SRWLOCK_INIT;
+void OwnLock() { AcquireSRWLockExclusive(&g_own_queue_lock); }
+void OwnUnlock() { ReleaseSRWLockExclusive(&g_own_queue_lock); }
+void (*volatile g_lock)() = &OwnLock;
+void (*volatile g_unlock)() = &OwnUnlock;
+
 bool Fail(const char* what, VkResult r) {
   ModLog("vulkan       : %s failed (%d). The mod does not use Vulkan", what,
          static_cast<int>(r));
@@ -50,11 +61,90 @@ bool Allocate(const VkMemoryRequirements& req, VkMemoryPropertyFlags want,
   return f.vkAllocateMemory(g_core.device, &info, nullptr, out) == VK_SUCCESS;
 }
 
+// The pool and the fence of BeginOnce and EndOnce.
+bool MakeOnce() {
+  VkCommandPoolCreateInfo pool_info = {
+      VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
+  pool_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+  pool_info.queueFamilyIndex = g_core.queue_family;
+  VkResult r = f.vkCreateCommandPool(g_core.device, &pool_info, nullptr, &g_pool);
+  if (r != VK_SUCCESS) return Fail("vkCreateCommandPool", r);
+  VkFenceCreateInfo fence_info = {VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
+  r = f.vkCreateFence(g_core.device, &fence_info, nullptr, &g_fence);
+  if (r != VK_SUCCESS) return Fail("vkCreateFence", r);
+  InitializeCriticalSection(&g_once_lock);
+  return true;
+}
+
+// The instance and the device of the session (UseExternal).
+bool StartExternal() {
+  const External& e = g_external;
+  f.vkGetInstanceProcAddr = e.get_instance_proc_addr;
+  g_core.instance = e.instance;
+#define BWVR_VK_LOAD_INSTANCE(name)                                    \
+  f.name = reinterpret_cast<PFN_##name>(                               \
+      f.vkGetInstanceProcAddr(g_core.instance, #name));                \
+  if (f.name == nullptr) return Fail(#name, VK_ERROR_INITIALIZATION_FAILED);
+  BWVR_VK_INSTANCE_FUNCTIONS(BWVR_VK_LOAD_INSTANCE)
+#undef BWVR_VK_LOAD_INSTANCE
+  g_core.physical = e.physical;
+  g_core.device = e.device;
+  g_core.queue_family = e.queue_family;
+  g_core.max_anisotropy = e.max_anisotropy;
+  g_core.color_format = e.color_format;
+  g_core.external = true;
+  VkPhysicalDeviceProperties p;
+  f.vkGetPhysicalDeviceProperties(g_core.physical, &p);
+  strncpy_s(g_core.gpu, p.deviceName, _TRUNCATE);
+  f.vkGetPhysicalDeviceMemoryProperties(g_core.physical, &g_core.memory);
+#define BWVR_VK_LOAD_DEVICE(name)                                      \
+  f.name = reinterpret_cast<PFN_##name>(                               \
+      f.vkGetDeviceProcAddr(g_core.device, #name));                    \
+  if (f.name == nullptr) return Fail(#name, VK_ERROR_INITIALIZATION_FAILED);
+  BWVR_VK_DEVICE_FUNCTIONS(BWVR_VK_LOAD_DEVICE)
+#undef BWVR_VK_LOAD_DEVICE
+  f.vkGetDeviceQueue(g_core.device, e.queue_family, e.queue_index,
+                     &g_core.queue);
+  g_lock = e.lock;
+  g_unlock = e.unlock;
+  if (!MakeOnce()) return false;
+  g_started = true;
+  ModLog("vulkan       : the Vulkan of the OpenXR session, Vulkan 1.3 on %s",
+         g_core.gpu);
+  return true;
+}
+
 }  // namespace
+
+void WaitForExternal(bool on) {
+  InterlockedExchange(&g_wait_external, on ? 1 : 0);
+}
+
+void UseExternal(const External& external) {
+  if (g_started || InterlockedCompareExchange(&g_have_external, 0, 0) != 0) {
+    return;
+  }
+  g_external = external;
+  InterlockedExchange(&g_have_external, 1);
+}
+
+bool Pending() {
+  return !g_started && !g_failed &&
+         InterlockedCompareExchange(&g_wait_external, 0, 0) != 0 &&
+         InterlockedCompareExchange(&g_have_external, 0, 0) == 0;
+}
+
+void LockQueue() { g_lock(); }
+void UnlockQueue() { g_unlock(); }
 
 bool Start() {
   if (g_started) return true;
   if (g_failed) return false;
+  if (InterlockedCompareExchange(&g_have_external, 0, 0) != 0) {
+    return StartExternal();
+  }
+  if (Pending()) return false;
+  g_core.color_format = VK_FORMAT_R8G8B8A8_UNORM;
   g_library = LoadLibraryA("vulkan-1.dll");
   if (g_library == nullptr) {
     ModLog("vulkan       : there is no vulkan-1.dll. The mod does not use "
@@ -180,17 +270,7 @@ bool Start() {
   BWVR_VK_DEVICE_FUNCTIONS(BWVR_VK_LOAD_DEVICE)
 #undef BWVR_VK_LOAD_DEVICE
   f.vkGetDeviceQueue(g_core.device, best_family, 0, &g_core.queue);
-
-  VkCommandPoolCreateInfo pool_info = {
-      VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
-  pool_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
-  pool_info.queueFamilyIndex = best_family;
-  r = f.vkCreateCommandPool(g_core.device, &pool_info, nullptr, &g_pool);
-  if (r != VK_SUCCESS) return Fail("vkCreateCommandPool", r);
-  VkFenceCreateInfo fence_info = {VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
-  r = f.vkCreateFence(g_core.device, &fence_info, nullptr, &g_fence);
-  if (r != VK_SUCCESS) return Fail("vkCreateFence", r);
-  InitializeCriticalSection(&g_once_lock);
+  if (!MakeOnce()) return false;
   g_started = true;
   ModLog("vulkan       : Vulkan 1.3 on %s", g_core.gpu);
   return true;
@@ -201,11 +281,16 @@ const Core& Get() { return g_core; }
 
 void Stop() {
   if (!g_started) return;
+  LockQueue();
   f.vkDeviceWaitIdle(g_core.device);
+  UnlockQueue();
   f.vkDestroyFence(g_core.device, g_fence, nullptr);
   f.vkDestroyCommandPool(g_core.device, g_pool, nullptr);
-  f.vkDestroyDevice(g_core.device, nullptr);
-  f.vkDestroyInstance(g_core.instance, nullptr);
+  // The instance and the device of a session belong to the session.
+  if (!g_core.external) {
+    f.vkDestroyDevice(g_core.device, nullptr);
+    f.vkDestroyInstance(g_core.instance, nullptr);
+  }
   g_started = false;
 }
 
@@ -336,7 +421,9 @@ bool EndOnce(VkCommandBuffer cb) {
   submit.commandBufferInfoCount = 1;
   submit.pCommandBufferInfos = &cb_info;
   f.vkResetFences(g_core.device, 1, &g_fence);
+  LockQueue();
   bool ok = f.vkQueueSubmit2(g_core.queue, 1, &submit, g_fence) == VK_SUCCESS;
+  UnlockQueue();
   if (ok) {
     ok = f.vkWaitForFences(g_core.device, 1, &g_fence, VK_TRUE,
                            UINT64_MAX) == VK_SUCCESS;

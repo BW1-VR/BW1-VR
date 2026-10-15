@@ -2102,7 +2102,8 @@ The mod has a renderer of its own for the scene walks, with Vulkan
 (`vk_core.cpp`, `vk_scene.cpp`). The goal: the draws of a walk go from the
 game to Vulkan with no dxwrapper and no Direct3D 9, on a PC and later on a
 headset with an ARM CPU (Steam Frame), where each layer of x86 code costs
-more. Now it is a test: `vk_scene=1` (0 is the default).
+more. Now it is a test: `vk_scene=1` (0 is the default), and the source of
+the eye pictures in a session with Vulkan ("The session with Vulkan").
 
 **The shadow test.** With `d3d7_thread=1` the D3D7 thread gives each call
 of its queue to dxwrapper as before, and also to the Vulkan renderer. The
@@ -2177,6 +2178,62 @@ both renderers. A run in the start dialog with the scripted controller
 (`hand_run.ps1 -Kind fixed -NewGame`, frame 420) has the hand of the mod in
 view: 0.18 percent of the pixels of the left eye and 0.20 percent of the
 right eye differ, and 0.3 percent in a box around the hand, on its edges.
+
+## The session with Vulkan
+
+`xr_vulkan=1` (0 is the default) makes the OpenXR session a session with
+Vulkan (`XR_KHR_vulkan_enable2`, `xr_screen.cpp`). The launcher has the row
+"Headset session with Vulkan (test)".
+
+**The device.** The runtime makes the Vulkan instance and the device, on
+the GPU that it names. The mod asks for Vulkan 1.3 with dynamic rendering,
+synchronization2 and multiview, the anisotropic filter when the GPU has it,
+and `VK_KHR_external_memory_win32`. The instance and the device stay until
+the end of the process. The Vulkan renderer (`vk_core.cpp`) takes them, so
+its images and the swapchains are on one device. Until the session starts,
+the renderer waits and draws nothing. The runtime uses the queue in
+`xrBeginFrame`, `xrEndFrame` and in the acquire and the release of a
+swapchain image, so each submit of the mod and each of these calls holds
+one lock (`XrScreen::LockQueue`). A Direct3D 11 device on the same GPU stays
+for the bridge of Direct3D 9 ("The GPU bridge").
+
+**The swapchains.** The formats have the same order of choice as with
+Direct3D 11: BGRA with sRGB first. Each image of a swapchain has a relay: a
+Direct3D 11 texture with an NT handle, and a Vulkan image on its memory.
+Each write of Direct3D 11 for a swapchain image goes into its relay: the
+eye textures of the bridge, a menu, a loading screen, the interface panel,
+the cards, the walls of the cut scene window and the pixels of the CPU. The
+release of the image copies the relay into it with Vulkan. Vulkan has no
+wait for the work of Direct3D 11, so before that copy the CPU waits for an
+event query of Direct3D 11.
+
+**The eyes of the Vulkan renderer** (`vk_eyes`, 1 is the default with
+`xr_vulkan=1`). In a frame of one walk the renderer draws both eyes, a
+layer for each, into the next of two targets in the UNORM format of the
+swapchains. The session copies each layer into its eye swapchain on the
+GPU, in the queue after the walk, with no copy of Direct3D 9 and no wait of
+the CPU. Direct3D 9 still draws each walk. A frame with no walk of one walk
+(a menu, a loading screen, a video, two walks) and a walk of another size
+than the swapchains get the pictures of Direct3D 9. Shift C
+(`test_keys=1`) changes `vk_eyes` in the session, for an A/B in the
+headset. The log has one line for each 450 frames with the count of the
+frames with the Vulkan eyes, and the report of the session has the count
+and the time of the copies.
+
+**When it cannot start.** A runtime or a GPU without what the session needs
+gives a line of the log, and the next try is a session with Direct3D 11,
+with the pictures of Direct3D 9.
+
+**A test without the game.** `bwvr-xrtest 30 vulkan` shows the test
+pattern for 30 seconds through a session with Vulkan: the device of the
+runtime, the relays and the copies. At the end it writes the time of a copy
+of a relay.
+
+**Open: only a headset shows it.** A session with Vulkan has not run with a
+runtime: Virtual Desktop (VDXR) and SteamVR. The layout and the ownership of
+the relays between Direct3D 11 and Vulkan on each driver. The frame time
+with the Vulkan eyes. The scenes that no desktop run compared yet: the
+story camera, the fades, the Temple and the game at night.
 
 ## How the threads wait
 
@@ -3543,7 +3600,7 @@ in front. The mod reads the keys and never takes them from the game.
 | Ctrl Shift Equals | `test_keys=1` | The ears decide the start of the loop of a bulk take, or the game camera decides and the take has no sound in the God view. A long pulse and a short pulse (`audio_take_loop`, `audio.md`, 6.4). The equals key is in the row of digits |
 | Ctrl Shift Minus | `test_keys=1` | The pieces of the stream of a take at a distance go on a curve from the top of the source to the Hand, or they are on the line of the game, from the land under the Hand. A long pulse and a short pulse (`take_stream`, `grab.md`, "The stream of a take at a distance"). The minus key is in the row of digits |
 | Ctrl Shift Left bracket | `test_keys=1` | What marks a target of the Hand steps from 1 to 0 to 2 and back: the glow on the mesh with a halo only for a target whose mesh does not glow, the halo, or the glow and the halo. A long pulse for 1, a short pulse for 0 and a longer pulse for 2 (`target_glow`, `hand-model.md`, "The glow on the mesh of a target"). The left square bracket key is right of the P key on a US keyboard |
-| Shift 8 | `test_keys=1` | The calls of each scene walk go to the render thread, or to Direct3D 9 as they come, from the next scene walk. A long pulse and a short pulse (`render_thread`, "The render thread"). The game uses Shift with 1 to 7 for its bookmarks. A hook of the messages of the game thread reads the key, so a key of a virtual keyboard that goes down and up between two frames counts. For F, G, H, J, K, L, M, N, B and V the capital letter alone (a `WM_CHAR` with no Shift) counts too, because a virtual keyboard can send it so Ctrl must be up |
+| Shift 8 | `test_keys=1` | The calls of each scene walk go to the render thread, or to Direct3D 9 as they come, from the next scene walk. A long pulse and a short pulse (`render_thread`, "The render thread"). The game uses Shift with 1 to 7 for its bookmarks. A hook of the messages of the game thread reads the key, so a key of a virtual keyboard that goes down and up between two frames counts. For F, G, H, J, K, L, M, N, B, V and C the capital letter alone (a `WM_CHAR` with no Shift) counts too, because a virtual keyboard can send it so Ctrl must be up |
 | Shift 9 | `test_keys=1` | The mod gives the answers of some calls of a texture with no lock of the device, or each call goes to Direct3D 9, from the next call. A long pulse and a short pulse (`render_thread_lock_free`, "The lock of the device"). It works only while `render_thread` is 1 or 2 in the ini. It is read as Shift 8. Ctrl must be up |
 | Shift F | `test_keys=1` | A call of a walk that sets the value that the device has already goes to Direct3D 9 or not. A long pulse and a short pulse (`render_thread_filter`, "The calls that change nothing"). It works only while `render_thread` is 1 or 2 in the ini. It is read as Shift 8. Ctrl must be up |
 | Shift G | `test_keys=1` | The render thread draws from buffers of its own, or gives each `DrawIndexedPrimitiveUP` to Direct3D 9. A long pulse and a short pulse (`render_thread_buffers`, "The buffers of the render thread"). It works only while `render_thread` is 1 in the ini. It is read as Shift 8. Ctrl must be up |
@@ -3555,6 +3612,7 @@ in front. The mod reads the keys and never takes them from the game.
 | Shift N | `test_keys=1` | The end of a walk does not wait for the render thread, or it waits, from the next walk. A long pulse and a short pulse (`render_thread_late_end`, "The late end of a walk"). Ctrl must be up |
 | Shift V | `test_keys=1` | The D3D7 thread merges a row of draws with one state, or the frame thread does, from the next walk. A long pulse and a short pulse (`d3d7_thread_merge`, "The thread of Direct3D 7"). Ctrl must be up |
 | Shift B | `test_keys=1` | The threads of the mod spin for a short time and then sleep, or they spin. A long pulse and a short pulse (`thread_wait`, "How the threads wait"). Ctrl must be up |
+| Shift C | `test_keys=1` | In a session with Vulkan the eye pictures come from the Vulkan renderer, or from Direct3D 9, from the next frame. A long pulse and a short pulse (`vk_eyes`, "The session with Vulkan"). Ctrl must be up |
 | Ctrl Shift Numpad Slash | `test_keys=1` | The mod waits for the GPU after each eye pass, one time a frame, or one time a frame on a second thread that also gives the frame to the runtime. A long pulse, a pulse of middle length and a short pulse (`frame_send`, "One wait a frame, and a second thread"). The slash key with Shift and no Ctrl is a key of the Temple, and with no Shift it is a key of the throw |
 | Menu key | `test_keys=1` | One walk for both eyes on and off (see "One walk for both eyes"). The key beside the right Ctrl key that opens a context menu. Ctrl and Shift must be up |
 | Ctrl Menu key | `test_keys=1` | The layout of the buttons of the hand that does not point. The menu button of the left controller opens the game menu, Y opens the ring and the stick does not drive the ring, or Y opens the game menu and X and the stick open the ring. A long pulse and a short pulse on that hand (`button_layout`, `controllers.md`, 5.1). Shift must be up |
@@ -3673,7 +3731,9 @@ keys that the launcher sets.
 | `fast_transform_check` | 0 | A test key. See "The vertex loops with SSE" |
 | `d3d7_count` | 0 | A test key. See "The calls of Direct3D 7 in a walk" |
 | `ddraw_census` | 0 | A test key. See "The calls of DirectDraw and Direct3D 7 in a session" |
-| `vk_scene`, `vk_scene_test_frame` | 0, 0 | Test keys: 1 draws each walk of the left eye also with the Vulkan renderer, and frame N writes its image to a file. See "The Vulkan renderer" |
+| `vk_scene`, `vk_scene_test_frame` | 0, 0 | Test keys: 1 draws each walk also with the Vulkan renderer, both eyes, and frame N writes its images to files. See "The Vulkan renderer" |
+| `xr_vulkan` | 0 | 0: the OpenXR session has Direct3D 11. 1: the session has Vulkan, and the Vulkan renderer draws with its device. When it cannot start, the next try has Direct3D 11. There is no test key: the choice is made at the start. See "The session with Vulkan" |
+| `vk_eyes` | 1 | With `xr_vulkan=1`: 1 the eye pictures of a frame of one walk come from the Vulkan renderer, 0 from Direct3D 9. A test key: Shift C. See "The session with Vulkan" |
 | `fast_transform` | 1 | 1: the two vertex loops of the engine run with SSE, with the bits of the game. 0: on the x87 unit. See "The vertex loops with SSE" |
 | `profile_gpu` | 0 | A test key. See "The GPU time" |
 | `hang_watch` | 0 | A test key. See "The watch of the frame thread" |

@@ -601,14 +601,15 @@ float FrameSeparation() {
 //
 // A virtual keyboard can also send a capital letter as the character alone
 // (VK_PACKET), with no Shift. Then only a WM_CHAR of the capital letter
-// comes. So a WM_CHAR of F, G, H, J, K, L, M, N, B or V is the same key, unless the WM_KEYDOWN
+// comes. So a WM_CHAR of F, G, H, J, K, L, M, N, B, V or C is the same key, unless the WM_KEYDOWN
 // of that key came less than 200 ms before it: a real keyboard sends both.
 // The digits have no such second way, because the character of Shift 8 and
 // Shift 9 is not the same on each keyboard layout.
 // Shift 8, Shift 9, Shift F, Shift G, Shift H, Shift J, Shift K, Shift L,
-// Shift M, Shift N, Shift B, Shift V
-static volatile LONG g_shift_key[12] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
-static DWORD g_shift_key_at[12] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+// Shift M, Shift N, Shift B, Shift V, Shift C
+static volatile LONG g_shift_key[13] = {0, 0, 0, 0, 0, 0, 0,
+                                        0, 0, 0, 0, 0, 0};
+static DWORD g_shift_key_at[13] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 static HHOOK g_message_hook = nullptr;
 static bool g_message_hook_tried = false;
 
@@ -625,6 +626,7 @@ static int ShiftKeyIndex(WPARAM key) {
          : key == 'N' ? 9
          : key == 'B' ? 10
          : key == 'V' ? 11
+         : key == 'C' ? 12
                       : -1;
 }
 
@@ -900,6 +902,9 @@ void PollHotkeys() {
   }
   if (InterlockedExchange(&g_shift_key[11], 0) != 0) {
     D3D7ThreadMergeToggle("Shift and V");
+  }
+  if (InterlockedExchange(&g_shift_key[12], 0) != 0) {
+    VkSceneEyesToggle("Shift and C");
   }
   // An A/B of one walk (docs/backend.md, "One walk for both eyes"). The
   // menu key (VK_APPS) has no action in the game and no other test key.
@@ -1515,7 +1520,25 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
     const bool walked_once = one_walk_done && eye == 0;
     const bool wide = walked_once && OneWalkEyeRect(0, eye_rect[0]) &&
                       OneWalkEyeRect(1, eye_rect[1]);
-    if (to_headset && GpuBridgeReady() && wide) {
+    // In a session with Vulkan: both eyes from the image of the Vulkan
+    // renderer, with no copy of Direct3D 9 (vk_eyes, docs/backend.md, "The
+    // session with Vulkan").
+    uint64_t vk_image = 0;
+    const bool vk_eyes = to_headset && wide && g_screen->vulkan() &&
+                         VkSceneEyesWanted() &&
+                         VkSceneEyesFor(g_screen->width(), g_screen->height(),
+                                        &vk_image);
+    if (vk_eyes) {
+      for (int e = 0; e < 2; ++e) {
+        if (send_mode == 0) {
+          g_screen->SetEyeVulkan(e, vk_image, static_cast<uint32_t>(e));
+        } else {
+          late.eye_vulkan[e] = vk_image;
+          late.eye_layer[e] = static_cast<uint32_t>(e);
+        }
+      }
+      sent = true;
+    } else if (to_headset && GpuBridgeReady() && wide) {
       // Both eyes from the halves of the wide target, in this pass.
       if (send_mode == 0) {
         // The first copy goes with no wait and the second with the wait, so
@@ -1684,7 +1707,8 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
     // wait after each eye pass is.
     uint64_t gpu_wait = 0;
     if (to_headset) {
-      if (late.eye_texture[0] != nullptr || late.eye_texture[1] != nullptr) {
+      if (late.eye_texture[0] != nullptr || late.eye_texture[1] != nullptr ||
+          late.eye_vulkan[0] != 0 || late.eye_vulkan[1] != 0) {
         gpu_wait = FrameSendEnd(late, send_mode);
       } else {
         g_screen->EndFrame();

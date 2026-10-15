@@ -110,6 +110,13 @@ const Setting kSettings[] = {
      "dxvk\\d3d9.dll is in the game folder. Else, and when a start with it "
      "fails, the game draws as before. The change counts from the next "
      "start."},
+    {kBool, "xr_vulkan", "Headset session with Vulkan (test)", nullptr, 0,
+     "The headset gets the pictures through Vulkan in place of Direct3D 11, "
+     "and the mod draws the scene of each eye with a Vulkan renderer of its "
+     "own. Your GPU needs Vulkan 1.3. When the session with Vulkan does not "
+     "start, the mod starts one with Direct3D 11. This is a test: the "
+     "pictures can differ from the ones of the game. The change counts from "
+     "the next start."},
 
     {kGroup, nullptr, "View", nullptr, 0, nullptr},
     {kValues, "play_mode", "Play mode",
@@ -657,7 +664,7 @@ const char* const kRetiredKeys[] = {
     "subtitle_card_test", "subtitle_selftest", "profile_sample",
     "profile_sample_thread", "profile_sample_dump", "profile_gpu",
     "hang_watch", "gpu_flush_ab", "ab_test", "d3d7_count", "fast_transform_check",
-    "test_cores", "vk_scene", "vk_scene_test_frame", "ddraw_census", "test_smt", "test_spin_walk_us", "test_spin_idle_us",
+    "test_cores", "vk_scene", "vk_scene_test_frame", "vk_eyes", "ddraw_census", "test_smt", "test_spin_walk_us", "test_spin_idle_us",
     "test_wake_records",
     "render_thread_test_frame",
     "temple_test_camera_trace",

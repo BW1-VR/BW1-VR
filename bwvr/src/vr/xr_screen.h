@@ -142,11 +142,36 @@ struct WindowLayer {
   float alpha;
 };
 
+// THE VULKAN OF A SESSION WITH VULKAN (XrScreen::UseVulkan). The runtime
+// makes the instance and the device. They stay until the end of the
+// process, because the Vulkan renderer of the mod (vk_core.cpp) draws with
+// them. The handles are the ones of vulkan.h, as void* and uint64_t, so this
+// header needs no vulkan.h.
+struct XrVulkan {
+  void* get_instance_proc_addr;  // PFN_vkGetInstanceProcAddr
+  void* instance;                // VkInstance
+  void* physical;                // VkPhysicalDevice
+  void* device;                  // VkDevice
+  uint32_t queue_family;
+  uint32_t queue_index;
+  // The largest anisotropy of a sampler, or 0 when the device has no
+  // anisotropic filter.
+  float max_anisotropy;
+  // The VkFormat of 8 bits UNORM with the order of the bytes of the eye
+  // swapchains. An image in this format goes into a swapchain image by a
+  // copy of its bytes (SetEyeVulkan).
+  uint32_t eye_format;
+};
+
 // A LATE FRAME: a frame whose eye pictures are in textures that the GPU has
 // not finished. See XrScreen::EndFrameLate.
 struct LateFrame {
   // As for SetEyeTexture. Null: the eye has its picture, or it gets none.
   void* eye_texture[2];
+  // As for SetEyeVulkan, in a session with Vulkan: a VkImage and its layer.
+  // 0: the eye takes eye_texture.
+  uint64_t eye_vulkan[2];
+  uint32_t eye_layer[2];
   // As for SetPanelTexture. Null: the frame has no panel.
   void* panel_texture;
   // Returns when the GPU has finished the textures. It runs on the thread
@@ -164,6 +189,37 @@ class XrScreen {
   // of the images that will be handed to SetEyeImage. Returns false and logs a
   // reason if anything fails, and the caller can carry on without VR.
   bool Start(uint32_t width, uint32_t height, int eyes, LogFn log);
+
+  // THE GRAPHICS API OF THE SESSION. Call it before Start. false (the
+  // default): a session with Direct3D 11. true: a session with Vulkan
+  // (XR_KHR_vulkan_enable2). Each other call stays the same: a texture of
+  // Direct3D 11 and the pixels of the CPU go through a Direct3D 11 texture
+  // that Vulkan shares, and SetEyeVulkan copies a Vulkan image straight into
+  // the swapchain.
+  void UseVulkan(bool on);
+  bool vulkan() const;
+  // True after a Start with Vulkan that failed at the Vulkan part, and not
+  // at the runtime or the headset. Then a session with Direct3D 11 can
+  // still start.
+  bool VulkanFailed() const;
+  // The Vulkan of the session. False before a Start with Vulkan succeeded.
+  bool VulkanInfo(XrVulkan* out) const;
+  // The queue of the session. The runtime uses it in xrBeginFrame,
+  // xrEndFrame and in the acquire and the release of a swapchain image, so
+  // each other submit to it must hold this lock.
+  static void LockQueue();
+  static void UnlockQueue();
+
+  // One eye from a Vulkan image of the session device, in a session with
+  // Vulkan: one layer of `image` (a VkImage), of the size the screen was
+  // started with, in the format XrVulkan::eye_format and in the layout
+  // VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL. The work that draws the image
+  // must be in the queue before this call. The image keeps its layout.
+  void SetEyeVulkan(int index, uint64_t image, uint32_t layer);
+
+  // The size of each eye picture, as Start had it.
+  uint32_t width() const;
+  uint32_t height() const;
 
   // Waits for the runtime and starts a frame. Returns false when the session
   // has ended and the caller should stop. When it returns true but

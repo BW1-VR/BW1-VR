@@ -31,6 +31,7 @@
 #include "fast_transform.h"
 #include "thread_wait.h"
 #include "ddraw_census.h"
+#include "vk_core.h"
 #include "vk_scene.h"
 #include "render_thread.h"
 #include "tabletop.h"
@@ -525,6 +526,10 @@ int g_d3d7_thread = 1;
 int g_d3d7_thread_merge = 1;
 int g_vk_scene = 0;
 int g_vk_scene_test_frame = 0;
+// The OpenXR session with Vulkan, and the eye pictures of the Vulkan
+// renderer in it (docs/backend.md, "The session with Vulkan").
+int g_xr_vulkan = 0;
+int g_vk_eyes = 1;
 int g_render_thread_late_end = 1;
 int g_thread_wait = 1;
 int g_test_cores = 0;
@@ -1338,6 +1343,9 @@ void ReadSettings() {
       static_cast<int>(GetPrivateProfileIntA("bwvr", "vk_scene", 0, path));
   g_vk_scene_test_frame = static_cast<int>(
       GetPrivateProfileIntA("bwvr", "vk_scene_test_frame", 0, path));
+  g_xr_vulkan =
+      GetPrivateProfileIntA("bwvr", "xr_vulkan", 0, path) != 0 ? 1 : 0;
+  g_vk_eyes = GetPrivateProfileIntA("bwvr", "vk_eyes", 1, path) != 0 ? 1 : 0;
   g_render_thread_late_end =
       GetPrivateProfileIntA("bwvr", "render_thread_late_end", 1, path) != 0
           ? 1
@@ -1627,7 +1635,16 @@ void StartVrOnce() {
     D3D7CountSetOptions(g_d3d7_count);
     D3D7ThreadSetOptions(g_d3d7_thread);
     D3D7ThreadSetMerge(g_d3d7_thread_merge);
-    VkSceneSetOptions(g_vk_scene, g_vk_scene_test_frame);
+    // The eye pictures of the Vulkan renderer need the renderer.
+    const bool vk_eyes = g_xr_vulkan != 0 && g_vk_eyes != 0;
+    VkSceneSetOptions(g_vk_scene != 0 || vk_eyes ? 1 : 0,
+                      g_vk_scene_test_frame);
+    VkSceneSetEyes(vk_eyes);
+    // With a session with Vulkan the renderer takes its device, so it waits
+    // for the session.
+    if (g_xr_vulkan != 0 && g_vr_enabled && !g_stereo_headless) {
+      vk::WaitForExternal(true);
+    }
     RenderThreadSetLateEnd(g_render_thread_late_end != 0);
     BubbleCardSetOptions(g_bubble_card, g_bubble_card_test,
                          g_bubble_card_test_frame);
@@ -1639,6 +1656,7 @@ void StartVrOnce() {
   // session keeps a measuring run to one command on the desktop.
   if (g_stereo_headless) {
     g_vr_gave_up = true;
+    vk::WaitForExternal(false);
     return;
   }
 
@@ -1648,12 +1666,14 @@ void StartVrOnce() {
   // starts one.
   if (!g_vr_full_screen && GpuBridgeFullScreen()) {
     g_vr_gave_up = true;
+    vk::WaitForExternal(false);
     ModLog("vr           : vr_full_screen=0. The game is full screen, so the "
            "mod does not use the headset. Start the game from the launcher");
     return;
   }
 
   bwvr::XrScreen* screen = new bwvr::XrScreen();
+  screen->UseVulkan(g_xr_vulkan != 0);
   screen->SetPlacement(g_distance, g_width);
   screen->EnablePanel(g_stereo && g_ui_panel.mode == kUiPanelLayer);
   // Only the first failure and every tenth after it reach the log. A message
@@ -1661,6 +1681,16 @@ void StartVrOnce() {
   const bool quiet = (g_vr_tries > 0) && (g_vr_tries % 10 != 0);
   if (!screen->Start(width, height, g_stereo ? 2 : 1,
                      quiet ? &ModLogNowhere : &ModLog)) {
+    // A session with Vulkan that the GPU or the runtime cannot have: the
+    // next try is a session with Direct3D 11, with the eye pictures of
+    // Direct3D 9.
+    if (screen->VulkanFailed()) {
+      g_xr_vulkan = 0;
+      vk::WaitForExternal(false);
+      VkSceneSetEyes(false);
+      ModLog("vr           : xr_vulkan=1, but the session with Vulkan did "
+             "not start. The next try is a session with Direct3D 11");
+    }
     delete screen;
     ++g_vr_tries;
     if (g_vr_tries == 1) {
@@ -1669,6 +1699,7 @@ void StartVrOnce() {
     }
     if (g_vr_tries >= kMaxVrTries) {
       g_vr_gave_up = true;
+      vk::WaitForExternal(false);
       ModLog("vr           : no headset arrived, the game stays on the "
              "monitor");
     }
@@ -1680,6 +1711,26 @@ void StartVrOnce() {
   // openxr line after this point goes nowhere: the eye angles, the measured
   // separation, and the size the headset asks for.
   screen->SetLog(&ModLog);
+
+  // The Vulkan renderer draws with the device of a session with Vulkan.
+  bwvr::XrVulkan session_vulkan;
+  if (screen->VulkanInfo(&session_vulkan)) {
+    vk::External external = {};
+    external.get_instance_proc_addr = reinterpret_cast<PFN_vkGetInstanceProcAddr>(
+        session_vulkan.get_instance_proc_addr);
+    external.instance = static_cast<VkInstance>(session_vulkan.instance);
+    external.physical = static_cast<VkPhysicalDevice>(session_vulkan.physical);
+    external.device = static_cast<VkDevice>(session_vulkan.device);
+    external.queue_family = session_vulkan.queue_family;
+    external.queue_index = session_vulkan.queue_index;
+    external.max_anisotropy = session_vulkan.max_anisotropy;
+    external.color_format = static_cast<VkFormat>(session_vulkan.eye_format);
+    external.lock = &bwvr::XrScreen::LockQueue;
+    external.unlock = &bwvr::XrScreen::UnlockQueue;
+    vk::UseExternal(external);
+    ModLog("vr           : xr_vulkan=1. A session with Vulkan. The Vulkan "
+           "renderer takes its device");
+  }
 
   // WRITE THE HEADSET'S OWN SIZE BACK TO THE SETTINGS.
   //

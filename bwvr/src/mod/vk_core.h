@@ -6,6 +6,15 @@
 // DLL of the mod has no import of Vulkan and starts on a PC with no Vulkan.
 // Vulkan 1.3 is the floor: dynamic rendering, synchronization2 and the
 // extended dynamic state are core there.
+//
+// THE VULKAN OF AN OPENXR SESSION (xr_vulkan=1). Then the runtime makes the
+// instance and the device (XrScreen::UseVulkan), and the core takes them
+// (UseExternal), so the images of the renderer go into the swapchains of the
+// session with no copy between two devices. WaitForExternal(true) makes Start
+// wait for them: Start returns false and Pending() is true until UseExternal.
+// The runtime uses the queue too, so each submit and each wait for the idle
+// device holds the lock of the queue (LockQueue), and the session gives that
+// lock.
 
 #pragma once
 
@@ -118,8 +127,34 @@ struct Core {
   // The largest anisotropy of a sampler, or 0 when the GPU has no
   // anisotropic filter.
   float max_anisotropy;
+  // The format of the eye images of the renderer. A session with Vulkan
+  // gives the UNORM format of its swapchains, so an eye image goes into a
+  // swapchain image by a copy of its bytes.
+  VkFormat color_format;
+  bool external;  // the instance and the device are the ones of a session
   char gpu[256];
 };
+
+struct External {
+  PFN_vkGetInstanceProcAddr get_instance_proc_addr;
+  VkInstance instance;
+  VkPhysicalDevice physical;
+  VkDevice device;
+  uint32_t queue_family;
+  uint32_t queue_index;
+  float max_anisotropy;
+  VkFormat color_format;
+  void (*lock)();  // the lock of the queue of the session
+  void (*unlock)();
+};
+void WaitForExternal(bool on);
+void UseExternal(const External& external);
+bool Pending();
+
+// The lock of the queue. Each submit and each wait for the idle device
+// holds it.
+void LockQueue();
+void UnlockQueue();
 
 // Starts Vulkan 1.3 on the first GPU that has it, a dedicated one before an
 // integrated one, with multiview (one draw for both eyes, each in a layer of

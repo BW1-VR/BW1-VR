@@ -32,6 +32,16 @@
 // test, the depth write, the depth function and the primitive type are
 // dynamic states.
 //
+// THE EYES IN THE HEADSET (vk_eyes=1, with xr_vulkan=1). The renderer then
+// has the instance and the device of the OpenXR session (vk_core.h), and it
+// waits for them before its first walk. Each walk draws into the next of two
+// targets, so the copy of one frame into the swapchains can still read its
+// target while the next walk draws. VkSceneEyes gives the target of the last
+// walk to the frame thread (stereo.cpp), and the session copies its two
+// layers into the two eye swapchains (XrScreen::SetEyeVulkan). The format of
+// the targets is the UNORM format of the swapchains, so the copy changes no
+// byte.
+//
 // THE TEXTURES. A texture of the game is a DirectDraw surface of dxwrapper.
 // At its first use the renderer reads it with Lock, makes RGBA8 of it, and
 // gives the copy its mip levels with blits. A Lock or a Blt of the game on a
@@ -56,6 +66,7 @@
 void ModLog(const char* format, ...);
 // controllers.cpp
 uint64_t ControllersFrameCount();
+void ControllersGesturePulse(float amplitude, float seconds);
 
 namespace {
 
@@ -85,13 +96,29 @@ struct Seed {
   void* texture1;
   D3DVIEWPORT7 viewport;
   uint64_t frame;
+  bool both;  // a walk of one walk: both layers get a picture
 };
 
-// THE TARGET of the left eye.
-vk::Image g_color = {};
+// THE TARGETS: two, for the walks in turn, each with a layer for each eye
+// (THE EYES IN THE HEADSET). The depth is one.
+vk::Image g_colors[2] = {};
+int g_target = 0;
 vk::Image g_depth = {};
-const VkFormat kColorFormat = VK_FORMAT_R8G8B8A8_UNORM;
 const VkFormat kDepthFormat = VK_FORMAT_D32_SFLOAT;
+// The texture images are RGBA8.
+const VkFormat kTextureFormat = VK_FORMAT_R8G8B8A8_UNORM;
+
+// The last walk that ended, for VkSceneEyes. The D3D7 thread writes it
+// before the end of the walk, and the frame thread reads it after the end.
+volatile LONG g_done_serial = 0;
+LONG g_taken_serial = 0;
+uint64_t g_done_image = 0;
+uint32_t g_done_width = 0;
+uint32_t g_done_height = 0;
+bool g_said_pending = false;
+
+// The target of the walk now.
+vk::Image& Target() { return g_colors[g_target]; }
 
 // THE PIPELINES: one for each blend (off, or a pair of factors).
 VkShaderModule g_vert = VK_NULL_HANDLE;
@@ -163,6 +190,7 @@ uint64_t g_upload_bytes = 0;
 uint64_t g_right_only = 0;
 uint64_t g_stage1 = 0;  // draws with texture stage 1 on
 bool g_said_seed = false;
+bool g_walk_both = false;  // the walk now draws both eyes
 
 bool Fail(const char* what) {
   ModLog("vk scene     : %s failed. The Vulkan renderer stops", what);
@@ -273,7 +301,8 @@ VkPipeline Pipeline(uint32_t key) {
       VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
   rendering.viewMask = 3;
   rendering.colorAttachmentCount = 1;
-  rendering.pColorAttachmentFormats = &kColorFormat;
+  const VkFormat color_format = vk::Get().color_format;
+  rendering.pColorAttachmentFormats = &color_format;
   rendering.depthAttachmentFormat = kDepthFormat;
   VkGraphicsPipelineCreateInfo info = {
       VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
@@ -414,7 +443,7 @@ bool Upload(uint32_t width, uint32_t height, uint8_t* pixels,
             vk::Image* image) {
   uint32_t levels = 1;
   while ((width >> levels) > 0 || (height >> levels) > 0) ++levels;
-  if (!vk::MakeImage(width, height, levels, kColorFormat,
+  if (!vk::MakeImage(width, height, levels, kTextureFormat,
                      VK_IMAGE_USAGE_SAMPLED_BIT |
                          VK_IMAGE_USAGE_TRANSFER_DST_BIT |
                          VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
@@ -576,18 +605,28 @@ VkDescriptorSet SetOf(Texture* t, VkSampler sampler) {
 }
 
 bool MakeTarget(uint32_t width, uint32_t height) {
-  if (g_color.image != VK_NULL_HANDLE && g_color.width == width &&
-      g_color.height == height) {
+  if (g_colors[0].image != VK_NULL_HANDLE && g_colors[0].width == width &&
+      g_colors[0].height == height) {
     return true;
   }
+  vk::LockQueue();
   f.vkDeviceWaitIdle(vk::Get().device);
-  vk::FreeImage(&g_color);
+  vk::UnlockQueue();
+  vk::FreeImage(&g_colors[0]);
+  vk::FreeImage(&g_colors[1]);
   vk::FreeImage(&g_depth);
-  return vk::MakeImage(width, height, 1, kColorFormat,
+  InterlockedExchange(&g_done_serial, 0);
+  g_taken_serial = 0;
+  g_done_image = 0;
+  for (int i = 0; i < 2; ++i) {
+    if (!vk::MakeImage(width, height, 1, vk::Get().color_format,
                        VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
                            VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
-                       VK_IMAGE_ASPECT_COLOR_BIT, &g_color, 2) &&
-         vk::MakeImage(width, height, 1, kDepthFormat,
+                       VK_IMAGE_ASPECT_COLOR_BIT, &g_colors[i], 2)) {
+      return false;
+    }
+  }
+  return vk::MakeImage(width, height, 1, kDepthFormat,
                        VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
                        VK_IMAGE_ASPECT_DEPTH_BIT, &g_depth, 2);
 }
@@ -595,7 +634,18 @@ bool MakeTarget(uint32_t width, uint32_t height) {
 bool Ready() {
   if (g_ready) return true;
   if (g_failed) return false;
-  if (!vk::Start()) return Fail("the start of Vulkan");
+  if (!vk::Start()) {
+    if (vk::Pending()) {
+      // The walks before the start of the OpenXR session draw nothing here.
+      if (!g_said_pending) {
+        g_said_pending = true;
+        ModLog("vk scene     : the renderer waits for the Vulkan of the "
+               "OpenXR session (xr_vulkan=1)");
+      }
+      return false;
+    }
+    return Fail("the start of Vulkan");
+  }
   const VkDevice device = vk::Get().device;
   g_vert = Module(kVkSceneVert, sizeof(kVkSceneVert));
   g_frag = Module(kVkSceneFrag, sizeof(kVkSceneFrag));
@@ -681,23 +731,23 @@ bool Ready() {
 
 // Writes the image of one eye to a file of 24 bits, bottom up.
 void WritePicture(uint64_t frame, uint32_t eye) {
-  const uint32_t w = g_color.width, h = g_color.height;
+  const uint32_t w = Target().width, h = Target().height;
   vk::Buffer read;
   if (!vk::MakeBuffer(static_cast<VkDeviceSize>(w) * h * 4,
                       VK_BUFFER_USAGE_TRANSFER_DST_BIT, true, &read)) {
     return;
   }
   VkCommandBuffer cb = vk::BeginOnce();
-  vk::Barrier(cb, g_color.image, VK_IMAGE_ASPECT_COLOR_BIT,
+  vk::Barrier(cb, Target().image, VK_IMAGE_ASPECT_COLOR_BIT,
               VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
               VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, 1, 2);
   VkBufferImageCopy copy = {};
   copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, eye, 1};
   copy.imageExtent = {w, h, 1};
-  f.vkCmdCopyImageToBuffer(cb, g_color.image,
+  f.vkCmdCopyImageToBuffer(cb, Target().image,
                            VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, read.buffer,
                            1, &copy);
-  vk::Barrier(cb, g_color.image, VK_IMAGE_ASPECT_COLOR_BIT,
+  vk::Barrier(cb, Target().image, VK_IMAGE_ASPECT_COLOR_BIT,
               VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
               VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 1, 2);
   if (!vk::EndOnce(cb)) {
@@ -729,12 +779,15 @@ void WritePicture(uint64_t frame, uint32_t eye) {
     fwrite(header, 1, 54, out);
     uint8_t* line = static_cast<uint8_t*>(calloc(row, 1));
     const uint8_t* rgba = static_cast<const uint8_t*>(read.mapped);
+    // The target is RGBA or BGRA (THE EYES IN THE HEADSET). The file is BGR.
+    const bool bgra = Target().format == VK_FORMAT_B8G8R8A8_UNORM;
+    const int red = bgra ? 2 : 0, blue = bgra ? 0 : 2;
     for (uint32_t y = 0; y < h; ++y) {
       const uint8_t* src = rgba + (h - 1 - y) * w * 4;
       for (uint32_t x = 0; x < w; ++x) {
-        line[x * 3 + 0] = src[x * 4 + 2];
+        line[x * 3 + 0] = src[x * 4 + blue];
         line[x * 3 + 1] = src[x * 4 + 1];
-        line[x * 3 + 2] = src[x * 4 + 0];
+        line[x * 3 + 2] = src[x * 4 + red];
       }
       fwrite(line, 1, row, out);
     }
@@ -773,6 +826,8 @@ void BeginOnWorker(const void* data) {
     return;
   }
   g_slot ^= 1;
+  g_target ^= 1;
+  g_walk_both = seed->both;
   Slot& s = g_slots[g_slot];
   const VkDevice device = vk::Get().device;
   f.vkWaitForFences(device, 1, &s.fence, VK_TRUE, UINT64_MAX);
@@ -784,7 +839,7 @@ void BeginOnWorker(const void* data) {
   VkCommandBufferBeginInfo begin = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
   begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
   f.vkBeginCommandBuffer(s.cb, &begin);
-  vk::Barrier(s.cb, g_color.image, VK_IMAGE_ASPECT_COLOR_BIT,
+  vk::Barrier(s.cb, Target().image, VK_IMAGE_ASPECT_COLOR_BIT,
               VK_IMAGE_LAYOUT_UNDEFINED,
               VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 1, 2);
   vk::Barrier(s.cb, g_depth.image, VK_IMAGE_ASPECT_DEPTH_BIT,
@@ -792,7 +847,7 @@ void BeginOnWorker(const void* data) {
               VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, 1, 2);
   VkRenderingAttachmentInfo color = {
       VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
-  color.imageView = g_color.view;
+  color.imageView = Target().view;
   color.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
   color.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
   color.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
@@ -804,7 +859,7 @@ void BeginOnWorker(const void* data) {
   depth.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
   depth.clearValue.depthStencil.depth = 1.0f;
   VkRenderingInfo rendering = {VK_STRUCTURE_TYPE_RENDERING_INFO};
-  rendering.renderArea = {{0, 0}, {g_color.width, g_color.height}};
+  rendering.renderArea = {{0, 0}, {Target().width, Target().height}};
   rendering.layerCount = 1;
   rendering.viewMask = 3;
   rendering.colorAttachmentCount = 1;
@@ -812,10 +867,10 @@ void BeginOnWorker(const void* data) {
   rendering.pDepthAttachment = &depth;
   f.vkCmdBeginRendering(s.cb, &rendering);
   const VkViewport viewport = {0.0f, 0.0f,
-                               static_cast<float>(g_color.width),
-                               static_cast<float>(g_color.height), 0.0f, 1.0f};
+                               static_cast<float>(Target().width),
+                               static_cast<float>(Target().height), 0.0f, 1.0f};
   f.vkCmdSetViewport(s.cb, 0, 1, &viewport);
-  const VkRect2D scissor = {{0, 0}, {g_color.width, g_color.height}};
+  const VkRect2D scissor = {{0, 0}, {Target().width, Target().height}};
   f.vkCmdSetScissor(s.cb, 0, 1, &scissor);
   g_recording = true;
   g_picture = g_test_frame > 0 && seed->frame == static_cast<uint64_t>(g_test_frame);
@@ -835,9 +890,19 @@ void EndOnWorker(const void*) {
   VkSubmitInfo2 submit = {VK_STRUCTURE_TYPE_SUBMIT_INFO_2};
   submit.commandBufferInfoCount = 1;
   submit.pCommandBufferInfos = &cb_info;
-  if (f.vkQueueSubmit2(vk::Get().queue, 1, &submit, s.fence) != VK_SUCCESS) {
+  vk::LockQueue();
+  const VkResult submitted =
+      f.vkQueueSubmit2(vk::Get().queue, 1, &submit, s.fence);
+  vk::UnlockQueue();
+  if (submitted != VK_SUCCESS) {
     Fail("a submit");
     return;
+  }
+  if (g_walk_both) {
+    g_done_image = (uint64_t)Target().image;  // a handle of 64 bits
+    g_done_width = Target().width;
+    g_done_height = Target().height;
+    InterlockedIncrement(&g_done_serial);
   }
   if (g_picture) {
     f.vkWaitForFences(vk::Get().device, 1, &s.fence, VK_TRUE, UINT64_MAX);
@@ -853,10 +918,60 @@ void VkSceneSetOptions(int mode, int test_frame) {
   g_test_frame = test_frame;
   if (g_mode != 0) {
     ModLog("vk scene     : vk_scene=1. With d3d7_thread=1 a Vulkan renderer "
-           "draws each walk of the left eye into an image of its own, as a "
-           "test. The picture of the game stays the one of dxwrapper. "
-           "vk_scene_test_frame=%d", test_frame);
+           "draws each walk into an image of its own, with a layer for each "
+           "eye. vk_scene_test_frame=%d", test_frame);
   }
+}
+
+namespace {
+bool g_eyes = false;
+bool g_said_size = false;
+uint64_t g_eye_frames = 0;  // for the report
+}  // namespace
+
+void VkSceneSetEyes(bool on) {
+  g_eyes = on;
+  if (on) {
+    ModLog("vk scene     : vk_eyes=1. In a frame of one walk the eye pictures "
+           "go from the Vulkan renderer to the headset (xr_vulkan=1)");
+  }
+}
+
+bool VkSceneEyesWanted() { return g_eyes && VkSceneOn(); }
+
+void VkSceneEyesToggle(const char* keys) {
+  g_eyes = !g_eyes;
+  ControllersGesturePulse(0.5f, g_eyes ? 0.30f : 0.08f);
+  ModLog("test key     : %s, vk_eyes is %d now: the eye pictures come from %s",
+         keys, g_eyes ? 1 : 0,
+         g_eyes ? "the Vulkan renderer" : "Direct3D 9");
+}
+
+bool VkSceneEyesFor(uint32_t width, uint32_t height, uint64_t* image) {
+  uint32_t w = 0, h = 0;
+  if (!VkSceneEyes(image, &w, &h)) return false;
+  if (w != width || h != height) {
+    if (!g_said_size) {
+      g_said_size = true;
+      ModLog("vk scene     : the walk is %u by %u and the swapchains are %u by "
+             "%u, so the eye pictures come from Direct3D 9",
+             w, h, width, height);
+    }
+    return false;
+  }
+  ++g_eye_frames;
+  return true;
+}
+
+bool VkSceneEyes(uint64_t* image, uint32_t* width, uint32_t* height) {
+  if (!VkSceneOn()) return false;
+  const LONG serial = InterlockedCompareExchange(&g_done_serial, 0, 0);
+  if (serial == 0 || serial == g_taken_serial) return false;
+  g_taken_serial = serial;
+  *image = g_done_image;
+  *width = g_done_width;
+  *height = g_done_height;
+  return *image != 0;
 }
 
 bool VkSceneOn() { return g_mode != 0 && !g_failed; }
@@ -893,6 +1008,7 @@ void VkSceneWalkBegin(void* device7) {
   }
   d->GetViewport(&seed.viewport);
   seed.frame = ControllersFrameCount();
+  seed.both = OneWalkActive();
   D3D7ThreadPost(&BeginOnWorker, &seed, sizeof(seed));
 }
 
@@ -1094,4 +1210,9 @@ void VkSceneReport(uint64_t frames) {
          g_upload_bytes / 1048576.0, g_pipeline_count, g_sampler_count,
          g_failed ? ". The renderer stopped after a fault" : "");
   g_walks = g_draws = g_skipped = g_uploads = g_upload_bytes = 0;
+  if (g_eyes) {
+    ModLog("vk scene     : %llu of %llu frames had the eye pictures of the "
+           "Vulkan renderer in the headset", g_eye_frames, frames);
+  }
+  g_eye_frames = 0;
 }

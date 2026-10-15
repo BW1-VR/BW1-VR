@@ -545,9 +545,11 @@ that moves while the Hand takes it.
     standalone** needs fewer layers of x86 code for each draw. The plan,
     in steps that a desktop run can check: (A) a Vulkan renderer of the
     scene walks in place of dxwrapper and Direct3D 9 (`backend.md`, "The
-    Vulkan renderer"; now the shadow test: the same picture),
-    then its images straight to an OpenXR session of Vulkan, the hand and
-    the overlays of the mod in it, and both eyes in one pass; (B) one draw
+    Vulkan renderer"; the same picture as Direct3D 9, with the hand and the
+    overlays of the mod and both eyes in one pass). Its eye pictures go
+    straight into an OpenXR session with Vulkan (`xr_vulkan=1`, "The
+    session with Vulkan"). Not run: a headset session with it. Next: the
+    walk without dxwrapper and Direct3D 9; (B) one draw
     for many copies of a mesh (about 870 draws of a frame are 36 meshes);
     (C) a new renderer of the land, after a count of its draws. The Quest 3
     cannot run `runblack.exe`; a port there needs an x86 emulator with Wine
