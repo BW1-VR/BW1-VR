@@ -561,6 +561,21 @@ struct XrScreen::Impl {
   uint64_t age_ticks = 0;
   uint64_t age_worst = 0;
   uint64_t age_frames = 0;
+  // THE LONGEST CALLS OF THE RUNTIME in a report window. A frame of 100 ms
+  // in a headset can wait inside the runtime: in xrWaitFrame, in
+  // xrBeginFrame, in xrEndFrame or at a swapchain image. The report of
+  // stereo.cpp puts xrEndFrame and the copies in "everything else", so these
+  // numbers say which call held the frame. Only the frame thread writes them.
+  enum RuntimeCall { kCallWait, kCallBegin, kCallEnd, kCallCopies, kCalls };
+  uint64_t call_worst[kCalls] = {};
+  uint64_t call_slow[kCalls] = {};  // calls of 20 ms or more
+  void CountCall(int call, uint64_t ticks) {
+    if (frequency.QuadPart == 0) QueryPerformanceFrequency(&frequency);
+    if (ticks > call_worst[call]) call_worst[call] = ticks;
+    if (ticks * 50 >= static_cast<uint64_t>(frequency.QuadPart)) {
+      ++call_slow[call];
+    }
+  }
 
   // THE HOLD (xr_hold_ms, XrScreen::SetHoldMs). When the game gives the
   // runtime no frame for hold_ms (a load, a long game turn), the second
@@ -1486,9 +1501,13 @@ bool XrScreen::BeginFrame() {
   }
   XrFrameWaitInfo wait_info = {XR_TYPE_FRAME_WAIT_INFO};
   s.frame_state = {XR_TYPE_FRAME_STATE};
+  LARGE_INTEGER wait_start;
+  QueryPerformanceCounter(&wait_start);
   const XrResult waited = xrWaitFrame(s.session, &wait_info, &s.frame_state);
   LARGE_INTEGER waited_at;
   QueryPerformanceCounter(&waited_at);
+  s.CountCall(Impl::kCallWait,
+              static_cast<uint64_t>(waited_at.QuadPart - wait_start.QuadPart));
   // xrWaitFrame can run while the second thread sends the frame before.
   // xrBeginFrame cannot: the runtime must have that frame first. Join reads
   // the time of that frame, so the time of this frame is set after it.
@@ -1511,10 +1530,15 @@ bool XrScreen::BeginFrame() {
 
   XrFrameBeginInfo begin_info = {XR_TYPE_FRAME_BEGIN_INFO};
   XrResult begun;
+  LARGE_INTEGER begin_start, begin_done;
+  QueryPerformanceCounter(&begin_start);
   {
     QueueGuard guard(s.vulkan);
     begun = xrBeginFrame(s.session, &begin_info);
   }
+  QueryPerformanceCounter(&begin_done);
+  s.CountCall(Impl::kCallBegin, static_cast<uint64_t>(begin_done.QuadPart -
+                                                      begin_start.QuadPart));
   if (!s.Check(begun, "xrBeginFrame")) {
     return true;
   }
@@ -2111,6 +2135,22 @@ void XrScreen::ReportUpload(uint64_t frames) {
     s.hold_frames = s.hold_runs = s.hold_taken = s.hold_failed = 0;
     s.hold_worst = 0;
   }
+  if (s.frequency.QuadPart != 0) {
+    const double to_ms = 1000.0 / static_cast<double>(s.frequency.QuadPart);
+    s.log("  runtime calls: the longest call of the window, ms: xrWaitFrame "
+          "%.2f, xrBeginFrame %.2f, xrEndFrame %.2f, the copies to the "
+          "swapchains %.2f. Calls of 20 ms or more: %llu, %llu, %llu, %llu",
+          static_cast<double>(s.call_worst[Impl::kCallWait]) * to_ms,
+          static_cast<double>(s.call_worst[Impl::kCallBegin]) * to_ms,
+          static_cast<double>(s.call_worst[Impl::kCallEnd]) * to_ms,
+          static_cast<double>(s.call_worst[Impl::kCallCopies]) * to_ms,
+          s.call_slow[Impl::kCallWait], s.call_slow[Impl::kCallBegin],
+          s.call_slow[Impl::kCallEnd], s.call_slow[Impl::kCallCopies]);
+    for (int c = 0; c < Impl::kCalls; ++c) {
+      s.call_worst[c] = 0;
+      s.call_slow[c] = 0;
+    }
+  }
   if (s.late_frames > 0 && s.frequency.QuadPart != 0) {
     const double to_ms = 1000.0 / static_cast<double>(s.frequency.QuadPart);
     const double count = static_cast<double>(s.late_frames);
@@ -2531,6 +2571,8 @@ void XrScreen::FinishFrame() {
       static_cast<uint64_t>(b.built.QuadPart - b.before.QuadPart) +
       static_cast<uint64_t>(b.end_done.QuadPart - b.end_start.QuadPart);
   ++s.ends;
+  s.CountCall(Impl::kCallEnd, static_cast<uint64_t>(b.end_done.QuadPart -
+                                                    b.end_start.QuadPart));
   if (b.layer_count > 0 && b.waited_at.QuadPart != 0) {
     const uint64_t age =
         static_cast<uint64_t>(b.end_done.QuadPart - b.waited_at.QuadPart);
@@ -2613,6 +2655,7 @@ void XrScreen::FinishLate() {
   for (int i = 0; i < 3; ++i) s.Check(s.late_result[i], what[i]);
   s.late_gpu_ticks += s.late_gpu;
   s.late_copy_ticks += s.late_copy;
+  s.CountCall(Impl::kCallCopies, s.late_copy);
   s.late_end_ticks += static_cast<uint64_t>(s.built.end_done.QuadPart -
                                             s.built.end_start.QuadPart);
 }

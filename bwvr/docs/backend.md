@@ -1409,7 +1409,7 @@ order of their cost:
 | Cause | How long | How often | The part |
 | --- | --- | --- | --- |
 | The audio DLL calls `Sleep(20)` on the frame thread when it stops a sound that plays (`audio.md`, 7.6). `GAudio::ProcessAudioGameTurn` stops each positional sound that is out of range, in the game turn | 20.5 to 21 ms for each stop. Two stops in one turn are 41 ms, and three are 62 ms | With `audio_stop_wait=1`: 1 stop in 10 s at the door of the Temple with the head down, 4 to 8 at the village, and none at the far zooms. With `audio_stop_wait=0`, the default, only a sound that QMixer plays keeps the wait: 2 stops in a run of 110 s, and none in a scene of the measure | game turn |
-| The Creature reads an animation from the disk at its first use (`Creature::ProcessSubAction`, `Morphable::GetSetAnim` `0x00619690`, `CAnim::ReadBinary` `0x00860860`). One animation is 2400 to 5600 calls of `ReadFile` | The game turn takes 4.5 to 9.5 ms | 3 times in the first 20 s of play, and 3 times in the 60 s after them. The same animations load in each run, at about the same frames | game turn |
+| The Creature reads an animation from the disk at its first use (`Creature::ProcessSubAction`, `Morphable::GetSetAnim` `0x00619690`, `CAnim::ReadBinary` `0x00860860`). One animation is 1900 to 19,000 calls of `ReadFile` from `0x007BE18D`, on a file that is open already. A call takes 1.2 to 1.5 microseconds when Windows has the file in memory | The game turn takes 4 to 34 ms. The time is in the count of the calls, so a load of the file into the memory of Windows does not make it shorter | 3 times in the first 20 s of play, and 3 times in the 60 s after them. The same animations load in each run, at about the same frames | game turn |
 | The first use of a texture or of an effect file in a scene walk: 2 to 5 calls of `CreateFile`, and the load | The eye pass takes 8 to 15 ms more when Windows does not have the file in memory. When it has, the calls take 0.03 ms each | 8 times in the first minute of the first run of a row of runs, and no time in the runs after it | eye 0 |
 | Each 600 game turns the game writes the mind of the Creature and two more files to the disk, and the alignment of the player to the registry | The game turn takes 3 to 4 ms, with 2 ms in 10 calls of `CreateFile`. In the first run of a row of runs those calls took 28 ms | One time a minute | game turn |
 
@@ -1426,6 +1426,31 @@ about 12 times a frame, which is 0.005 ms in all.
 
 The runtime does not count a slow frame as a skipped frame. In a session in a
 headset its counter stayed at 28 skipped frames for 12,154 frames.
+
+**Frames of about 100 ms in a headset.** In the logs of sessions with a Quest 3
+through Virtual Desktop and `xr_vulkan=1`, with `backend=vulkan` and with
+`backend=dxwrapper`, the worst frame of many report windows is 94 to 108 ms.
+Some are 200 ms. In these windows the game turn is less than 1 ms, and the
+two scene walks are 2 to 5 ms. The time is in the calls of the runtime. Some
+of these frames have 94 to 98 ms in the wait for the runtime. The others have
+45 to 94 ms in "everything else" of the line `worst frame` (that part has
+`xrEndFrame`) and the rest in the wait. The line `frame age` has 100 to 102 ms
+at the most in the same windows. The runtime of Virtual Desktop (VDXR) sets
+no timeout in these calls. It waits in `ovr_WaitToBeginFrame` and in
+`ovr_EndFrame` of the Virtual Desktop Streamer. So the cause is in the
+streamer or in the link to the headset, and not in the files of the game.
+Not known: whether a session with Direct3D 11 (`xr_vulkan=0`) has these
+frames too, and whether a turn of the head starts them.
+
+For each 450 frames the log of a session has this line:
+
+```
+  runtime calls: the longest call of the window, ms: xrWaitFrame W, xrBeginFrame B, xrEndFrame E, the copies to the swapchains C. Calls of 20 ms or more: w, b, e, c
+```
+
+It gives the longest call of `xrWaitFrame`, of `xrBeginFrame`, of
+`xrEndFrame` and of the copies to the swapchain images (with their acquire and
+wait) in the window, and the count of the calls of 20 ms or more.
 
 Only a headset session can show what the wait, the copy to the bridge and the
 frame to the runtime cost in a slow frame. Only a person can say if a sound

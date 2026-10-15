@@ -471,6 +471,16 @@ that moves while the Hand takes it.
     compositor and no encoder. The lines `frame cost   : window` of the log
     say what these cost. They also say what a slow frame is made of when it
     is not a game turn. Set the key after the last save of the launcher.
+  - **Frames of about 100 ms in a headset.** The worst frame of many report
+    windows of a session through Virtual Desktop is 94 to 108 ms, with
+    `backend=vulkan` and with `backend=dxwrapper`. The time is in the calls
+    of the runtime, not in the game turn, the scene walks or the files
+    (`backend.md`, "The slow frames"). The line `runtime calls:` names the
+    call. Next steps: a session that reads that line while the player turns
+    the head and while the player keeps the head still, with the performance
+    overlay of Virtual Desktop on (the latency of the network and the frames
+    that the headset drops), and a session with `xr_vulkan=0` and
+    `backend=dxwrapper` for a comparison.
   - **The wait at the stop of a sound.** The mod skips the 20 ms that
     the audio DLL waits on the frame thread at the stop of a sound
     (`audio_stop_wait=0`, `audio.md`, 7.6). In a desktop run the worst frame
@@ -480,7 +490,11 @@ that moves while the Hand takes it.
     key while the game runs. A sound that QMixer plays (an advisor, the
     speech of a story) keeps the wait.
   - **Slow frames that stay.** The Creature reads an animation from the disk
-    at its first use, and the game turn then takes 4.5 to 9.5 ms. The first
+    at its first use, and the game turn then takes 4 to 34 ms. The time is in
+    1900 to 19,000 small calls of `ReadFile` on a file that Windows has in
+    memory, so a load of the files into the memory of Windows does not make
+    it shorter. A candidate: read the animation in one call and give the
+    small reads from that copy. The first
     use of a texture or of an effect file makes an eye pass 8 to 15 ms
     longer, when Windows does not have the file in memory. One time a minute
     the game writes the alignment of the player and the mind of the Creature.
