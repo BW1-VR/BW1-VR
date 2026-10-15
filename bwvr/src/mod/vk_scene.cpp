@@ -184,7 +184,14 @@ uint64_t g_picture_frame = 0;
 // For the report.
 uint64_t g_walks = 0;
 uint64_t g_draws = 0;
-uint64_t g_skipped = 0;  // a format that the renderer does not draw
+// The draws that the renderer does not draw, for each reason.
+uint64_t g_skipped = 0;          // all of them
+uint64_t g_skip_format = 0;      // a vertex format with no XYZRHW
+uint64_t g_skip_ring = 0;        // no room in the ring of the vertices
+uint64_t g_skip_state = 0;       // no pipeline or no descriptor set
+uint64_t g_converted = 0;        // a format of XYZRHW other than 0x1C4
+uint32_t g_said_formats[8] = {};  // the formats that the log has
+int g_said_format_count = 0;
 uint64_t g_uploads = 0;
 uint64_t g_upload_bytes = 0;
 uint64_t g_right_only = 0;
@@ -389,6 +396,66 @@ uint32_t Expand(uint32_t pixel, uint32_t mask, uint32_t fallback) {
   const uint32_t v = (pixel & mask) >> shift;
   const uint32_t max = (1u << bits) - 1u;
   return (v * 255u + max / 2u) / max;
+}
+
+// THE VERTEX FORMATS. The shaders read the layout of 0x1C4: XYZRHW, the
+// diffuse and the specular color, and one set of texture coordinates, 32
+// bytes. A draw in another format with XYZRHW (for example two sets of
+// texture coordinates) is copied into that layout: a missing diffuse color
+// is white, a missing specular color is black, and the set of texture
+// coordinates is the one of D3DTSS_TEXCOORDINDEX of stage 0.
+struct VertexLayout {
+  uint32_t stride;
+  int diffuse;   // the offset, or -1
+  int specular;
+  int uv;        // the offset of the set that stage 0 reads, or -1
+};
+
+// False for a format that has no XYZRHW.
+bool LayoutOf(uint32_t fvf, uint32_t uv_set, VertexLayout* out) {
+  if ((fvf & D3DFVF_POSITION_MASK) != D3DFVF_XYZRHW) return false;
+  uint32_t at = 16;
+  out->diffuse = -1;
+  out->specular = -1;
+  out->uv = -1;
+  if (fvf & D3DFVF_DIFFUSE) {
+    out->diffuse = static_cast<int>(at);
+    at += 4;
+  }
+  if (fvf & D3DFVF_SPECULAR) {
+    out->specular = static_cast<int>(at);
+    at += 4;
+  }
+  const uint32_t sets = (fvf & D3DFVF_TEXCOUNT_MASK) >> D3DFVF_TEXCOUNT_SHIFT;
+  for (uint32_t i = 0; i < sets && i < 8; ++i) {
+    // D3DFVF_TEXCOORDSIZEn: 0 two floats, 1 three, 2 four, 3 one.
+    const uint32_t size = (fvf >> (16 + i * 2)) & 3;
+    const uint32_t floats = size == 0 ? 2 : size == 1 ? 3 : size == 2 ? 4 : 1;
+    if (i == uv_set && floats >= 2) out->uv = static_cast<int>(at);
+    at += floats * 4;
+  }
+  if (out->uv < 0 && sets > 0 && ((fvf >> 16) & 3) == 0) {
+    out->uv = static_cast<int>(16 + (out->diffuse >= 0 ? 4 : 0) +
+                               (out->specular >= 0 ? 4 : 0));
+  }
+  out->stride = at;
+  return true;
+}
+
+// Copies the vertices in the layout of 0x1C4.
+void ConvertVertices(const uint8_t* from, const VertexLayout& layout,
+                     uint32_t count, uint8_t* to) {
+  for (uint32_t i = 0; i < count; ++i, from += layout.stride, to += 32) {
+    memcpy(to, from, 16);
+    const uint32_t white = 0xFFFFFFFFu, black = 0u;
+    memcpy(to + 16, layout.diffuse >= 0 ? from + layout.diffuse : reinterpret_cast<const uint8_t*>(&white), 4);
+    memcpy(to + 20, layout.specular >= 0 ? from + layout.specular : reinterpret_cast<const uint8_t*>(&black), 4);
+    if (layout.uv >= 0) {
+      memcpy(to + 24, from + layout.uv, 8);
+    } else {
+      memset(to + 24, 0, 8);
+    }
+  }
 }
 
 // Reads a surface of the game into RGBA8. False when it cannot.
@@ -1049,8 +1116,23 @@ void VkSceneDraw(uint32_t type, uint32_t fvf, const void* vertices,
   // Texture stage 1 adds its texture to stage 0 (seed: color op 7), but
   // the game sets no texture on it in a walk, so it adds nothing.
   if (g_ts[1][D3DTSS_COLOROP] > 1 && g_texture1 != nullptr) ++g_stage1;
-  if (fvf != 0x1C4 || vertices == nullptr || vertex_count == 0) {
+  if (vertices == nullptr || vertex_count == 0) return;
+  VertexLayout layout = {32, 16, 20, 24};
+  if (fvf != 0x1C4 &&
+      !LayoutOf(fvf, g_ts[0][D3DTSS_TEXCOORDINDEX] & 0xFFFF, &layout)) {
     ++g_skipped;
+    ++g_skip_format;
+    bool said = false;
+    for (int i = 0; i < g_said_format_count; ++i) {
+      if (g_said_formats[i] == fvf) said = true;
+    }
+    if (!said && g_said_format_count < 8) {
+      g_said_formats[g_said_format_count++] = fvf;
+      ModLog("vk scene     : a draw with the vertex format 0x%X (%u vertices, "
+             "%u indices, type %u) has no XYZRHW, so the renderer does not "
+             "draw it",
+             fvf, vertex_count, index_count, type);
+    }
     return;
   }
   Slot& s = g_slots[g_slot];
@@ -1058,6 +1140,7 @@ void VkSceneDraw(uint32_t type, uint32_t fvf, const void* vertices,
   const VkDeviceSize index_bytes = (static_cast<VkDeviceSize>(index_count) * 2 + 3) & ~3ull;
   if (s.used + vertex_bytes + index_bytes > kRingBytes) {
     ++g_skipped;
+    ++g_skip_ring;
     return;
   }
   // The state of the draw.
@@ -1070,6 +1153,7 @@ void VkSceneDraw(uint32_t type, uint32_t fvf, const void* vertices,
   VkPipeline pipeline = Pipeline(blend);
   if (pipeline == VK_NULL_HANDLE) {
     ++g_skipped;
+    ++g_skip_state;
     return;
   }
   Texture* texture = TextureOf(g_texture);
@@ -1082,12 +1166,21 @@ void VkSceneDraw(uint32_t type, uint32_t fvf, const void* vertices,
   VkDescriptorSet set = SetOf(texture, sampler);
   if (set == VK_NULL_HANDLE) {
     ++g_skipped;
+    ++g_skip_state;
     return;
   }
-  // Copy the vertices and the indices into the ring.
+  // Copy the vertices and the indices into the ring, in the layout of 0x1C4
+  // (THE VERTEX FORMATS).
   uint8_t* ring = static_cast<uint8_t*>(s.ring.mapped);
   const VkDeviceSize vertex_at = s.used;
-  memcpy(ring + vertex_at, vertices, static_cast<size_t>(vertex_bytes));
+  if (fvf == 0x1C4) {
+    memcpy(ring + vertex_at, vertices, static_cast<size_t>(vertex_bytes));
+  } else {
+    ConvertVertices(static_cast<const uint8_t*>(vertices), layout,
+                    vertex_count, ring + vertex_at);
+    vertices = ring + vertex_at;
+    ++g_converted;
+  }
   s.used += vertex_bytes;
   const VkDeviceSize index_at = s.used;
   if (index_count > 0) memcpy(ring + index_at, indices, index_count * 2);
@@ -1203,13 +1296,17 @@ void VkSceneReport(uint64_t frames) {
          "draws with a texture on stage 1, which the renderer does not draw",
          g_right_only / per, g_stage1 / per);
   g_right_only = g_stage1 = 0;
-  ModLog("vk scene     : %llu walks, a frame: %.0f draws, %.1f not drawn. "
-         "%d textures, %llu reads of a texture (%.1f MiB), %d pipelines, %d "
-         "samplers%s",
-         g_walks, g_draws / per, g_skipped / per, g_texture_count, g_uploads,
+  ModLog("vk scene     : %llu walks, a frame: %.0f draws, %.1f not drawn "
+         "(%.1f with no XYZRHW, %.1f with no room in the ring, %.1f with no "
+         "pipeline or set), %.1f in another format of XYZRHW. %d textures, "
+         "%llu reads of a texture (%.1f MiB), %d pipelines, %d samplers%s",
+         g_walks, g_draws / per, g_skipped / per, g_skip_format / per,
+         g_skip_ring / per, g_skip_state / per, g_converted / per,
+         g_texture_count, g_uploads,
          g_upload_bytes / 1048576.0, g_pipeline_count, g_sampler_count,
          g_failed ? ". The renderer stopped after a fault" : "");
   g_walks = g_draws = g_skipped = g_uploads = g_upload_bytes = 0;
+  g_skip_format = g_skip_ring = g_skip_state = g_converted = 0;
   if (g_eyes) {
     ModLog("vk scene     : %llu of %llu frames had the eye pictures of the "
            "Vulkan renderer in the headset", g_eye_frames, frames);

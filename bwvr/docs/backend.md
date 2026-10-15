@@ -2136,9 +2136,14 @@ are in `third_party/Vulkan-Headers`. The shaders are GLSL
 and `vk_scene_frag.h`, made with `glslang -V`. The build does not need
 glslang.
 
-**What it draws.** Each draw of a walk has the format 0x1C4: a place on the
-screen (XYZRHW), the diffuse and the specular color, and one set of texture
-coordinates. The vertex shader gives the clip position of that pixel in the
+**What it draws.** Most draws of a walk have the format 0x1C4: a place on
+the screen (XYZRHW), the diffuse and the specular color, and one set of
+texture coordinates. A draw in another format with XYZRHW is copied into
+that layout: a missing diffuse color is white, a missing specular color is
+black, and the texture coordinates are the set of `D3DTSS_TEXCOORDINDEX` of
+stage 0. A draw with no XYZRHW is not drawn, and the log has one line for
+each such format. The report of each 450 frames counts the draws that are
+not drawn, for each reason. The vertex shader gives the clip position of that pixel in the
 viewport of the walk, times `1 / rhw`, and moves it by half a pixel, because
 a pixel of Direct3D has its centre at the whole number and a pixel of Vulkan
 at the half. The fragment shader makes texture stage 0 (the operations and
@@ -2233,8 +2238,19 @@ device. The pattern shows in the headset, 2671 frames in 30 s (89 a
 second), with no frame that the runtime skipped. A copy of a relay takes
 0.56 ms with the wait for Direct3D 11.
 
-**Open: only a headset shows it.** The game in a session with Vulkan, and
-a session with Vulkan with SteamVR. The relays between Direct3D 11 and
+**A session of the game** with Virtual Desktop and a Quest 3: each frame
+of play had the Vulkan eyes, about 90 frames a second. From the end of
+`xrWaitFrame` to the end of `xrEndFrame` a frame took 5 to 8 ms in the mean
+with the Vulkan eyes and about 12.7 ms with the eyes of Direct3D 9. The
+longest frame of a window of 450 frames was 16 ms in most windows with the
+Vulkan eyes and 32 ms with the eyes of Direct3D 9. A window with a copy of
+a relay (a card, the panel, a menu) had 32 ms too.
+
+**Open: only a headset shows it.** The eyes of the Creature showed their
+lids and no eyeballs with the Vulkan eyes: the renderer did not draw 1.6 to
+20 draws a frame there. The log of the next session names their format. A
+black flicker at the start of a session. A session with Vulkan with
+SteamVR. The relays between Direct3D 11 and
 Vulkan on the drivers of NVIDIA and Intel. The frame time with the Vulkan
 eyes. The scenes that no desktop run compared yet: the
 story camera, the fades, the Temple and the game at night.
