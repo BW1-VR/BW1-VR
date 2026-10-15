@@ -4004,7 +4004,7 @@ in front. The mod reads the keys and never takes them from the game.
 | --- | --- | --- |
 | F11 | Everyone | The direction of the head becomes straight ahead |
 | Ctrl F11 | `play_mode` 3 or 4 | The table or the God view goes off and on (`tabletop.md`, `god-view.md`). Press it with the mouse at rest |
-| F12 | `test_keys=1` | Saves a picture of each eye beside `runblack.exe`, and one of the frame before either eye pass. With the Vulkan renderer also its images of the eyes (`bwvr-vk-left-N.bmp`, `bwvr-vk-right-N.bmp`), which are the pictures in the headset with `backend=vulkan`, and with foveated resolution its outer and centre image of the left eye. A file `bwvr-capture-now.txt` beside `runblack.exe` does the same for a player with no keyboard: the mod looks for it each 45 frames and deletes it |
+| F12 | `test_keys=1` | Saves a picture of each eye beside `runblack.exe`, and one of the frame before either eye pass. With the Vulkan renderer also its images of the eyes (`bwvr-vk-left-N.bmp`, `bwvr-vk-right-N.bmp`), which are the pictures in the headset with `backend=vulkan`, and with foveated resolution its outer and centre image of the left eye. A file `bwvr-capture-now.txt` beside `runblack.exe` does the same for a player with no keyboard: the mod looks for it each 45 frames and deletes it. Both sticks pressed in at one time do the same too, with a short pulse on both hands |
 | Shift F12 | `test_keys=1` | The subtitles step through 25, 30, 35, 40 and 45 degrees below the middle of the view |
 | Ctrl F12 | `test_keys=1` | Who owns the pointer: automatic, the controllers only, or the mouse only (`controllers.md`) |
 | Ctrl Shift F12 | `test_keys=1` | The ears: the head, or the game camera (`audio.md`). Press it with the mouse at rest |

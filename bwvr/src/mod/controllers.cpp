@@ -3663,6 +3663,18 @@ void LogBothButtons() {
 
 // Once for each frame the scene is drawn, after the head pose of the frame is
 // known. The first call is frame 0 for the script.
+// A TEST AID: both sticks pressed in at one time ask for the pictures of
+// F12 (stereo.cpp reads it with test_keys=1), for a player with no
+// keyboard. Both hands get a short pulse.
+bool g_capture_before = false;
+bool g_capture_asked = false;
+
+bool ControllersCaptureAsked() {
+  const bool asked = g_capture_asked;
+  g_capture_asked = false;
+  return asked;
+}
+
 void ControllersFrame() {
   if (!g_on) return;
   if (g_fake.mode != 0) {
@@ -3681,6 +3693,15 @@ void ControllersFrame() {
   TempleFrame(g_frame);
   TextClickFrame(g_frame);
   Compute();
+  {
+    const bool both = g_hands[0].active && g_hands[1].active &&
+                      g_hands[0].stick_click && g_hands[1].stick_click;
+    if (both && !g_capture_before) {
+      g_capture_asked = true;
+      ControllersGesturePulse(0.6f, 0.15f);
+    }
+    g_capture_before = both;
+  }
   ++g_frame;
   ++g_frames_in_window;
   LatchFrameAim();
