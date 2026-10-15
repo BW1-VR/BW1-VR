@@ -557,6 +557,8 @@ int g_xr_vulkan = 0;
 int g_vk_eyes = 1;
 // The pixels of the CPU in a session with Vulkan (XrScreen::SetVulkanUpload).
 int g_xr_vulkan_upload = 1;
+// xr_hold_ms: the hold of the last frame (XrScreen::SetHoldMs).
+int g_xr_hold_ms = 30;
 int g_render_thread_late_end = 1;
 int g_thread_wait = 1;
 int g_test_cores = 0;
@@ -1410,6 +1412,8 @@ void ReadSettings() {
   g_vk_eyes = GetPrivateProfileIntA("bwvr", "vk_eyes", 1, path) != 0 ? 1 : 0;
   g_xr_vulkan_upload =
       GetPrivateProfileIntA("bwvr", "xr_vulkan_upload", 1, path) != 0 ? 1 : 0;
+  g_xr_hold_ms = static_cast<int>(
+      GetPrivateProfileIntA("bwvr", "xr_hold_ms", 30, path));
   g_render_thread_late_end =
       GetPrivateProfileIntA("bwvr", "render_thread_late_end", 1, path) != 0
           ? 1
@@ -1766,6 +1770,7 @@ void StartVrOnce() {
   screen->UseVulkan(g_xr_vulkan != 0);
   screen->WantEyeGaze(g_foveation != 0 && g_foveation_gaze != 0);
   screen->SetVulkanUpload(g_xr_vulkan_upload != 0);
+  screen->SetHoldMs(g_xr_hold_ms);
   screen->SetPlacement(g_distance, g_width);
   screen->EnablePanel(g_stereo && g_ui_panel.mode == kUiPanelLayer);
   // Only the first failure and every tenth after it reach the log. A message
@@ -2465,6 +2470,17 @@ void XrVulkanUploadToggle(const char* keys) {
          keys, g_xr_vulkan_upload,
          g_xr_vulkan_upload != 0 ? "into the swapchains with Vulkan"
                                  : "through the relays of Direct3D 11");
+}
+
+// The test key of xr_hold_ms (stereo.cpp, Shift W): the hold goes off, and
+// on again with the value of the ini (30 ms when the ini has 0).
+void XrHoldToggle(const char* keys) {
+  if (g_screen == nullptr) return;
+  const int now =
+      g_screen->HoldMs() > 0 ? 0 : (g_xr_hold_ms > 0 ? g_xr_hold_ms : 30);
+  g_screen->SetHoldMs(now);
+  ControllersGesturePulse(0.5f, now > 0 ? 0.30f : 0.08f);
+  ModLog("test key     : %s, xr_hold_ms is %d now", keys, now);
 }
 
 void ModLog(const char* format, ...) {

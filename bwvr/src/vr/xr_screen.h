@@ -239,6 +239,14 @@ class XrScreen {
   // relay with Direct3D 11, and the release copies the relay. The change
   // takes effect at the next write.
   void SetVulkanUpload(bool on);
+  // THE HOLD (xr_hold_ms). ms > 0: when the game gives the runtime no frame
+  // for ms milliseconds, a second thread sends the layers of the last frame
+  // again, with the poses of their pictures, at the rate of the headset,
+  // until the game sends a frame. A frame of the game that is open three
+  // times as long is ended with those layers, and its pictures go in a new
+  // frame. 0: the headset gets no frame while the game gives none.
+  void SetHoldMs(int ms);
+  int HoldMs() const;
   bool vulkan_upload() const;
 
   // The size of each eye picture, as Start had it.

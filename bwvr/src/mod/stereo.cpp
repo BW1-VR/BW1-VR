@@ -83,6 +83,8 @@
 void D3D9BackendConfirm();
 // mod_main.cpp: the test key of xr_vulkan_upload.
 void XrVulkanUploadToggle(const char* keys);
+// mod_main.cpp: the test key of xr_hold_ms.
+void XrHoldToggle(const char* keys);
 
 extern void ModLog(const char* format, ...);
 
@@ -619,7 +621,7 @@ float FrameSeparation() {
 // Shift 8, Shift 9, Shift F, Shift G, Shift H, Shift J, Shift K, Shift L,
 // Shift M, Shift N, Shift B, Shift V, Shift C, Shift X, Shift Z, Shift Y,
 // Shift U, Shift I, Shift O, Shift P
-static const int kShiftKeys = 21;
+static const int kShiftKeys = 22;
 static volatile LONG g_shift_key[kShiftKeys] = {};
 static DWORD g_shift_key_at[kShiftKeys] = {};
 static HHOOK g_message_hook = nullptr;
@@ -647,6 +649,7 @@ static int ShiftKeyIndex(WPARAM key) {
          : key == 'O' ? 18
          : key == 'P' ? 19
          : key == 'T' ? 20
+         : key == 'W' ? 21
                       : -1;
 }
 
@@ -958,6 +961,9 @@ void PollHotkeys() {
   }
   if (InterlockedExchange(&g_shift_key[20], 0) != 0) {
     VkSceneKeepPictureToggle("Shift and T");
+  }
+  if (InterlockedExchange(&g_shift_key[21], 0) != 0) {
+    XrHoldToggle("Shift and W");
   }
   // An A/B of one walk (docs/backend.md, "One walk for both eyes"). The
   // menu key (VK_APPS) has no action in the game and no other test key.

@@ -562,7 +562,56 @@ struct XrScreen::Impl {
   uint64_t age_worst = 0;
   uint64_t age_frames = 0;
 
+  // THE HOLD (xr_hold_ms, XrScreen::SetHoldMs). When the game gives the
+  // runtime no frame for hold_ms (a load, a long game turn), the second
+  // thread sends the layers of the last frame again in frames of its own.
+  // They carry the poses that the pictures were rendered with, so the
+  // runtime turns them with the head, and the headset shows no black. A
+  // frame that the frame thread has open for three times as long is ended
+  // with those layers too (the frame is "taken"). BuildFrame then begins a
+  // new frame of the runtime for the pictures of the frame thread.
+  //
+  // frame_state_now says who has the frame of the runtime. The frame thread
+  // changes it under hold_lock (BeginFrame, BuildFrame), SendFrame changes
+  // kFrameSending to kFrameNone with no lock, and the second thread changes
+  // it under hold_lock, which it only tries to take, so it never waits for
+  // the frame thread.
+  enum { kFrameNone = 0, kFrameGame, kFrameSending, kFrameTaken };
+  volatile LONG frame_state_now = kFrameNone;
+  SRWLOCK hold_lock = SRWLOCK_INIT;
+  volatile LONG hold_ms = 0;
+  volatile LONG frame_wants = 0;   // the frame thread waits for hold_lock
+  volatile LONG hold_live = 0;     // the session runs
+  volatile LONGLONG last_end = 0;  // the end of the last frame of the game
+  volatile LONGLONG game_open_at = 0;  // the start of its open frame
+  // For the report (the second thread writes them).
+  uint64_t hold_frames = 0;
+  uint64_t hold_taken = 0;
+  uint64_t hold_runs = 0;
+  uint64_t hold_failed = 0;
+  uint64_t hold_worst = 0;  // ticks: the longest time with no frame of the game
+  // On the frame thread: hold_lock for a scope, with frame_wants, so the
+  // second thread ends a run of the hold.
+  class HoldGuard {
+   public:
+    explicit HoldGuard(Impl& s) : s_(s) {
+      InterlockedExchange(&s_.frame_wants, 1);
+      AcquireSRWLockExclusive(&s_.hold_lock);
+    }
+    ~HoldGuard() {
+      ReleaseSRWLockExclusive(&s_.hold_lock);
+      InterlockedExchange(&s_.frame_wants, 0);
+    }
+    HoldGuard(const HoldGuard&) = delete;
+    HoldGuard& operator=(const HoldGuard&) = delete;
+
+   private:
+    Impl& s_;
+  };
+
   static DWORD WINAPI SendThreadMain(void* param);
+  void HoldFrames();
+  bool HoldOne(LONG state);
   bool StartSendThread();
   void StopSendThread();
   XrResult CopyLate(XrSwapchain chain, ID3D11Texture2D** chain_images,
@@ -1352,6 +1401,9 @@ bool XrScreen::BeginFrame() {
   Impl& s = *impl_;
   should_render_ = false;
   if (!running_ || s.session == XR_NULL_HANDLE) return false;
+  // The second thread sends no frame of the hold while this one reads the
+  // events and begins a frame.
+  Impl::HoldGuard hold(s);
 
   // --- events -------------------------------------------------------------
   for (;;) {
@@ -1416,12 +1468,22 @@ bool XrScreen::BeginFrame() {
 
   // A sleeping headset must not leave a button held.
   if (!s.session_running) {
+    InterlockedExchange(&s.hold_live, 0);
     Join();
     s.ClearInput(hands_);
     return true;  // alive, just not presenting yet
   }
 
   // --- wait and begin -----------------------------------------------------
+  InterlockedExchange(&s.hold_live, 1);
+  if (s.hold_ms > 0) s.StartSendThread();
+  // A frame of the game that a hold took, and that the caller did not end:
+  // the runtime has no frame open for it.
+  if (s.frame_open &&
+      InterlockedCompareExchange(&s.frame_state_now, Impl::kFrameNone,
+                                 Impl::kFrameTaken) == Impl::kFrameTaken) {
+    s.frame_open = false;
+  }
   XrFrameWaitInfo wait_info = {XR_TYPE_FRAME_WAIT_INFO};
   s.frame_state = {XR_TYPE_FRAME_STATE};
   const XrResult waited = xrWaitFrame(s.session, &wait_info, &s.frame_state);
@@ -1455,6 +1517,13 @@ bool XrScreen::BeginFrame() {
   }
   if (!s.Check(begun, "xrBeginFrame")) {
     return true;
+  }
+  {
+    LARGE_INTEGER now;
+    QueryPerformanceCounter(&now);
+    InterlockedExchange64(&s.game_open_at, now.QuadPart);
+    // xrBeginFrame comes after the end of the frame before (Join).
+    InterlockedExchange(&s.frame_state_now, Impl::kFrameGame);
   }
   s.frame_open = true;
   should_render_ = (s.frame_state.shouldRender == XR_TRUE);
@@ -2031,6 +2100,17 @@ void XrScreen::ReportUpload(uint64_t frames) {
     s.age_worst = 0;
     s.age_frames = 0;
   }
+  if (s.hold_ms > 0 && s.frequency.QuadPart != 0) {
+    s.log("  hold         : xr_hold_ms=%ld. %llu frames of the hold in %llu runs "
+          "(%llu frames of the game taken, %llu failed). The longest time "
+          "with no frame of the game was %.1f ms",
+          static_cast<long>(s.hold_ms), s.hold_frames, s.hold_runs,
+          s.hold_taken, s.hold_failed,
+          static_cast<double>(s.hold_worst) * 1000.0 /
+              static_cast<double>(s.frequency.QuadPart));
+    s.hold_frames = s.hold_runs = s.hold_taken = s.hold_failed = 0;
+    s.hold_worst = 0;
+  }
   if (s.late_frames > 0 && s.frequency.QuadPart != 0) {
     const double to_ms = 1000.0 / static_cast<double>(s.frequency.QuadPart);
     const double count = static_cast<double>(s.late_frames);
@@ -2099,6 +2179,30 @@ void XrScreen::EndFrame() {
 bool XrScreen::BuildFrame() {
   Impl& s = *impl_;
   if (!s.frame_open) return false;
+  // The second thread sends no frame of the hold while this one makes its
+  // layers. When a hold took the frame, the pictures go in a new frame.
+  Impl::HoldGuard hold(s);
+  if (s.frame_state_now == Impl::kFrameTaken) {
+    XrFrameWaitInfo wait_info = {XR_TYPE_FRAME_WAIT_INFO};
+    XrFrameState wait_state = {XR_TYPE_FRAME_STATE};
+    XrResult result = xrWaitFrame(s.session, &wait_info, &wait_state);
+    QueryPerformanceCounter(&s.waited_at);
+    if (XR_SUCCEEDED(result)) {
+      XrFrameBeginInfo begin_info = {XR_TYPE_FRAME_BEGIN_INFO};
+      QueueGuard guard(s.vulkan);
+      result = xrBeginFrame(s.session, &begin_info);
+    }
+    if (XR_FAILED(result)) {
+      s.frame_open = false;
+      InterlockedExchange(&s.frame_state_now, Impl::kFrameNone);
+      for (int eye = 0; eye < 2; ++eye) s.acquired[eye] = -1;
+      s.panel_acquired = -1;
+      return false;
+    }
+    s.frame_state.predictedDisplayTime = wait_state.predictedDisplayTime;
+  }
+  // SendFrame comes after this, on this thread or on the second thread.
+  InterlockedExchange(&s.frame_state_now, Impl::kFrameSending);
   if (s.frequency.QuadPart == 0) QueryPerformanceFrequency(&s.frequency);
   Impl::Built& b = s.built;
   QueryPerformanceCounter(&b.before);
@@ -2384,6 +2488,8 @@ void XrScreen::Impl::SendFrame() {
     b.result = xrEndFrame(session, &end);
   }
   QueryPerformanceCounter(&b.end_done);
+  InterlockedExchange64(&last_end, b.end_done.QuadPart);
+  InterlockedCompareExchange(&frame_state_now, kFrameNone, kFrameSending);
 }
 
 // After SendFrame, on the frame thread: the result of xrEndFrame, and the
@@ -2560,13 +2666,110 @@ void XrScreen::Impl::RunLate() {
 DWORD WINAPI XrScreen::Impl::SendThreadMain(void* param) {
   Impl* s = static_cast<Impl*>(param);
   for (;;) {
-    WaitForSingleObject(s->send_go, INFINITE);
+    // With the hold on, the thread also looks for a frame of the game that
+    // does not come.
+    const LONG hold = s->hold_ms;
+    const DWORD got = WaitForSingleObject(
+        s->send_go, hold > 0 ? static_cast<DWORD>(hold) / 2 + 1 : INFINITE);
     if (s->send_quit) break;
+    if (got == WAIT_TIMEOUT) {
+      s->HoldFrames();
+      continue;
+    }
     s->RunLate();
     s->SendFrame();
     SetEvent(s->send_done);
   }
   return 0;
+}
+
+// THE HOLD, on the second thread: frames with the layers of the last frame
+// of the game while the game gives none. Each frame waits for the runtime
+// (xrWaitFrame), so a run has the rate of the headset. The run ends when
+// the frame thread wants hold_lock, or when the game sent a frame.
+void XrScreen::Impl::HoldFrames() {
+  LARGE_INTEGER hz;
+  QueryPerformanceFrequency(&hz);
+  bool in_run = false;
+  for (;;) {
+    const LONG ms = hold_ms;
+    if (send_quit || ms <= 0 || frame_wants != 0 || hold_live == 0) return;
+    LARGE_INTEGER now;
+    QueryPerformanceCounter(&now);
+    const LONGLONG last = InterlockedCompareExchange64(&last_end, 0, 0);
+    const LONGLONG limit = hz.QuadPart * ms / 1000;
+    if (last == 0 || now.QuadPart - last < limit) return;
+    if (!TryAcquireSRWLockExclusive(&hold_lock)) return;
+    const LONG owner = frame_state_now;
+    bool ok = false;
+    bool tried = false;
+    if (frame_wants == 0 && built.layer_count > 0 && session_running) {
+      if (owner == kFrameNone || owner == kFrameTaken) {
+        tried = true;
+        ok = HoldOne(owner);
+      } else if (owner == kFrameGame &&
+                 now.QuadPart -
+                         InterlockedCompareExchange64(&game_open_at, 0, 0) >=
+                     3 * limit) {
+        // A frame of the game is taken only after three times the time:
+        // a slow frame of the game must not wait for a second frame of the
+        // runtime.
+        tried = true;
+        ok = HoldOne(owner);
+      }
+    }
+    ReleaseSRWLockExclusive(&hold_lock);
+    if (!tried) return;
+    if (!ok) {
+      ++hold_failed;
+      return;
+    }
+    if (!in_run) {
+      in_run = true;
+      ++hold_runs;
+    }
+    QueryPerformanceCounter(&now);
+    const uint64_t gap = static_cast<uint64_t>(now.QuadPart - last);
+    if (gap > hold_worst) hold_worst = gap;
+  }
+}
+
+// One frame of the hold, under hold_lock. With the frame of the game open
+// (kFrameGame) it ends that frame with the layers of the last frame, and
+// the frame is then taken. Else it waits for a frame of its own, begins it
+// and ends it. The layers carry the poses of their pictures.
+bool XrScreen::Impl::HoldOne(LONG owner) {
+  XrTime display = frame_state.predictedDisplayTime;
+  if (owner != kFrameGame) {
+    XrFrameWaitInfo wait_info = {XR_TYPE_FRAME_WAIT_INFO};
+    XrFrameState wait_state = {XR_TYPE_FRAME_STATE};
+    if (XR_FAILED(xrWaitFrame(session, &wait_info, &wait_state))) return false;
+    XrFrameBeginInfo begin_info = {XR_TYPE_FRAME_BEGIN_INFO};
+    XrResult begun;
+    {
+      QueueGuard guard(vulkan);
+      begun = xrBeginFrame(session, &begin_info);
+    }
+    if (XR_FAILED(begun)) return false;
+    display = wait_state.predictedDisplayTime;
+  }
+  XrFrameEndInfo end = {XR_TYPE_FRAME_END_INFO};
+  end.displayTime = display;
+  end.environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
+  end.layerCount = built.layer_count;
+  end.layers = built.layers;
+  XrResult ended;
+  {
+    QueueGuard guard(vulkan);
+    ended = xrEndFrame(session, &end);
+  }
+  if (owner == kFrameGame) {
+    InterlockedExchange(&frame_state_now, kFrameTaken);
+    ++hold_taken;
+  }
+  if (XR_FAILED(ended)) return false;
+  ++hold_frames;
+  return true;
 }
 
 // Starts the second thread at the first frame that needs it. False when it
@@ -2661,6 +2864,12 @@ double StopMs(const LARGE_INTEGER& start) {
 void XrScreen::Stop() {
   Impl& s = *impl_;
   running_ = false;
+  // No more frames of the hold.
+  InterlockedExchange(&s.hold_ms, 0);
+  InterlockedExchange(&s.hold_live, 0);
+  {
+    Impl::HoldGuard hold(s);
+  }
   // The second thread gives its frame to the runtime, and then it ends.
   Join();
   s.StopSendThread();
@@ -3815,9 +4024,9 @@ void XrScreen::Impl::SaveChainPicture(VkChain* c, uint32_t index, int eye) {
     if (EndCopy(cb)) {
       vkf.vkWaitForFences(g_vk.device, 1, &vk_fence[slot], VK_TRUE,
                           UINT64_MAX);
-      const VkFormat format =
+      const VkFormat chain_format =
           kFormats[format_index < 0 ? 0 : format_index].vk_unorm;
-      const bool bgra = format == VK_FORMAT_B8G8R8A8_UNORM;
+      const bool bgra = chain_format == VK_FORMAT_B8G8R8A8_UNORM;
       char path[MAX_PATH];
       GetModuleFileNameA(nullptr, path, MAX_PATH);
       char* slash = strrchr(path, '\\');
@@ -3860,7 +4069,7 @@ void XrScreen::Impl::SaveChainPicture(VkChain* c, uint32_t index, int eye) {
         fclose(out);
         log("  openxr: the swapchain image of the %s eye is in %s (format %d, "
             "alpha %d to %d)",
-            eye == 0 ? "left" : "right", path, static_cast<int>(format), low,
+            eye == 0 ? "left" : "right", path, static_cast<int>(chain_format), low,
             high);
       }
     }
@@ -3887,6 +4096,12 @@ bool XrScreen::EyeGaze(float direction[3]) const {
 }
 
 void XrScreen::SetVulkanUpload(bool on) { impl_->vk_upload = on; }
+
+void XrScreen::SetHoldMs(int ms) {
+  InterlockedExchange(&impl_->hold_ms, ms > 0 ? (ms < 1000 ? ms : 1000) : 0);
+}
+
+int XrScreen::HoldMs() const { return static_cast<int>(impl_->hold_ms); }
 
 bool XrScreen::vulkan_upload() const { return impl_->vk_upload; }
 

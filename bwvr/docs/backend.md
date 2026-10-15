@@ -484,6 +484,43 @@ through Virtual Desktop. A desktop run sends no frame to a runtime. With
 `test_keys=1`, Ctrl, Shift and the slash key of the number pad step the value
 while the game runs.
 
+### The hold of the last frame
+
+`xr_hold_ms` (30 is the default, 0 is off, a test key: Shift W) keeps the
+headset fed while the game gives the runtime no frame: a load, a long game
+turn, or a stop of the game after the load of a saved game, when it loads
+the rest of the land. A frame age of 2183 ms after such a load came with
+black flicker in the headset. When no frame of the game came for
+`xr_hold_ms`, the second thread (`XrScreen::Impl::HoldFrames`) sends the
+layers of the last frame again in frames of its own, each after its own
+`xrWaitFrame`, so a run has the rate of the headset. The projection layer
+has the poses that its pictures were rendered with, so the runtime turns the
+old pictures with the head. The run ends when the frame thread begins a
+frame or makes its layers.
+
+A frame that the game began and that stays open for three times
+`xr_hold_ms` is ended by the second thread with the layers of the last
+frame (the frame is "taken"). `BuildFrame` then waits for a new frame of the
+runtime and sends the new pictures in it. A slow frame of the game that is
+shorter does not wait for a second frame of the runtime.
+
+The frame thread holds `hold_lock` while it reads the events, begins a frame
+and makes its layers. The second thread only tries to take the lock, so it
+never waits for the frame thread, and the frame thread waits at most for
+one frame of the hold. `frame_state_now` says who has the frame of the
+runtime. With the hold on, the second thread runs also with `frame_send` 0
+or 1.
+
+For each 450 frames the log has the line `hold         :` with the frames of
+the hold, the runs, the frames of the game that a hold took, the failed
+frames, and the longest time with no frame of the game.
+
+Known limit: when the game copies a new eye picture into its swapchain image
+before it makes its layers (a flat frame or the intro in stereo with
+`backend=vulkan`), a frame of the hold in that time shows the new picture
+with the pose of the old one. Only a headset can show the hold: a desktop
+run has no runtime.
+
 ### The self test
 
 The bridge has a self test that needs no headset. It builds its own Direct3D 11
@@ -4110,6 +4147,7 @@ in front. The mod reads the keys and never takes them from the game.
 | Shift C | `test_keys=1` | In a session with Vulkan the eye pictures come from the Vulkan renderer, or from Direct3D 9, from the next frame. A long pulse and a short pulse (`vk_eyes`, "The session with Vulkan"). Ctrl must be up |
 | Shift X | `test_keys=1` | The Vulkan renderer follows the render target, the viewport and the clears of a walk, or it draws each draw into the eye pictures, from the next walk. A long pulse and a short pulse (`vk_scene_follow`, "The Vulkan renderer"). Ctrl must be up |
 | Shift Z | `test_keys=1` | In a session with Vulkan the pixels of the CPU (an eye picture of the CPU, a card, the walls of the cut scene window) go into the swapchains with a copy of Vulkan, or through the relays of Direct3D 11, from the next write. A long pulse and a short pulse (`xr_vulkan_upload`, "The session with Vulkan"). Ctrl must be up |
+| Shift W | `test_keys=1` | The hold of the last frame goes off, and on again with the value of the ini (30 ms when the ini has 0). A long pulse and a short pulse (`xr_hold_ms`, "The hold of the last frame"). Ctrl must be up |
 | Shift Y | `test_keys=1` | The Vulkan renderer draws the draws for the panel target into a panel of its own, and the subtitle card and the panel layer of a session with Vulkan take it, or they take the panel of Direct3D 9, from the next walk. A long pulse and a short pulse (`vk_panel`, "The Vulkan renderer"). Ctrl must be up |
 | Shift U | `test_keys=1` | A walk of one walk with the eyes of the Vulkan renderer goes to the renderer alone, with no draw for Direct3D 9, or Direct3D 9 draws it too, from the next walk. A long pulse and a short pulse (`vk_only`, "The Vulkan renderer"). Ctrl must be up |
 | Shift I | `test_keys=1` | A texture that a walk reads again goes to the GPU in the submit of the walk, with no wait, or at once with a wait for the GPU, from the next walk. A long pulse and a short pulse (`vk_upload_queue`, "The Vulkan renderer"). Ctrl must be up |
@@ -4172,6 +4210,7 @@ keys that the launcher sets.
 | `backend` | dxwrapper when installed | The launcher row "Renderer": Vulkan writes `vulkan` when the GPU has Vulkan 1.3 (the launcher asks the Vulkan of Windows), Direct3D 9 writes `dxwrapperddraw.dll`. See "Settings" and "The backend of the mod on Vulkan" |
 | `gpu_bridge` | 1 | The GPU path |
 | `frame_send` | 0 | 0: the mod waits for the GPU after each eye pass. 1: one wait a frame. 2: one wait a frame on a second thread, which also gives the frame to the runtime. See "One wait a frame, and a second thread" |
+| `xr_hold_ms` | 30 | When the game gives the runtime no frame for this many ms, a second thread sends the layers of the last frame again, at the rate of the headset. 0 is off: the headset gets no frame while the game gives none. 0 to 1000. A test key: Shift W. See "The hold of the last frame" |
 | `draw_merge` | 1 | 1: in an eye pass of the scene, a row of draw calls of the game with one state goes to Direct3D as one draw call. 0: each draw call goes as it comes. See "One draw call for a row of draw calls" |
 | `tick_direct` | 1 | 1: the `GetTickCount` of the game goes past the check of busy waiting of dxwrapper. 0: the game calls it through the hooks of dxwrapper. See "The clock of the game and the hooks of dxwrapper" |
 | `draw_merge_test`, `draw_merge_test_frame` | 0, 0 | Test keys of the desktop runs. See the same section |
