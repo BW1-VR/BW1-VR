@@ -53,7 +53,8 @@ Other docs: `software-tnl.md` (the CPU transform and the camera matrix),
 | `src/mod/render_thread.cpp`, `render_thread_ring.h` | The hooks of the Direct3D 9 device, and the render thread (`render_thread`) |
 | `src/mod/fast_transform.cpp`, `fast_transform_math.h` | The two vertex loops of the engine with SSE (`fast_transform`) |
 | `src/mod/scene_sample.cpp`, `scene_sample_math.h` | A test aid: samples of the code of the frame thread in the scene walks, by module (`profile_sample`) |
-| `src/mod/hang_watch.cpp` | A test aid: the place of the frame thread when it makes no frame for 8 s (`hang_watch`) |
+| `src/mod/hang_watch.cpp` | A test aid: the place of the frame thread when it makes no frame for 8 s, and of a fault (`hang_watch`) |
+| `src/mod/vk_ddraw.cpp` | DirectDraw 7 and Direct3D 7 of the mod on Vulkan (`backend=vulkan`) |
 | `src/common/exe_check.h`, `version.h` | The build check and the product name |
 
 ## How the game draws
@@ -316,6 +317,7 @@ holds the shipped values. The important ones:
 backend=                        ; the default: dxwrapper\ddraw.dll when it is beside the game
 backend=dxwrapper\ddraw.dll
 backend=system                  ; system DirectDraw
+backend=vulkan                  ; a test: DirectDraw 7 and Direct3D 7 of the mod on Vulkan
 gpu_bridge=1                    ; use the GPU path when the backend allows it
 ```
 
@@ -1212,7 +1214,11 @@ second, also of the logos and the intro. When the count stays the same for
 instruction and the top 4 KiB of its stack, and writes them to the log by
 module, one time for each stop of the count. A long load also gives such a
 line. The names of the modules are read at the first frame, so the line
-needs no lock of the loader.
+needs no lock of the loader. `hang_watch=2` writes the place each 8 s, also
+while the frame thread makes frames. With each of the two values a fault
+that no handler takes writes its code, its place and the return addresses
+on the stack of its thread (a stack overflow shows the calls that repeat),
+and the frame thread keeps 64 KiB of its stack for that line.
 
 **The split in a headset.** SteamVR with a Steam Frame, Ryzen 9 7950X3D,
 Radeon RX 7900 XTX, a render of 3304 by 2644 with 4x multisampling,
@@ -2332,6 +2338,65 @@ both renderers. A run in the start dialog with the scripted controller
 (`hand_run.ps1 -Kind fixed -NewGame`, frame 420) has the hand of the mod in
 view: 0.18 percent of the pixels of the left eye and 0.20 percent of the
 right eye differ, and 0.3 percent in a box around the hand, on its edges.
+
+## The backend of the mod on Vulkan
+
+`backend=vulkan` (`vk_ddraw.cpp`) makes DirectDraw 7 and Direct3D 7 in the
+mod, in place of dxwrapper and Direct3D 9. The proxy then loads no backend
+DLL: system DirectDraw gives only the exports that the mod does not make
+(the enumeration of the displays). The two exports that make a DirectDraw
+object go to the mod (`ProxySetCreateHooks`, `ddraw_proxy.h`). Now it is a
+test: the default stays dxwrapper.
+
+**What the game uses.** `ddraw_census=1` with `backend=system` counts each
+call from the start (dxwrapper puts a hot patch on `DirectDrawCreateEx`
+and `DirectDrawCreate` of each module named `ddraw.dll`, also of the mod,
+so with dxwrapper the count starts at the first walk). The game runs in a
+window (`SetCooperativeLevel` with `DDSCL_NORMAL`): a primary surface, an
+offscreen render target with a Z buffer D24X8, textures of 256 by 256 and
+32 by 32 with mip levels in A4R4G4B4 and X1R5G5B5, textures in the memory
+of the system in DXT1 and DXT3 that a `Blt` or `IDirect3DTexture2::Load`
+makes into textures of 16 bits, and one `Blt` a frame from the render
+target to the primary. It uses no `Flip`, no `GetDC`, no palette and no
+vertex buffer. `LHScreen::GetAvailableVidMem` asks for `IDirectDraw2` and
+calls it with no test of the result.
+
+**The objects.** A surface keeps its pixels in the memory of the CPU, so a
+`Lock` of the game and of the renderer reads and writes that memory. A
+`Blt` copies in that memory with a change of the format, decodes DXT1 to
+DXT5 block by block, and fills with a color. The `Blt` to the primary is
+the present: the picture of the last walk of the left eye goes to the
+window at the size of its client area (`VkScenePresentPixels`, a blit with
+a linear filter on the GPU, a copy to the CPU, `SetDIBitsToDevice`). The
+device keeps each state for its Get methods, makes the state blocks, and
+gives each call to the Vulkan renderer on the frame thread
+(`VkSceneSetDirect`): each `BeginScene` and `EndScene` is a walk, and the
+render states, the textures, the viewport, the clears and the draws go to
+the renderer as they come. The caps of the device, the texture formats,
+the formats of the Z buffer and the DirectDraw caps are the answers of
+dxwrapper (the log of `ddraw_census=1` at the first walk), so the game makes
+the choices that it makes with dxwrapper. A method that the backend does
+not make gives an error and one line of the log at its first call, and the
+report of each 450 frames counts them. The merge of draw calls
+(`draw_merge.cpp`) does not merge with the backend: the renderer reads a
+texture with a `Lock` in a draw, and the hook of the `Lock` sends the row
+of the merge.
+
+**A desktop run** of the start dialog of a new game (`hand_run.ps1 -Kind
+fixed -NewGame`, a Radeon RX 7900 XTX, render 4080 by 3264): the game runs
+from the logos to the start dialog. The windows of 450 frames have 194 to
+270 frames a second and 958 to 2309 draws a frame, and the renderer draws
+each draw. At frame 421 the image of the left eye and the image of the
+renderer with dxwrapper differ in 0.035 percent of the pixels by more than
+24 levels, and the image and the picture of Direct3D 9 in 0.180 percent.
+
+**Not made yet.** A draw of points or lines (about 20000 at the start, in
+the logos, and none in play). One walk for both eyes: the walk of one
+walk needs the targets of Direct3D 9 (`one_walk.cpp`), so each frame has
+two walks, and the eye pictures of a session do not come from the
+renderer yet. The panel target of the interface (`gpu_bridge.cpp`), so the
+help text stays in the eye pictures. Not run: a headset session, a video,
+the Main Menu, a saved game, the Temple.
 
 ## The session with Vulkan
 
@@ -3930,7 +3995,7 @@ keys that the launcher sets.
 | `vk_upload_queue`, `vk_scene_reread_test` | 1, 0 | `vk_upload_queue=1`: the copy of a texture that a walk reads again goes to the GPU in the submit of the walk, with no wait of the D3D7 thread. 0: each copy goes to the GPU at once with a wait. A test key: Shift I. `vk_scene_reread_test=N` (a test key) reads N textures again in each walk, in turn. See "The Vulkan renderer" |
 | `fast_transform` | 1 | 1: the two vertex loops of the engine run with SSE, with the bits of the game. 0: on the x87 unit. See "The vertex loops with SSE" |
 | `profile_gpu` | 0 | A test key. See "The GPU time" |
-| `hang_watch` | 0 | A test key. See "The watch of the frame thread" |
+| `hang_watch` | 0 | A test key: 1 the place of the frame thread when it makes no frame for 8 s, 2 each 8 s. With each of the two the place of a fault. See "The watch of the frame thread" |
 | `profile_sample` | 0 | A test key. See "Where the time of the scene walk goes" |
 | `profile_sample_thread` | 0 | A test key: 1 takes the samples of `profile_sample` from the render thread, 2 from the D3D7 thread. See "Where the time of the scene walk goes" |
 | `profile_sample_dump` | 0 | A test key: 1 writes each sample of `profile_sample` with the modules to `bwvr-samples.txt` beside `runblack.exe`. See "Where the time of the scene walk goes" |

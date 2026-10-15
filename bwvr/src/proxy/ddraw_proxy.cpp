@@ -105,6 +105,9 @@ void GameFolder(char* out, size_t size) {
 // runs, and the game gets the DirectDraw it would have had on its own.
 bool g_force_system = false;
 
+// backend=vulkan (ReadBackendSetting).
+bool g_vulkan = false;
+
 // Reads the backend name from bwvr.ini. Returns false when the setting names
 // the system implementation, or when there is nothing to load.
 //
@@ -138,6 +141,12 @@ bool ReadBackendSetting(char* out, size_t size) {
     return true;
   }
   if (lstrcmpiA(out, "system") == 0) return false;
+  // backend=vulkan: the mod makes DirectDraw itself (vk_ddraw.cpp). System
+  // DirectDraw gives only the exports that the mod does not make.
+  if (lstrcmpiA(out, "vulkan") == 0) {
+    g_vulkan = true;
+    return false;
+  }
   return true;
 }
 
@@ -162,6 +171,8 @@ HMODULE SystemDDraw() {
 // mod fits. See CheckGameBuild in mod_main.cpp.
 void ProxyForceSystemDDraw() { g_force_system = true; }
 
+bool ProxyBackendVulkan() { return g_vulkan; }
+
 bool ProxyLoadRealDDraw() {
   char backend[MAX_PATH];
   if (ReadBackendSetting(backend, MAX_PATH)) {
@@ -184,6 +195,11 @@ bool ProxyLoadRealDDraw() {
     }
   }
 
+  if (g_vulkan) {
+    lstrcpynA(g_note,
+              "backend      : vulkan, DirectDraw of the mod (vk_ddraw.cpp)",
+              sizeof(g_note));
+  }
   if (g_real == nullptr) g_real = SystemDDraw();
   if (g_real == nullptr) return false;
 

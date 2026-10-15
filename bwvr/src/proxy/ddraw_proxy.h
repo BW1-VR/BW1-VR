@@ -2,6 +2,7 @@
 #pragma once
 
 #include <windows.h>
+#include <unknwn.h>
 
 // The two exports that make a DirectDraw object can go through a function of
 // the mod (the count of ddraw_census, and later a backend of the mod). With
@@ -21,3 +22,7 @@ void ProxySetCreateHooks(const ProxyCreateHooks& hooks);
 
 // An export of the backend that ProxyLoadRealDDraw loaded, or null.
 void* ProxyRealExport(const char* name);
+
+// backend=vulkan in bwvr.ini: the proxy loaded no backend DLL, and the mod
+// makes DirectDraw itself (vk_ddraw.h).
+bool ProxyBackendVulkan();

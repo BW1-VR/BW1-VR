@@ -370,6 +370,11 @@ bool DrawMergeTake(void* self, D3DPRIMITIVETYPE type, DWORD fvf,
                    const WORD* indices, DWORD index_count, DWORD flags,
                    const void* caller) {
   if (!g_inside) return false;
+  // The backend of the mod on Vulkan (vk_ddraw.cpp) gives each draw to the
+  // Vulkan renderer: a merge saves no call there. The renderer reads a
+  // texture with a Lock in the draw, and the hook of the Lock sends the row
+  // of the merge, so a merge would draw inside its own draw.
+  if (VkSceneDirect()) return false;
   // The D3D7 thread merges the draws of this walk (d3d7_thread.cpp, THE
   // MERGE).
   if (D3D7ThreadMerging()) {

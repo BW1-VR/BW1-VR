@@ -310,7 +310,16 @@ bool MakeBuffer(VkDeviceSize size, VkBufferUsageFlags usage, bool host,
       host ? VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
                  VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
            : VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
-  if (!Allocate(req, want, &out->memory) ||
+  // A buffer that the GPU writes and the CPU reads takes memory with the
+  // cache of the CPU when there is such memory: the CPU reads memory with no
+  // cache (write combined) many times slower.
+  const bool read = host && (usage & VK_BUFFER_USAGE_TRANSFER_DST_BIT) != 0 &&
+                    (usage & (VK_BUFFER_USAGE_VERTEX_BUFFER_BIT |
+                              VK_BUFFER_USAGE_INDEX_BUFFER_BIT)) == 0;
+  const bool cached =
+      read && Allocate(req, want | VK_MEMORY_PROPERTY_HOST_CACHED_BIT,
+                       &out->memory);
+  if ((!cached && !Allocate(req, want, &out->memory)) ||
       f.vkBindBufferMemory(g_core.device, out->buffer, out->memory, 0) !=
           VK_SUCCESS) {
     FreeBuffer(out);

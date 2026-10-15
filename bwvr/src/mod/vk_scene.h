@@ -140,3 +140,17 @@ bool VkSceneOnlyNow();
 // time.
 void VkSceneSetUploads(int queue, int reread_test);
 void VkSceneUploadsToggle(const char* keys);
+
+// THE BACKEND OF THE MOD (backend=vulkan, vk_ddraw.cpp). When it is on, the
+// device of the mod gives each call to the renderer on the frame thread,
+// with no D3D7 thread: VkSceneWalkBegin and VkSceneWalkEnd at each
+// BeginScene and EndScene, and the state, the textures, the viewport, the
+// clears and the draws as they come. It turns the renderer on.
+void VkSceneSetDirect(bool on);
+bool VkSceneDirect();
+// The picture of the last walk of the left eye (or of a scene with no eye
+// pass), at width by height with a linear filter, as BGRA pixels for the
+// CPU, for the window on the monitor. It waits for the GPU. Null before the
+// first walk.
+const uint8_t* VkScenePresentPixels(uint32_t width, uint32_t height,
+                                    int* pitch);

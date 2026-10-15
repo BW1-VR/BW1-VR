@@ -37,6 +37,9 @@ const int kMaxReturns = 24;
 
 bool g_read = false;
 bool g_on = false;
+// hang_watch=2 (a test key): the place of the frame thread each
+// kStillSeconds, also while it makes frames.
+bool g_always = false;
 HANDLE g_target = nullptr;
 volatile LONG g_frames = 0;
 scene_sample::Module g_modules[kMaxModules];
@@ -102,7 +105,8 @@ void Where(uint32_t address, char* out, size_t size) {
   }
 }
 
-void Report(uint32_t eip, const uint32_t* stack, int words) {
+void Report(uint32_t eip, const uint32_t* stack, int words,
+            const char* what) {
   char at[64];
   Where(eip, at, sizeof(at));
   char line[2048];
@@ -128,9 +132,35 @@ void Report(uint32_t eip, const uint32_t* stack, int words) {
     if (used >= static_cast<int>(sizeof(line)) - 80) break;
   }
   if (found == 0) strcpy_s(line, "none");
-  ModLog("hang watch   : the frame thread made no frame for %d s. It is at "
-         "%s. The return addresses on its stack, the nearest first: %s",
-         kStillSeconds, at, line);
+  ModLog("hang watch   : %s. It is at %s. The return addresses on its stack, "
+         "the nearest first: %s",
+         what, at, line);
+}
+
+// A FAULT. With hang_watch=1 or 2 an exception that no handler takes writes
+// its code, its place and the return addresses on the stack of its thread
+// (a stack overflow shows the calls that repeat). The frame thread keeps 64
+// KiB of its stack for this (SetThreadStackGuarantee).
+LONG WINAPI CrashFilter(EXCEPTION_POINTERS* info) {
+  static volatile LONG s_once = 0;
+  if (InterlockedExchange(&s_once, 1) != 0) return EXCEPTION_CONTINUE_SEARCH;
+  const CONTEXT* c = info->ContextRecord;
+  char what[96];
+  sprintf_s(what, "a fault 0x%08lX on thread %lu",
+            info->ExceptionRecord->ExceptionCode, GetCurrentThreadId());
+  static uint32_t stack[kStackWords];
+  SIZE_T copied = 0;
+  for (int words = kStackWords; words >= 64; words /= 2) {
+    if (ReadProcessMemory(GetCurrentProcess(),
+                          reinterpret_cast<LPCVOID>(c->Esp), stack,
+                          words * sizeof(uint32_t), &copied)) {
+      break;
+    }
+    copied = 0;
+  }
+  Report(static_cast<uint32_t>(c->Eip), stack,
+         static_cast<int>(copied / sizeof(uint32_t)), what);
+  return EXCEPTION_CONTINUE_SEARCH;
 }
 
 DWORD WINAPI WatchThread(LPVOID) {
@@ -141,14 +171,19 @@ DWORD WINAPI WatchThread(LPVOID) {
   for (;;) {
     Sleep(1000);
     const LONG now = InterlockedCompareExchange(&g_frames, 0, 0);
-    if (now != last) {
-      last = now;
+    if (g_always) {
+      if (++still < kStillSeconds) continue;
       still = 0;
-      reported = false;
-      continue;
+    } else {
+      if (now != last) {
+        last = now;
+        still = 0;
+        reported = false;
+        continue;
+      }
+      if (reported || ++still < kStillSeconds) continue;
+      reported = true;
     }
-    if (reported || ++still < kStillSeconds) continue;
-    reported = true;
     if (SuspendThread(g_target) == static_cast<DWORD>(-1)) continue;
     CONTEXT context;
     ZeroMemory(&context, sizeof(context));
@@ -169,7 +204,9 @@ DWORD WINAPI WatchThread(LPVOID) {
     ResumeThread(g_target);
     if (!got) continue;
     Report(static_cast<uint32_t>(context.Eip), stack,
-           static_cast<int>(copied / sizeof(uint32_t)));
+           static_cast<int>(copied / sizeof(uint32_t)),
+           g_always ? "the place of the frame thread now"
+                    : "the frame thread made no frame for 8 s");
   }
 }
 
@@ -180,7 +217,9 @@ DWORD WINAPI WatchThread(LPVOID) {
 void HangWatchFrame() {
   if (!g_read) {
     g_read = true;
-    g_on = IniKey("hang_watch", 0) != 0;
+    const int key = IniKey("hang_watch", 0);
+    g_on = key != 0;
+    g_always = key == 2;
     if (!g_on) return;
     ReadModules();
     g_target = OpenThread(THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT |
@@ -197,8 +236,14 @@ void HangWatchFrame() {
       return;
     }
     CloseHandle(thread);
-    ModLog("hang watch   : hang_watch=1. When the frame thread makes no frame "
-           "for %d s, the log gets the place where it is", kStillSeconds);
+    ULONG guarantee = 64 * 1024;
+    SetThreadStackGuarantee(&guarantee);
+    SetUnhandledExceptionFilter(&CrashFilter);
+    ModLog("hang watch   : hang_watch=%d. When the frame thread makes no frame "
+           "for %d s, the log gets the place where it is%s. A fault that no "
+           "handler takes writes its place too",
+           g_always ? 2 : 1, kStillSeconds,
+           g_always ? ", and also each 8 s while it makes frames" : "");
   }
   if (g_on) InterlockedIncrement(&g_frames);
 }

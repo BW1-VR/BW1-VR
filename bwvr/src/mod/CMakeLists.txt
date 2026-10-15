@@ -35,6 +35,7 @@ add_library(bwvr_mod SHARED
     thread_wait.cpp
     d3d9_backend.cpp
     ddraw_census.cpp
+    vk_ddraw.cpp
     vk_core.cpp
     vk_scene.cpp
     frame_time.cpp

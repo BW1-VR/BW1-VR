@@ -73,6 +73,7 @@
 #include "thread_wait.h"
 #include "ddraw_census.h"
 #include "vk_scene.h"
+#include "vk_ddraw.h"
 #include "render_thread.h"
 #include "scene_sample.h"
 #include "ui_panel.h"
@@ -1847,6 +1848,7 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
     D3D7ThreadReport(g_timed_now);
     DdrawCensusReport(g_timed_now);
     VkSceneReport(g_timed_now);
+    VkDdrawReport(g_timed_now);
     ThreadLoadReport(g_timed_now);
     RenderThreadReport(g_timed_now);
     PresentWatchReport(g_timed_now);

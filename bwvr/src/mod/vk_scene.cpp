@@ -107,6 +107,8 @@
 void ModLog(const char* format, ...);
 // controllers.cpp
 void ControllersGesturePulse(float amplitude, float seconds);
+// stereo.cpp: the eye pass now, or -1 outside the eye passes.
+int StereoPassEye();
 
 namespace {
 
@@ -114,6 +116,14 @@ using vk::f;
 
 int g_mode = 0;
 int g_test_frame = 0;
+// THE BACKEND OF THE MOD (backend=vulkan, vk_ddraw.cpp): the calls come
+// from the device of the mod on the frame thread, with no D3D7 thread, and
+// each scene of the device is a walk.
+bool g_direct = false;
+// The target of the last walk for the window (VkScenePresentPixels), and the
+// small copy of it that the CPU reads.
+int g_present_index = 0;
+bool g_present_ready = false;
 bool g_failed = false;
 bool g_ready = false;
 
@@ -1399,7 +1409,7 @@ void ClearOnWorker(const void* data) {
 // Gives a change of the frame thread to the D3D7 thread in the order of the
 // draws, or makes it now on the D3D7 thread.
 void Deliver(D3D7ThreadFn fn, const void* data, unsigned bytes) {
-  if (D3D7ThreadOnWorker()) {
+  if (g_direct || D3D7ThreadOnWorker()) {
     fn(data);
   } else {
     D3D7ThreadPost(fn, data, bytes);
@@ -1538,6 +1548,12 @@ void EndOnWorker(const void*) {
     InterlockedIncrement(&g_done_serial);
   }
   const LONG walk = InterlockedIncrement(&g_walk_serial);
+  // The picture of the window: the last walk of the left eye, or of a scene
+  // with no eye pass (a menu).
+  if (StereoPassEye() <= 0) {
+    g_present_index = g_target;
+    g_present_ready = true;
+  }
   if (g_panel_drawn) {
     g_panel_index = g_target;
     InterlockedExchange(&g_panel_walk, walk);
@@ -1666,7 +1682,11 @@ void VkSceneWalkBegin(void* device7) {
               !g_size_differs && OneWalkActive();
   g_only_frame = false;
   seed.target = g_follow ? OneWalkBoundTarget() : nullptr;
-  D3D7ThreadPost(&BeginOnWorker, &seed, sizeof(seed));
+  if (g_direct) {
+    BeginOnWorker(&seed);
+  } else {
+    D3D7ThreadPost(&BeginOnWorker, &seed, sizeof(seed));
+  }
 }
 
 void VkSceneFrame(uint64_t frame, uint64_t name) {
@@ -1699,19 +1719,22 @@ void VkSceneFollowToggle(const char* keys) {
 }
 
 void VkSceneTarget(void* surface) {
-  if (!VkSceneOn() || !D3D7ThreadActive()) return;
+  if (!VkSceneOn() || (!g_direct && !D3D7ThreadActive())) return;
   TargetArgs a = {surface, GpuBridgeIsPanel(surface) ? 1u : 0u};
   Deliver(&TargetOnWorker, &a, sizeof(a));
 }
 
 void VkSceneViewport(const void* viewport7) {
-  if (!VkSceneOn() || !D3D7ThreadActive() || viewport7 == nullptr) return;
+  if (!VkSceneOn() || (!g_direct && !D3D7ThreadActive()) ||
+      viewport7 == nullptr) {
+    return;
+  }
   Deliver(&ViewportOnWorker, viewport7, sizeof(D3DVIEWPORT7));
 }
 
 void VkSceneClear(uint32_t count, const void* rects, uint32_t flags,
                   uint32_t color, float z) {
-  if (!VkSceneOn() || !D3D7ThreadActive()) return;
+  if (!VkSceneOn() || (!g_direct && !D3D7ThreadActive())) return;
   ClearArgs a;
   memset(&a, 0, sizeof(a));
   a.count = rects != nullptr ? count : 0;
@@ -1726,7 +1749,11 @@ void VkSceneClear(uint32_t count, const void* rects, uint32_t flags,
 
 void VkSceneWalkEnd() {
   if (!VkSceneOn()) return;
-  D3D7ThreadPost(&EndOnWorker, nullptr, 0);
+  if (g_direct) {
+    EndOnWorker(nullptr);
+  } else {
+    D3D7ThreadPost(&EndOnWorker, nullptr, 0);
+  }
 }
 
 void VkSceneRenderState(uint32_t state, uint32_t value) {
@@ -2082,6 +2109,89 @@ const void* VkScenePanelReadHalf(const int rect[4], int* pitch,
 }
 
 void VkScenePanelReadDone() { g_half_locked = false; }
+
+void VkSceneSetDirect(bool on) {
+  g_direct = on;
+  if (on) g_mode = 1;
+}
+
+bool VkSceneDirect() { return g_direct; }
+
+namespace {
+vk::Image g_small = {};
+vk::Buffer g_small_buffer = {};
+}  // namespace
+
+const uint8_t* VkScenePresentPixels(uint32_t width, uint32_t height,
+                                    int* pitch) {
+  if (!g_ready || !g_present_ready || width == 0 || height == 0) {
+    return nullptr;
+  }
+  const vk::Image& source = g_colors[g_present_index];
+  if (source.image == VK_NULL_HANDLE) return nullptr;
+  if (g_small.image == VK_NULL_HANDLE || g_small.width != width ||
+      g_small.height != height || g_small.format != source.format) {
+    vk::LockQueue();
+    f.vkDeviceWaitIdle(vk::Get().device);
+    vk::UnlockQueue();
+    vk::FreeImage(&g_small);
+    vk::FreeBuffer(&g_small_buffer);
+    if (!vk::MakeImage(width, height, 1, source.format,
+                       VK_IMAGE_USAGE_TRANSFER_DST_BIT |
+                           VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
+                       VK_IMAGE_ASPECT_COLOR_BIT, &g_small) ||
+        !vk::MakeBuffer(static_cast<VkDeviceSize>(width) * height * 4,
+                        VK_BUFFER_USAGE_TRANSFER_DST_BIT, true,
+                        &g_small_buffer)) {
+      vk::FreeImage(&g_small);
+      vk::FreeBuffer(&g_small_buffer);
+      return nullptr;
+    }
+  }
+  VkCommandBuffer cb = vk::BeginOnce();
+  if (cb == VK_NULL_HANDLE) return nullptr;
+  vk::Barrier(cb, source.image, VK_IMAGE_ASPECT_COLOR_BIT,
+              VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+              VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, 1, source.layers);
+  vk::Barrier(cb, g_small.image, VK_IMAGE_ASPECT_COLOR_BIT,
+              VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+              1);
+  VkImageBlit blit = {};
+  blit.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+  blit.srcOffsets[1] = {static_cast<int32_t>(source.width),
+                        static_cast<int32_t>(source.height), 1};
+  blit.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+  blit.dstOffsets[1] = {static_cast<int32_t>(width),
+                        static_cast<int32_t>(height), 1};
+  f.vkCmdBlitImage(cb, source.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                   g_small.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1,
+                   &blit, VK_FILTER_LINEAR);
+  vk::Barrier(cb, g_small.image, VK_IMAGE_ASPECT_COLOR_BIT,
+              VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+              VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, 1);
+  VkBufferImageCopy copy = {};
+  copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+  copy.imageExtent = {width, height, 1};
+  f.vkCmdCopyImageToBuffer(cb, g_small.image,
+                           VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                           g_small_buffer.buffer, 1, &copy);
+  vk::Barrier(cb, source.image, VK_IMAGE_ASPECT_COLOR_BIT,
+              VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+              VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 1, source.layers);
+  if (!vk::EndOnce(cb)) return nullptr;
+  uint8_t* pixels = static_cast<uint8_t*>(g_small_buffer.mapped);
+  // The window takes BGRA.
+  if (source.format != VK_FORMAT_B8G8R8A8_UNORM) {
+    const size_t count = static_cast<size_t>(width) * height;
+    for (size_t i = 0; i < count; ++i) {
+      const uint8_t red = pixels[i * 4];
+      pixels[i * 4] = pixels[i * 4 + 2];
+      pixels[i * 4 + 2] = red;
+    }
+  }
+  *pitch = static_cast<int>(width) * 4;
+  return pixels;
+}
 
 void VkSceneSetOnly(int on, int test) {
   g_only_mode = on != 0;

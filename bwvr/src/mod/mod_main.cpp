@@ -33,6 +33,8 @@
 #include "ddraw_census.h"
 #include "vk_core.h"
 #include "vk_scene.h"
+#include "vk_ddraw.h"
+#include "../proxy/ddraw_proxy.h"
 #include "render_thread.h"
 #include "tabletop.h"
 #include "far_grab.h"
@@ -2372,8 +2374,14 @@ BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, LPVOID reserved) {
       char ini[MAX_PATH];
       lstrcpynA(ini, g_dir, MAX_PATH);
       lstrcatA(ini, "bwvr.ini");
+      // backend=vulkan: the DirectDraw of the mod. The count needs the
+      // objects of another backend, so it does not run then.
+      const bool vulkan = ProxyBackendVulkan();
+      if (vulkan) VkDdrawInstall();
       const int census =
-          static_cast<int>(GetPrivateProfileIntA("bwvr", "ddraw_census", 0, ini));
+          vulkan ? 0
+                 : static_cast<int>(
+                       GetPrivateProfileIntA("bwvr", "ddraw_census", 0, ini));
       DdrawCensusInstall(census);
       // dxwrapper puts a hot patch on the two exports of the mod that make a
       // DirectDraw object, so the count sees the calls of the start only
