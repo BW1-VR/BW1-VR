@@ -401,6 +401,18 @@ uint64_t g_uploads = 0;
 uint64_t g_upload_bytes = 0;
 uint64_t g_right_only = 0;
 uint64_t g_stage1 = 0;  // draws with texture stage 1 on
+// THE STATES OF THE DRAWS (a census for the log): each new combination of
+// the operations and the inputs of texture stages 0 and 1, the blend and a
+// texture writes one line. The renderer makes stage 0 alone, so a line with
+// stage 1 on, or with a complement input (0x10), names a draw that can look
+// wrong.
+struct StateKind {
+  uint32_t key[4];
+  uint64_t draws;
+};
+const int kMaxStateKinds = 64;
+StateKind g_state_kinds[kMaxStateKinds];
+int g_state_kind_count = 0;
 bool g_said_seed = false;
 bool g_walk_both = false;  // the walk now draws both eyes
 // TWO WALKS FOR THE EYES. A frame with no walk of one walk has a walk for each
@@ -2663,12 +2675,13 @@ void VkSceneWalkBegin(void* device7) {
   }
 }
 
-void VkSceneFrame(uint64_t frame, uint64_t name) {
+void VkSceneFrame(uint64_t frame, uint64_t name, bool capture) {
   if (!VkSceneOn()) return;
   // The walks of the frames before this one are over (D3D7ThreadWalk).
   g_frame_walks = InterlockedCompareExchange(&g_walk_serial, 0, 0);
   g_picture_next =
-      g_test_frame > 0 && frame == static_cast<uint64_t>(g_test_frame);
+      capture ||
+      (g_test_frame > 0 && frame == static_cast<uint64_t>(g_test_frame));
   g_picture_name = name;
 }
 
@@ -2775,6 +2788,49 @@ void VkSceneDraw(uint32_t type, uint32_t fvf, const void* vertices,
   // Texture stage 1 adds its texture to stage 0 (seed: color op 7), but
   // the game sets no texture on it in a walk, so it adds nothing.
   if (g_ts[1][D3DTSS_COLOROP] > 1 && g_texture1 != nullptr) ++g_stage1;
+  {
+    const uint32_t* t0 = g_ts[0];
+    const uint32_t* t1 = g_ts[1];
+    const uint32_t key[4] = {
+        (t0[D3DTSS_COLOROP] & 255) | (t0[D3DTSS_COLORARG1] & 255) << 8 |
+            (t0[D3DTSS_COLORARG2] & 255) << 16 |
+            (g_texture != nullptr ? 1u : 0u) << 24,
+        (t0[D3DTSS_ALPHAOP] & 255) | (t0[D3DTSS_ALPHAARG1] & 255) << 8 |
+            (t0[D3DTSS_ALPHAARG2] & 255) << 16,
+        (t1[D3DTSS_COLOROP] & 255) | (t1[D3DTSS_COLORARG1] & 255) << 8 |
+            (t1[D3DTSS_COLORARG2] & 255) << 16 |
+            (g_texture1 != nullptr ? 1u : 0u) << 24,
+        (g_rs[D3DRENDERSTATE_ALPHABLENDENABLE] != 0 ? 1u : 0u) |
+            (g_rs[D3DRENDERSTATE_SRCBLEND] & 255) << 8 |
+            (g_rs[D3DRENDERSTATE_DESTBLEND] & 255) << 16 |
+            (t1[D3DTSS_ALPHAOP] & 255) << 24};
+    int k = 0;
+    for (; k < g_state_kind_count; ++k) {
+      if (memcmp(g_state_kinds[k].key, key, sizeof(key)) == 0) break;
+    }
+    if (k == g_state_kind_count && k < kMaxStateKinds) {
+      memcpy(g_state_kinds[k].key, key, sizeof(key));
+      g_state_kinds[k].draws = 0;
+      ++g_state_kind_count;
+      const bool complement =
+          ((key[0] >> 8) & 0x10) || ((key[0] >> 16) & 0x10) ||
+          ((key[1] >> 8) & 0x10) || ((key[1] >> 16) & 0x10);
+      ModLog("vk scene     : states %d: stage 0 color op %u args 0x%X 0x%X, "
+             "alpha op %u args 0x%X 0x%X, %s. Stage 1 color op %u args 0x%X "
+             "0x%X, alpha op %u, %s. Blend %s %u %u%s%s",
+             k, key[0] & 255, (key[0] >> 8) & 255, (key[0] >> 16) & 255,
+             key[1] & 255, (key[1] >> 8) & 255, (key[1] >> 16) & 255,
+             (key[0] >> 24) ? "a texture" : "no texture", key[2] & 255,
+             (key[2] >> 8) & 255, (key[2] >> 16) & 255, key[3] >> 24,
+             (key[2] >> 24) ? "a texture" : "no texture",
+             (key[3] & 1) ? "on" : "off", (key[3] >> 8) & 255,
+             (key[3] >> 16) & 255,
+             complement ? ". A complement input" : "",
+             (key[2] & 255) > 1 ? ". STAGE 1 IS ON, the renderer leaves it out"
+                                : "");
+    }
+    if (k < g_state_kind_count) ++g_state_kinds[k].draws;
+  }
   if (vertices == nullptr || vertex_count == 0) return;
   VertexLayout layout = {32, 16, 20, 24};
   if (fvf != 0x1C4 &&

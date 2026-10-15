@@ -1274,7 +1274,8 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
   if (RenderThreadFrame(ControllersFrameCount())) {
     EyeCaptureArmNow(g_frames + 1);
   }
-  VkSceneFrame(ControllersFrameCount(), g_frames + 1);
+  VkSceneFrame(ControllersFrameCount(), g_frames + 1,
+               EyeCaptureWanted(g_frames + 1));
   // FOVEATED RENDERING: the gaze of an eye tracker is the centre of the
   // fovea of this frame. With none the centre is straight ahead.
   {

@@ -20,7 +20,9 @@ bool VkSceneOn();
 // the first walk of this frame writes its images, with the number `name`:
 // the number of the eye captures of this frame. So the image of the Vulkan
 // renderer and the picture of Direct3D 9 with one number are of one walk.
-void VkSceneFrame(uint64_t frame, uint64_t name);
+// capture: the frame saves pictures (F12, eye_capture.cpp), so the walk
+// writes its images too.
+void VkSceneFrame(uint64_t frame, uint64_t name, bool capture);
 
 // d3d7_thread.cpp, on the frame thread at the start of a walk, before the
 // queue takes calls: the state of the device for the walk. Then the start

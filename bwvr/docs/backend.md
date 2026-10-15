@@ -2316,6 +2316,16 @@ when it goes back). With 0 each read makes a new image and a staging buffer
 of its own. The report has the reads into their image, the reads in the
 ring, and the waits of a walk for the fence of its slot.
 
+**The states of the draws.** The log has one line for each new combination
+of the operations and the inputs of texture stages 0 and 1, the blend and a
+texture ("vk scene : states N"). The renderer makes texture stage 0 alone. A
+line with "STAGE 1 IS ON" names draws whose second stage is left out: in
+play the game adds a second texture with stage 1 (`D3DTOP_ADD` of the
+texture and the current colour), for example the light maps of the land,
+and once with no texture on stage 1. These draws have less light than with
+Direct3D 9. A line with "A complement input" names a draw with an input of
+1 minus a colour.
+
 A row of a locked surface goes into a buffer of the CPU with streaming
 loads of SSE4.1 (MOVNTDQA) before the conversion, because a `Lock` of
 dxwrapper gives memory that the CPU reads with no cache. Desktop runs in
@@ -3990,7 +4000,7 @@ in front. The mod reads the keys and never takes them from the game.
 | --- | --- | --- |
 | F11 | Everyone | The direction of the head becomes straight ahead |
 | Ctrl F11 | `play_mode` 3 or 4 | The table or the God view goes off and on (`tabletop.md`, `god-view.md`). Press it with the mouse at rest |
-| F12 | `test_keys=1` | Saves a picture of each eye beside `runblack.exe`, and one of the frame before either eye pass |
+| F12 | `test_keys=1` | Saves a picture of each eye beside `runblack.exe`, and one of the frame before either eye pass. With the Vulkan renderer also its images of the eyes (`bwvr-vk-left-N.bmp`, `bwvr-vk-right-N.bmp`), which are the pictures in the headset with `backend=vulkan` |
 | Shift F12 | `test_keys=1` | The subtitles step through 25, 30, 35, 40 and 45 degrees below the middle of the view |
 | Ctrl F12 | `test_keys=1` | Who owns the pointer: automatic, the controllers only, or the mouse only (`controllers.md`) |
 | Ctrl Shift F12 | `test_keys=1` | The ears: the head, or the game camera (`audio.md`). Press it with the mouse at rest |
