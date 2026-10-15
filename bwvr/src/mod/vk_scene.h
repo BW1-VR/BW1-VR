@@ -29,6 +29,24 @@ void VkSceneDraw(uint32_t type, uint32_t fvf, const void* vertices,
                  uint32_t vertex_count, const uint16_t* indices,
                  uint32_t index_count);
 
+// vk_scene_follow of bwvr.ini: 1 (the default) in a walk of one walk the
+// renderer follows render target 0 of Direct3D 9, the viewport of Direct3D
+// 7 and the clears of Direct3D 9: a draw or a clear for another target than
+// the eye pictures does not go into them. 0: each draw goes into the eye
+// pictures, in the viewport of the start of the walk, and the renderer makes
+// no clear. Shift X (test_keys=1) changes it from the next walk.
+void VkSceneSetFollow(int on);
+void VkSceneFollowToggle(const char* keys);
+// one_walk.cpp, in a pass: render target 0 of Direct3D 9 is this surface
+// now. On the frame thread or on the D3D7 thread.
+void VkSceneTarget(void* surface);
+// d3d7_thread.cpp, after a SetViewport of Direct3D 7 in a walk: a
+// D3DVIEWPORT7.
+void VkSceneViewport(const void* viewport7);
+// one_walk.cpp, in a pass: a Clear of Direct3D 9 (rects are D3DRECT).
+void VkSceneClear(uint32_t count, const void* rects, uint32_t flags,
+                  uint32_t color, float z);
+
 // draw_merge.cpp, on the frame thread: the game writes this surface (a Lock
 // or a Blt to it). Its copy in Vulkan is read again at its next use.
 void VkSceneSurfaceWritten(void* surface);

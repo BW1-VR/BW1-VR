@@ -2160,6 +2160,49 @@ primitive type are dynamic states. In one walk a batch of the
 interface for the right eye only does not go into the image of the left
 eye.
 
+**The target, the viewport and the clears** (`vk_scene_follow`, 1 is the
+default). In a walk the mod can bind a target of its own on the device of
+Direct3D 9. The interface panel does this for the help text and the
+Creature panel, which go to the subtitle card or to the layers of the
+interface (`ui-layer.md`). The draws of the game that follow go to that
+target and not to the eye pictures. So the renderer follows render target
+0 of Direct3D 9, as one walk does: the target at the start of the walk is
+the target of the eyes, and a draw or a clear while another target is
+bound does not go into the image. The renderer also follows the viewport
+of Direct3D 7 (a hook of `SetViewport` on the D3D7 thread) as the viewport
+and the scissor rect of Vulkan. It makes each clear of Direct3D 9 in the
+walk (`one_walk.cpp`, `h_Clear`) in that viewport, for the eyes of the mode
+of one walk. A clear for one eye ends the rendering of both layers, clears
+in a rendering of that layer alone, and starts the rendering of both again.
+A change on the frame thread goes into the queue of the D3D7 thread, so it
+comes in the order of the draws. Without one walk the target of the eyes
+is not known, and each draw goes into the image. With
+`vk_scene_follow=0` each draw goes into the image, in the viewport of the
+start of the walk, and the renderer makes no clear. With `test_keys=1`,
+Shift X changes it from the next walk. The report of each 450 frames
+counts the binds of the target, the viewports, the clears and the draws
+for another target. The game itself sets no viewport and no render target
+in a walk (`ddraw_census=1`, also while the Hand strokes the Creature).
+It makes one clear in each walk, before the sky (`eye_clean.cpp`).
+
+Desktop runs of the strokes of the Creature (`hand_run.ps1 -Kind old
+-NewGame` with `subtitle_card_test=1`, the route of the subtitle card with
+no headset). With `vk_scene_follow=0` the batches that go to the card are
+also in the image of the left eye, and not in the image of the right eye:
+the subtitle box (a dark band across the bottom) and, with the Hand on the
+Creature, the Creature panel (four bars with dark backgrounds) at the top
+left. At the first subtitle of a new game (frame 720) 4.69 percent of the
+pixels of the left eye differ from Direct3D 9 by more than 24 levels (20.9
+percent in the middle of the bottom third), and with the Hand on the
+Creature (frame 1400) 11.5 percent of the left third of the middle differ.
+With `vk_scene_follow=1` 0.06 percent of each eye differ at frame 720, and
+0.15 percent of each eye at frame 1400. Open: in one run of the strokes
+with `vk_scene_follow=0` an advisor spoke, and the advisor was at the top
+right of both images of the Vulkan renderer and not in the pictures of
+Direct3D 9. No run with `vk_scene_follow=1` had an advisor in view. The
+mod puts a spirit at a place of the world (`spirit_world_size`). The cause
+is not known.
+
 **The textures.** A texture of the game is a DirectDraw surface of
 dxwrapper. At its first use the renderer reads it with `Lock`, makes RGBA8
 of it, and makes its mip levels with linear blits (the textures of the
@@ -2172,7 +2215,7 @@ A4R4G4B4 and 2 in X1R5G5B5 at the start of a new game.
 each of the 1067 draws of a frame for both eyes, with 93 textures, 3
 pipelines and 3 samplers, and the frames stay at 4.7 to 5.0 ms with both
 renderers. The images of frame 3000 and the pictures of Direct3D 9 differ by
-more than 24 levels in 0.17 percent of the pixels of the left eye and 0.19
+more than 24 levels in 0.14 percent of the pixels of the left eye and 0.15
 percent of the right eye. These pixels are on the edges of the land and of
 the window of the dialog, on the line of the horizon, on the pointer of the
 mouse and in a line of one pixel at the border of the picture. The sea is
@@ -2248,8 +2291,11 @@ a relay (a card, the panel, a menu) had 32 ms too.
 
 **Open: only a headset shows it.** The eyes of the Creature showed their
 lids and no eyeballs with the Vulkan eyes: the renderer did not draw 1.6 to
-20 draws a frame there. The log of the next session names their format. A
-black flicker at the start of a session. A session with Vulkan with
+20 draws a frame there. The log of the next session names their format.
+Whether the black flicker (at the start of a session, and while the Hand
+strokes the Creature) shows with `vk_scene_follow=1`. In desktop runs
+with 0 the left eye has the subtitle box and the Creature panel, and with
+1 it has neither ("The Vulkan renderer"). A session with Vulkan with
 SteamVR. The relays between Direct3D 11 and
 Vulkan on the drivers of NVIDIA and Intel. The frame time with the Vulkan
 eyes. The scenes that no desktop run compared yet: the
@@ -3633,6 +3679,7 @@ in front. The mod reads the keys and never takes them from the game.
 | Shift V | `test_keys=1` | The D3D7 thread merges a row of draws with one state, or the frame thread does, from the next walk. A long pulse and a short pulse (`d3d7_thread_merge`, "The thread of Direct3D 7"). Ctrl must be up |
 | Shift B | `test_keys=1` | The threads of the mod spin for a short time and then sleep, or they spin. A long pulse and a short pulse (`thread_wait`, "How the threads wait"). Ctrl must be up |
 | Shift C | `test_keys=1` | In a session with Vulkan the eye pictures come from the Vulkan renderer, or from Direct3D 9, from the next frame. A long pulse and a short pulse (`vk_eyes`, "The session with Vulkan"). Ctrl must be up |
+| Shift X | `test_keys=1` | The Vulkan renderer follows the render target, the viewport and the clears of a walk, or it draws each draw into the eye pictures, from the next walk. A long pulse and a short pulse (`vk_scene_follow`, "The Vulkan renderer"). Ctrl must be up |
 | Ctrl Shift Numpad Slash | `test_keys=1` | The mod waits for the GPU after each eye pass, one time a frame, or one time a frame on a second thread that also gives the frame to the runtime. A long pulse, a pulse of middle length and a short pulse (`frame_send`, "One wait a frame, and a second thread"). The slash key with Shift and no Ctrl is a key of the Temple, and with no Shift it is a key of the throw |
 | Menu key | `test_keys=1` | One walk for both eyes on and off (see "One walk for both eyes"). The key beside the right Ctrl key that opens a context menu. Ctrl and Shift must be up |
 | Ctrl Menu key | `test_keys=1` | The layout of the buttons of the hand that does not point. The menu button of the left controller opens the game menu, Y opens the ring and the stick does not drive the ring, or Y opens the game menu and X and the stick open the ring. A long pulse and a short pulse on that hand (`button_layout`, `controllers.md`, 5.1). Shift must be up |
@@ -3754,6 +3801,7 @@ keys that the launcher sets.
 | `vk_scene`, `vk_scene_test_frame` | 0, 0 | Test keys: 1 draws each walk also with the Vulkan renderer, both eyes, and frame N writes its images to files. See "The Vulkan renderer" |
 | `xr_vulkan` | 0 | 0: the OpenXR session has Direct3D 11. 1: the session has Vulkan, and the Vulkan renderer draws with its device. When it cannot start, the next try has Direct3D 11. There is no test key: the choice is made at the start. See "The session with Vulkan" |
 | `vk_eyes` | 1 | With `xr_vulkan=1`: 1 the eye pictures of a frame of one walk come from the Vulkan renderer, 0 from Direct3D 9. A test key: Shift C. See "The session with Vulkan" |
+| `vk_scene_follow` | 1 | 1: in a walk of one walk the Vulkan renderer follows render target 0 of Direct3D 9, the viewport of Direct3D 7 and the clears, and a draw for another target does not go into the eye pictures. 0: each draw goes into the eye pictures, and the renderer makes no clear. A test key: Shift X. See "The Vulkan renderer" |
 | `fast_transform` | 1 | 1: the two vertex loops of the engine run with SSE, with the bits of the game. 0: on the x87 unit. See "The vertex loops with SSE" |
 | `profile_gpu` | 0 | A test key. See "The GPU time" |
 | `hang_watch` | 0 | A test key. See "The watch of the frame thread" |

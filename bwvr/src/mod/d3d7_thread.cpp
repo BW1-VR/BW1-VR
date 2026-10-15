@@ -30,6 +30,8 @@
 //     methods go to a thunk that stops.
 //   - A call of the frame thread to Direct3D 9 in a walk stops
 //     (render_thread.cpp, Taking).
+// The hook of SetViewport stops, and after the call it gives the viewport
+// to the Vulkan renderer (vk_scene.cpp).
 // A stop never waits while the frame thread holds the lock of dxwrapper: a
 // call that comes from inside dxwrapper goes to dxwrapper at once, and the
 // queue is empty then, because the way in stopped first. A Release of a
@@ -93,6 +95,9 @@ const Place kSetLight = {0xC5110, {0x55, 0x8B, 0xEC, 0x6A, 0xFF, 0x68}};
 const Place kDrawIndexed = {0xC13F0, {0x55, 0x8B, 0xEC, 0x6A, 0xFF, 0x68}};
 const Place kDraw = {0xC0F10, {0x55, 0x8B, 0xEC, 0x6A, 0xFF, 0x68}};
 const Place kLock = {0x096E0, {0x55, 0x8B, 0xEC, 0x83, 0xE4, 0xF0}};
+// SetViewport: __thiscall, the viewport on the stack (ret 4). A hook stops,
+// and after the call it gives the viewport to the Vulkan renderer.
+const Place kSetViewport = {0xCAB40, {0x55, 0x8B, 0xEC, 0x83, 0xE4, 0xF0}};
 // The place in the method DrawIndexedPrimitive and DrawPrimitive of the
 // device after its call of the inner function.
 const uint32_t kDrawIndexedReturn = 0x137554;
@@ -108,7 +113,6 @@ const Place kStopPlaces[] = {
     {0xC0910, {0x55, 0x8B, 0xEC, 0x80, 0x3D, 0x49}},  // SetTransform
     {0xC0A30, {0x55, 0x8B, 0xEC, 0x83, 0xE4, 0xF0}},  // GetTransform
     {0xC0BB0, {0x55, 0x8B, 0xEC, 0x83, 0xE4, 0xF0}},  // MultiplyTransform
-    {0xCAB40, {0x55, 0x8B, 0xEC, 0x83, 0xE4, 0xF0}},  // SetViewport
     {0xCAA10, {0x55, 0x8B, 0xEC, 0x83, 0xE4, 0xF8}},  // GetViewport
     {0xCAE00, {0x55, 0x8B, 0xEC, 0x83, 0xE4, 0xF8}},  // SetMaterial
     {0xCAC80, {0x55, 0x8B, 0xEC, 0x83, 0xE4, 0xF8}},  // GetMaterial
@@ -187,6 +191,8 @@ typedef HRESULT(WINAPI* DrawFn)(void*, DWORD, DWORD, void*, DWORD, DWORD,
                                 DWORD);
 // A constructor of MSVC gives `this` back in eax.
 typedef void*(__fastcall* LockFn)(void*, void*, bool);
+// __thiscall, as __fastcall with the second register unused.
+typedef HRESULT(__fastcall* SetViewportFn)(void*, void*, D3DVIEWPORT7*);
 
 State2Fn o_SetRenderState = nullptr;
 SetTextureFn o_SetTexture = nullptr;
@@ -195,6 +201,7 @@ SetLightFn o_SetLight = nullptr;
 DrawIndexedFn o_DrawIndexed = nullptr;
 DrawFn o_Draw = nullptr;
 LockFn o_Lock = nullptr;
+SetViewportFn o_SetViewport = nullptr;
 
 // ---------------------------------------------------------------------------
 // The state.
@@ -221,7 +228,7 @@ uint8_t* g_queue = nullptr;
 __declspec(align(64)) volatile LONG g_write = 0;
 __declspec(align(64)) volatile LONG g_read = 0;
 
-// The thunks of the stops: 34 inner functions and 5 slots of the table.
+// The thunks of the stops: 32 inner functions and 5 slots of the table.
 uint8_t* g_thunks = nullptr;
 const int kThunkBytes = 16;
 void* g_stop_original[kStopCount + kTableCount] = {nullptr};
@@ -736,6 +743,16 @@ void* __fastcall h_Lock(void* self, void* unused, bool lock) {
   return o_Lock(self, unused, lock);
 }
 
+// SetViewport stops, and the Vulkan renderer follows the viewport of the
+// walk (vk_scene.cpp).
+HRESULT __fastcall h_SetViewport(void* self, void* unused,
+                                 D3DVIEWPORT7* viewport) {
+  StopIfFrame();
+  const HRESULT hr = o_SetViewport(self, unused, viewport);
+  if (SUCCEEDED(hr) && g_active) VkSceneViewport(viewport);
+  return hr;
+}
+
 // ---------------------------------------------------------------------------
 // Install.
 
@@ -810,6 +827,8 @@ bool Install() {
                        reinterpret_cast<void**>(&o_Draw));
   ok = ok && HookPlace(kLock, reinterpret_cast<void*>(&h_Lock),
                        reinterpret_cast<void**>(&o_Lock));
+  ok = ok && HookPlace(kSetViewport, reinterpret_cast<void*>(&h_SetViewport),
+                       reinterpret_cast<void**>(&o_SetViewport));
   for (int i = 0; ok && i < kStopCount; ++i) {
     uint8_t* thunk = g_thunks + i * kThunkBytes;
     MakeStopThunk(thunk, reinterpret_cast<void (*)()>(&D3D7StopFromThunk),
@@ -852,7 +871,7 @@ bool Install() {
   ThreadLoadAdd("D3D7 thread", g_worker);
   QueryPerformanceFrequency(&g_frequency);
   ModLog("hooks        : the D3D7 thread: 6 calls of the queue, the lock of "
-         "dxwrapper, %d stops ok", kStopCount + kTableCount);
+         "dxwrapper, SetViewport, %d stops ok", kStopCount + kTableCount + 1);
   return true;
 }
 

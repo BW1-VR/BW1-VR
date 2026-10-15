@@ -46,6 +46,21 @@
 // At its first use the renderer reads it with Lock, makes RGBA8 of it, and
 // gives the copy its mip levels with blits. A Lock or a Blt of the game on a
 // surface (draw_merge.cpp) marks it, and its next use reads it again.
+//
+// THE TARGET, THE VIEWPORT AND THE CLEARS (vk_scene_follow=1). In a walk the
+// mod can bind a target of its own on the device of Direct3D 9, for example
+// the panel target of the interface (gpu_bridge.cpp, GpuBridgePanelBind).
+// The draws of the game that follow go to that target, and not to the eye
+// pictures. So the renderer follows render target 0 of Direct3D 9, as one
+// walk does (one_walk.cpp, InWide): its image is the target of the eyes at
+// the start of the walk, and a draw or a clear while another target is bound
+// does not go into it. It also follows the viewport of Direct3D 7
+// (SetViewport, d3d7_thread.cpp), and it makes each clear of Direct3D 9 in
+// the walk (one_walk.cpp, h_Clear) in the rect of that viewport, for the eyes
+// of the mode of one walk. A call on the frame thread goes into the queue of
+// the D3D7 thread (D3D7ThreadPost), so it comes in the order of the draws. A
+// call on the D3D7 thread is in that order already. Without one walk the
+// target of the eyes is not known, and each draw goes into the image.
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -60,6 +75,7 @@
 #include "one_walk_math.h"
 #include "vk_core.h"
 #include "vk_scene.h"
+#include "vk_scene_math.h"
 #include "vk_scene_frag.h"
 #include "vk_scene_vert.h"
 
@@ -87,6 +103,13 @@ void* g_texture = nullptr;  // stage 0
 void* g_texture1 = nullptr;  // stage 1
 D3DVIEWPORT7 g_viewport = {};
 
+// THE TARGET, THE VIEWPORT AND THE CLEARS, on the D3D7 thread.
+bool g_walk_follow = false;     // vk_scene_follow, for the walk now
+void* g_eye_target = nullptr;   // the target of the eyes in Direct3D 9
+void* g_draw_target = nullptr;  // render target 0 of Direct3D 9 now
+// On the frame thread: vk_scene_follow now (the test key changes it).
+bool g_follow = true;
+
 // The seed of a walk: the frame thread reads the state, and the D3D7 thread
 // takes it with the start of the walk.
 struct Seed {
@@ -97,6 +120,19 @@ struct Seed {
   D3DVIEWPORT7 viewport;
   uint64_t frame;
   bool both;  // a walk of one walk: both layers get a picture
+  bool follow;
+  void* target;  // the target of the eyes, or null when it is not known
+};
+
+// A clear of Direct3D 9 in the walk. A clear with more rects clears the
+// whole viewport.
+const uint32_t kClearRects = 16;
+struct ClearArgs {
+  uint32_t count;
+  uint32_t flags;
+  uint32_t color;
+  float z;
+  D3DRECT rects[kClearRects];
 };
 
 // THE TARGETS: two, for the walks in turn, each with a layer for each eye
@@ -189,7 +225,14 @@ uint64_t g_skipped = 0;          // all of them
 uint64_t g_skip_format = 0;      // a vertex format with no XYZRHW
 uint64_t g_skip_ring = 0;        // no room in the ring of the vertices
 uint64_t g_skip_state = 0;       // no pipeline or no descriptor set
+uint64_t g_skip_target = 0;      // a draw for another target
 uint64_t g_converted = 0;        // a format of XYZRHW other than 0x1C4
+// THE TARGET, THE VIEWPORT AND THE CLEARS.
+uint64_t g_target_calls = 0;     // binds of render target 0
+uint64_t g_viewport_calls = 0;
+uint64_t g_clears = 0;           // made
+uint64_t g_clears_one_eye = 0;   // of them for one eye only
+uint64_t g_clears_off = 0;       // for another target, not made
 uint32_t g_said_formats[8] = {};  // the formats that the log has
 int g_said_format_count = 0;
 uint64_t g_uploads = 0;
@@ -866,6 +909,163 @@ void WritePicture(uint64_t frame, uint32_t eye) {
   vk::FreeBuffer(&read);
 }
 
+// Starts the rendering into the target of the walk, for the layers of
+// view_mask (bit 0 the left eye, bit 1 the right eye). load keeps the
+// pixels and the depth that the target has, else both are cleared: the
+// color to 0 and the depth to 1. keep_depth stores the depth at the end of
+// the rendering, for a rendering after it in the same walk.
+void BeginRendering(VkCommandBuffer cb, uint32_t view_mask, bool load,
+                    bool keep_depth) {
+  VkRenderingAttachmentInfo color = {
+      VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+  color.imageView = Target().view;
+  color.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+  color.loadOp = load ? VK_ATTACHMENT_LOAD_OP_LOAD : VK_ATTACHMENT_LOAD_OP_CLEAR;
+  color.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+  VkRenderingAttachmentInfo depth = {
+      VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+  depth.imageView = g_depth.view;
+  depth.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+  depth.loadOp = load ? VK_ATTACHMENT_LOAD_OP_LOAD : VK_ATTACHMENT_LOAD_OP_CLEAR;
+  depth.storeOp = keep_depth ? VK_ATTACHMENT_STORE_OP_STORE
+                             : VK_ATTACHMENT_STORE_OP_DONT_CARE;
+  depth.clearValue.depthStencil.depth = 1.0f;
+  VkRenderingInfo rendering = {VK_STRUCTURE_TYPE_RENDERING_INFO};
+  rendering.renderArea = {{0, 0}, {Target().width, Target().height}};
+  rendering.layerCount = 1;
+  rendering.viewMask = view_mask;
+  rendering.colorAttachmentCount = 1;
+  rendering.pColorAttachments = &color;
+  rendering.pDepthAttachment = &depth;
+  f.vkCmdBeginRendering(cb, &rendering);
+}
+
+// The part of a rect of pixels that is in the target. False when nothing
+// is.
+bool InTarget(const vk_scene_math::Rect& r, VkRect2D* out) {
+  vk_scene_math::Rect in;
+  if (!vk_scene_math::InTarget(r, Target().width, Target().height, &in)) {
+    return false;
+  }
+  out->offset = {static_cast<int32_t>(in.x0), static_cast<int32_t>(in.y0)};
+  out->extent = {static_cast<uint32_t>(in.x1 - in.x0),
+                 static_cast<uint32_t>(in.y1 - in.y0)};
+  return true;
+}
+
+// The viewport of Direct3D 7 as the viewport and the scissor rect of Vulkan.
+// The vertex shader gives the clip position in that viewport, so a vertex
+// comes to its pixel of the target, and the scissor rect cuts each pixel
+// outside the viewport, as in Direct3D 9.
+void SetViewportState(VkCommandBuffer cb) {
+  const D3DVIEWPORT7& v = g_viewport;
+  const VkViewport viewport = {
+      static_cast<float>(v.dwX), static_cast<float>(v.dwY),
+      static_cast<float>(v.dwWidth), static_cast<float>(v.dwHeight), 0.0f,
+      1.0f};
+  f.vkCmdSetViewport(cb, 0, 1, &viewport);
+  VkRect2D scissor = {{0, 0}, {0, 0}};
+  InTarget(vk_scene_math::ViewportRect(v.dwX, v.dwY, v.dwWidth, v.dwHeight),
+           &scissor);
+  f.vkCmdSetScissor(cb, 0, 1, &scissor);
+}
+
+// True when a draw or a clear goes to another target than the image of the
+// eyes (THE TARGET, THE VIEWPORT AND THE CLEARS).
+bool OffTarget() {
+  return vk_scene_math::OffTarget(g_walk_follow, g_eye_target, g_draw_target);
+}
+
+void TargetOnWorker(const void* data) {
+  memcpy(&g_draw_target, data, sizeof(g_draw_target));
+  ++g_target_calls;
+}
+
+void ViewportOnWorker(const void* data) {
+  if (!g_recording || !g_walk_follow) return;
+  memcpy(&g_viewport, data, sizeof(g_viewport));
+  ++g_viewport_calls;
+  if (g_viewport.dwWidth == 0 || g_viewport.dwHeight == 0) return;
+  SetViewportState(g_slots[g_slot].cb);
+}
+
+// A clear of Direct3D 9: the rects (or the whole viewport) in the viewport,
+// for the color and the depth that the flags name.
+void ClearOnWorker(const void* data) {
+  if (!g_recording || !g_walk_follow) return;
+  if (OffTarget()) {
+    ++g_clears_off;
+    return;
+  }
+  const ClearArgs* a = static_cast<const ClearArgs*>(data);
+  VkClearAttachment attachments[2] = {};
+  uint32_t count = 0;
+  if (a->flags & D3DCLEAR_TARGET) {
+    attachments[count].aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    attachments[count].colorAttachment = 0;
+    vk_scene_math::ClearColor(a->color,
+                              attachments[count].clearValue.color.float32);
+    ++count;
+  }
+  if (a->flags & D3DCLEAR_ZBUFFER) {
+    attachments[count].aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+    attachments[count].clearValue.depthStencil.depth =
+        vk_scene_math::ClearDepth(a->z);
+    ++count;
+  }
+  if (count == 0) return;
+  // Direct3D 9 clears in the viewport. With multiview, a rect of a clear
+  // has layer 0 and one layer, and the view mask names the layers.
+  const D3DVIEWPORT7& v = g_viewport;
+  const vk_scene_math::Rect viewport =
+      vk_scene_math::ViewportRect(v.dwX, v.dwY, v.dwWidth, v.dwHeight);
+  VkClearRect rects[kClearRects];
+  uint32_t rect_count = 0;
+  if (a->count == 0 || a->count > kClearRects) {
+    if (InTarget(viewport, &rects[0].rect)) rect_count = 1;
+  } else {
+    for (uint32_t i = 0; i < a->count; ++i) {
+      const D3DRECT& d = a->rects[i];
+      const vk_scene_math::Rect asked = {d.x1, d.y1, d.x2, d.y2};
+      if (InTarget(vk_scene_math::Intersect(asked, viewport),
+                   &rects[rect_count].rect)) {
+        ++rect_count;
+      }
+    }
+  }
+  if (rect_count == 0) return;
+  for (uint32_t i = 0; i < rect_count; ++i) {
+    rects[i].baseArrayLayer = 0;
+    rects[i].layerCount = 1;
+  }
+  // A clear for one eye: a rendering of that layer alone, between two
+  // renderings of both. The dynamic states stay.
+  const VkCommandBuffer cb = g_slots[g_slot].cb;
+  const uint32_t eyes =
+      vk_scene_math::Eyes(OneWalkActive(), OneWalkModeNow());
+  if (eyes != 3u) {
+    f.vkCmdEndRendering(cb);
+    BeginRendering(cb, eyes, true, true);
+    ++g_clears_one_eye;
+  }
+  f.vkCmdClearAttachments(cb, count, attachments, rect_count, rects);
+  if (eyes != 3u) {
+    f.vkCmdEndRendering(cb);
+    BeginRendering(cb, 3u, true, true);
+  }
+  ++g_clears;
+}
+
+// Gives a change of the frame thread to the D3D7 thread in the order of the
+// draws, or makes it now on the D3D7 thread.
+void Deliver(D3D7ThreadFn fn, const void* data, unsigned bytes) {
+  if (D3D7ThreadOnWorker()) {
+    fn(data);
+  } else {
+    D3D7ThreadPost(fn, data, bytes);
+  }
+}
+
 // THE WALK, on the D3D7 thread.
 void BeginOnWorker(const void* data) {
   const Seed* seed = static_cast<const Seed*>(data);
@@ -912,33 +1112,21 @@ void BeginOnWorker(const void* data) {
   vk::Barrier(s.cb, g_depth.image, VK_IMAGE_ASPECT_DEPTH_BIT,
               VK_IMAGE_LAYOUT_UNDEFINED,
               VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, 1, 2);
-  VkRenderingAttachmentInfo color = {
-      VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
-  color.imageView = Target().view;
-  color.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-  color.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-  color.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-  VkRenderingAttachmentInfo depth = {
-      VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
-  depth.imageView = g_depth.view;
-  depth.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
-  depth.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-  depth.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-  depth.clearValue.depthStencil.depth = 1.0f;
-  VkRenderingInfo rendering = {VK_STRUCTURE_TYPE_RENDERING_INFO};
-  rendering.renderArea = {{0, 0}, {Target().width, Target().height}};
-  rendering.layerCount = 1;
-  rendering.viewMask = 3;
-  rendering.colorAttachmentCount = 1;
-  rendering.pColorAttachments = &color;
-  rendering.pDepthAttachment = &depth;
-  f.vkCmdBeginRendering(s.cb, &rendering);
-  const VkViewport viewport = {0.0f, 0.0f,
-                               static_cast<float>(Target().width),
-                               static_cast<float>(Target().height), 0.0f, 1.0f};
-  f.vkCmdSetViewport(s.cb, 0, 1, &viewport);
-  const VkRect2D scissor = {{0, 0}, {Target().width, Target().height}};
-  f.vkCmdSetScissor(s.cb, 0, 1, &scissor);
+  g_walk_follow = seed->follow;
+  g_eye_target = seed->target;
+  g_draw_target = seed->target;
+  BeginRendering(s.cb, 3u, false, g_walk_follow);
+  if (g_walk_follow) {
+    SetViewportState(s.cb);
+  } else {
+    const VkViewport viewport = {0.0f, 0.0f,
+                                 static_cast<float>(Target().width),
+                                 static_cast<float>(Target().height), 0.0f,
+                                 1.0f};
+    f.vkCmdSetViewport(s.cb, 0, 1, &viewport);
+    const VkRect2D scissor = {{0, 0}, {Target().width, Target().height}};
+    f.vkCmdSetScissor(s.cb, 0, 1, &scissor);
+  }
   g_recording = true;
   g_picture = g_test_frame > 0 && seed->frame == static_cast<uint64_t>(g_test_frame);
   g_picture_frame = seed->frame;
@@ -1076,7 +1264,54 @@ void VkSceneWalkBegin(void* device7) {
   d->GetViewport(&seed.viewport);
   seed.frame = ControllersFrameCount();
   seed.both = OneWalkActive();
+  seed.follow = g_follow;
+  seed.target = g_follow ? OneWalkBoundTarget() : nullptr;
   D3D7ThreadPost(&BeginOnWorker, &seed, sizeof(seed));
+}
+
+void VkSceneSetFollow(int on) {
+  g_follow = on != 0;
+  if (g_mode == 0) return;
+  ModLog("vk scene     : vk_scene_follow=%d. %s", g_follow ? 1 : 0,
+         g_follow ? "In a walk of one walk the renderer follows render target "
+                    "0 of Direct3D 9, the viewport of Direct3D 7 and the "
+                    "clears: a draw for another target does not go into the "
+                    "eye pictures"
+                  : "Each draw of a walk goes into the eye pictures, in the "
+                    "viewport of the start of the walk, and the renderer "
+                    "makes no clear");
+}
+
+void VkSceneFollowToggle(const char* keys) {
+  g_follow = !g_follow;
+  ControllersGesturePulse(0.5f, g_follow ? 0.30f : 0.08f);
+  ModLog("test key     : %s, vk_scene_follow is %d from the next walk", keys,
+         g_follow ? 1 : 0);
+}
+
+void VkSceneTarget(void* surface) {
+  if (!VkSceneOn() || !D3D7ThreadActive()) return;
+  Deliver(&TargetOnWorker, &surface, sizeof(surface));
+}
+
+void VkSceneViewport(const void* viewport7) {
+  if (!VkSceneOn() || !D3D7ThreadActive() || viewport7 == nullptr) return;
+  Deliver(&ViewportOnWorker, viewport7, sizeof(D3DVIEWPORT7));
+}
+
+void VkSceneClear(uint32_t count, const void* rects, uint32_t flags,
+                  uint32_t color, float z) {
+  if (!VkSceneOn() || !D3D7ThreadActive()) return;
+  ClearArgs a;
+  memset(&a, 0, sizeof(a));
+  a.count = rects != nullptr ? count : 0;
+  a.flags = flags;
+  a.color = color;
+  a.z = z;
+  if (a.count > 0 && a.count <= kClearRects) {
+    memcpy(a.rects, rects, a.count * sizeof(D3DRECT));
+  }
+  Deliver(&ClearOnWorker, &a, sizeof(a));
 }
 
 void VkSceneWalkEnd() {
@@ -1110,6 +1345,11 @@ void VkSceneDraw(uint32_t type, uint32_t fvf, const void* vertices,
                  uint32_t vertex_count, const uint16_t* indices,
                  uint32_t index_count) {
   if (!g_recording) return;
+  if (OffTarget()) {
+    ++g_skipped;
+    ++g_skip_target;
+    return;
+  }
   if (OneWalkActive() && OneWalkModeNow() == kOneWalkRightOnly) {
     ++g_right_only;
   }
@@ -1298,15 +1538,23 @@ void VkSceneReport(uint64_t frames) {
   g_right_only = g_stage1 = 0;
   ModLog("vk scene     : %llu walks, a frame: %.0f draws, %.1f not drawn "
          "(%.1f with no XYZRHW, %.1f with no room in the ring, %.1f with no "
-         "pipeline or set), %.1f in another format of XYZRHW. %d textures, "
-         "%llu reads of a texture (%.1f MiB), %d pipelines, %d samplers%s",
+         "pipeline or set, %.1f for another target), %.1f in another format "
+         "of XYZRHW. %d textures, %llu reads of a texture (%.1f MiB), %d "
+         "pipelines, %d samplers%s",
          g_walks, g_draws / per, g_skipped / per, g_skip_format / per,
-         g_skip_ring / per, g_skip_state / per, g_converted / per,
-         g_texture_count, g_uploads,
+         g_skip_ring / per, g_skip_state / per, g_skip_target / per,
+         g_converted / per, g_texture_count, g_uploads,
          g_upload_bytes / 1048576.0, g_pipeline_count, g_sampler_count,
          g_failed ? ". The renderer stopped after a fault" : "");
+  ModLog("vk scene     : vk_scene_follow=%d. A frame: %.1f binds of render "
+         "target 0, %.1f viewports, %.1f clears made (%.1f of them for one "
+         "eye), %.1f clears for another target",
+         g_follow ? 1 : 0, g_target_calls / per, g_viewport_calls / per,
+         g_clears / per, g_clears_one_eye / per, g_clears_off / per);
   g_walks = g_draws = g_skipped = g_uploads = g_upload_bytes = 0;
   g_skip_format = g_skip_ring = g_skip_state = g_converted = 0;
+  g_skip_target = g_target_calls = g_viewport_calls = 0;
+  g_clears = g_clears_one_eye = g_clears_off = 0;
   if (g_eyes) {
     ModLog("vk scene     : %llu of %llu frames had the eye pictures of the "
            "Vulkan renderer in the headset", g_eye_frames, frames);

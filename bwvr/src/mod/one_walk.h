@@ -45,6 +45,8 @@ void OneWalkSetMode(int mode);
 // holds, as left, top, right, bottom.
 void* OneWalkTarget();
 bool OneWalkEyeRect(int eye, long rect[4]);
+// Render target 0 (an IDirect3DSurface9) in a pass, or null with no pass.
+void* OneWalkBoundTarget();
 
 // The picture of one eye of the last pass, for a file, and its end.
 const void* OneWalkReadEye(int eye, int* pitch, uint32_t* width,

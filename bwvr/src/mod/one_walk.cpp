@@ -52,6 +52,7 @@
 #include "one_walk_math.h"
 #include "d3d7_thread.h"
 #include "render_thread_d3d9.h"
+#include "vk_scene.h"
 
 extern void ModLog(const char* format, ...);
 // controllers.cpp
@@ -510,6 +511,11 @@ HRESULT STDMETHODCALLTYPE h_Clear(IDirect3DDevice9* self, DWORD count,
                                   const D3DRECT* rects, DWORD flags,
                                   D3DCOLOR color, float z, DWORD stencil) {
   RenderThreadViewportPutBack(self);
+  // The Vulkan renderer makes the same clear when the target is the one of
+  // its eye pictures (vk_scene.cpp).
+  if (g_active && self == g_device) {
+    VkSceneClear(count, rects, flags, color, z);
+  }
   if (!InWide(self)) {
     return RenderThreadOutClear(self, count, rects, flags, color, z, stencil);
   }
@@ -558,7 +564,11 @@ HRESULT STDMETHODCALLTYPE h_SetRenderTarget(IDirect3DDevice9* self,
     }
   }
   const HRESULT hr = RenderThreadOutSetRenderTarget(self, index, surface);
-  if (index == 0 && self == g_device && SUCCEEDED(hr)) g_bound = surface;
+  if (index == 0 && self == g_device && SUCCEEDED(hr)) {
+    g_bound = surface;
+    // The draws that follow go to this target (vk_scene.cpp).
+    if (g_active) VkSceneTarget(surface);
+  }
   return hr;
 }
 
@@ -863,6 +873,8 @@ void OneWalkBeforeQueuedDraw() {
 }
 
 void* OneWalkTarget() { return g_wide; }
+
+void* OneWalkBoundTarget() { return g_active ? g_bound : nullptr; }
 
 bool OneWalkEyeRect(int eye, long rect[4]) {
   if (g_wide == nullptr || eye < 0 || eye > 1) return false;
