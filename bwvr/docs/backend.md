@@ -2761,8 +2761,11 @@ dxwrapper that is in the process: at the first report of 450 frames, when
 the session runs, and at the shutdown. The OpenXR runtime and the driver
 can load some of them themselves. In desktop runs on a Radeon RX 7900 XTX
 the process has no `dxwrapper.dll`, no `d3d9.dll` and no `d3d11.dll`. The
-Vulkan driver of AMD loads `dxgi.dll`, and with the swapchain of the window
-also `d3d12.dll`.
+loader of Vulkan (`vulkan-1.dll`) loads `dxgi.dll`: it calls
+`CreateDXGIFactory1` and puts the GPUs in the order of DXGI. The Vulkan
+driver of AMD (`amdvlk32.dll`) loads `d3d12.dll` for the swapchain of the
+window: it has `D3D12CreateDevice` and `CreateDXGIFactory2` in it, and
+`d3d12.dll` is in the process only with `vk_window=1`.
 
 `vulkan_only=0` starts these parts as with dxwrapper, with no Direct3D 9 to
 use, and a session with Vulkan has its Direct3D 11 device. There is no test
