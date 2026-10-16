@@ -1,8 +1,8 @@
 # The output of the runs, the copy of the profile, and the copy of the
-# Creature mind files of the game folder
+# Creature mind files (one folder for each folder that a run guards)
 desk-*/
-profile-guard/
-creature-guard/
+profile-guard*/
+creature-guard*/
 # The owner's "test now" flag for the scripts of this worktree only. The flag
 # for each worktree and the lock of a run are in the shared folder, which is
 # not in the repo (README.md, "The shared folder").

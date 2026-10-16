@@ -31,6 +31,14 @@ take about 190 s. The script ends with `VERIFIED`, or it names the run that
 failed. The log and the pictures of each run are in a folder `desk-<run>`
 beside the scripts. Those folders are not tracked.
 
+With `backend=vulkan` in `bwvr.ini` of the game folder, each run of
+`verify_build.ps1` has the test key `test_frame_rate=60`, also the runs that
+make a test save. The recipes count frames for a game at about 60 to 150
+frames a second, and a desktop frame with Vulkan is 1.5 to 3 ms. With the key
+the mod does not copy the picture to the monitor, and each frame lasts 1/60 s
+at the least, so the window of the game shows no new picture. `-Fps 60` gives
+the key with each backend, and `-Fps 0` gives no key.
+
 ## What a run does to your PC
 
 `desk_run.ps1` is the only script that starts the game. Each other script
@@ -66,6 +74,15 @@ calls it. It keeps these rules, and a new script must keep them too:
   with the Creature of the profile, the game also writes it by itself in
   play, with `creature.lhp` of the profile. That write comes 65 s to 118 s
   after the start of the game, so a run of a minute or more can have it.
+- The game reads and writes `Profiles`, `Scripts\CreatureMind` and
+  `MemoryLeaks.txt` with a path from its current folder. In its start that
+  folder is the game folder. After the start it is the folder of the value
+  `GameDir` of its key in the registry. A PC with a second install can have
+  that install there. When it is in Program Files and the game has no
+  administrator rights, Windows puts each write into the VirtualStore of the
+  user (`%LOCALAPPDATA%\VirtualStore\Program Files (x86)\...`). The guards
+  keep the files of that folder and of the game folder, and the first lines
+  of a run say where the writes go (`Get-BwvrPlayerFolders` in `game.ps1`).
 - The tools never write the registry. A run starts `runblack.exe` directly,
   not the launcher. The game writes its own values there. In its start it
   writes the values of the profile that it read, so each value stays the
@@ -162,10 +179,14 @@ Known limits of the recipes:
 
 - The recipes count frames, for a game at about 60 to 150 frames a second.
   With `backend=vulkan` a desktop frame is 1.5 to 3 ms (400 to 650 frames
-  a second), so each step comes seconds too early, and the run of
-  `make_test_save.ps1` does not come to its save. Run `verify_build.ps1`
-  with the renderer Direct3D 9 (`backend=dxwrapper\ddraw.dll` in
-  `bwvr.ini`).
+  a second), so each step comes seconds too early. `verify_build.ps1` and
+  `make_test_save.ps1` give each run the test key `test_frame_rate=60` for
+  that renderer. The other scripts of one area do not: give them
+  `-Set 'test_frame_rate=60'` (`throw_queue.ps1 -Fps 60`), or the renderer
+  Direct3D 9 (`backend=dxwrapper\ddraw.dll` in `bwvr.ini`).
+- A run with `test_frame_rate` shows no new picture in the window of the
+  game. The key acts from frame 150 of the controllers, so a step of a
+  recipe before that frame comes at the frame rate of the renderer.
 - No recipe chooses a Creature at the Creature select. A Creature in a pen
   has no player, so a grip on it starts no Creature state. A press of the
   trigger there starts a drag of the land, and the double click of A makes
@@ -430,11 +451,17 @@ player ends the game. That is a whole saved game of that moment. `desk_run.ps1`
 copies the files of slot 20 that the game wrote in the run to the folder of
 the test saves, and only then does it put the profile back. A file of the
 slot that is older than the run is a file of the player, and the script does
-not copy it. The guards of such a run are in "A run in which the game ends by
-itself". The last line is `SAVE MADE` or `SAVE NOT MADE`.
+not copy it. The slot is in the folder that gets the writes of the game
+after its start (the folder of `GameDir`, or its VirtualStore). In the
+VirtualStore the game cannot write `SaveGame.inf`, so a test save made there
+has no `SaveGame.inf`, and the game loads it all the same. The guards of such
+a run are in "A run in which the game ends by itself". The last line is `SAVE MADE` or `SAVE NOT MADE`.
 
 A different name makes a save of your own: give `-Choice` (a row of the start
-dialog), `-Frame` and, for script words before the save, `-Steps`.
+dialog), `-Frame` and, for script words before the save, `-Steps`. With
+`backend=vulkan` in `bwvr.ini` the run has the test key `test_frame_rate=60`,
+so the frame of the save comes at the same time of the game as with
+dxwrapper (see "The check before a merge").
 
 `verify_build.ps1` and each script of one area make `pen` or `temple` when
 the save that they start in is not there (`Confirm-BwvrTestSave` in
@@ -452,7 +479,10 @@ starts in its test save by default. Such a run does this:
    other run.
 2. It takes the files of slot 20 out of the profile (the profile guard has
    them), and it puts the files of the test save in. It compares each file
-   with the test save. When one is not the same, no game starts.
+   with the test save. When one is not the same, no game starts. The game
+   reads `20.sav` in the profile of the game folder, and the other files of
+   the slot in the folder of `GameDir` (see "What a run does to your PC").
+   When the two folders are not the same, the test save goes into both.
 3. It starts the game with no `-NEWGAME`. The game then loads the saved game
    of slot 20 by itself. The game has no word of the command line that loads
    a saved game (`docs/backend.md`, "A test save").
@@ -650,7 +680,8 @@ Two guards keep the player's state:
 
 - `desk_run.ps1` puts each file of the `Profiles` folder back, as for each
   run. It does the same for each file of `Scripts\CreatureMind` and for
-  `MemoryLeaks.txt`.
+  `MemoryLeaks.txt`. It does this in the folder that gets the writes of the
+  game (the folder of `GameDir`, or its VirtualStore) and in the game folder.
 - From frame N to the end of the process, the mod drops each write of the
   game process to the registry. The log names each one (lines `exit test`),
   and each file that the process opens for a write. If a guard cannot be

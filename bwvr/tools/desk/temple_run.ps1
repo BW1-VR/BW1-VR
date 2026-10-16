@@ -110,8 +110,9 @@ if ($Set -ne '') { $keys = "$keys;$Set" }
 # run starts only when the profile has none of those slots, and the list of
 # the slots must be the same after the run (the profile guard of
 # desk_run.ps1 puts the files back).
-# The first profile of the game folder that has saved games.
-$saves = Get-ChildItem -LiteralPath (Join-Path (Get-BwvrGame) 'Profiles') -Directory |
+# The first profile that has saved games, in the folder that gets the writes
+# of the game (Get-BwvrPlayerFolders in game.ps1).
+$saves = Get-ChildItem -LiteralPath (Join-Path (Get-BwvrPlayerFolders (Get-BwvrGame)).Folder 'Profiles') -Directory |
     ForEach-Object { Join-Path $_.FullName 'Saved Games' } |
     Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
 if (-not $saves) { 'NOT RUN: no profile with saved games in the game folder'; exit 7 }

@@ -957,7 +957,12 @@ N: from frame 150 of the controllers the mod does not copy the picture to the
 monitor, and the call of the copy waits until the frame is 1/N s long. The
 window of the game then shows no new picture. The log has one line for each
 report window: the frames that waited, and the frames that were longer than
-1/N s. `throw_queue.ps1 -Fps 90` in `bwvr/tools/desk` uses the key.
+1/N s. The key acts with dxwrapper and with `backend=vulkan`: the copy to
+the primary surface goes through the hook of `Blt` with both. With Vulkan a
+desktop frame is 1.5 to 3 ms, and the key gives it 60 frames a second.
+`throw_queue.ps1 -Fps 90` in `bwvr/tools/desk` uses the key, and
+`verify_build.ps1` and `make_test_save.ps1` give it at 60 when `bwvr.ini` has
+`backend=vulkan`.
 
 **A copy between two textures.** For a `Blt` to or from a texture,
 `m_IDirectDrawSurfaceX::CopySurface` of dxwrapper calls
