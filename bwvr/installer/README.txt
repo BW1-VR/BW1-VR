@@ -365,7 +365,7 @@ launcher (key grab_hand). 1 uses the grip of your other hand. 2 also
 uses the grip of the pointing hand when the Hand is empty and not
 over an object. 0 turns the grab off.
 
-To change the walk with the left stick, set "Move with the left
+To change the walk with the left stick, set "Move with the other
 stick" in the launcher (key move_stick). 1 moves you where your head
 faces. 2 moves you where the left controller points. 0 turns the walk
 off. A full push moves you 150 cm of your room each second, at each

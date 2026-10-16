@@ -122,7 +122,7 @@ The full list is in "Black & White VR Mod readme.txt" in your game folder.
   under "More".
 - If the frame rate is low, lower "Resolution scale" in the launcher.
 - A walk with the left stick makes some people ill. If it makes you ill, turn
-  off "Move with the left stick" in the launcher. Then move with the left
+  off "Move with the other stick" in the launcher. Then move with the left
   grip and with A.
 - If you see no hints and no subtitles, open the options of the game, then
   "Help Options". Set "Intelligent ToolTips", "All Text" and "Medium Help" or

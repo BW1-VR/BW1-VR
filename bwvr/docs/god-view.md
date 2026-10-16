@@ -724,7 +724,7 @@ event.
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| `move_stick` | 1 | 0: the stick does not move the player. 1: forward is the direction of the head. 2: forward is the direction in which the controller of the stick points. The launcher row "Move with the left stick" |
+| `move_stick` | 1 | 0: the stick does not move the player. 1: forward is the direction of the head. 2: forward is the direction in which the controller of the stick points. The launcher row "Move with the other stick" |
 | `move_stick_speed_cm` | 150 | The speed of a full push, in cm of the room for each second, 10 to 500 |
 | `move_stick_follow_land` | 1 | 1: while the player walks, the height of the view follows the land under the head through the filter. 0: the view keeps its height. The launcher row "Walk follows the land" |
 | `move_stick_trace` | 0 | A test for a desktop run: the log has one line for each of the first N frames of each walk (at most 2000 lines in a game) |
