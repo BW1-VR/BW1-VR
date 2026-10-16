@@ -51,7 +51,7 @@ touches a game folder or a registry value.
 | `ddraw.dll` | The mod. The game imports DirectDraw by name, and the folder of the exe comes first in the search order. |
 | `openxr_loader.dll` | The OpenXR loader. The mod imports it, so without it the game does not start. |
 | `Black & White VR Mod.exe` | The launcher. |
-| `dxwrapper\ddraw.dll`, `dxwrapper.dll`, `dxwrapper.ini`, `ddraw.ini` | The render backend. The stub keeps the name `ddraw.dll` because dxwrapper reads its own file name to pick its mode. |
+| `dxwrapper\ddraw.dll`, `dxwrapper.dll`, `dxwrapper.ini`, `ddraw.ini` | The render backend of the renderer Direct3D 9: for a PC with no Vulkan 1.3, and for "Play, no VR". The renderer Vulkan does not load it. The stub keeps the name `ddraw.dll` because dxwrapper reads its own file name to pick its mode. |
 | `Black & White VR Mod readme.txt`, `Black & White VR Mod notices.txt` | The player readme (`installer/README.txt`) and the third party licenses (`installer/Notices.txt`). |
 
 No `bwvr.ini` ships. The defaults of the mod are the tested setup, and the

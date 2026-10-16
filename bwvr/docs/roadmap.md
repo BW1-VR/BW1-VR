@@ -739,10 +739,9 @@ that moves while the Hand takes it.
     starts, the session has no Direct3D 11 device, and the window of the
     game has a swapchain of Vulkan (`vk_window`, "The window with
     Vulkan"). A session in the headset ran with no Direct3D 11 device.
-    Open, a decision of the owner: the installer keeps dxwrapper for the
-    renderer Direct3D 9 and for "Play, no VR". With Vulkan as the only
-    renderer, dxwrapper and the keys of Direct3D 9 could go, and a PC with
-    no Vulkan 1.3 would then have no renderer. Next for the backend: check the light maps of the
+    The installer keeps dxwrapper: it is the renderer Direct3D 9 for a PC
+    with no Vulkan 1.3, and the renderer of "Play, no VR". Next for the
+    backend: check the light maps of the
     rooms of the Temple in the headset (`vk_stage1`, Shift E, `backend.md`,
     "The second stage"), and find the part of the long frames after the load
     of a saved game that the hold of the last frame does not take
