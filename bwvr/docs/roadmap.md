@@ -738,8 +738,7 @@ that moves while the Hand takes it.
     (`vulkan_only`, `backend.md`, "Only Vulkan"): no part for Direct3D 9
     starts, the session has no Direct3D 11 device, and the window of the
     game has a swapchain of Vulkan (`vk_window`, "The window with
-    Vulkan"). Not run in a headset: a session of the game with no
-    Direct3D 11 device (`bwvr-xrtest 30 vulkan alone` is the short test).
+    Vulkan"). A session in the headset ran with no Direct3D 11 device.
     Open, a decision of the owner: the installer keeps dxwrapper for the
     renderer Direct3D 9 and for "Play, no VR". With Vulkan as the only
     renderer, dxwrapper and the keys of Direct3D 9 could go, and a PC with

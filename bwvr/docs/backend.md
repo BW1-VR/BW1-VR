@@ -2765,7 +2765,11 @@ loader of Vulkan (`vulkan-1.dll`) loads `dxgi.dll`: it calls
 `CreateDXGIFactory1` and puts the GPUs in the order of DXGI. The Vulkan
 driver of AMD (`amdvlk32.dll`) loads `d3d12.dll` for the swapchain of the
 window: it has `D3D12CreateDevice` and `CreateDXGIFactory2` in it, and
-`d3d12.dll` is in the process only with `vk_window=1`.
+`d3d12.dll` is in the process only with `vk_window=1`. In a session in the
+headset (VirtualDesktopXR, a Quest 3) `d3d11.dll` and `dxgi.dll` are in the
+process, and the log of the session says that it has no Direct3D 11
+device. The runtime loads `d3d11.dll`: a desktop run with no runtime does
+not have it.
 
 `vulkan_only=0` starts these parts as with dxwrapper, with no Direct3D 9 to
 use, and a session with Vulkan has its Direct3D 11 device. There is no test
@@ -2774,10 +2778,12 @@ key: the choice is made at the start of the process.
 `bwvr-xrtest 30 vulkan alone` shows the test pattern through a session with
 Vulkan and no Direct3D 11, as the session of `vulkan_only=1` has.
 
-**Only a headset can show:** a session of the game with no Direct3D 11
-device. The cards, the walls of the cut scene window and an eye picture of
-the CPU then go only through the copies of Vulkan (`xr_vulkan_upload=1`),
-and a texture of Direct3D 11 has no way into a swapchain.
+**A session in the headset** (VirtualDesktopXR, a Quest 3, a Radeon RX 7900
+XTX, about 32500 frames): the session had no Direct3D 11 device, each eye
+picture of a frame of play came from the renderer (900 copies in each
+window of 450 frames), and the cards, the walls of the cut scene window and
+the pictures of the CPU went into the swapchains with Vulkan, 0.04 to 0.25
+ms a copy. The end of the session took 78 ms.
 
 ### The window with Vulkan
 
@@ -2811,6 +2817,11 @@ In desktop runs at the start of a new game (a Radeon RX 7900 XTX, the
 window 800 by 640, `vulkan_only=1`) each present went through the
 swapchain, with no present that had no free image, and a frame was 1.8 ms.
 With `vk_window=0` a frame was 2.3 ms.
+
+In a session in the headset the mod makes no copy to the monitor
+(`skip_desktop_present=1`, "The copy to the monitor"), so the window gets no
+present and no swapchain. Not run: a session in the headset with
+`skip_desktop_present=0`.
 
 `vk_window=0` is the way through the CPU and GDI. With `test_keys=1`,
 Shift D changes it from the next present: a change to 0 takes the
