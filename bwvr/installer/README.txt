@@ -96,8 +96,11 @@ The launcher shows five groups.
                   the view, how sharp the textures are, and how far
                   out models keep their full detail.
 
-  View            The play mode and the intro in stereo. The default
-                  play mode is the God view (see below).
+  View            The play mode, the intro in stereo, and the cut
+                  scenes. The default play mode is the God view (see
+                  below). A cut scene plays on a screen in front of
+                  you. "Around you" plays it all around you, with the
+                  motion of the camera of the game.
 
   Moving around   Turns in steps, the zoom with the stick, the walk
                   with the left stick, and a blink when you jump or

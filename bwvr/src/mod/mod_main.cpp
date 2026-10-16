@@ -901,6 +901,12 @@ void ReadSettings() {
     const int story =
         static_cast<int>(GetPrivateProfileIntA("bwvr", "script_camera", 2, path));
     g_script_camera = (story >= 0 && story < 3) ? story : 2;
+    // A cut scene around the player (cutscene_immersive=1, the launcher row
+    // "Cut scenes") has the camera of the game with all its motion, and no
+    // cut scene window (cutscene_window.cpp).
+    if (GetPrivateProfileIntA("bwvr", "cutscene_immersive", 0, path) != 0) {
+      g_script_camera = 0;
+    }
   }
   // How far out models keep their detail: the game's own, 2, 3 or 5 times.
   {

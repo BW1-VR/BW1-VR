@@ -255,7 +255,11 @@ void ReadSettings() {
   const auto limit = [](int value, int least, int most) {
     return value < least ? least : (value > most ? most : value);
   };
-  g_set.on = number("cutscene_window", 1) != 0;
+  // cutscene_immersive=1 (the launcher row "Cut scenes", "Around you"): a
+  // cut scene plays around the player with the camera of the game and all
+  // its motion, and no window. mod_main.cpp gives it script_camera=0 too.
+  g_set.on = number("cutscene_window", 1) != 0 &&
+             number("cutscene_immersive", 0) == 0;
   const int mode = number("play_mode", 4);
   g_set.god = mode == 4 || mode == 0;
   g_set.distance = limit(number("screen_distance_cm", 200), 50, 1000) / 100.0f;

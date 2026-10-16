@@ -573,11 +573,11 @@ that moves while the Hand takes it.
   - The interface in the eye pictures (the Creature panel, a tooltip): with a
     margin it is larger and farther from the middle. Not known: whether that
     needs a correction.
-- **P17. A cut scene with no window.** An option for a player who is at
-  ease with a camera that moves: a cut scene plays around the player, with
-  the camera of the game at its place and with all its motion, and with no
-  cut scene window. The cut scene window stays the default
-  (`cutscene-window.md`).
+- **P17. A cut scene with no window: check it in a headset.** The launcher
+  row "Cut scenes", "Around you" (`cutscene_immersive=1`) plays a cut scene
+  around the player, with no window and with the camera of the game and all
+  its motion (`script_camera=0`). The window stays the default. No run has
+  shown it: a desktop run has no head to feel the motion.
 - **P18. The left hand option of the game.** The game has an option for a
   left hand. Wanted: the mod reads that option, and with it the left
   controller is the Hand: the player points, takes and throws with the left

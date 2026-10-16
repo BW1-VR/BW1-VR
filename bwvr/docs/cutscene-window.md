@@ -529,6 +529,7 @@ All in `[bwvr]`. None is in the launcher.
 | Key | Default | Meaning |
 | --- | --- | --- |
 | `cutscene_window` | 1 | 1 plays a cut scene of the God view on the screen. 0 plays it in the full view with held shots |
+| `cutscene_immersive` | 0 | 1 (the launcher row "Cut scenes", "Around you") plays a cut scene in the full view with no window, and gives `script_camera=0`: the camera of the game with all its motion, and no held shots. 0 keeps `cutscene_window` and `script_camera` as they are |
 | `cutscene_window_ms` | 500 | The time of the close and of the open, 0 to 3000. 0 is a cut |
 | `cutscene_window_linger_ms` | 3000 | How long the window stays for a story camera after the bars went down, 0 to 20000 |
 | `screen_distance_cm`, `screen_width_cm` | 200, 260 | The screen. The keys of play mode 1 |

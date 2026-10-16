@@ -137,6 +137,13 @@ const Setting kSettings[] = {
      "view moves through the orbs on the path of the game, and it does not "
      "turn: you look where your head looks. The menu button skips it. This "
      "setting is a test. Off shows the intro flat."},
+    {kValues, "cutscene_immersive", "Cut scenes",
+     "In a window=0|Around you=1", 0,
+     "In a window: a cut scene of the game plays on a screen in front of "
+     "you, and the land around you stays still. Around you: a cut scene "
+     "plays all around you, and the camera of the game moves you with all "
+     "its motion. Choose it only if a camera that moves is no problem for "
+     "you."},
 
     // Not offered: the sizes and the depth of the interface in the eye
     // pictures have settled defaults. With controllers the hints and the
@@ -267,7 +274,7 @@ char g_ini_path[MAX_PATH];
 int g_dpi = 96;
 // The most rows of a column. A test sets a smaller number with "-rows" to get
 // a picture of a table that has more columns.
-int g_max_rows = 24;
+int g_max_rows = 26;
 
 int Scaled(int at96) { return MulDiv(at96, g_dpi, 96); }
 
