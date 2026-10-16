@@ -3767,9 +3767,9 @@ void VkSceneSetFoveaRes(int on, int outer_pct, int center_pct, int inset_deg,
                         int down_deg) {
   g_mres_mode = on != 0;
   g_mres_down_deg = static_cast<float>(
-      down_deg < 0 ? 0 : (down_deg > 60 ? 60 : down_deg));
+      down_deg < 0 ? 0 : (down_deg > 15 ? 15 : down_deg));
   g_mres_outer = static_cast<float>(
-      outer_pct < 10 ? 10 : (outer_pct > 100 ? 100 : outer_pct));
+      outer_pct < 5 ? 5 : (outer_pct > 100 ? 100 : outer_pct));
   g_mres_center = static_cast<float>(
       center_pct < 25 ? 25 : (center_pct > 300 ? 300 : center_pct));
   g_mres_deg = static_cast<float>(

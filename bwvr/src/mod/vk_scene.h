@@ -217,7 +217,7 @@ void VkSceneFoveationToggle(const char* keys);
 // (fovea_res_center_deg, 25). The eye picture is made from the two. Only the
 // eye pictures of the Vulkan renderer have it. With no eye tracker the
 // centre is down_deg below straight ahead (fovea_res_center_down_deg, 0,
-// 0 to 60).
+// 0 to 15).
 void VkSceneSetFoveaRes(int on, int outer_pct, int center_pct, int inset_deg,
                         int down_deg);
 // The test key: fovea_res goes between 0 and 1.

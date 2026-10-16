@@ -2813,10 +2813,10 @@ Vulkan renderer from two images with their own resolutions:
 
 | Key | Default | The image |
 | --- | --- | --- |
-| `fovea_res_outer_pct` | 50 | The whole view, with this percentage of the pixels of the eye picture on each side (10 to 100) |
+| `fovea_res_outer_pct` | 50 | The whole view, with this percentage of the pixels of the eye picture on each side (5 to 100) |
 | `fovea_res_center_pct` | 100 | A rect around the centre of the fovea, with this percentage of the pixels of the eye picture on each side (25 to 300) |
 | `fovea_res_center_deg` | 25 | The degrees of that rect on each side of the centre (5 to 80) |
-| `fovea_res_center_down_deg` | 0 | With no eye tracker, the centre is this many degrees below straight ahead (0 to 60). A centre that follows the gaze of an eye tracker does not move down |
+| `fovea_res_center_down_deg` | 0 | With no eye tracker, the centre is this many degrees below straight ahead (0 to 15). A centre that follows the gaze of an eye tracker does not move down |
 
 The centre of the fovea is the one of "Foveated rendering": the gaze of an
 eye tracker, or straight ahead (the middle of the picture). With no eye

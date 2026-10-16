@@ -34,7 +34,7 @@ inline uint32_t Scaled(float pixels, float pct) {
 
 // The layout for a picture of width by height with the view tan_h by tan_v
 // (tan of the half angles) and the centre of the fovea at the tangents gx,
-// gy (x right, y up). outer_pct 10 to 100, center_pct 25 to 300, inset_deg
+// gy (x right, y up). outer_pct 5 to 100, center_pct 25 to 300, inset_deg
 // 5 to 80.
 inline Layout MakeLayout(uint32_t width, uint32_t height, float tan_h,
                          float tan_v, float gx, float gy, float outer_pct,

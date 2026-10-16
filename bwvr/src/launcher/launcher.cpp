@@ -165,7 +165,7 @@ const Setting kSettings[] = {
      "the size of the middle. It needs the Vulkan renderer, or the headset "
      "session with Vulkan."},
     {kSlider, "fovea_res_outer_pct", "Resolution of the whole view",
-     "20|100|5|%", 50,
+     "5|100|5|%", 50,
      "The pixels of the whole view, as a percentage of the eye picture on "
      "each side. 50% is a quarter of the pixels."},
     {kSlider, "fovea_res_center_pct", "Resolution of the middle", "50|200|5|%",
@@ -177,7 +177,7 @@ const Setting kSettings[] = {
      25,
      "How far the middle goes from its centre to each side. A larger middle "
      "is sharp further out and costs more frame time."},
-    {kSlider, "fovea_res_center_down_deg", "Middle lower by", "0|60|1| degrees",
+    {kSlider, "fovea_res_center_down_deg", "Middle lower by", "0|15|1| degrees",
      0,
      "Moves the sharp middle down from straight ahead, for example to the "
      "land and the hands at your waist. Only with no eye tracker: a middle "
