@@ -2814,7 +2814,9 @@ headset session with `vk_untextured=0` the check for a black picture found
 runs of black pictures after the load of a saved game and near the Temple,
 each with this quad and the alpha operation 0x202. In a desktop run of a new
 game with `vk_untextured=1` the single black pictures are gone, and only
-the fade of the story is black.
+the fade of the story is black. In a headset session with
+`vk_untextured=1`, the load of a saved game and a flight near the Temple,
+the player saw no black flicker, and the check found no black picture.
 
 Only a walk of the eyes has the two images: another walk of the game keeps
 the pixels of the render. The two images only grow: a smaller layout uses
