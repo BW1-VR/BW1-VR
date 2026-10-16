@@ -28,16 +28,17 @@ The code is in `src/mod/cutscene_window.cpp` and `cutscene_window_math.h`.
   bars are in the picture.
 - **The depth.** The screen is a window. Nothing of the scene is in front of it,
   and the eyes are parallel for a point that is far away. The opening is one
-  rectangle for both eyes.
+  rectangle for both eyes. It does not show the edge columns of the eye
+  pictures, which the cinema bars and a fade do not cover.
 - **The subtitles** are on a card in the plane of the screen, under the scene.
   None draws in the picture.
 - **The leave.** The next frame is a full view frame, with the God view built
   where the story left the camera. The walls open in 0.5 s. Nothing in the view
   moves while they open.
 - **The keys.** `cutscene_window` (1) is the window. `cutscene_face_head`,
-  `cutscene_depth` and `cutscene_subtitles` (all 1) are its parts, and 0 turns
-  each part off. With `test_keys=1`, numpad 0 changes the window live and
-  numpad 1 the depth limit.
+  `cutscene_depth`, `cutscene_subtitles` and `cutscene_edge_columns` (all 1)
+  are its parts, and 0 turns each part off. With `test_keys=1`, numpad 0
+  changes the window live and numpad 1 the depth limit.
 - **A mouse player** with no headset gets no change.
 
 ## 1. The signal
@@ -194,16 +195,18 @@ degrees, so the picture is very near its true angle.
 
 **The opening** is the part of the screen that has both pictures. With the depth
 limit the two pictures are the distance between the eyes apart (section 6.2), so
-the opening is that much narrower: 2.53 m for eyes 65 mm apart. With
-`cutscene_depth=0` the two pictures are at one place and the opening is the
-whole screen.
+the opening is that much narrower: 2.53 m for eyes 65 mm apart. Each eye
+picture also loses one column at each side of the opening (section 6.2, "The
+edge columns"), so the opening is two columns narrower again. With
+`cutscene_depth=0` the two pictures are at one place, and the opening is the
+whole screen less the edge columns.
 
 In `xr_screen.cpp`, `XrScreen::StageWindow` gives the frame a `WindowLayer`. With
 `screen` set, `EndFrame` takes the quad path of play mode 1 with the pose and the
 size of the opening: one quad for each eye, each visible to its eye only. Both
 quads have one pose and one size. The quad of an eye shows the rect of its
-picture that is left after the crop (`imageRect`). Past the quads the runtime
-shows black.
+picture that is left after the crop and the edge columns (`imageRect`). Past
+the quads the runtime shows black.
 
 ### 5.3 The walls
 
@@ -275,6 +278,20 @@ away is seen more than 50 m away.
 side. Both quads have the pose and the size of what is left. So the opening is
 one rectangle in the room by construction, and each eye picture fills it to its
 edges.
+
+**The edge columns.** The game draws a flat batch, for example the cinema bars
+or a fade, as a rectangle with its edges on whole pixels. The render has
+multisampling, so the first column of a picture has only half of its samples in
+that rectangle. In one walk the scene of the right eye is the scene of the left
+eye, moved to the left (`backend.md`), so the scene fills all of that column.
+The scene then shows through the bars and through a fade as a column of light
+at the left edge of the opening. In an eye picture of 3600 columns under the top
+bar, column 0 of the right eye has a brightness of 116 of 255, and column 1 has
+0. The last column of the left eye picture shows through a fade in the same way.
+So each eye picture also loses `cutscene_edge_columns` (1) columns at each side
+of the part that the opening shows (`window_math::Columns`). The right eye shows
+from its column 1, and the left eye to the column before its last. The two parts
+keep the crop between their starts, so the depth of the picture does not change.
 
 **The plane.** The plane is the depth, in world units, that is on the screen.
 For cameras `e` units apart, the two pictures of a point `Z` units away are
@@ -397,8 +414,8 @@ frame with the depth limit, each eye moves the interface half of the crop toward
 the nose (`ui_shift` of `CutsceneWindowBeginFlat`, in place of the adaptive
 shift). The interface is then on the screen, with no parallax, at each depth of
 the scene behind it. The crop is an even number, so the move is a whole number of
-pixels. The cinema bars cover the whole width of each picture, so they cover the
-whole opening.
+pixels. The cinema bars cover the whole width of each picture. With the edge
+columns (section 6.2) they cover the whole opening.
 
 ### 6.7 When there is no depth limit
 
@@ -475,6 +492,7 @@ All in `[bwvr]`. None is in the launcher.
 | `cutscene_subtitles` | 1 | 1 shows the subtitles on the card under the scene. 0 keeps them in the picture |
 | `cutscene_subtitle_width_cm` | 140 | The width of the whole render on that card, 30 to 400. It sets the size of the letters |
 | `cutscene_subtitle_place` | 0 | 0 hangs the card under the scene. 1 hangs it under the whole opening |
+| `cutscene_edge_columns` | 1 | The columns that each eye picture also loses at each side of the opening, 0 to 16 (section 6.2). 0 shows each picture to its edges, with a column of light at the left edge of the opening |
 | `cutscene_window_capture` | 0 | A test: 1 saves the eye pictures of the second and the 90th frame in the window, and of the second frame after it |
 | `cutscene_window_test_off`, `cutscene_window_test_on` | 0, 0 | A test with no key press: at the first frame number the window goes off, and at the second it goes on, as numpad 0 does |
 | `cutscene_depth_test_off`, `cutscene_depth_test_on` | 0, 0 | The same for the depth limit, as numpad 1 does |
@@ -500,7 +518,8 @@ says its key and its value (`cutscene_window`, the size of the screen,
 - The place and the size of the subtitle card, and the size and the place of the
   eye pictures (with "no headset, so no layer" when no headset runs). A line says
   how many columns each eye picture loses, how far apart the two pictures are on
-  the screen, and the size of the opening.
+  the screen, and the size of the opening. A line gives the first and the last
+  column of each eye picture that the opening shows.
 - The frame that the bars go down, the frame that the cut scene is over, the
   frame that the window ends, and the frame that the full view is open again. At
   the end, the `god view` tag has a line with the game camera, the waist point
@@ -552,6 +571,10 @@ the frames of a change, and 400 lines for the depth.
   that two triangles share, and the columns of each eye.
 - The subtitles: the card under a square scene and under a wide one, its width,
   its top, a rect at the left, and a screen that is turned.
+- The edge columns: the right eye does not show its first column and the left
+  eye does not show its last one, both eyes show the same number of columns,
+  the two parts stay the crop apart, and an edge that leaves less than half of
+  the picture is not used.
 
 **A desktop run** with the rig of `backend.md` (`play_mode=4`, `-NEWGAME` on Land
 1, the fake controller, a start that plays a story) shows the state and the eye
@@ -568,6 +591,10 @@ pictures (`cutscene_window_capture=1`) are the proof. The checks are:
   gives a parallax that is never more than the crop. A thing `Z` units away is
   `crop * plane / Z` pixels more to the right in the left picture. With
   `cutscene_depth=0` many blocks are in front of the screen.
+- In the eye pictures of a fade and under the top bar, each column that the
+  opening shows is black. With `cutscene_edge_columns=0` the opening also shows
+  column 0 of the right eye (116 to 131 of 255) and the last column of the left
+  eye in a fade (80 of 255).
 - The start dialog needs its clicks at the right pixels for the render size, so
   the points of the fake hand depend on the render size.
 
@@ -580,7 +607,8 @@ pictures (`cutscene_window_capture=1`) are the proof. The checks are:
   their crop, the black past them and the subtitle card over them go out only with
   a headset. A quad that shows a part of its picture (`imageRect`), and a card
   over the eye quads, are not shown by a desktop run.
-- **Only the headset can show** whether the opening reads as one solid rectangle,
+- **Only the headset can show** that the left edge of the opening has no column
+  of light, and whether the opening reads as one solid rectangle,
   whether a close shot is comfortable, whether the scale of a close shot (the eye
   cameras nearer to each other) looks right, and whether the change of the depth
   at a cut and at a thing that comes near shows. Numpad 1 gives a comparison in
@@ -594,8 +622,11 @@ pictures (`cutscene_window_capture=1`) are the proof. The checks are:
   draws of the scene those are is not measured. The log names the caller of the
   nearest vertex, so a log of a shot shows what set its depth.
 - **The advisors** are in the measure. While they are in view the scene behind
-  them has about half of its life size depth. A depth of their own for the
-  advisors (on the screen plane, as the interface) is not built.
+  them has about half of its life size depth. A place of their own for the
+  advisors, in front of the screen, is not built (`roadmap.md`, B29).
+- **A controller that the player holds still** in a long cut scene can turn
+  off. The pointer and the Hand then wait for a press of a button on it after
+  the window ends (`controllers.md`, section 6).
 - **A thing that comes into view inside a shot** takes the plane with it in one
   frame. That is a step of the depth of all the picture, with no motion of the
   picture itself. It then goes back slowly. How that looks is for the headset.

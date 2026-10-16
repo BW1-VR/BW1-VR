@@ -129,10 +129,11 @@ struct Settings {
   bool subtitles;     // cutscene_subtitles
   float text_width;   // cutscene_subtitle_width_cm, in meters
   int text_place;     // cutscene_subtitle_place
+  int edge;           // cutscene_edge_columns
 };
 Settings g_set = {false, true, true, 2.0f, 2.6f,          0.5f, 3.0f,
                   false, 0,    0,    true, kDepthNearest, 0.0f, 0,
-                  0,     true, 1.4f, 0};
+                  0,     true, 1.4f, 0,    1};
 
 window_math::State g_state = {false, 1.0f};
 bool g_wanted = false;
@@ -264,6 +265,7 @@ void ReadSettings() {
   g_set.text_width =
       limit(number("cutscene_subtitle_width_cm", 140), 30, 400) / 100.0f;
   g_set.text_place = limit(number("cutscene_subtitle_place", 0), 0, 1);
+  g_set.edge = limit(number("cutscene_edge_columns", 1), 0, 16);
   if (!g_set.god) return;
   ModLog("cut scene    : cutscene_window=%d. %s", g_set.on ? 1 : 0,
          g_set.on ? "In the God view a cut scene plays on a screen in the room"
@@ -287,6 +289,12 @@ void ReadSettings() {
                     ? "The subtitles show on a card under the opening"
                     : "The subtitles show on a card under the scene")
              : "The subtitles stay in the picture");
+  ModLog("cut scene    : cutscene_edge_columns=%d. %s", g_set.edge,
+         g_set.edge > 0
+             ? "Each eye picture loses this many columns at each side of the "
+               "opening too, where the cinema bars and a fade do not cover "
+               "the scene"
+             : "The opening shows each eye picture to its edges");
 }
 
 // 1 while the cinema bars are up, 0 while they are not, -1 with no game.
@@ -371,7 +379,8 @@ void PlaceScreen(uint64_t frame) {
 }
 
 // The opening of this frame: the part of the screen that both eye pictures
-// have. `crop` is the columns that each eye picture loses. With no anchor
+// have. `crop` is the columns that each eye picture loses, and each also
+// loses the edge columns at both sides (window_math::Columns). With no anchor
 // the screen hangs from the recenter pose, and with no recenter pose yet it
 // is straight ahead of the origin of the LOCAL space, where play mode 1 puts
 // its screen.
@@ -400,14 +409,14 @@ void OpeningNow(int crop, window_math::Screen* opening) {
   float share = 1.0f;
   if (FrameSourceSize(&w, &h) && w > 0 && h > 0) {
     shape = static_cast<float>(h) / static_cast<float>(w);
-    if (crop > 0 && static_cast<uint32_t>(crop) < w) {
-      share = static_cast<float>(w - crop) / static_cast<float>(w);
-    }
+    const window_math::EyeColumns shown =
+        window_math::Columns(0, crop, g_set.edge, static_cast<int>(w));
+    share = static_cast<float>(shown.width) / static_cast<float>(w);
   }
   window_math::ScreenPose(anchor, yaw, g_set.distance, g_set.width, shape,
                           opening);
   // The eye pictures keep their size on the screen. The opening is narrower
-  // by the distance between the two pictures.
+  // by the distance between the two pictures and by the edge columns.
   opening->width *= share;
 }
 
@@ -714,6 +723,7 @@ void CutsceneWindowStage(bool to_headset, uint64_t frame, float ipd) {
   layer.screen = g_state.flat;
   layer.mask = changing;
   layer.crop = g_state.flat ? crop : 0;
+  layer.edge = g_state.flat ? g_set.edge : 0;
   for (int i = 0; i < 3; ++i) layer.position[i] = screen.position[i];
   for (int i = 0; i < 4; ++i) layer.orientation[i] = screen.orientation[i];
   layer.width = screen.width;
@@ -759,6 +769,19 @@ void CutsceneWindowStage(bool to_headset, uint64_t frame, float ipd) {
              "both eyes", frame, crop, res_x,
              window_math::Shift(crop, g_set.width, res_x) * 1000.0f,
              ipd * 1000.0f, screen.width);
+    }
+    if (g_set.edge > 0 && Say()) {
+      const bw::tech::InfoTransform* info = Info();
+      const int res_x = info != nullptr ? info->res_x : 0;
+      const window_math::EyeColumns left =
+          window_math::Columns(0, crop, g_set.edge, res_x);
+      const window_math::EyeColumns right =
+          window_math::Columns(1, crop, g_set.edge, res_x);
+      ModLog("cut scene    : frame %llu: the opening shows columns %d to %d "
+             "of the left eye picture and %d to %d of the right eye picture "
+             "(cutscene_edge_columns=%d)", frame, left.offset,
+             left.offset + left.width - 1, right.offset,
+             right.offset + right.width - 1, g_set.edge);
     }
   }
 }

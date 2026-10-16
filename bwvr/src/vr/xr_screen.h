@@ -126,13 +126,17 @@ struct CardLayer {
 //           eye at its left side and the right eye at its right side. The
 //           quad is the opening: `width` is the width of what is left. So
 //           the two pictures are `crop` pixels apart on one rectangle.
-//   mask    The frame keeps its projection layer. Four black quads go over
+//   edge    Each eye picture also loses this many columns at each side of
+//           what is left after the crop (cutscene_edge_columns). `width` is
+//           the width of what is left after the crop and the edge.
+//   mask   The frame keeps its projection layer. Four black quads go over
 //           all its layers, as walls around an opening. `alpha` is how black
 //           they are, 0 to 1.
 struct WindowLayer {
   bool screen;
   bool mask;
   int32_t crop;
+  int32_t edge;
   float position[3];     // the center of the screen
   float orientation[4];  // x y z w, of the screen and of the walls
   float width;           // the screen

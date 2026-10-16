@@ -333,6 +333,7 @@ struct XrScreen::Impl {
   bool logged_mask = false;
   bool logged_window = false;
   int32_t logged_window_crop = 0;
+  int32_t logged_window_edge = 0;
   bool logged_window_card = false;
   uint64_t mask_frames = 0;    // for the report
   uint64_t window_frames = 0;
@@ -2029,6 +2030,15 @@ bool XrScreen::BuildFrame() {
   // WindowLayer.
   int32_t crop = as_screen && eyes_ == 2 ? window.crop : 0;
   if (crop < 0 || crop >= static_cast<int32_t>(s.width) / 2) crop = 0;
+  // The columns at each side of what is left, which the flat batches of the
+  // game do not fill (window_math::Columns).
+  int32_t edge = as_screen && eyes_ == 2 ? window.edge : 0;
+  if (edge < 0 ||
+      static_cast<int32_t>(s.width) - crop - 2 * edge <
+          static_cast<int32_t>(s.width) / 2) {
+    edge = 0;
+  }
+  const int32_t shown = static_cast<int32_t>(s.width) - crop - 2 * edge;
 
   const float aspect =
       static_cast<float>(s.height) / static_cast<float>(s.width);
@@ -2044,9 +2054,8 @@ bool XrScreen::BuildFrame() {
                              : (eye == 0 ? XR_EYE_VISIBILITY_LEFT
                                          : XR_EYE_VISIBILITY_RIGHT);
     quad.subImage.swapchain = s.swapchain[eye];
-    quad.subImage.imageRect.offset = {eye == 0 ? crop : 0, 0};
-    quad.subImage.imageRect.extent = {static_cast<int32_t>(s.width) - crop,
-                                      static_cast<int32_t>(s.height)};
+    quad.subImage.imageRect.offset = {(eye == 0 ? crop : 0) + edge, 0};
+    quad.subImage.imageRect.extent = {shown, static_cast<int32_t>(s.height)};
     quad.subImage.imageArrayIndex = 0;
     if (as_screen) {
       // The screen of the cut scene window, where the mod staged it.
@@ -2071,15 +2080,17 @@ bool XrScreen::BuildFrame() {
   if (layer_count > 0) ++presented_;
   if (as_screen && layer_count > 0) {
     ++s.window_frames;
-    if (!s.logged_window || crop != s.logged_window_crop) {
+    if (!s.logged_window || crop != s.logged_window_crop ||
+        edge != s.logged_window_edge) {
       s.logged_window = true;
       s.logged_window_crop = crop;
+      s.logged_window_edge = edge;
       s.log("  openxr: the cut scene window goes out as %u quad layer(s), "
             "%.2f by %.2f m at %.2f %.2f %.2f m. Each eye shows %d of the %u "
-            "columns of its picture", layer_count, window.width,
-            window.height, window.position[0], window.position[1],
-            window.position[2], static_cast<int32_t>(s.width) - crop,
-            s.width);
+            "columns of its picture: the left eye from column %d, the right "
+            "eye from column %d", layer_count, window.width, window.height,
+            window.position[0], window.position[1], window.position[2], shown,
+            s.width, crop + edge, edge);
     }
   }
   for (int eye = 0; eye < 2; ++eye) s.acquired[eye] = -1;

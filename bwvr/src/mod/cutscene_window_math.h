@@ -245,6 +245,35 @@ inline float Shift(int crop, float picture_width, int res_x) {
   return res_x > 0 ? crop * picture_width / res_x : 0.0f;
 }
 
+// THE EDGE COLUMNS (cutscene_edge_columns). The game draws a flat batch (the
+// cinema bars, a fade) as a rectangle with its edges on whole pixels. The
+// render has multisampling, so the first column of a picture has only half
+// of its samples in that rectangle. In the right eye picture the scene comes
+// from the walk of the left eye, moved to the left, so it fills all of that
+// column. The scene then shows through the bars at the left edge of the
+// opening, as a column of light. The last column of the left eye picture
+// shows through a fade in the same way.
+//
+// So each eye picture also loses `edge` columns at each side of the part
+// that the opening shows. The two parts keep `crop` columns between their
+// starts, so the depth of the picture does not change, and the opening stays
+// one rectangle. `offset` is the first column that an eye shows, and
+// `width` is the number of columns.
+struct EyeColumns {
+  int offset;
+  int width;
+};
+
+inline EyeColumns Columns(int eye, int crop, int edge, int res_x) {
+  EyeColumns out = {0, res_x > 0 ? res_x : 0};
+  if (res_x <= 0) return out;
+  if (crop < 0 || crop >= res_x / 2) crop = 0;
+  if (edge < 0 || res_x - crop - 2 * edge < res_x / 2) edge = 0;
+  out.offset = (eye == 0 ? crop : 0) + edge;
+  out.width = res_x - crop - 2 * edge;
+  return out;
+}
+
 // The distance on the screen between the two pictures of a point at `depth`
 // units, in meters. 0 is on the screen and more than 0 is behind it.
 // `half_tan` is the tangent of half of the view angle of a picture.

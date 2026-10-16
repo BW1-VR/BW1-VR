@@ -337,6 +337,36 @@ inline void WindowChecks() {
     Check(Crop(ipd, 2.6f, 0) == 0 && Crop(0.0f, 2.6f, 2880) == 0,
           "with no render size or no eyes there is no crop", 0, 0);
 
+    // THE EDGE COLUMNS: the right eye does not show its first column and
+    // the left eye does not show its last one.
+    {
+      const EyeColumns left = Columns(0, crop, 1, 2880);
+      const EyeColumns right = Columns(1, crop, 1, 2880);
+      Check(right.offset == 1, "the right eye does not show its first column",
+            right.offset, 1);
+      Check(left.offset + left.width == 2880 - 1,
+            "the left eye does not show its last column",
+            left.offset + left.width, 2879);
+      Check(left.width == right.width && left.width == 2880 - crop - 2,
+            "both eyes show the same number of columns, 2 less than with no "
+            "edge", left.width, 2880 - crop - 2);
+      Check(left.offset - right.offset == crop,
+            "the two parts are still the crop apart, so the depth is the same",
+            left.offset - right.offset, crop);
+      const EyeColumns before = Columns(0, crop, 0, 2880);
+      Check(before.offset == crop && before.width == 2880 - crop,
+            "with no edge the left eye shows what is left after the crop",
+            before.offset, crop);
+      const EyeColumns flat = Columns(1, 0, 1, 2880);
+      Check(flat.offset == 1 && flat.width == 2878,
+            "with no crop the edge still goes at both sides", flat.width,
+            2878);
+      const EyeColumns wide = Columns(0, crop, 2000, 2880);
+      Check(wide.offset == crop && wide.width == 2880 - crop,
+            "an edge that leaves less than half the picture is not used",
+            wide.width, 2880 - crop);
+    }
+
     // The plane at the life size scale: 2 m at 7.5 units per meter.
     const float plane = 15.0f;
     const float e = SeparationFor(shift, 2.6f, half_tan, plane);

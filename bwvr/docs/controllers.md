@@ -1179,6 +1179,17 @@ until the trigger goes up and down again.
   click for that profile.
 - **Virtual Desktop's own buttons.** It can keep the left menu button for its
   own menu.
+- **A controller that is still turns off.** In a cut scene the player has
+  nothing to do with the controllers and holds them still. After some seconds
+  the headset stops to track a still controller ("the aim pose is not
+  tracked" in the log), and a few seconds after that it turns the controller
+  off: the runtime gives the hand no interaction profile ("right hand profile
+  "none""). A press of a button turns the controller on again. The same
+  occurs in play to a controller that the player puts down. The mod cannot
+  turn a controller on. It gives the pointer and the Hand back to the
+  controller in the frame that the runtime gives a tracked pose again, so in
+  the log "the aim pose is tracked again" and "the controller places the
+  Hand" have the same frame.
 
 ## 7. Open questions
 

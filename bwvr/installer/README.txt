@@ -1016,6 +1016,9 @@ before you start a quest. These faults are known:
     falls and is not planted.
   - The motion controllers are tested with a Quest 3 through
     Virtual Desktop only.
+  - The headset turns off a controller that stays still for some
+    seconds, for example while you watch a cut scene. The Hand then
+    does not move. Press a button on the controller to turn it on.
 
 Send bwvr.log and the bwvr-old files with each report. See SUPPORT.
 
