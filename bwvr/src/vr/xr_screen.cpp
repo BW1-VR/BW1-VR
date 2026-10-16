@@ -37,14 +37,43 @@ const char* StateName(XrSessionState state) {
   }
 }
 
+// The name of a result that can come before an instance exists: the runtime
+// cannot give a name then, so the loader errors that a player meets have
+// their names here.
+const char* ResultNameNoInstance(XrResult result) {
+  switch (result) {
+    case XR_ERROR_RUNTIME_FAILURE: return "XR_ERROR_RUNTIME_FAILURE";
+    case XR_ERROR_OUT_OF_MEMORY: return "XR_ERROR_OUT_OF_MEMORY";
+    case XR_ERROR_API_VERSION_UNSUPPORTED:
+      return "XR_ERROR_API_VERSION_UNSUPPORTED";
+    case XR_ERROR_INITIALIZATION_FAILED:
+      return "XR_ERROR_INITIALIZATION_FAILED";
+    case XR_ERROR_EXTENSION_NOT_PRESENT:
+      return "XR_ERROR_EXTENSION_NOT_PRESENT";
+    case XR_ERROR_FILE_ACCESS_ERROR: return "XR_ERROR_FILE_ACCESS_ERROR";
+    case XR_ERROR_FILE_CONTENTS_INVALID:
+      return "XR_ERROR_FILE_CONTENTS_INVALID";
+    case XR_ERROR_API_LAYER_NOT_PRESENT:
+      return "XR_ERROR_API_LAYER_NOT_PRESENT";
+    case XR_ERROR_RUNTIME_UNAVAILABLE: return "XR_ERROR_RUNTIME_UNAVAILABLE";
+    default: return nullptr;
+  }
+}
+
 const char* ResultName(XrInstance instance, XrResult result) {
   static char buffer[XR_MAX_RESULT_STRING_SIZE];
   if (instance != XR_NULL_HANDLE &&
       XR_SUCCEEDED(xrResultToString(instance, result, buffer))) {
     return buffer;
   }
-  _snprintf_s(buffer, sizeof(buffer), _TRUNCATE, "XrResult %d",
-              static_cast<int>(result));
+  const char* name = ResultNameNoInstance(result);
+  if (name != nullptr) {
+    _snprintf_s(buffer, sizeof(buffer), _TRUNCATE, "%s, XrResult %d", name,
+                static_cast<int>(result));
+  } else {
+    _snprintf_s(buffer, sizeof(buffer), _TRUNCATE, "XrResult %d",
+                static_cast<int>(result));
+  }
   return buffer;
 }
 
@@ -803,8 +832,22 @@ bool XrScreen::Start(uint32_t width, uint32_t height, int eyes, LogFn log) {
   if (XR_FAILED(result)) {
     s.log("  openxr: xrCreateInstance failed (%s)",
           ResultName(XR_NULL_HANDLE, result));
-    s.log("  Make sure that the OpenXR runtime of your headset runs and");
-    s.log("  headset is connected.");
+    if (result == XR_ERROR_FILE_ACCESS_ERROR ||
+        result == XR_ERROR_FILE_CONTENTS_INVALID) {
+      // The runtime gave its extensions, so the loader found it. At the
+      // instance the loader also loads each implicit API layer, and a layer
+      // whose file cannot be loaded or read stops the instance. The game is
+      // a 32 bit program, so a layer that has only a 64 bit DLL can do it.
+      s.log("  The OpenXR loader cannot load or read a file: most often an");
+      s.log("  OpenXR API layer for 32 bit programs that is broken or left");
+      s.log("  behind. The tool \"OpenXR API Layers GUI\" shows such a layer.");
+      s.log("  The list is in the registry at HKLM\\SOFTWARE\\WOW6432Node\\");
+      s.log("  Khronos\\OpenXR\\1\\ApiLayers\\Implicit and at HKCU\\SOFTWARE\\");
+      s.log("  Khronos\\OpenXR\\1\\ApiLayers\\Implicit.");
+    } else {
+      s.log("  Make sure that the OpenXR runtime of your headset runs and");
+      s.log("  that the headset is connected.");
+    }
     return false;
   }
 

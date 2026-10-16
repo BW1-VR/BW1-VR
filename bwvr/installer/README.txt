@@ -31,6 +31,11 @@ A VR headset with an OpenXR runtime that registers a 32 bit entry.
   for 64 bit only cannot serve it, and the headset stays dark.
   Virtual Desktop registers a 32 bit entry, and SteamVR does it from
   version 2.17. The launcher names the runtime that it found.
+  An OpenXR API layer for 32 bit programs that is broken (a tool that
+  was removed, or a layer with only a 64 bit file) can stop each
+  runtime. The log then has "xrCreateInstance failed
+  (XR_ERROR_FILE_ACCESS_ERROR". The free tool "OpenXR API Layers GUI"
+  shows such a layer, and you can turn it off there.
 
 Windows. The mod needs nothing else.
 
