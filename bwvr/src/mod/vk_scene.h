@@ -191,6 +191,11 @@ void VkSceneUntexturedToggle(const char* keys);
 void VkSceneSetStage1(int on);
 void VkSceneStage1Toggle(const char* keys);
 // The picture of the last walk of the left eye (or of a scene with no eye
+// pass) into the client area of `window` (an HWND), width by height, with a
+// swapchain of Vulkan (vk_window.h). False when it did not go there: then
+// VkScenePresentPixels gives it for GDI.
+bool VkScenePresentWindow(void* window, uint32_t width, uint32_t height);
+// The picture of the last walk of the left eye (or of a scene with no eye
 // pass), at width by height with a linear filter, as BGRA pixels for the
 // CPU, for the window on the monitor (see vk_present_late). Null before the
 // first walk, and with vk_present_late=1 also at the first present after a

@@ -171,7 +171,17 @@ HMODULE SystemDDraw() {
 // mod fits. See CheckGameBuild in mod_main.cpp.
 void ProxyForceSystemDDraw() { g_force_system = true; }
 
-bool ProxyBackendVulkan() { return g_vulkan; }
+// The mod asks before ProxyLoadRealDDraw too (EarlyHooks), so the first call
+// reads the setting.
+bool ProxyBackendVulkan() {
+  static bool read = false;
+  if (!read) {
+    read = true;
+    char backend[MAX_PATH];
+    ReadBackendSetting(backend, MAX_PATH);
+  }
+  return g_vulkan;
+}
 
 bool ProxyLoadRealDDraw() {
   char backend[MAX_PATH];

@@ -113,6 +113,7 @@
 #include "one_walk_math.h"
 #include "vk_core.h"
 #include "vk_scene.h"
+#include "vk_window.h"
 #include "../common/bw_addresses.h"
 #include "fovea_res_math.h"
 #include "foveation_math.h"
@@ -3012,7 +3013,11 @@ void EndOnWorker(const void*) {
 void VkSceneSetOptions(int mode, int test_frame) {
   g_mode = mode == 1 ? 1 : 0;
   g_test_frame = test_frame;
-  if (g_mode != 0) {
+  if (g_mode != 0 && g_direct) {
+    ModLog("vk scene     : backend=vulkan. The Vulkan renderer draws each walk "
+           "of the DirectDraw of the mod into an image of its own, with a "
+           "layer for each eye. vk_scene_test_frame=%d", test_frame);
+  } else if (g_mode != 0) {
     ModLog("vk scene     : vk_scene=1. With d3d7_thread=1 a Vulkan renderer "
            "draws each walk into an image of its own, with a layer for each "
            "eye. vk_scene_test_frame=%d", test_frame);
@@ -3188,7 +3193,11 @@ void VkSceneSetFollow(int on) {
   g_follow = on != 0;
   if (g_mode == 0) return;
   ModLog("vk scene     : vk_scene_follow=%d. %s", g_follow ? 1 : 0,
-         g_follow ? "In a walk of one walk the renderer follows render target "
+         g_follow && g_direct
+             ? "In a walk of one walk the renderer follows the render target, "
+               "the viewport and the clears of Direct3D 7: a draw for another "
+               "target does not go into the eye pictures"
+         : g_follow ? "In a walk of one walk the renderer follows render target "
                     "0 of Direct3D 9, the viewport of Direct3D 7 and the "
                     "clears: a draw for another target does not go into the "
                     "eye pictures"
@@ -3583,6 +3592,8 @@ void VkSceneSetPanel(int on) {
              ? "The renderer draws the draws for the panel target into a "
                "panel of its own, and the subtitle card and the panel layer "
                "take it"
+         : g_direct
+             ? "The draws for the panel target go into the eye pictures"
              : "The renderer does not draw the draws for the panel target, "
                "and the subtitle card and the panel layer take the panel of "
                "Direct3D 9");
@@ -3591,10 +3602,14 @@ void VkSceneSetPanel(int on) {
 void VkScenePanelToggle(const char* keys) {
   g_panel_mode = !g_panel_mode;
   ControllersGesturePulse(0.5f, g_panel_mode ? 0.30f : 0.08f);
-  ModLog("test key     : %s, vk_panel is %d from the next walk: the subtitle "
-         "card and the panel layer take the panel of %s",
-         keys, g_panel_mode ? 1 : 0,
-         g_panel_mode ? "the Vulkan renderer" : "Direct3D 9");
+  ModLog("test key     : %s, vk_panel is %d from the next walk: %s", keys,
+         g_panel_mode ? 1 : 0,
+         g_panel_mode ? "the subtitle card and the panel layer take the panel "
+                        "of the Vulkan renderer"
+         : g_direct   ? "the draws for the panel target go into the eye "
+                        "pictures"
+                      : "the subtitle card and the panel layer take the panel "
+                        "of Direct3D 9");
 }
 
 bool VkScenePanelOn() { return g_panel_mode && VkSceneOn() && g_ready; }
@@ -3951,6 +3966,12 @@ void VkSceneKeepPictureToggle(const char* keys) {
          g_keep_picture ? 1 : 0);
 }
 
+bool VkScenePresentWindow(void* window, uint32_t width, uint32_t height) {
+  if (!g_ready || !g_present_ready) return false;
+  return VkWindowPresent(static_cast<HWND>(window), g_colors[g_present_index],
+                         width, height);
+}
+
 const uint8_t* VkScenePresentPixels(uint32_t width, uint32_t height,
                                     int* pitch) {
   if (!g_ready || !g_present_ready || width == 0 || height == 0) {
@@ -4064,7 +4085,8 @@ const uint8_t* VkScenePresentPixels(uint32_t width, uint32_t height,
 void VkSceneSetOnly(int on, int test) {
   g_only_mode = on != 0;
   g_only_test = test != 0;
-  if (g_mode == 0) return;
+  // backend=vulkan has no Direct3D 9 that could draw a walk too.
+  if (g_mode == 0 || g_direct) return;
   ModLog("vk scene     : vk_only=%d, vk_only_test=%d. %s", g_only_mode ? 1 : 0,
          g_only_test ? 1 : 0,
          !g_only_mode
@@ -4207,8 +4229,11 @@ void VkSceneReport(uint64_t frames) {
          g_clears_panel / per, g_panel_reads, g_panel_read_failures,
          g_panel_layers);
   g_panel_walks = g_panel_draws = g_clears_panel = 0;
-  ModLog("vk scene     : vk_only=%d. %llu walks without Direct3D 9",
-         g_only_mode ? 1 : 0, g_only_walks);
+  // backend=vulkan has no Direct3D 9, so each walk is without it.
+  if (!g_direct) {
+    ModLog("vk scene     : vk_only=%d. %llu walks without Direct3D 9",
+           g_only_mode ? 1 : 0, g_only_walks);
+  }
   g_only_walks = 0;
   {
     LARGE_INTEGER hz;

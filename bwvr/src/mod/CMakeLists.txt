@@ -38,6 +38,7 @@ add_library(bwvr_mod SHARED
     vk_ddraw.cpp
     vk_core.cpp
     vk_scene.cpp
+    vk_window.cpp
     frame_time.cpp
     fov.cpp
     input_watch.cpp
@@ -105,6 +106,12 @@ set_target_properties(bwvr_mod PROPERTIES
 )
 
 target_link_libraries(bwvr_mod PRIVATE minhook bwvr_vr d3d9 d3d11)
+
+# Windows loads d3d11.dll and dxgi.dll at the first call of the mod, and not
+# at the start of the game. So backend=vulkan with vulkan_only=1 loads no
+# Direct3D of the mod (docs/backend.md, "Only Vulkan").
+target_link_options(bwvr_mod PRIVATE /DELAYLOAD:d3d11.dll /DELAYLOAD:dxgi.dll)
+target_link_libraries(bwvr_mod PRIVATE delayimp)
 
 # The C headers of Vulkan (vk_core.cpp). The mod loads vulkan-1.dll at run
 # time, so there is no library to link.

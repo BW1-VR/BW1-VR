@@ -13,13 +13,15 @@
 // Direct3D 11 swapchain and the frame pacing all work, and anything that
 // breaks later is the game side.
 //
-//   bwvr-xrtest [seconds] [vulkan] [relay]
+//   bwvr-xrtest [seconds] [vulkan] [relay | alone]
 //
 // With the word vulkan the session is one with Vulkan (XrScreen::UseVulkan,
 // xr_vulkan=1 of the mod): the runtime makes the Vulkan device, and Vulkan
 // copies the pattern from the CPU into the Vulkan swapchain
 // (XrScreen::SetVulkanUpload). With the word relay too, the pattern goes
 // through a Direct3D 11 texture that Vulkan shares (xr_vulkan_upload=0).
+// With the word alone too, the session has no Direct3D 11 device
+// (XrScreen::UseD3D11, the session of backend=vulkan with vulkan_only=1).
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -136,11 +138,14 @@ int main(int argc, char** argv) {
   int seconds_to_run = 30;
   bool vulkan = false;
   bool relay = false;
+  bool alone = false;
   for (int i = 1; i < argc; ++i) {
     if (strcmp(argv[i], "vulkan") == 0) {
       vulkan = true;
     } else if (strcmp(argv[i], "relay") == 0) {
       relay = true;
+    } else if (strcmp(argv[i], "alone") == 0) {
+      alone = true;
     } else {
       seconds_to_run = atoi(argv[i]);
     }
@@ -153,9 +158,12 @@ int main(int argc, char** argv) {
 
   bwvr::XrScreen screen;
   screen.UseVulkan(vulkan);
+  screen.UseD3D11(!(vulkan && alone));
   screen.SetVulkanUpload(!relay);
   Log("The session uses %s.",
       !vulkan ? "Direct3D 11"
+      : alone ? "Vulkan with no Direct3D 11, and Vulkan copies the pattern "
+                "from the CPU"
       : relay ? "Vulkan, and the pattern goes through a relay of Direct3D 11"
               : "Vulkan, and Vulkan copies the pattern from the CPU");
   if (!screen.Start(kWidth, kHeight, 1, &Log)) {

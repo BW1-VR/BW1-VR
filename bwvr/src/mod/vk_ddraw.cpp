@@ -43,6 +43,7 @@
 #include "vk_core.h"
 #include "vk_ddraw.h"
 #include "vk_scene.h"
+#include "vk_window.h"
 #include "vk_prim_math.h"
 #include "vk_texture_math.h"
 
@@ -1881,6 +1882,13 @@ void Surface::Present() {
   const uint32_t w = static_cast<uint32_t>(client.right - client.left);
   const uint32_t h = static_cast<uint32_t>(client.bottom - client.top);
   if (w == 0 || h == 0) return;
+  // A swapchain of Vulkan on the window (vk_window=1), else the way through
+  // the CPU and GDI. GDI can draw into the window only when it has no
+  // swapchain.
+  if (VkWindowWanted()) {
+    if (VkScenePresentWindow(window, w, h)) return;
+  }
+  VkWindowStop();
   int pitch = 0;
   const uint8_t* pixels = VkScenePresentPixels(w, h, &pitch);
   if (pixels == nullptr) return;

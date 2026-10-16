@@ -10,6 +10,9 @@ Summary:
 - The game (`runblack.exe`, unofficial patch v1.42 only) draws with
   DirectDraw 7 and Direct3D 7. The mod is a `ddraw.dll` proxy. It loads
   dxwrapper (`Dd7to9`) as the backend, which turns Direct3D 7 into Direct3D 9Ex.
+  With `backend=vulkan` the mod makes DirectDraw 7 and Direct3D 7 itself and
+  draws with Vulkan alone: no dxwrapper, no Direct3D 9 and no Direct3D 11
+  ("The backend of the mod on Vulkan", "Only Vulkan").
 - The game transforms every vertex on the CPU and submits screen space
   vertices. The mod walks the scene twice per frame, once per eye, and changes
   the camera between the two walks.
@@ -56,6 +59,7 @@ Other docs: `software-tnl.md` (the CPU transform and the camera matrix),
 | `src/mod/scene_sample.cpp`, `scene_sample_math.h` | A test aid: samples of the code of the frame thread in the scene walks, by module (`profile_sample`) |
 | `src/mod/hang_watch.cpp` | A test aid: the place of the frame thread when it makes no frame for 8 s, and of a fault (`hang_watch`) |
 | `src/mod/vk_ddraw.cpp` | DirectDraw 7 and Direct3D 7 of the mod on Vulkan (`backend=vulkan`) |
+| `src/mod/vk_window.cpp` | The swapchain of Vulkan on the window of the game (`vk_window`) |
 | `src/common/exe_check.h`, `version.h` | The build check and the product name |
 
 ## How the game draws
@@ -318,8 +322,9 @@ holds the shipped values. The important ones:
 backend=                        ; the default: dxwrapper\ddraw.dll when it is beside the game
 backend=dxwrapper\ddraw.dll
 backend=system                  ; system DirectDraw
-backend=vulkan                  ; a test: DirectDraw 7 and Direct3D 7 of the mod on Vulkan
+backend=vulkan                  ; DirectDraw 7 and Direct3D 7 of the mod on Vulkan
 gpu_bridge=1                    ; use the GPU path when the backend allows it
+vulkan_only=1                   ; backend=vulkan uses only Vulkan ("Only Vulkan")
 ```
 
 A name with no path is searched beside the game first. If the chosen backend
@@ -2609,12 +2614,14 @@ calls it with no test of the result.
 `Blt` copies in that memory with a change of the format, decodes DXT1 to
 DXT5 block by block, and fills with a color. The `Blt` to the primary is
 the present: the picture of the last walk of the left eye goes to the
-window at the size of its client area (`VkScenePresentPixels`, a blit with
-a linear filter on the GPU, a copy to the CPU, `SetDIBitsToDevice`). The
-blit and the copy go to the GPU with no wait, and the window shows the copy
-of the present before (`vk_present_late=1`), so the frame thread does not
-wait for the walks of its own frame. With `vk_present_late=0` each present
-waits for its own copy. The
+window at the size of its client area, through a swapchain of Vulkan
+("The window with Vulkan"). With `vk_window=0`, or when the window cannot
+have a swapchain, it goes through the CPU (`VkScenePresentPixels`, a blit
+with a linear filter on the GPU, a copy to the CPU, `SetDIBitsToDevice`).
+That blit and that copy go to the GPU with no wait, and the window shows
+the copy of the present before (`vk_present_late=1`), so the frame thread
+does not wait for the walks of its own frame. With `vk_present_late=0`
+each present waits for its own copy. The
 device keeps each state for its Get methods, makes the state blocks, and
 gives each call to the Vulkan renderer on the frame thread
 (`VkSceneSetDirect`): each `BeginScene` and `EndScene` is a walk, and the
@@ -2726,6 +2733,87 @@ Then start the game with the headset ready.
 pictures with the device of the session.
 
 **Not run yet:** a video, the Main Menu, a saved game, the Temple.
+
+### Only Vulkan
+
+`vulkan_only=1` (the default) makes `backend=vulkan` a path with Vulkan
+alone. The proxy loads no dxwrapper ("The backend"), and the mod starts no
+part that gives calls to Direct3D 9 or that needs a Direct3D 11 device:
+
+| Part | With `vulkan_only=1` |
+| --- | --- |
+| DXVK under dxwrapper (`d3d9_backend`) | The mod does not load `dxvk\d3d9.dll` |
+| The GPU bridge (`gpu_bridge`) | No hook on `Direct3DCreate9` and `Direct3DCreate9Ex`, and no load of `d3d9.dll`. No interop probe |
+| The render thread (`render_thread`, `gpu_flush`, `render_thread_late_end`, `render_thread_right_eye`, `ab_test`) | Does not start |
+| The D3D7 thread (`d3d7_thread`, `d3d7_thread_merge`) | Does not start |
+| The merge of draw calls (`draw_merge`) and `one_walk_merge` | No merge and no hook |
+| The session with Vulkan | No Direct3D 11 device and no relay (`XrScreen::UseD3D11`). The pixels of the CPU go into the swapchains with Vulkan (`xr_vulkan_upload=1`) |
+| A session with Vulkan that does not start | No session with Direct3D 11 after it: the game stays on the monitor |
+
+Their keys do nothing then, and their test keys (Shift 8, 9, F, G, H, J,
+K, M, N, V, C, Z and U) write a line of the log and change nothing. The
+keeps of the eye pictures of `eye_clean` need the Direct3D 9 device of the
+backend, so with `backend=vulkan` there are none. The clean of each eye
+pass goes on. The mod loads `d3d11.dll` and `dxgi.dll` at their first call
+(`/DELAYLOAD`), so a process with `vulkan_only=1` loads neither for the
+mod. The line `modules` of the log names each DLL of Direct3D and of
+dxwrapper that is in the process: at the first report of 450 frames, when
+the session runs, and at the shutdown. The OpenXR runtime and the driver
+can load some of them themselves. In desktop runs on a Radeon RX 7900 XTX
+the process has no `dxwrapper.dll`, no `d3d9.dll` and no `d3d11.dll`. The
+Vulkan driver of AMD loads `dxgi.dll`, and with the swapchain of the window
+also `d3d12.dll`.
+
+`vulkan_only=0` starts these parts as with dxwrapper, with no Direct3D 9 to
+use, and a session with Vulkan has its Direct3D 11 device. There is no test
+key: the choice is made at the start of the process.
+
+`bwvr-xrtest 30 vulkan alone` shows the test pattern through a session with
+Vulkan and no Direct3D 11, as the session of `vulkan_only=1` has.
+
+**Only a headset can show:** a session of the game with no Direct3D 11
+device. The cards, the walls of the cut scene window and an eye picture of
+the CPU then go only through the copies of Vulkan (`xr_vulkan_upload=1`),
+and a texture of Direct3D 11 has no way into a swapchain.
+
+### The window with Vulkan
+
+`vk_window=1` (the default, `vk_window.cpp`) gives the window of the game
+a swapchain of Vulkan with `backend=vulkan`. The present of the DirectDraw
+of the mod blits layer 0 of the image of the last walk (the left eye) with
+a linear filter to the size of the client area, in the queue of the
+renderer, and presents it. The picture does not go to the CPU. The frame
+thread takes the next free swapchain image with no wait: when no image is
+free, the window keeps the picture before, and the report counts it. Each
+of three presents in turn has a command buffer and a fence, so the frame
+thread does not wait for the GPU either.
+
+The swapchain has a format of 8 bits UNORM (BGRA first), because the
+picture of the game has its gamma already, and the present mode mailbox,
+else immediate: the frame rate of the game is the rate of the headset, and
+a present must not wait for the monitor. A window with only FIFO takes the
+way through the CPU. A change of the size of the client area makes a new
+swapchain, after the queue is idle.
+
+The swapchain needs `VK_KHR_surface` and `VK_KHR_win32_surface` on the
+instance and `VK_KHR_swapchain` on the device. The renderer turns them on
+for a device of its own, and the session with Vulkan for the instance and
+the device that the runtime makes, when the GPU has them. The log of the
+session says "A swapchain for the window of the game: yes". With no such
+extension, with a queue that cannot present to the window, or after an
+error of the swapchain, the window gets the picture through the CPU and
+GDI (`VkScenePresentPixels`), and the log says why one time.
+
+In desktop runs at the start of a new game (a Radeon RX 7900 XTX, the
+window 800 by 640, `vulkan_only=1`) each present went through the
+swapchain, with no present that had no free image, and a frame was 1.8 ms.
+With `vk_window=0` a frame was 2.3 ms.
+
+`vk_window=0` is the way through the CPU and GDI. With `test_keys=1`,
+Shift D changes it from the next present: a change to 0 takes the
+swapchain and the surface away, so GDI can draw into the window again. The
+report of each 450 frames has the presents through the swapchain and the
+presents with no free image.
 
 ## Foveated rendering
 
@@ -2909,8 +2997,8 @@ tracker, the test key.
 
 `xr_vulkan=1` (0 is the default) makes the OpenXR session a session with
 Vulkan (`XR_KHR_vulkan_enable2`, `xr_screen.cpp`). The launcher has the row
-"Headset session with Vulkan", which is grey with the renderer Vulkan:
-`backend=vulkan` always has a session with Vulkan.
+"Headset session with Vulkan", which is not in the table with the renderer
+Vulkan: `backend=vulkan` always has a session with Vulkan.
 
 **The device.** The runtime makes the Vulkan instance and the device, on
 the GPU that it names. The mod asks for Vulkan 1.3 with dynamic rendering,
@@ -2922,7 +3010,8 @@ the renderer waits and draws nothing. The runtime uses the queue in
 `xrBeginFrame`, `xrEndFrame` and in the acquire and the release of a
 swapchain image, so each submit of the mod and each of these calls holds
 one lock (`XrScreen::LockQueue`). A Direct3D 11 device on the same GPU stays
-for the bridge of Direct3D 9 ("The GPU bridge").
+for the bridge of Direct3D 9 ("The GPU bridge"). With `backend=vulkan` and
+`vulkan_only=1` the session has no Direct3D 11 device ("Only Vulkan").
 
 **The swapchains.** The formats have the same order of choice as with
 Direct3D 11: BGRA with sRGB first. Each image of a swapchain has a relay: a
@@ -4521,7 +4610,9 @@ keys that the launcher sets.
 | `vk_black_check` | 1 | With `backend=vulkan`, a test aid: 1 checks 16 by 16 points of each eye picture, and a black picture gives a line of the log with what its walk drew. 0 no check. See "The check for a black picture" |
 | `vk_untextured` | 1 | With `backend=vulkan` or the Vulkan eyes: 1 a stage 0 with no texture gives the diffuse color for an operation with the texture as an argument, as Direct3D does. 0 it reads a white texel with an alpha of 1. A test key: Shift R. See "A stage with no texture" |
 | `vk_stage1` | 1 | With the Vulkan renderer: 1 a draw with a color operation and a texture on texture stage 1 gets that stage, for example the light maps of the Temple. 0 the renderer makes stage 0 alone. A test key: Shift E. See "The second stage" |
-| `vk_present_late` | 1 | With `backend=vulkan`: 1 the window on the monitor shows the picture of the present before, with no wait for the GPU, 0 each present waits for its own picture. See "The backend of the mod on Vulkan" |
+| `vk_present_late` | 1 | With `backend=vulkan` and the way through the CPU (`vk_window=0`): 1 the window on the monitor shows the picture of the present before, with no wait for the GPU, 0 each present waits for its own picture. See "The backend of the mod on Vulkan" |
+| `vulkan_only` | 1 | With `backend=vulkan`: 1 no part for Direct3D 9 starts, and the session with Vulkan has no Direct3D 11 device. 0 these parts start, with no Direct3D 9 to use. There is no test key: the choice is made at the start. See "Only Vulkan" |
+| `vk_window` | 1 | With `backend=vulkan`: 1 the window of the game gets the picture through a swapchain of Vulkan, 0 through the CPU and GDI. A test key: Shift D. See "The window with Vulkan" |
 | `vk_texture_reuse` | 1 | 1 a texture that a walk reads again goes into the image it has when it can, and its pixels into a ring of the slot, so a read makes no allocation of the GPU. 0 each read makes a new image and a staging buffer. See "The Vulkan renderer" |
 | `foveation` | 0 | 0 each pixel of the eye pictures has the full rate. 1 light, 2 medium, 3 strong (the launcher writes 1 and the two degrees of its sliders): the part around the centre of the fovea has the full rate, and the rest fewer shades. Only the eye pictures of the Vulkan renderer. The launcher has the row "Foveated rendering (test)". A test key: Shift O. See "Foveated rendering" |
 | `foveation_inner_deg`, `foveation_outer_deg` | 0, 0 | The degrees of the full rate and of 2 by 2 around the centre of the fovea. 0 takes the degrees of the level. See "Foveated rendering" |

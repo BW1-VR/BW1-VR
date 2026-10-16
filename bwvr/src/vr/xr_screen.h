@@ -164,6 +164,9 @@ struct XrVulkan {
   // The device has VK_KHR_fragment_shading_rate with a shading rate
   // attachment, for foveated rendering.
   bool shading_rate;
+  // The instance has VK_KHR_surface and VK_KHR_win32_surface, and the device
+  // VK_KHR_swapchain, so the mod can present to the window of the game.
+  bool window_present;
 };
 
 // A LATE FRAME: a frame whose eye pictures are in textures that the GPU has
@@ -204,6 +207,14 @@ class XrScreen {
   // the swapchain.
   void UseVulkan(bool on);
   bool vulkan() const;
+  // THE DIRECT3D 11 OF A SESSION WITH VULKAN. Call it before Start. true
+  // (the default): the session has a Direct3D 11 device on its GPU, and
+  // each swapchain image has a relay. false: the session has no Direct3D 11
+  // device and no relay. Then each picture goes with Vulkan: SetEyeVulkan,
+  // SetPanelVulkan and the pixels of the CPU. SetEyeTexture, SetPanelTexture
+  // and SubmitTexture do nothing, D3D11Device is null, and SetVulkanUpload
+  // has no effect.
+  void UseD3D11(bool on);
   // True after a Start with Vulkan that failed at the Vulkan part, and not
   // at the runtime or the headset. Then a session with Direct3D 11 can
   // still start.

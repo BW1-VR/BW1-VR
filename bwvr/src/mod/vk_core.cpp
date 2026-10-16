@@ -119,23 +119,43 @@ void ReadShadingRate() {
          g_core.rate_quarter ? "with" : "without");
 }
 
-// True when the GPU has VK_KHR_fragment_shading_rate with a shading rate
-// attachment.
-bool HasShadingRate(VkPhysicalDevice physical) {
+// True when the GPU lists the extension of the device `name`.
+bool HasDeviceExtension(VkPhysicalDevice physical, const char* name) {
   static VkExtensionProperties list[512];
   uint32_t count = 512;
   if (f.vkEnumerateDeviceExtensionProperties(physical, nullptr, &count,
                                              list) < 0) {
     return false;
   }
-  bool listed = false;
   for (uint32_t i = 0; i < count && i < 512; ++i) {
-    if (strcmp(list[i].extensionName,
-               VK_KHR_FRAGMENT_SHADING_RATE_EXTENSION_NAME) == 0) {
-      listed = true;
-    }
+    if (strcmp(list[i].extensionName, name) == 0) return true;
   }
-  if (!listed) return false;
+  return false;
+}
+
+// True when the loader lists the extension of the instance `name`.
+bool HasInstanceExtension(const char* name) {
+  PFN_vkEnumerateInstanceExtensionProperties enumerate =
+      reinterpret_cast<PFN_vkEnumerateInstanceExtensionProperties>(
+          f.vkGetInstanceProcAddr(nullptr,
+                                  "vkEnumerateInstanceExtensionProperties"));
+  if (enumerate == nullptr) return false;
+  static VkExtensionProperties list[256];
+  uint32_t count = 256;
+  if (enumerate(nullptr, &count, list) < 0) return false;
+  for (uint32_t i = 0; i < count && i < 256; ++i) {
+    if (strcmp(list[i].extensionName, name) == 0) return true;
+  }
+  return false;
+}
+
+// True when the GPU has VK_KHR_fragment_shading_rate with a shading rate
+// attachment.
+bool HasShadingRate(VkPhysicalDevice physical) {
+  if (!HasDeviceExtension(physical,
+                          VK_KHR_FRAGMENT_SHADING_RATE_EXTENSION_NAME)) {
+    return false;
+  }
   VkPhysicalDeviceFragmentShadingRateFeaturesKHR rate = {
       VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADING_RATE_FEATURES_KHR};
   VkPhysicalDeviceFeatures2 features = {
@@ -188,6 +208,7 @@ bool StartExternal() {
   g_lock = e.lock;
   g_unlock = e.unlock;
   g_core.shading_rate = e.shading_rate;
+  g_core.window_present = e.window_present;
   ReadShadingRate();
   if (!MakeOnce()) return false;
   g_started = true;
@@ -247,6 +268,15 @@ bool Start() {
   app.apiVersion = VK_API_VERSION_1_3;
   VkInstanceCreateInfo instance_info = {VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
   instance_info.pApplicationInfo = &app;
+  // THE WINDOW (vk_window.cpp) needs a surface of Win32.
+  const char* surface_extensions[2] = {"VK_KHR_surface",
+                                       "VK_KHR_win32_surface"};
+  const bool surface = HasInstanceExtension(surface_extensions[0]) &&
+                       HasInstanceExtension(surface_extensions[1]);
+  if (surface) {
+    instance_info.enabledExtensionCount = 2;
+    instance_info.ppEnabledExtensionNames = surface_extensions;
+  }
   VkResult r = f.vkCreateInstance(&instance_info, nullptr, &g_core.instance);
   if (r != VK_SUCCESS) return Fail("vkCreateInstance", r);
 #define BWVR_VK_LOAD_INSTANCE(name)                                    \
@@ -348,13 +378,23 @@ bool Start() {
       VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADING_RATE_FEATURES_KHR};
   want_rate.attachmentFragmentShadingRate = VK_TRUE;
   if (g_core.shading_rate) v11.pNext = &want_rate;
-  const char* rate_extension = VK_KHR_FRAGMENT_SHADING_RATE_EXTENSION_NAME;
+  g_core.window_present =
+      surface && HasDeviceExtension(g_core.physical, "VK_KHR_swapchain");
+  const char* device_extensions[2];
+  uint32_t device_extension_count = 0;
+  if (g_core.shading_rate) {
+    device_extensions[device_extension_count++] =
+        VK_KHR_FRAGMENT_SHADING_RATE_EXTENSION_NAME;
+  }
+  if (g_core.window_present) {
+    device_extensions[device_extension_count++] = "VK_KHR_swapchain";
+  }
   VkDeviceCreateInfo device_info = {VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
   device_info.pNext = &features;
   device_info.queueCreateInfoCount = 1;
   device_info.pQueueCreateInfos = &queue_info;
-  device_info.enabledExtensionCount = g_core.shading_rate ? 1 : 0;
-  device_info.ppEnabledExtensionNames = &rate_extension;
+  device_info.enabledExtensionCount = device_extension_count;
+  device_info.ppEnabledExtensionNames = device_extensions;
   r = f.vkCreateDevice(g_core.physical, &device_info, nullptr, &g_core.device);
   if (r != VK_SUCCESS) return Fail("vkCreateDevice", r);
 #define BWVR_VK_LOAD_DEVICE(name)                                      \

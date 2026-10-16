@@ -38,6 +38,8 @@
 #include "render_thread.h"
 
 extern void ModLog(const char* format, ...);
+// proxy/ddraw_proxy.cpp
+bool ProxyBackendVulkan();
 // draw_merge.cpp: the batch of the merge of draw calls goes to Direct3D
 // before a copy between surfaces and before the end of the frame.
 void DrawMergeFlush();
@@ -295,9 +297,18 @@ bool TextureCopy(IDirectDrawSurface7* self, const RECT* destination,
       d.right - d.left != s.right - s.left ||
       d.bottom - d.top != s.bottom - s.top) {
     if (log) {
-      LogCopy(plain ? "a copy with a texture goes to dxwrapper"
-                    : "a copy with a texture and an effect goes to dxwrapper",
-              to, d, from, s, caller);
+      if (ProxyBackendVulkan()) {
+        LogCopy(plain ? "a copy with a texture goes to the DirectDraw of the "
+                        "mod"
+                      : "a copy with a texture and an effect goes to the "
+                        "DirectDraw of the mod",
+                to, d, from, s, caller);
+      } else {
+        LogCopy(plain ? "a copy with a texture goes to dxwrapper"
+                      : "a copy with a texture and an effect goes to "
+                        "dxwrapper",
+                to, d, from, s, caller);
+      }
     }
     return false;
   }
@@ -482,11 +493,14 @@ void PresentWatchInstall() {
       g_texture_copy =
           GetPrivateProfileIntA("bwvr", "blt_texture_copy", 1, path) != 0;
     }
-    ModLog("present      : blt_texture_copy=%d. %s", g_texture_copy ? 1 : 0,
+    const char* backend =
+        ProxyBackendVulkan() ? "the DirectDraw of the mod" : "dxwrapper";
+    ModLog("present      : blt_texture_copy=%d. %s %s", g_texture_copy ? 1 : 0,
            g_texture_copy
                ? "The mod makes a copy with a texture and no stretch itself, "
-                 "and not dxwrapper"
-               : "Each copy between surfaces goes to dxwrapper");
+                 "and not"
+               : "Each copy between surfaces goes to",
+           backend);
     if (g_test_rate < 20 || g_test_rate > 240) g_test_rate = 0;
     if (g_test_rate > 0) {
       ModLog("present      : test_frame_rate=%d, a test key of the desktop "

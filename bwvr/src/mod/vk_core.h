@@ -151,6 +151,9 @@ struct Core {
   uint32_t rate_texel_w;
   uint32_t rate_texel_h;
   bool rate_quarter;
+  // THE WINDOW (vk_window.cpp): the instance has VK_KHR_surface and
+  // VK_KHR_win32_surface, and the device has VK_KHR_swapchain.
+  bool window_present;
 };
 
 struct External {
@@ -163,6 +166,7 @@ struct External {
   float max_anisotropy;
   VkFormat color_format;
   bool shading_rate;  // VK_KHR_fragment_shading_rate is on the device
+  bool window_present;  // as Core::window_present
   void (*lock)();  // the lock of the queue of the session
   void (*unlock)();
 };

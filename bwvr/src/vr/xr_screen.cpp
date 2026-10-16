@@ -278,6 +278,9 @@ VulkanFunctions vkf = {};
 struct VulkanState {
   bool made;
   bool shading_rate;  // VK_KHR_fragment_shading_rate is on the device
+  // VK_KHR_surface and VK_KHR_win32_surface are on the instance, and
+  // VK_KHR_swapchain on the device (XrVulkan::window_present).
+  bool window_present;
   HMODULE library;
   VkInstance instance;
   VkPhysicalDevice physical;
@@ -381,6 +384,9 @@ struct XrScreen::Impl {
   // xr_vulkan_upload=0 into the relay too.
   bool vulkan = false;
   bool vk_failed = false;  // XrScreen::VulkanFailed
+  // XrScreen::UseD3D11. false: no Direct3D 11 device and no relays, and the
+  // pixels of the CPU always go with Vulkan.
+  bool d3d11 = true;
   struct Relay {
     ID3D11Texture2D* texture;
     HANDLE handle;
@@ -667,7 +673,8 @@ struct XrScreen::Impl {
   // True when a write of the CPU into this swapchain goes with Vulkan
   // (THE PIXELS OF THE CPU).
   bool UploadsWithVulkan(XrSwapchain chain) {
-    return vulkan && vk_upload && FindChain(chain) != nullptr;
+    return vulkan && (vk_upload || device == nullptr) &&
+           FindChain(chain) != nullptr;
   }
   // The rect x, y, w, h of `pixels` (rows of `pitch` bytes, 4 bytes for each
   // pixel) into the acquired image `image` of the swapchain, at the same
@@ -1398,6 +1405,13 @@ bool XrScreen::Start(uint32_t width, uint32_t height, int eyes, LogFn log) {
 
   // A dynamic texture is the cheap way to get CPU pixels onto the GPU: map,
   // copy the rows, unmap, then let the GPU do the copy into the swapchain.
+  // A session with no Direct3D 11 copies them with Vulkan.
+  if (s.device == nullptr) {
+    s.log("  openxr: ready, %d eye(s), %u swapchain images each, with no "
+          "Direct3D 11", eyes_, s.image_count[0]);
+    running_ = true;
+    return true;
+  }
   D3D11_TEXTURE2D_DESC staging_desc;
   ZeroMemory(&staging_desc, sizeof(staging_desc));
   staging_desc.Width = s.width;
@@ -1665,6 +1679,10 @@ void XrScreen::SetEyeImage(int index, const void* pixels, int pitch) {
     ++s.uploads;
     return;
   }
+  if (s.context == nullptr) {
+    s.ReleaseImage(s.swapchain[eye], false);
+    return;
+  }
   if (SUCCEEDED(s.context->Map(s.staging, 0, D3D11_MAP_WRITE_DISCARD, 0,
                                &mapped))) {
     const uint8_t* source = static_cast<const uint8_t*>(pixels);
@@ -1706,7 +1724,10 @@ uint32_t XrScreen::SwapchainFormat() const {
 
 void XrScreen::SetEyeTexture(int index, void* texture) {
   Impl& s = *impl_;
-  if (!s.frame_open || !should_render_ || texture == nullptr) return;
+  if (!s.frame_open || !should_render_ || texture == nullptr ||
+      s.context == nullptr) {
+    return;
+  }
   const int eye = (index >= 1 && eyes_ > 1) ? 1 : 0;
   if (s.swapchain[eye] == XR_NULL_HANDLE) return;
 
@@ -1849,7 +1870,7 @@ bool XrScreen::Impl::SendCard(int index, const CardLayer& card,
   if (waited && image < chain.image_count && with_vulkan) {
     UploadVulkan(chain.swapchain, image, card.pixels, chain.width * 4, x, y, w,
                  h, red_first);
-  } else if (waited && image < chain.image_count) {
+  } else if (waited && image < chain.image_count && context != nullptr) {
     const uint32_t pitch = chain.width * 4;
     const uint8_t* source = card.pixels;
     if (red_first) {
@@ -1982,7 +2003,7 @@ bool XrScreen::Impl::SendMask(const WindowLayer& window,
       UploadVulkan(mask_swapchain, image, pixels, kMaskSize * 4, 0, 0,
                    static_cast<int32_t>(kMaskSize),
                    static_cast<int32_t>(kMaskSize), false);
-    } else {
+    } else if (context != nullptr) {
       context->UpdateSubresource(mask_images[image], 0, nullptr, pixels,
                                  kMaskSize * 4, 0);
     }
@@ -2029,7 +2050,7 @@ void XrScreen::SetPanelTexture(void* texture) {
   Impl& s = *impl_;
   s.panel_acquired = -1;
   if (!s.frame_open || !should_render_ || texture == nullptr ||
-      s.panel_swapchain == XR_NULL_HANDLE) {
+      s.panel_swapchain == XR_NULL_HANDLE || s.context == nullptr) {
     return;
   }
   uint32_t image = 0;
@@ -2081,16 +2102,25 @@ void XrScreen::ReportUpload(uint64_t frames) {
     LARGE_INTEGER hz_now;
     QueryPerformanceFrequency(&hz_now);
     const double hz = static_cast<double>(hz_now.QuadPart);
-    s.log("  openxr: Vulkan: %llu copies of a relay, %.3f ms each with the "
-          "wait for Direct3D 11, %llu copies of a Vulkan eye picture, and "
-          "%llu copies of pixels of the CPU, %.3f ms each "
-          "(xr_vulkan_upload=%d)",
-          s.vk_pushes,
-          s.vk_pushes > 0 ? s.vk_push_ticks * 1000.0 / hz / s.vk_pushes : 0.0,
-          s.vk_copies, s.vk_uploads,
-          s.vk_uploads > 0 ? s.vk_upload_ticks * 1000.0 / hz / s.vk_uploads
-                           : 0.0,
-          s.vk_upload ? 1 : 0);
+    if (s.device == nullptr) {
+      s.log("  openxr: Vulkan with no Direct3D 11: %llu copies of a Vulkan eye "
+            "picture, and %llu copies of pixels of the CPU, %.3f ms each",
+            s.vk_copies, s.vk_uploads,
+            s.vk_uploads > 0 ? s.vk_upload_ticks * 1000.0 / hz / s.vk_uploads
+                             : 0.0);
+    } else {
+      s.log("  openxr: Vulkan: %llu copies of a relay, %.3f ms each with the "
+            "wait for Direct3D 11, %llu copies of a Vulkan eye picture, and "
+            "%llu copies of pixels of the CPU, %.3f ms each "
+            "(xr_vulkan_upload=%d)",
+            s.vk_pushes,
+            s.vk_pushes > 0 ? s.vk_push_ticks * 1000.0 / hz / s.vk_pushes
+                            : 0.0,
+            s.vk_copies, s.vk_uploads,
+            s.vk_uploads > 0 ? s.vk_upload_ticks * 1000.0 / hz / s.vk_uploads
+                             : 0.0,
+            s.vk_upload ? 1 : 0);
+    }
     s.vk_pushes = 0;
     s.vk_copies = 0;
     s.vk_push_ticks = 0;
@@ -2714,6 +2744,7 @@ void XrScreen::FinishLate() {
 XrResult XrScreen::Impl::CopyLate(XrSwapchain chain,
                                   ID3D11Texture2D** chain_images,
                                   void* texture) {
+  if (context == nullptr) return XR_SUCCESS;
   uint32_t image = 0;
   XrResult result = AcquireImage(chain, &image);
   if (XR_FAILED(result)) return result;
@@ -3048,10 +3079,11 @@ void XrScreen::Stop() {
     s.image_count[eye] = 0;
   }
   s.StopVulkan();
+  const bool had_d3d11 = s.device != nullptr;
   Release(s.staging);
   Release(s.context);
   Release(s.device);
-  if (had_session) {
+  if (had_session && had_d3d11) {
     s.log("  openxr: the Direct3D 11 objects of the session are released, "
           "%.1f ms", StopMs(part));
     QueryPerformanceCounter(&part);
@@ -3121,7 +3153,7 @@ bool XrScreen::Impl::MakeD3D11(const LUID& luid) {
 // Vulkan 1.3 with dynamic rendering and synchronization2, multiview, the
 // anisotropic filter when the GPU has it, and VK_KHR_external_memory_win32
 // for the relays. Then comes a Direct3D 11 device on the same GPU, for the
-// bridge and for the relays.
+// bridge and for the relays, when the session has Direct3D 11 (d3d11).
 bool XrScreen::Impl::StartVulkan() {
   PFN_xrGetVulkanGraphicsRequirements2KHR get_requirements2 = nullptr;
   PFN_xrCreateVulkanInstanceKHR create_instance = nullptr;
@@ -3199,6 +3231,35 @@ bool XrScreen::Impl::StartVulkan() {
     VkInstanceCreateInfo instance_info = {
         VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
     instance_info.pApplicationInfo = &app;
+    // THE WINDOW OF THE GAME: the renderer of the mod can present to it
+    // with a swapchain of this instance, when the loader has a surface of
+    // Win32.
+    const char* surface_extensions[2] = {VK_KHR_SURFACE_EXTENSION_NAME,
+                                         "VK_KHR_win32_surface"};
+    bool surface = false;
+    {
+      PFN_vkEnumerateInstanceExtensionProperties enumerate =
+          reinterpret_cast<PFN_vkEnumerateInstanceExtensionProperties>(
+              vkf.vkGetInstanceProcAddr(
+                  nullptr, "vkEnumerateInstanceExtensionProperties"));
+      uint32_t count = 0;
+      if (enumerate != nullptr && enumerate(nullptr, &count, nullptr) >= 0) {
+        std::vector<VkExtensionProperties> list(count);
+        if (enumerate(nullptr, &count, list.data()) >= 0) {
+          int found = 0;
+          for (uint32_t i = 0; i < count; ++i) {
+            for (const char* name : surface_extensions) {
+              if (strcmp(list[i].extensionName, name) == 0) ++found;
+            }
+          }
+          surface = found == 2;
+        }
+      }
+    }
+    if (surface) {
+      instance_info.enabledExtensionCount = 2;
+      instance_info.ppEnabledExtensionNames = surface_extensions;
+    }
     XrVulkanInstanceCreateInfoKHR xr_instance_info = {
         XR_TYPE_VULKAN_INSTANCE_CREATE_INFO_KHR};
     xr_instance_info.systemId = system;
@@ -3245,7 +3306,7 @@ bool XrScreen::Impl::StartVulkan() {
       log("  openxr: the GPU of the runtime (%s) has no Vulkan 1.3", g_vk.gpu);
       return false;
     }
-    if (!id.deviceLUIDValid) {
+    if (!id.deviceLUIDValid && d3d11) {
       log("  openxr: the GPU of the runtime (%s) gives no LUID, so Direct3D "
           "11 cannot find it", g_vk.gpu);
       return false;
@@ -3269,6 +3330,7 @@ bool XrScreen::Impl::StartVulkan() {
                               ? properties.properties.limits.maxSamplerAnisotropy
                               : 0.0f;
     bool external = false;
+    bool has_swapchain = false;
     uint32_t extension_count = 0;
     vkf.vkEnumerateDeviceExtensionProperties(g_vk.physical, nullptr,
                                              &extension_count, nullptr);
@@ -3280,7 +3342,12 @@ bool XrScreen::Impl::StartVulkan() {
                  VK_KHR_EXTERNAL_MEMORY_WIN32_EXTENSION_NAME) == 0) {
         external = true;
       }
+      if (strcmp(extension_list[i].extensionName,
+                 VK_KHR_SWAPCHAIN_EXTENSION_NAME) == 0) {
+        has_swapchain = true;
+      }
     }
+    g_vk.window_present = surface && has_swapchain;
     // FOVEATED RENDERING: a shading rate attachment, when the GPU has it.
     bool rate_extension = false;
     for (uint32_t i = 0; i < extension_count; ++i) {
@@ -3345,14 +3412,22 @@ bool XrScreen::Impl::StartVulkan() {
         VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADING_RATE_FEATURES_KHR};
     want_rate.attachmentFragmentShadingRate = VK_TRUE;
     if (g_vk.shading_rate) want11.pNext = &want_rate;
-    const char* device_extensions[] = {
-        VK_KHR_EXTERNAL_MEMORY_WIN32_EXTENSION_NAME,
-        VK_KHR_FRAGMENT_SHADING_RATE_EXTENSION_NAME};
+    const char* device_extensions[3] = {
+        VK_KHR_EXTERNAL_MEMORY_WIN32_EXTENSION_NAME};
+    uint32_t device_extension_count = 1;
+    if (g_vk.shading_rate) {
+      device_extensions[device_extension_count++] =
+          VK_KHR_FRAGMENT_SHADING_RATE_EXTENSION_NAME;
+    }
+    if (g_vk.window_present) {
+      device_extensions[device_extension_count++] =
+          VK_KHR_SWAPCHAIN_EXTENSION_NAME;
+    }
     VkDeviceCreateInfo device_info = {VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
     device_info.pNext = &want;
     device_info.queueCreateInfoCount = 1;
     device_info.pQueueCreateInfos = &queue_info;
-    device_info.enabledExtensionCount = g_vk.shading_rate ? 2 : 1;
+    device_info.enabledExtensionCount = device_extension_count;
     device_info.ppEnabledExtensionNames = device_extensions;
     XrVulkanDeviceCreateInfoKHR xr_device_info = {
         XR_TYPE_VULKAN_DEVICE_CREATE_INFO_KHR};
@@ -3382,11 +3457,17 @@ bool XrScreen::Impl::StartVulkan() {
     vkf.vkGetPhysicalDeviceMemoryProperties(g_vk.physical, &g_vk.memory);
     g_vk.made = true;
     log("  openxr: Vulkan 1.3 on %s, made by the runtime. The anisotropic "
-        "filter: up to %.0f. A shading rate attachment: %s", g_vk.gpu,
-        g_vk.max_anisotropy, g_vk.shading_rate ? "yes" : "no");
+        "filter: up to %.0f. A shading rate attachment: %s. A swapchain for "
+        "the window of the game: %s", g_vk.gpu, g_vk.max_anisotropy,
+        g_vk.shading_rate ? "yes" : "no", g_vk.window_present ? "yes" : "no");
   }
 
-  if (!MakeD3D11(g_vk.luid)) return false;
+  if (d3d11) {
+    if (!MakeD3D11(g_vk.luid)) return false;
+  } else {
+    log("  openxr: the session has no Direct3D 11 device. Each picture goes "
+        "into the swapchains with Vulkan");
+  }
   if (frequency.QuadPart == 0) QueryPerformanceFrequency(&frequency);
 
   // The objects of this session: the copies and the wait for Direct3D 11.
@@ -3419,6 +3500,7 @@ bool XrScreen::Impl::StartVulkan() {
     }
   }
   vk_slot = 0;
+  if (device == nullptr) return true;
   D3D11_QUERY_DESC query = {D3D11_QUERY_EVENT, 0};
   if (FAILED(device->CreateQuery(&query, &d3d11_done))) {
     log("  openxr: the event query of Direct3D 11 could not be made");
@@ -3520,6 +3602,8 @@ ID3D11Texture2D** XrScreen::Impl::ChainImages(XrSwapchain chain,
   memset(c.relays, 0, sizeof(Relay) * n);
   for (uint32_t i = 0; i < c.count; ++i) {
     c.images[i] = raw[i].image;
+    // With no Direct3D 11 an image has no relay, and its entry is null.
+    if (device == nullptr) continue;
     if (!MakeRelay(chain_width, chain_height, &c.relays[i])) {
       log("  openxr: the relay %u of a swapchain of %u by %u could not be "
           "made", i, chain_width, chain_height);
@@ -3709,7 +3793,8 @@ XrResult XrScreen::Impl::AcquireImage(XrSwapchain chain, uint32_t* image) {
 XrResult XrScreen::Impl::ReleaseImage(XrSwapchain chain, bool push) {
   if (vulkan) {
     VkChain* c = FindChain(chain);
-    if (c != nullptr && push && c->acquired < c->count) {
+    if (c != nullptr && push && device != nullptr &&
+        c->acquired < c->count) {
       if (!Push(*c, c->acquired) && !vk_said_push_failed) {
         vk_said_push_failed = true;
         log("  openxr: a copy of a relay into its swapchain image failed");
@@ -4178,6 +4263,8 @@ void XrScreen::Impl::SaveChainPicture(VkChain* c, uint32_t index, int eye) {
 
 void XrScreen::UseVulkan(bool on) { impl_->vulkan = on; }
 
+void XrScreen::UseD3D11(bool on) { impl_->d3d11 = on; }
+
 void XrScreen::CaptureSwapchainNext(uint64_t name) {
   impl_->capture_left = eyes_ > 1 ? 2 : 1;
   impl_->capture_name = name;
@@ -4205,7 +4292,9 @@ double XrScreen::DisplaySeconds() const {
   return static_cast<double>(impl_->display_seconds_ns) * 1e-9;
 }
 
-bool XrScreen::vulkan_upload() const { return impl_->vk_upload; }
+bool XrScreen::vulkan_upload() const {
+  return impl_->vk_upload || (impl_->vulkan && impl_->device == nullptr);
+}
 
 bool XrScreen::vulkan() const { return impl_->vulkan; }
 
@@ -4225,6 +4314,7 @@ bool XrScreen::VulkanInfo(XrVulkan* out) const {
   out->eye_format = static_cast<uint32_t>(
       kFormats[s.format_index < 0 ? 0 : s.format_index].vk_unorm);
   out->shading_rate = g_vk.shading_rate;
+  out->window_present = g_vk.window_present;
   return true;
 }
 

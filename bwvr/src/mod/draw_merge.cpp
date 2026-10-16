@@ -314,6 +314,13 @@ void DrawMergeSetOptions(int key, int test, int test_frame) {
   }
 }
 
+// vulkan_only=1: no merge and no hook, with no line of the log.
+void DrawMergeOff() {
+  g_key = 0;
+  g_test = 0;
+  g_test_frame = 0;
+}
+
 // Each frame of the scene, before the eye passes. `frame` is the frame of
 // the controllers. True when the test of the pictures wants a picture of
 // each eye of this frame.

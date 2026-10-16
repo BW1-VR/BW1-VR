@@ -75,6 +75,7 @@
 #include "foveation_math.h"
 #include "vk_scene.h"
 #include "vk_ddraw.h"
+#include "vk_window.h"
 #include "render_thread.h"
 #include "scene_sample.h"
 #include "ui_panel.h"
@@ -85,6 +86,10 @@ void D3D9BackendConfirm();
 void XrVulkanUploadToggle(const char* keys);
 // mod_main.cpp: the test key of xr_hold_ms.
 void XrHoldToggle(const char* keys);
+// mod_main.cpp: backend=vulkan with vulkan_only=1.
+bool VulkanOnly();
+// mod_main.cpp: a line of the log with the DLLs of Direct3D in the process.
+void LogDirect3DModules(const char* when);
 
 extern void ModLog(const char* format, ...);
 
@@ -620,8 +625,8 @@ float FrameSeparation() {
 // Shift 8, Shift 9, Shift F, Shift G, Shift H, Shift J, Shift K, Shift L,
 // Shift M, Shift N, Shift B, Shift V, Shift C, Shift X, Shift Z, Shift Y,
 // Shift U, Shift I, Shift O, Shift P, Shift T, Shift W, Shift Q, Shift E,
-// Shift R
-static const int kShiftKeys = 25;
+// Shift R, Shift D
+static const int kShiftKeys = 26;
 static volatile LONG g_shift_key[kShiftKeys] = {};
 static DWORD g_shift_key_at[kShiftKeys] = {};
 static HHOOK g_message_hook = nullptr;
@@ -653,6 +658,7 @@ static int ShiftKeyIndex(WPARAM key) {
          : key == 'Q' ? 22
          : key == 'E' ? 23
          : key == 'R' ? 24
+         : key == 'D' ? 25
                       : -1;
 }
 
@@ -693,6 +699,16 @@ bool GameHasFocus() {
   DWORD process = 0;
   GetWindowThreadProcessId(window, &process);
   return process == GetCurrentProcessId();
+}
+
+// A test key of a part for Direct3D 9 does nothing with vulkan_only=1: that
+// part does not start, and a session with Vulkan alone has no Direct3D 9 or
+// Direct3D 11 to change to.
+bool D3D9KeyHere(const char* keys) {
+  if (!VulkanOnly()) return true;
+  ModLog("test key     : %s does nothing. It changes a part for Direct3D 9 "
+         "or Direct3D 11, and vulkan_only=1 has none", keys);
+  return false;
 }
 
 // THE MOD'S KEYS.
@@ -770,6 +786,9 @@ bool GameHasFocus() {
 //   Shift R     a stage 0 of the Vulkan renderer with no texture gives the
 //               diffuse color for the texture argument, or a white texel
 //               (vk_untextured, vk_scene.cpp)
+//   Shift D     with backend=vulkan the window of the game gets the picture
+//               through a swapchain of Vulkan, or through the CPU and GDI
+//               (vk_window, vk_window.cpp)
 //   Ctrl Shift Numpad Slash  the mod waits for the GPU after each eye pass,
 //               one time a frame, or one time a frame on a second thread
 //               that also gives the frame to the runtime (frame_send,
@@ -911,55 +930,68 @@ void PollHotkeys() {
     ModLog("test key     : the hook of the messages for Shift 8 and Shift 9 "
            "%s", g_message_hook != nullptr ? "is in" : "FAILED");
   }
-  if (InterlockedExchange(&g_shift_key[0], 0) != 0) {
+  if (InterlockedExchange(&g_shift_key[0], 0) != 0 &&
+      D3D9KeyHere("Shift and 8")) {
     RenderThreadToggle("Shift and 8");
   }
-  if (InterlockedExchange(&g_shift_key[1], 0) != 0) {
+  if (InterlockedExchange(&g_shift_key[1], 0) != 0 &&
+      D3D9KeyHere("Shift and 9")) {
     RenderThreadLockFreeToggle("Shift and 9");
   }
-  if (InterlockedExchange(&g_shift_key[2], 0) != 0) {
+  if (InterlockedExchange(&g_shift_key[2], 0) != 0 &&
+      D3D9KeyHere("Shift and F")) {
     RenderThreadFilterToggle("Shift and F");
   }
-  if (InterlockedExchange(&g_shift_key[3], 0) != 0) {
+  if (InterlockedExchange(&g_shift_key[3], 0) != 0 &&
+      D3D9KeyHere("Shift and G")) {
     RenderThreadBuffersToggle("Shift and G");
   }
-  if (InterlockedExchange(&g_shift_key[4], 0) != 0) {
+  if (InterlockedExchange(&g_shift_key[4], 0) != 0 &&
+      D3D9KeyHere("Shift and H")) {
     OneWalkMergeToggle("Shift and H");
   }
-  if (InterlockedExchange(&g_shift_key[5], 0) != 0) {
+  if (InterlockedExchange(&g_shift_key[5], 0) != 0 &&
+      D3D9KeyHere("Shift and J")) {
     RenderThreadFlushToggle("Shift and J");
   }
-  if (InterlockedExchange(&g_shift_key[6], 0) != 0) {
+  if (InterlockedExchange(&g_shift_key[6], 0) != 0 &&
+      D3D9KeyHere("Shift and K")) {
     RenderThreadRightEyeToggle("Shift and K");
   }
   if (InterlockedExchange(&g_shift_key[7], 0) != 0) {
     FastTransformToggle("Shift and L");
   }
-  if (InterlockedExchange(&g_shift_key[8], 0) != 0) {
+  if (InterlockedExchange(&g_shift_key[8], 0) != 0 &&
+      D3D9KeyHere("Shift and M")) {
     D3D7ThreadToggle("Shift and M");
   }
-  if (InterlockedExchange(&g_shift_key[9], 0) != 0) {
+  if (InterlockedExchange(&g_shift_key[9], 0) != 0 &&
+      D3D9KeyHere("Shift and N")) {
     RenderThreadLateEndToggle("Shift and N");
   }
   if (InterlockedExchange(&g_shift_key[10], 0) != 0) {
     ThreadWaitToggle("Shift and B");
   }
-  if (InterlockedExchange(&g_shift_key[11], 0) != 0) {
+  if (InterlockedExchange(&g_shift_key[11], 0) != 0 &&
+      D3D9KeyHere("Shift and V")) {
     D3D7ThreadMergeToggle("Shift and V");
   }
-  if (InterlockedExchange(&g_shift_key[12], 0) != 0) {
+  if (InterlockedExchange(&g_shift_key[12], 0) != 0 &&
+      D3D9KeyHere("Shift and C")) {
     VkSceneEyesToggle("Shift and C");
   }
   if (InterlockedExchange(&g_shift_key[13], 0) != 0) {
     VkSceneFollowToggle("Shift and X");
   }
-  if (InterlockedExchange(&g_shift_key[14], 0) != 0) {
+  if (InterlockedExchange(&g_shift_key[14], 0) != 0 &&
+      D3D9KeyHere("Shift and Z")) {
     XrVulkanUploadToggle("Shift and Z");
   }
   if (InterlockedExchange(&g_shift_key[15], 0) != 0) {
     VkScenePanelToggle("Shift and Y");
   }
-  if (InterlockedExchange(&g_shift_key[16], 0) != 0) {
+  if (InterlockedExchange(&g_shift_key[16], 0) != 0 &&
+      D3D9KeyHere("Shift and U")) {
     VkSceneOnlyToggle("Shift and U");
   }
   if (InterlockedExchange(&g_shift_key[17], 0) != 0) {
@@ -989,6 +1021,11 @@ void PollHotkeys() {
   }
   if (InterlockedExchange(&g_shift_key[24], 0) != 0) {
     VkSceneUntexturedToggle("Shift and R");
+  }
+  // An A/B of the swapchain on the window (docs/backend.md, "The window
+  // with Vulkan").
+  if (InterlockedExchange(&g_shift_key[25], 0) != 0) {
+    VkWindowToggle("Shift and D");
   }
   // An A/B of the read ahead of the subtitle card (docs/ui-layer.md, "The
   // subtitle card"). Ctrl Shift Pause is the key of throw_land_rest
@@ -1961,6 +1998,14 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
     DdrawCensusReport(g_timed_now);
     VkSceneReport(g_timed_now);
     VkDdrawReport(g_timed_now);
+    VkWindowReport();
+    // One time: the DLLs of Direct3D in the process, also in a desktop run
+    // with no session.
+    static bool s_said_modules = false;
+    if (!s_said_modules) {
+      s_said_modules = true;
+      LogDirect3DModules("the first report of 450 frames");
+    }
     ThreadLoadReport(g_timed_now);
     RenderThreadReport(g_timed_now);
     PresentWatchReport(g_timed_now);
