@@ -194,6 +194,16 @@ inline float HoldReach(int onto, float reach) {
   return onto == kOntoAltar || onto == kOntoCreature ? 0.0f : reach;
 }
 
+// A CREATURE THAT IS THE TARGET STAYS THE TARGET. The body of a small
+// Creature is some cm of the room across, and it moves when the Creature
+// turns. So a Creature that was the target in the last frame has the reach of
+// each other thing. It becomes the target only in its body.
+inline float HoldReachNow(int onto, float reach, bool was_target,
+                          bool creature_stays) {
+  if (onto == kOntoCreature && was_target && creature_stays) return reach;
+  return HoldReach(onto, reach);
+}
+
 // The thing is the target when the smaller of its two gaps is in its reach,
 // and smaller than the gap of the best thing before it. A gap is 0 in the
 // body.
@@ -201,6 +211,45 @@ inline bool HoldTakes(float gap_hand, float gap_held, float reach,
                       float best) {
   const float gap = gap_hand < gap_held ? gap_hand : gap_held;
   return gap <= reach && gap < best;
+}
+
+// THE GIFT TO A CREATURE [V].
+//
+// A press with an object in the Hand on a Creature that takes it sends packet
+// 0x1F (fn_005D3080). Its handler (fn_005DA2D0) starts the action of the
+// Creature that takes an object from the Hand (action 0x8E), and the Hand
+// keeps the Creature at CHand+0x49BC. From then HandStateHolding::Update
+// (0x005B3C70) measures its Hand against the hand-over point of the Creature
+// (fn_00480810): the place of the hand of the Creature in its take animation,
+// on the side of the camera. The game puts its Hand at the distance of that
+// point from the view, so the Hand of the mouse is near it. When the Hand is
+// more than 15 times the size of the Creature (LH3DCreature+0x90) from the
+// point, the game sends packet 0x52 (0x005B424C). The handler of that packet
+// ends the action of the Creature and the gift, and the object stays in the
+// Hand.
+//
+// The Hand of the mod stays at the real hand. So the test of the game
+// measures a place that the game did not bring the Hand to, and it ends a
+// gift that the player did not take back. The test of the mod takes its
+// place: the gift goes on while the Hand's point is at the Creature.
+const float kGiftGameSizes = 15.0f;    // the 15.0 at 0x008C2C40
+
+// The reach of the test of the game, in world units.
+inline float GiftGameReach(float size) { return kGiftGameSizes * size; }
+
+// The reach of the test of the mod, in world units, from the body of the
+// Creature to the Hand's point: the reach of the test of the game, and
+// keep_cm of the room more.
+inline float GiftReach(float size, float units_per_meter, float keep_cm) {
+  return GiftGameReach(size) + keep_cm * 0.01f * units_per_meter;
+}
+
+// True: the gift goes on, and the end that the game asks for does not go.
+// With no scale of the room the game decides.
+inline bool GiftStays(float distance, float size, float units_per_meter,
+                      float keep_cm) {
+  return units_per_meter > 0.0f && size > 0.0f &&
+         distance <= GiftReach(size, units_per_meter, keep_cm);
 }
 
 // A VILLAGER IN THE HAND AND HIS JOB [V]. The game gives the job from the

@@ -2,7 +2,8 @@
 
 This doc covers how the player touches, commands and leashes the Creature
 with the VR hands. It has four parts: how the plain game does it, the
-Creature by touch (the open hand, the stroke, the slap), the commands (the
+Creature by touch (the open hand, the stroke, the slap, the gift of an
+object), the commands (the
 trigger on the land and on a thing), and the grip from a distance (the leash,
 the leash on an object, and the stay).
 
@@ -31,6 +32,9 @@ Other docs:
   that is not in the capsule touches nothing.
 - The hand of a stroke is open: the index finger when the Creature is small
   in the player's view, the flat hand when it is large.
+- An object in the Hand that the player lets go at the Creature is a gift:
+  the Creature takes it from the Hand. The gift goes on while the hand is
+  at the Creature (`creature_gift=1`), with the leash and with no leash.
 - With the leash on the Hand, the trigger commands the Creature: a tap or a
   hold on the land sends it there, a press on an object makes it act on that
   object, and a double press ties the leash to the object. A shake of the
@@ -435,6 +439,89 @@ hand mode (section 1.3). The locked select does not read or write the
 `GLeashStatus`. The Creature panel needs the Creature in the next pick record
 (`ui-layer.md`).
 
+### 1.8 The gift of an object [V]
+
+**The press.** A press of the Action button with an object in the Hand goes
+to `fn_005D1560` (`grab.md`, "An object in the Hand that goes onto a thing").
+For a Creature that takes the object (slot `0x748`), `fn_005D3080` sends
+packet `0x1F` with the index of the Creature. It sets the interface action
+`0xF` and bit `0x20` of the pick lock `GInterface+0x38`. It sends nothing
+while `GInterface+0x444` holds the game turn of a gift that the game did not
+handle (`fn_005D36A0`, cleared at `0x005D2644`).
+
+**The test of slot `0x748`** is `Creature::InterfaceValidToGiveObject`
+(`0x0047A330`, thiscall, the status and the object, `ret 8`). It gives 1 when
+all of these are true:
+
+- The Creature has a player, and that player is the player of the status or
+  is allied with it.
+- The object is no miracle (slot `0x4C4` gives 0).
+- The info of the Creature (`Object+0x28`) does not have `0xD` at `+0x1F4`.
+- `Object::CanBePickedUpByCreatureIgnoringWhetherItIsInTheMap` (`0x004E3960`)
+  says yes. It says no for the object that holds the leash of the Creature.
+  The other tests compare values of the object with values of the Creature
+  [I: its size and its strength].
+
+The test does not read the leash on the Hand.
+
+**The handler of packet `0x1F`** is `fn_005DA2D0` (thiscall on `GInterface`,
+the Creature and the hand, `ret 8`). It makes the test of slot `0x748` again.
+Then, for a Creature with bit `0x10` of `Object+0x24` clear:
+
+- `fn_0046C080` writes the Creature to `CHand+0x49BC` and `+0x49B4`, and its
+  `LH3DCreature` to `+0x49B8`.
+- `fn_0047A1D0` ends the animations of the Creature and forces a plan with
+  action `0x8E` (`Creature::ForceActivityAndForceAction`). The steps of that
+  action are `0x57` and `0x56`
+  (`CreatureAgenda::ConstructSubActionsForTakeObjectFromHand` `0x004AB200`).
+  Step `0x56` (`0x00506CF0`) waits while an action of the body runs. Then it
+  writes the object to `LH3DCreature+0x48CC` and starts state `0xF` of the
+  `LH3DCreature` (`0x00480FC0`).
+
+A Creature that a locked select has (bit `0x10`) starts no take:
+`fn_0047A1D0` returns at once.
+
+**The hand-over point.** `fn_00480810` (thiscall on the `LH3DCreature`, a
+point, a flag and an angle, `ret 0xC`) gives the place of the hand of the
+Creature in its take animation (animation `0x56`, `fn_004EDFF0`). The place
+is turned by the angle and has the size and the place of the Creature.
+`HandStateHolding::Update` (`0x005B3C70`) is its only caller (`0x005B3D5F`),
+with the angle from the Creature to the game camera. While `CHand+0x49BC` is
+set, the Update does three things:
+
+- It gives the Hand the distance of the hand-over point from the view
+  (`CHand::SetDistanceFromView`). So the Hand of the mouse is at the depth of
+  that point.
+- While the `LH3DCreature` is in state `0xF`, it moves the Hand to the
+  hand-over point and back, 500 ms each way [I: what its timer counts was
+  not traced].
+- It tests the place of the Hand (`0x005B41E8` to `0x005B4236`). When
+  `CHand+0x78` is more than 15 times the size `LH3DCreature+0x90` from the
+  hand-over point, it sends packet `0x52` with the index of the Creature
+  (`0x005B424C`), on each call.
+
+**Packet `0x52`** (the handler at `0x0063DA94`) ends the gift. It does
+nothing to a Creature that holds an object in step `0x56` of action `0x8E`
+(`[Creature+0x160]+0x28`). Else it ends the action of the Creature
+(`Creature::FinishActionUnsuccessfully`), and it clears `+0x48CC` of an
+`LH3DCreature` in state `0xF`. For the local interface it then clears
+`CHand+0x49BC` (`fn_0046C0B0`) and resets the interface (`fn_005D1260`). The
+object stays in the Hand.
+
+**The take.** The step of state `0xF` (`0x00487B30`) plays animation `0x56`.
+When the animation passes its take frame (`LH3DCreature+0x4A38`) with an
+object at `+0x48CC`, the Creature holds the object. The game takes the object
+out of the Hand (slot `0x74C` of the Creature, and `fn_005DA100`), clears
+`CHand+0x49BC` and clears bit `0x20` of the pick lock. With no object at
+`+0x48CC` the state ends. The take has no test of a distance.
+
+**The leash.** No function of this path reads the `GLeashStatus`.
+`Creature::UpdateLeash` (`0x004CE320`) sets a desire of the Creature for
+the leash of kind 1 and of kind 3. `Creature::ProcessState` makes the
+Creature walk to the Hand when it is farther from the Hand than the rope is
+long (`0x0047316D`). The rest of the mind of the Creature was not read for
+the leash.
+
 ## 2. The Creature by touch
 
 The code is in `hand_direct.cpp` (`TouchFrame`, `h_CreatureUpdate`,
@@ -698,6 +785,94 @@ The report window adds the counts: presses with no camera move, leash clicks,
 states with no wait, hits refused at a distance, slap branches forced by the
 swept test, frames the pick kept the Creature, and frames with the point at
 the palm.
+
+### 2.9 The gift of an object (`creature_gift`)
+
+The player takes an object, brings it to the Creature and opens the grip.
+The Creature takes the object from the Hand. The code is in `village.cpp`
+(`VillageSelect`, `GiftEndHeldBack`, `WatchGift`), with the pure rules in
+`village_math.h` (`HoldReachNow`, `GiftStays`).
+
+**The start is the game's own.** The opening of the grip with an object in
+the Hand is a press of the game. The Creature is in the pick record when the
+Hand's point or the object is in its body (`hold_target`, `grab.md`, "An
+object in the Hand that goes onto a thing"). The gold halo is on the
+Creature, and the card says "Grip Open to give it to the Creature". The game
+then sends packet `0x1F` (section 1.8). The object stays in the Hand, with
+the grip open, until the Creature takes it.
+
+**A Creature that is the target stays the target** (`hold_creature_stay=1`).
+A Creature becomes the target only with the Hand's point or the object in its
+body. Then it stays the target while the smaller of the two gaps is not more
+than `hold_target_cm` (6 cm of the room). The body of a Creature of size 0.22
+is 4 cm of the room across at 51 units a meter, and it moves when the
+Creature turns. With no stay the halo comes and goes while the hand is
+almost still, and an opening in a frame with no halo can set the object
+down.
+
+**Why the test of the game cannot decide.** The game ends a gift when its
+Hand is more than 15 times the size of the Creature from the hand-over point
+(section 1.8). It brings the Hand of the mouse to that point. The Hand of
+the mod stays at the real hand, so the test measures the real hand against a
+point that the player cannot see. For a Creature of size 0.22 the test takes
+3.3 units: 6.5 cm of the room at 51 units a meter. An object in the palm is
+11 cm from the Hand's point. So with the object in the body of the Creature,
+the Hand's point is past the test most times. The game then ends the gift
+100 to 200 ms after its start: the packet of the start and the packet of the
+end each wait for a game turn. The Creature ends its action, and the object
+stays in the Hand.
+
+**The test of the mod** (`creature_gift=1`). A hook of the function that
+sends a packet with the index of an object (`0x00550C80`) sees packet `0x52`
+from the test of the Holding state (the return address `0x005B4251`). The mod
+holds the packet back while the Hand's point is at the Creature:
+
+```
+distance from the Hand's point to the body of the Creature
+    <= 15 * size + creature_gift_cm of the room
+```
+
+The body is the body bone of the Creature (section 3). When the Hand's point
+is farther, the packet goes, and the game ends the gift as it does for a
+mouse that moves away. So the player takes the object back when he moves the
+hand away from the Creature. The mod moves no Hand and no object. The
+Creature takes the object at the take frame of its animation, from the place
+of the real hand. Each other packet, and packet `0x52` from each other
+caller, goes to the game as it came.
+
+**The leash.** The game has no test of the leash for a gift (section 1.8),
+and the mod has none. A Creature on the leash walks after the Hand. So when
+the grip opens, its body is some cm of the room from the Hand's point more
+often than the body of a Creature that stands. The game then starts the gift
+from the Creature that the Hand keeps for 1100 ms (`grab.md`), and its test
+of the Hand fails at once. With `creature_gift=0` the gift of a Creature on
+the leash ends 80 to 110 ms after its start in desktop runs.
+
+| Key | Default | What it does |
+| --- | --- | --- |
+| `creature_gift` | 1 | 1: the test of the mod. 0: the test of the game ends a gift when the real hand is more than 15 times the size of the Creature from the hand-over point |
+| `creature_gift_cm` | 20 | The reach of the test of the mod past 15 times the size, in cm of the room. 0 to 100 |
+| `hold_creature_stay` | 1 | 1: a Creature that is the target of the object in the Hand stays the target to `hold_target_cm` from its body. 0: only in its body |
+
+The keys are not in the launcher.
+
+**The log.** The tag `village` has one line for each change of a gift:
+
+- "a gift starts": the Creature, the object, the Hand's point from the body,
+  the Hand of the game from the hand-over point, and what the test of the
+  game takes.
+- "the game asks for the end of the gift ... the mod holds packet 0x52
+  back": one line for a gift, at the first packet.
+- "the game asks for the end of the gift ... Packet 0x52 goes": the hand
+  went away, or `creature_gift=0`.
+- "the Creature ... took the ...", with the time from the start and the
+  count of the packets that the mod held back.
+- "the gift is over ...: the game ended it (packet 0x52)".
+
+The report window has the counts of the gifts that started, that the
+Creature took and that the game ended, and the count of the packets that the
+mod held back. It also has the frames in which a Creature stayed the target
+past its body.
 
 ## 3. The body of the Creature before a press
 
@@ -1021,6 +1196,13 @@ and `PumpHold` (`far_grab.cpp`) and `hint_card.cpp`. The pure rules are
   comes back from an object). The Creature of a different player is no
   target. A Creature that the game would not leash is no target. The halo is
   the halo of each far target.
+- The aim measures your Creature by its body, as it measures each living
+  thing: the capsule of the choice at the Hand, from the land under the body
+  bone up to `1.1 S`, with the 2D radius. `FarSelect` takes the Creature from
+  the game, so it is a candidate also when the draw did not offer it
+  (`far_grab_creature=1`, `grab.md`, "The cone and the choice"). In its cone
+  of 4 degrees the Creature comes before a tree, a rock and a signpost, and it
+  keeps the halo to 7 degrees.
 - The card of the hand shows "Grip Put the leash on", "Grip Take the leash
   off" or "Grip Take the leash back". A second line shows "Grip hold Make it
   stay" (section 5.3).
@@ -1075,6 +1257,7 @@ that is not the player's, with each state of the leash. The test key
 | Key | Default | Meaning |
 | --- | --- | --- |
 | `far_leash` | 1 | Your Creature in the aim is a target of the leash and of the stay. 0 takes the Creature out of the far targets |
+| `far_grab_creature` | 1 | 1: the aim measures your Creature by its body and takes it from the game. 0: by the point of its mesh, at its feet, and only when the draw offered it |
 | `creature_hold_stay` | 1 | See section 5.3. 0: the leash click goes out at the close of the grip, and no grip makes the Creature stay |
 | `far_test_creature` | 0 | A test key. 1: only your Creature is a far target, and the word `aimfar` aims at it |
 
@@ -1293,6 +1476,10 @@ The math tests are in `bwvr/test/controller_math/` and run with
   while the grip is closed, the wait of the end (`EndNow`), and the distance
   and the watch for the log (`GoesOn`, `WatchDone`).
 - The near target is in `far_checks.h` (see `grab.md`).
+- The gift (`village_checks.h`): the reach of the test of the game (15 times
+  the size), the reach of the test of the mod at size 0.22 and at size 2,
+  `creature_gift_cm=0`, more units in a meter, no scale of the room, and a
+  Creature that was the target and one that was not (`HoldReachNow`).
 
 ### 6.2 A Creature in a desktop run
 
@@ -1319,6 +1506,8 @@ creature_recipe.ps1 -Name <run> -Dll <dll> -Kind stay
 creature_recipe.ps1 -Name <run> -Dll <dll> -Kind tie
 creature_recipe.ps1 -Name <run> -Dll <dll> -Kind click
 creature_recipe.ps1 -Name <run> -Dll <dll> -Kind walk
+creature_recipe.ps1 -Name <run> -Dll <dll> -Kind gift
+creature_recipe.ps1 -Name <run> -Dll <dll> -Kind giftfree
 ```
 
 The kind `state` (the default) does these steps:
@@ -1376,6 +1565,33 @@ again in step 3, and the release sends packet `0x5E` with the land point. With
 release sends packet `0x5D` with the object. Steps 4 and 5 send packet `0x5D`
 with each rule.
 
+The kinds `gift` and `giftfree` are for the gift of an object (section
+2.9). `gift` puts the leash on first, with the grip from a distance. Then,
+after two zoom steps in:
+
+1. `seek` puts the Hand's point on the nearest object that the Hand can hold
+   (`seek_plan=hold`, a pig in the test save), and the grip closes for 200
+   frames.
+2. `point` and `seek` bring the hand to the body bone of the Creature
+   (`seek_plan=creature`). The grip opens there 80 frames later: the first
+   gift.
+3. The same with a second object. Before the grip opens, `seek` steps the
+   Hand's point 9 cm of the room down (`seek_plan=down`, `seek_step_cm=9`):
+   the second gift.
+
+`-Set "creature_gift=0"` gives the test of the game. What the runs show:
+
+| The run | The first gift | The second gift |
+| --- | --- | --- |
+| `gift` | The Creature walked on the leash. The Hand's point was 8.7 cm of the room from its body, and the Hand of the game 6.4 cm from the hand-over point, with a test of 4.6 cm. The mod held packet `0x52` back on 62 calls, and the Creature took the pig 1.3 s after the start | The Hand of the game was 4.5 cm from the hand-over point. The game sent no packet, and the Creature took the pig after 1.4 s |
+| `gift`, `creature_gift=0` | The Hand of the game was 11.6 cm from the hand-over point. Packet `0x52` went, and the gift was over 78 ms after its start with the pig in the Hand | The same: 15.3 cm, and over after 109 ms |
+| `giftfree` | The Creature stood at the door. The Hand's point was 0.2 cm from its body, and the Hand of the game 4.0 cm from the hand-over point. The Creature took the pig after 2.5 s | The Hand of the game was 5.0 cm from the hand-over point. The mod held packet `0x52` back on 101 calls, and the Creature took the pig after 2.1 s |
+| `giftfree`, `creature_gift=0` | As `giftfree` | The Hand of the game was 4.0 cm from the hand-over point, in the test, and the Creature took the pig |
+
+So the test of the game passes or fails by some mm of the place of the Hand,
+and a Creature that walks on the leash makes it fail. Lines to read: the tag
+`village`, and `grip : the object left the Hand another way` for a take.
+
 The kind `click` is for a text that waits for a click
 (`controller-hints.md`, section 10). The leash goes on, and the test key
 `text_click_test` makes the game say a text with interaction at the frames
@@ -1421,6 +1637,12 @@ now"), and the Creature state ends.
 
 ### 6.3 What the desktop cannot show
 
+- Whether a real hand gives an object to the Creature at the first opening of
+  the grip, with the leash on and with no leash. Whether 20 cm of the room
+  (`creature_gift_cm`) is a good reach: the gift must go on while the hand
+  rests, and a move of the hand away must keep the object. How it reads when
+  the object goes from the real hand to the hand of the Creature at the take
+  frame.
 - A stroke or a slap at the right feel at `creature_slap_mps` 1.0 and 5 cm of
   reach, and a backhand and a forehand, with the arm and with the wrist.
 - That the camera stays still at a press on the Creature.

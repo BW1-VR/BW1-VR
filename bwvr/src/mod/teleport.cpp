@@ -39,9 +39,19 @@
 //
 // THE REFUSALS. The press of A is refused, with one short buzz, when a grip
 // holds the world, a gesture is drawn, a story owns the camera, a dialog is
-// up, the camera input is off, there is a fight, the game's jump switch (bit
-// 0x10 of CameraHelp::EnabledFeatures) is off, or the hand cannot act. A
-// refusal that starts while the player aims cancels the aim.
+// up, the camera input is off, there is a fight, the game's switch for a move
+// is off, or the hand cannot act. A refusal that starts while the player aims
+// cancels the aim.
+//
+// THE SWITCH OF THE GAME (teleport_switch). A script of the game turns the
+// camera controls on and off with the bits of CameraHelp::EnabledFeatures.
+// The teleport moves the player over the land, as the walk with the stick
+// does, so the press of A keeps to the switch of the walk: the drag of the
+// land (bit 8). The first step of the tutorial has only that bit, and the
+// player goes to the village with the teleport or with the stick. With
+// teleport_switch=0 the press keeps to the switch of the double click jump
+// (bit 0x10). The mouse double click is that jump, so it always keeps to bit
+// 0x10.
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -163,6 +173,13 @@ int g_misc_logs = 0;
 ULONGLONG g_second_tick_at = 0;
 bool g_refused_buzz = false;
 
+// THE PRESS IS POSSIBLE: what the last TeleportFrame found, for the hint
+// card. And the reason of the game that the log last gave, with its count.
+bool g_possible = false;
+const char* g_logged_game = "";
+int g_game_logs = 0;
+const int kMaxGameLogs = 40;
+
 // THE SMOOTH AIM: one filter for the aim point and one for the direction, and
 // the time of the last aim frame.
 aim_smooth::OneEuroVec3 g_filter_point;
@@ -240,10 +257,17 @@ Mode CurrentMode(const char** why) {
   return kImmersive;
 }
 
+bool JumpSwitchOn() {
+  return (*reinterpret_cast<const uint32_t*>(kEnabledFeatures) &
+          kFeatureJump) != 0;
+}
+
 // The first reason that the teleport cannot start or go on, or null. The
 // reasons that need the hand are in Refuse, and the ones of the game are
-// here, so the mouse double click uses them too.
-const char* GameRefuses() {
+// here, so the mouse double click uses them too. jump is true for a move that
+// keeps to the game's jump switch, and false for one that keeps to its switch
+// for the drag of the land.
+const char* GameRefuses(bool jump) {
   if (ScriptCameraStoryOwns()) return "a story owns the camera";
   if (*reinterpret_cast<const uintptr_t*>(kActiveBox) != 0) {
     return "a dialog is up";
@@ -256,25 +280,50 @@ const char* GameRefuses() {
   if (*reinterpret_cast<const int32_t*>(mode + kModeFight) != 0) {
     return "there is a fight";
   }
-  if ((*reinterpret_cast<const uint32_t*>(kEnabledFeatures) & kFeatureJump) ==
-      0) {
-    return "the game's jump switch is off (camera switch 0x10)";
+  if (jump) {
+    if (!JumpSwitchOn()) {
+      return "the game's jump switch is off (camera switch 0x10)";
+    }
+  } else if (!TabletopMoveAllowed()) {
+    return "the game's switch for the drag of the land is off (camera switch "
+           "8)";
   }
   return nullptr;
 }
 
-const char* Refuse(const TeleportInput& in, Mode* mode) {
+// The press of A keeps to the jump switch (teleport_switch=0).
+bool PressNeedsJump() { return g_settings.move_switch == 0; }
+
+// The first reason that refuses the press of A, or null. game gets the
+// reason of the view or of the game alone, with no reason of the hand.
+const char* Refuse(const TeleportInput& in, Mode* mode, const char** game) {
   const char* why = nullptr;
   *mode = CurrentMode(&why);
+  *game = why != nullptr ? why : GameRefuses(PressNeedsJump());
   if (why != nullptr) return why;
   if (!in.hand) return "the pointing hand is not active";
   if (!in.usable) return "the hand cannot act now, for example in a menu";
   if (in.grab_held) return "a grip holds the world";
   if (in.gesture_held) return "a gesture is being drawn";
-  why = GameRefuses();
-  if (why != nullptr) return why;
+  if (*game != nullptr) return *game;
   if (!in.have_aim) return "the aim pose is not tracked";
   return nullptr;
+}
+
+// One line of the log for each change of what the view and the game say to a
+// press of A.
+void LogGame(const char* game) {
+  if (game == g_logged_game) return;
+  g_logged_game = game;
+  if (g_game_logs >= kMaxGameLogs) return;
+  ++g_game_logs;
+  if (game == nullptr) {
+    ModLog("teleport     : the view and the game let A teleport now "
+           "(teleport_switch=%d), frame %llu", g_settings.move_switch, g_frame);
+  } else {
+    ModLog("teleport     : A does not teleport now: %s (teleport_switch=%d), "
+           "frame %llu", game, g_settings.move_switch, g_frame);
+  }
 }
 
 // Is the land point a valid target? The reason is always set.
@@ -594,7 +643,45 @@ void PollRingKey() {
   LogRuleMode("Ctrl and Insert");
 }
 
+// What the switch rule of the press is now, in the log.
+void LogSwitch(const char* why) {
+  ModLog("teleport     : teleport_switch=%d (%s). %s", g_settings.move_switch,
+         why,
+         g_settings.move_switch != 0
+             ? "The press of A keeps to the game's switch for the drag of the "
+               "land (bit 8), as the walk with the stick does"
+             : "The press of A keeps to the game's switch for the double "
+               "click jump (bit 0x10)");
+}
+
+// THE A/B KEY of teleport_switch (test_keys=1): Ctrl and Shift with the comma
+// key change the switch between 1 and 0. The pointing controller gives a long
+// pulse for 1 and a short pulse for 0. The key is read once a frame, and only
+// while a window of the game is in front.
+void PollSwitchKey() {
+  static bool was = false;
+  if (!g_settings.test_keys) return;
+  const bool down = (GetAsyncKeyState(VK_OEM_COMMA) & 0x8000) != 0 &&
+                    (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0 &&
+                    (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
+  const bool pressed = down && !was;
+  was = down;
+  if (!pressed) return;
+  DWORD process = 0;
+  const HWND window = GetForegroundWindow();
+  if (window != nullptr) GetWindowThreadProcessId(window, &process);
+  if (process != GetCurrentProcessId()) return;
+  TeleportSwitchToggle("Ctrl, Shift and the comma key");
+}
+
 }  // namespace
+
+void TeleportSwitchToggle(const char* by) {
+  if (!g_installed || !g_settings.test_keys) return;
+  g_settings.move_switch = g_settings.move_switch != 0 ? 0 : 1;
+  ControllersGesturePulse(0.5f, g_settings.move_switch != 0 ? 0.30f : 0.08f);
+  LogSwitch(by);
+}
 
 void TeleportSetOptions(const TeleportSettings& settings) {
   g_settings = settings;
@@ -609,15 +696,19 @@ void TeleportSetOptions(const TeleportSettings& settings) {
   if (g_settings.ring_max_cm < g_settings.ring_min_cm) {
     g_settings.ring_max_cm = g_settings.ring_min_cm;
   }
+  g_settings.move_switch = g_settings.move_switch != 0 ? 1 : 0;
   g_installed = true;
   if (g_settings.on) {
     ModLog("teleport     : on. Hold A to aim an arc with a reach of %d m, and "
            "let go of A to go to the ring. B cancels. The mouse double "
            "click in the God view goes too.", g_settings.reach_m);
     LogRuleMode("start");
+    LogSwitch("start");
     if (g_settings.test_keys) {
       ModLog("keys         : Ctrl with Insert changes the size rule of the "
              "ring between the world and the room (test_keys=1)");
+      ModLog("keys         : Ctrl and Shift with the comma key change the "
+             "switch of the game that the teleport keeps to (test_keys=1)");
     }
   } else {
     ModLog("teleport     : off. A makes the game's jump. The mouse double "
@@ -647,6 +738,14 @@ int TeleportJumpEvent() {
 // For the grab from a distance: the player aims the teleport now.
 bool TeleportAiming() { return g_installed && g_aiming; }
 
+bool TeleportPossible() {
+  if (!g_installed) return false;
+  // When A is not the teleport, it is the game's jump, and the game refuses
+  // that while its jump switch is off.
+  if (!TeleportOwnsA()) return JumpSwitchOn();
+  return g_possible;
+}
+
 bool TeleportDrawState(TeleportDraw* out) {
   if (!g_installed || !g_draw.active || !g_aiming) return false;
   *out = g_draw;
@@ -667,13 +766,18 @@ void TeleportFrame() {
     HapticsPulse(haptics_math::kTick);
   }
   PollRingKey();
+  PollSwitchKey();
   TeleportInput in;
   if (!ControllersTeleportInput(&in)) {
+    g_possible = false;
     if (g_aiming) CancelAim("the controllers are off", false);
     return;
   }
   Mode mode = kNone;
-  const char* refused = Refuse(in, &mode);
+  const char* game = nullptr;
+  const char* refused = Refuse(in, &mode, &game);
+  g_possible = refused == nullptr;
+  LogGame(game);
 
   if (g_aiming) {
     if (!in.a_down) {
@@ -750,9 +854,10 @@ bool TeleportMouseDoubleClick(void* mode_ptr) {
       IsBadReadPtr(mode_ptr, kModeReadSize)) {
     return false;
   }
-  // The game decides with the same switches. When one is off the game keeps
-  // the click, so it does not move the view.
-  const char* why = GameRefuses();
+  // The game decides with the same switches, and its jump switch is one of
+  // them. When one is off the game keeps the click, so it does not move the
+  // view.
+  const char* why = GameRefuses(true);
   if (why != nullptr) {
     ++g_mouse_refused;
     if (MiscLog()) {

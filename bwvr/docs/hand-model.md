@@ -1201,13 +1201,25 @@ target").
    the glow, and land or an object further in front does. The disc writes no
    depth. Its place on the screen stays at the true point, so the two eyes
    fuse it at the Hand's point.
+8. In one walk for both eyes the pass of the left eye draws the right eye
+   too, and a batch goes to the right eye with the eye difference of the rhw
+   in its vertices (`backend.md`, "One walk for both eyes"). The rhw of the
+   disc is that of the point of the depth test, not that of the Hand's point.
+   So each disc is drawn for the left eye only, and then for the right eye
+   only, moved by the eye difference of the depth of its middle (`DrawDisc`,
+   `one_walk_marks=1`). A halo is drawn the same way. With `one_walk_marks=0`
+   the right eye has the glow at the eye difference of the point of the depth
+   test. The two eyes then fuse the glow half a Hand's length nearer than the
+   Hand's point, on the line from the left eye, and the glow is not at one
+   place on the hand when the hand turns.
 
 The glow is not drawn when the point is not in front of the near plane, when
 the disc is wholly outside the render, or when the disc would be wider than
 half the render (a hand at the face).
 
-**Keys.** `hand_glow` (1, in the launcher, Controllers group, "Glow at the
-Hand's point"): 0 turns the disc off. `hand_glow_idle` (0): 1 draws the glow
+**Keys.** `hand_glow` (0, in the launcher, Controllers group, "Glow at the
+Hand's point"): 1 turns the disc on. It is off by default, because the mesh
+of a target glows (`target_glow=1`). `hand_glow_idle` (0): 1 draws the glow
 on each frame, also over nothing and while the Hand holds an object. With the
 mouse, with `controller_hand=0` or with `hand_glow=0` the disc draws nothing
 and changes no state.
@@ -1215,6 +1227,9 @@ and changes no state.
 **The log.** The tag is `hand glow`. One line at the first draw. One line for
 each change of the look and every 900 frames, 40 lines at most, with the
 center in each eye, the distance between the two, the radius and the depth.
+In one walk the line also has the eye difference of that depth and the value
+of `one_walk_marks`. On a frame of `one_walk_check=1` one more line has the
+center in the right eye of its own walk beside the center that one walk drew.
 Each report window counts the draws of each look and the passes with no draw.
 
 **Tests.** The math test (`GlowChecks`): the middle and a point off the
@@ -1225,6 +1240,17 @@ turned camera gives the same numbers, and two eyes 6.68 units apart put the
 two discs `fx * e / d * hx` pixels apart, level, each on its own eye's line to
 the point. On the desktop both eyes put the disc on the tip of the index
 finger, and a villager under the point turns the disc gold and larger.
+
+In one walk, a desktop run with `hand_glow=1`, `hand_glow_idle=1`,
+`one_walk_check=1` and four poses of the hand (`fake_controller_rots`) has
+the glow of the right eye at its place in its own walk, to 0.1 px, in each
+pose. With `one_walk_marks=0` it is 33 to 52 px from that place, for a Hand's
+point 44 to 54 units deep in a render of 3600 by 2880: beside the finger tip
+in the picture, and not at the same distance from it in each pose. The math
+test has the rule for the glow and for a halo against a camera of the right
+eye (`one_walk_checks.h`). A halo of a far target, 446 units deep, is at the
+same pixels with `one_walk_marks` 1 and 0. The run with a halo of the target
+at the Hand has the Hand in front of most of the halo.
 
 **Open: only a headset shows it.** The sizes and the colors. Whether the glow
 is easy to see on bright land, on the sea and on the Hand. Whether the depth

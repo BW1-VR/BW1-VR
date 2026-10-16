@@ -587,9 +587,28 @@ sees.
    player goes to it on purpose. Of two scrolls the nearer one wins.
 3. Then a loose body that the point touches wins.
 4. Then the nearest body in the reach wins.
-5. Last, a scroll that is past the reach of the pick and inside the reach of a
+5. Then a scroll that is past the reach of the pick and inside the reach of a
    scroll (`scroll_reach_cm`, 10 cm, see [village.md](village.md)). It wins
    only when no other body is in the reach of the pick.
+6. Last, a signpost that the Hand's point is not in (`hand_sign_last=1`,
+   `near_math::SignOut`). A signpost is a scroll of the kind "did you know"
+   (see "The cone and the choice"). The point is in it when the gap to its
+   ball is `hand_touch_cm` or less, and then it comes under rule 1 as each
+   other scroll. A signpost of rule 6 is the target only when no other body is
+   in its reach, no object is in the wide reach, and the aim has no target at
+   a distance:
+   - Each body of the rules 1 to 5 comes before it: a miracle, the Creature,
+     a house, a tree, a scroll of a quest.
+   - It is no near object. It does not stop the wide pick of an object that
+     is farther from the point, and it does not turn the grab from a distance
+     off (see "Near objects win").
+   - While the aim has a far target, it is no target
+     (`near_math::SignGivesWay`). `Choose` reads the far target of the last
+     frame. `FarSelect` runs with such a signpost as the choice, and it takes
+     the choice away in the frame in which the aim gets its target. The halo
+     at the Hand of that one frame can still be on the signpost.
+
+   With `hand_sign_last=0` a signpost is a scroll of the rules 2 and 5.
 
 In rule 1 and in rule 3 the smaller body wins: a villager in a forest, a rock
 at a house. The size is the larger of the radius and half the height, in steps
@@ -641,7 +660,10 @@ green look. See [hand-model.md](hand-model.md) for the model of the glow.
 
 The grab from a distance is off while an object that a press acts on is near
 the Hand's point. The objects are the four kinds of the table above, and the
-Creature. `Choose` keeps the smallest gap of them (`NearBlocks`):
+Creature. A signpost that the Hand's point is not in is not such an object
+(`hand_sign_last=1`, rule 6 of the choice): the aim keeps its far target with
+the Hand's point beside a signpost. `Choose` keeps the smallest gap of the
+others (`NearBlocks`):
 
 - The far grab goes off when the gap is `far_grab_near_cm` or less (10 cm of
   the room).
@@ -672,6 +694,15 @@ behind it is not taken. An object that moves has a longer wide reach, by its
 speed (see "A target that moves, floats or dies"). With `hand_wide_pick_cm=0` an object from
 `hand_pick_cm` to 15 cm is no target. The test key Ctrl Shift Page Up goes
 between 0 and the value (`test_keys=1`).
+
+**The Creature has the wide reach too** (`hand_wide_creature=1`). The far grab
+is off while the Hand's point is 10 cm or less from the Creature, so with a
+reach of `hand_pick_cm` only, the Creature is no target from 4 cm to that gap.
+With the wide reach the Creature is the target of the grip to 15 cm, when no
+object that a press acts on is nearer. The press is the press at the
+Creature: a short grip is the leash click, and a grip that stays closed
+starts the Creature state. With `hand_wide_creature=0` the reach of the
+Creature is `hand_pick_cm`.
 
 **No band with no target.** The cone leaves out an object whose point is less
 than 35 cm of the room from the Hand's point (`kFarMinHandM`). With the rule
@@ -753,6 +784,8 @@ put the leash on from a new game.
 | `hand_pick_cm` | 4 | The reach of the pick from the Hand's point, in cm of the room. 1 to 20 |
 | `hand_wide_pick_cm` | 15 | The reach of the pick for an object that the Hand can hold, when no object that a press acts on is nearer, in cm of the room. 0 turns it off. 0 to 30. The test key Ctrl Shift Page Up goes between 0 and the value (`test_keys=1`) |
 | `hand_touch_cm` | 1 | The point touches a body when the gap is this or less, in cm of the room. 0 to `hand_pick_cm` |
+| `hand_sign_last` | 1 | 1: at the Hand a signpost that the point is not in comes last (rule 6). Each other body in its reach and each object in the wide reach comes before it, it does not turn the grab from a distance off, and it is no target while the aim has a far target. 0: a signpost is a scroll as each other scroll |
+| `hand_wide_creature` | 1 | 1: the Creature has the wide reach of `hand_wide_pick_cm`, when no object that a press acts on is nearer. 0: the reach of the Creature is `hand_pick_cm` |
 | `catch_moving` | 3 | The reach of the pick for an object that moves (see "A target that moves, floats or dies"). 3 puts the extra reach on the reach that the object has at rest, the wide reach too. Only a throw has the guard of `catch_grace_ms`, and that guard ends when the grip is fully open. 2 is the same, but the guard lasts for the whole of `catch_grace_ms`. 1 puts the extra reach on `hand_pick_cm` only, and each object that the Hand let go has the guard. 0 gives each object the same reach, moving or still. The test key Ctrl Page Up goes through 3, 2, 1 and 0, with a pulse that is shorter for each lower value (`test_keys=1`) |
 | `catch_lag_ms` | 100 | The time that the speed of the object counts for, in ms. 0 to 500 |
 | `catch_cap_cm` | 8 | The most extra reach, in cm of the room. 0 to 20 |
@@ -819,9 +852,34 @@ ellipse, the rule in each case (a scroll over a tree that the point is in, a
 villager over the tree about him, a tree that the point touches over a villager
 3 cm away, a rock at a house), all 720 orders of 6 bodies giving the same
 target, the distance of the record, the band of 10 and 15 cm, the least
-distance of a far target, and the halo.
+distance of a far target, and the halo. For rule 6: a signpost 3 cm from the
+point wins over a miracle and over the Creature in the reach as a scroll, and
+each of them wins over it with the rule. A tree that the point is in and a
+scroll of a quest 8 cm away come before it. A signpost that the point is in
+comes under rule 1. A miracle 6 cm away is the wide target with a signpost 9
+cm away. A signpost of rule 6 does not turn the far grab off, and it gives
+way while the aim has a target. Each order of five bodies gives the same
+target.
 
-**Not proven on the desktop:** the body of a tree and the game's height in the
+Desktop runs (`hand_run.ps1 -Kind fixed -Save temple`) show the two keys:
+
+- A signpost stands at the door of the Temple. The Hand's point is 8 cm from
+  it, and the aim is on the Creature 30 cm away. With `hand_sign_last=0` the
+  far grab is off, the signpost is the target of the grip, and the Creature
+  has no halo. With the default the signpost is the target only until the
+  aim is on the Creature. Then the Creature is the far target, and the log
+  says "the signpost ... is no target now".
+- The Hand's point is 6 cm over a signpost and 2 cm from a house
+  (`seek_plan=go,scrolls,up`). With `hand_sign_last=0` the signpost is the
+  target, and with the default the house is.
+- The Hand's point is 11 cm from the Creature (`seek_plan=creature` and the
+  word `slap`). With `hand_wide_creature=0` there is no target, and a grip
+  does nothing. With the default the Creature is the target in the wide
+  reach, and a grip of 6 frames puts the leash on.
+
+**Not proven on the desktop:** a miracle in the wide reach beside a signpost
+(the test miracle floats at the height of the Hand, so the point is in it), a
+grip that stays closed on the Creature in the wide reach, the body of a tree and the game's height in the
 game, the red halo, the Creature as a choice, the rule of the near objects in a
 village, a scroll that wins over a tree that the point is in, and the hook of
 the leash past its install. A place at 66 to 100 units a meter, the scale of
@@ -1206,8 +1264,10 @@ are in `far_choice_math.h` (the body, the balls, the ranks and the target that
 stays) and `controller_math.h` (`FarConeScore`, `FarPickTarget`). Two keys pick
 the rule: `far_grab_choice` (default 2) is how the angle is measured and which
 class comes first, and `far_grab_stay` (default 1) is how the target of now
-keeps the halo. The same choice serves the object target of a Creature command
-(see [creature.md](creature.md), section 4.3).
+keeps the halo. With ranks, each candidate has a class (`ClassOf`): the first
+class, no class, or the last class. `PickClassed` gives the target. The choice
+of `PickRanked` serves the object target of a Creature command too (see
+[creature.md](creature.md), section 4.3).
 
 **What `te` is.** Each candidate has an angle `te` in degrees: 0 when the ray
 is on it, and more when the ray is beside it. A new target needs `te <= 8`
@@ -1225,7 +1285,8 @@ Hand)`, so of two equal targets the nearer one wins.
   the upright body of the object: the line from the base up to `GetHeight` (two
   radii when the game gives none), with the radius around it (`BodyScore`,
   which uses `AimAtBody`). A body covers at least 2 degrees of the view
-  (`kMinCoverDeg`). A forest, a scroll and the Creature keep the point. When
+  (`kMinCoverDeg`). A forest and a scroll keep the point. Your Creature has
+  the body of its capsule (see "Your Creature" below). When
   the ray goes through two bodies, a small one comes first: the score adds 0.5
   degrees for each log2(1 + size), with size the larger of the radius and half
   the height in world units (`kSizeDeg`). A rock of 0.5 comes 1.2 degrees
@@ -1239,7 +1300,8 @@ Hand)`, so of two equal targets the nearer one wins.
   degree from him.
 - **2, the body with ranks (default).** The angle is measured as with 1, with
   the least cover and the size term, and with no bias. A living thing in its
-  cone is in the first rank: it comes before each thing that is not living,
+  cone is in the first rank, and so are a scroll of a quest and a miracle (see
+  below): it comes before each thing that is not living,
   also before a tree, a rock or a pile whose body the ray crosses. The cone of
   a living thing is `te <= 4` degrees (`far_grab_living_deg`), which is 6
   degrees from the line of its body with the least cover. Of two things in the
@@ -1260,8 +1322,53 @@ Hand)`, so of two equal targets the nearer one wins.
 `Living` as a base: a villager of each kind and age, a quest character, an
 animal and a Creature. The test is the game's own `IsLiving`, slot `0x3C4`
 [V]: `GameThingWithPos::IsLiving` `0x00402350` gives 0, and `Living::IsLiving`
-`0x00417460` gives 1. A scroll is in the first rank too. The character of a
-quest stands under his scroll, and the nearest of the two to the ray wins.
+`0x00417460` gives 1. A scroll of a quest is in the first rank too. The
+character of a quest stands under his scroll, and the nearest of the two to
+the ray wins.
+
+**A miracle** that the Hand can take is in the first rank too
+(`far_grab_miracle=1`): a one-off seed on the land, class `OneOffSpellSeed`
+(`IsMiracleSeed`, by the class name). It is a bubble with a radius of 2.3
+units: 7 cm of the room across at 64 units a meter. In its cone it comes
+before a signpost and before each thing that is not living, and it keeps the
+halo as a living thing does. With `far_grab_miracle=0` it has no rank, as a
+rock. Quests of Land 1 and of Land 2 put such miracles on the land with a
+signpost beside them.
+
+**A signpost** is in the last rank (`far_grab_sign=1`). A signpost is a
+scroll of the kind "did you know": the wooden sign with a text of the help
+system. The test is the game's own, `ScriptHighlight::IsDidYouKnow`
+`0x0070AC20`: the info of the scroll is entry 1 of the table at `0x00D96390`
+[V]. The log names that type "silver". A signpost takes the halo in two cases
+only:
+
+- No other candidate is a target.
+- The aim is on the signpost and on no other candidate. The aim is on a
+  candidate when its `te` is 0: the ray is in its body, with the least cover.
+
+In each other case the other candidates decide, as if the signpost was not
+there. So a signpost has no rank in its cone, it does not keep the halo past
+its body, it has no bias in the score, and a tree whose body the ray crosses
+comes before it. For the target of now the aim stays on it to 1 degree
+(`kLastStayDeg`), so a hand at the edge of a body does not move the halo to
+and fro. With `far_grab_sign=0` a signpost is a scroll of the first rank: it
+wins over a miracle and over a tree in its cone, and it keeps the halo to 7
+degrees. The two keys act only with ranks (`far_grab_choice` 2 and 4).
+
+**Your Creature** is a living thing, and the aim measures it by its body
+(`far_grab_creature=1`). The body is the capsule of the choice at the Hand
+(`CreatureBody`): the line from the land under its body bone up to `1.1 S`,
+with its 2D radius, and the least cover of 2 degrees. `FarSelect` takes the
+Creature from the game (`GPlayer+0xA4C` of the local player), so it is a
+candidate also when the draw did not offer it. With `far_grab_creature=0` the
+measure is the point of its mesh less the angle of its 2D radius, and the
+Creature is a candidate only when the draw offered it. The point of the mesh
+is at the feet of the Creature, and the draw offers an object by that point.
+So the aim on the head of a Creature of size 0.22, 44 cm from the Hand, is 4.3
+degrees from it by the point: that is past the cone of a living thing, and a
+tree behind the Creature has the halo. For a Creature of size 0.5 at 70 cm
+the same aim is 6.8 degrees away. By the body both are 0. The Creature needs
+`far_leash=1`, and a leash click that the game takes now (`LeashKind`).
 
 **Why the default is the body with ranks.** A bias is a part of the score. So
 the score of the other object decides how far from a living thing the aim can
@@ -1301,7 +1408,15 @@ The log line of each new target says why it won and names the second best
 ("Why: a living thing in its cone comes before each thing that is not living.
 The second one is ... (Tree) at 0.0 degrees, score 2.42 against 2.92"). A
 target that keeps the halo past its cone has one line ("the target ...
-(Villager) keeps the halo (far_grab_stay=1)").
+(Villager) keeps the halo (far_grab_stay=1)"). The reasons of the classes are
+"a miracle in its cone comes before a signpost and before each thing that is
+not living", "the aim is on the signpost and on no other target" and "a
+signpost comes after each other target". The last one shows only when the
+signpost has the halo with `far_grab_sign=0`. The line names a signpost ("a
+signpost: the grip activates it"), and the second one too. Each time your
+Creature becomes the target by its body, one line has the body, the angle to
+it, and the angle that the point of its mesh gives ("your Creature ... is the
+target by its body", 60 lines).
 
 **The rules of each value.**
 
@@ -1338,7 +1453,9 @@ limit. An object past the range gets no halo and no lock.
 - A forest (`BigForest`). The pull gives one new tree, and the glide draws it
   from the forest's point.
 - A scroll in the cone (`IsScroll`, by the class name, and `Tappable`): the far
-  touch (see below).
+  touch (see below). A signpost is such a scroll, in the last rank.
+- A miracle on the land (`OneOffSpellSeed`): it is a holdable object, in the
+  first rank.
 - The player's own Creature, for the leash and the stay: a short grip changes
   the leash, and a grip that stays closed makes the Creature stay, with no
   pull and no press of the game (`near_math::LeashClick`, `stay_math::Step`,
@@ -1671,8 +1788,10 @@ A scroll in the cone of the aim ray is a far target, with the range of
    the press go. The grip
    stays held back until it opens.
 
-A scroll scores 3 degrees better than its angle (`kFarTouchBiasDeg`), because
-trees stand all around a scroll. `far_touch=0` turns the far touch off.
+A scroll scores 3 degrees better than its angle (`kTouchBiasDeg`,
+`TouchBias` in `far_choice_math.h`), because trees stand all around a scroll.
+A signpost of the last rank does not (see "The cone and the choice").
+`far_touch=0` turns the far touch off.
 
 `FarDraw` (`far_grab.h`) has the fields `touch` (the target is a scroll, and the
 grip activates it) and `bulk` for the hint card, so the card can say "Activate"
@@ -1917,6 +2036,9 @@ not jump.
 | `far_grab_ball_living_deg`, `far_grab_ball_other_deg` | 3, 1.5 | The radius of the ball of a living thing, and of each other thing, in degrees from the ray (`far_grab_choice` 3 and 4). 0 to 20 |
 | `far_grab_stay` | 1 | 1: a living thing that has the halo keeps it against each thing that is not living while the aim is within its cone plus `far_grab_stay_deg`. 0: the margin of 2 degrees between two scores only |
 | `far_grab_stay_deg` | 3 | How far past its cone a living target keeps the halo, in degrees. 0 to 20 |
+| `far_grab_creature` | 1 | 1: the aim measures your Creature by its body, as each living thing, and takes it from the game. 0: by the point of its mesh, at its feet, and only when the draw offered it |
+| `far_grab_miracle` | 1 | 1: a miracle that the Hand can take is in the first rank, as a living thing (`far_grab_choice` 2 and 4). 0: it has no rank |
+| `far_grab_sign` | 1 | 1: a signpost is in the last rank: it takes the halo only when the aim is on it and on no other target, or when no other target is in the cone (`far_grab_choice` 2 and 4). 0: a signpost is a scroll of the first rank |
 | `far_grab_pull` | 80 | The speed of the pull, in cm/s |
 | `far_grab_max_m` | 2.0 | The range: a target is at most this far from the head, in meters of the room along the floor. 0 gives no limit |
 | `far_grab_near_cm`, `far_grab_near_out_cm` | 10, 15 | See "Near objects win" |
@@ -1952,8 +2074,11 @@ Test keys for the desktop runs only:
   and not 50 cm.
 - `far_test_aim_class=N`: the word `aimfar` aims at the middle of the body of the
   nearest villager (1), living thing (2), rock (3), your Creature (4), tree
-  (5), Creature that is not your Creature (6) or quest character (7, a
-  `SpecialVillager`). `far_test_aim_toward=1` (a tree) or 2 (a rock) then turns the aim toward
+  (5), Creature that is not your Creature (6), quest character (7, a
+  `SpecialVillager`) or miracle that the Hand can take (8). The body of your
+  Creature is its capsule. `far_test_aim_up_pct=N` gives a different height
+  on the body, in percent of its height: 100 is the top.
+  `far_test_aim_toward=1` (a tree), 2 (a rock) or 3 (a signpost) then turns the aim toward
   the nearest such object, 20 units or less from the target, by
   `far_test_aim_blend_pct` percent of the way. The same aim then runs with
   each value of `far_grab_choice`, and the log of each new target names the
@@ -1992,7 +2117,10 @@ reason and the second best candidate, one line for each target that keeps the
 halo by the stay rule, the
 lock, the pull (the speed along `p` and the move in cm), the press, "the Hand
 holds" with the frames after the press, each frame of the glide, each end of a
-lock or a fetch with the reason, and one line each report window. Also: how far
+lock or a fetch with the reason, and one line each report window. The tag has
+room for 40 lines in each report window of 450 frames (`kMaxLogs` in
+`far_grab.cpp`), so a long session has the lines of its last targets too. A
+window that had more lines says how many are not in the log. Also: how far
 the object moved while the lock held, a locked target that goes in or out of the
 influence, a target that the game deleted ("the target is gone", with what the
 far grab does with a closed grip then), and how often
@@ -2041,6 +2169,58 @@ The math test (`far_checks.h`, `RangeChecks` in `grip_checks.h`):
   nearest to the ray. The aim on the chest of a villager 1.7 degrees beside
   the target takes the halo, and a villager less than 1 degree nearer does
   not. The crown of a tree with a villager 20 degrees away is the tree.
+- The classes of the ranks (`FarClassChecks` in `far_choice_checks.h`). The
+  class of a signpost, of a scroll of a quest, of a miracle, of a living thing
+  and of a tree, with each value of `far_grab_sign` and `far_grab_miracle`,
+  and with a choice that has no ranks. A miracle 1 m away with a signpost 12
+  cm beside it: the aim on the miracle gives the miracle. With the aim 2.5
+  degrees toward the signpost (0.4 degrees past the cover of the miracle, 2.7
+  degrees from the signpost), the keys at 0 give the signpost and the keys at
+  1 give the miracle, and each key alone gives the miracle too. A signpost
+  that has the halo keeps it with the aim on the miracle when the keys are 0,
+  and the miracle takes it when they are 1. The aim on the signpost and on no
+  other target gives the signpost. With a tree behind the signpost whose body
+  the ray crosses, the tree has the halo. A signpost alone in the cone has
+  the halo with the aim beside it. At the edge of a body: a signpost keeps
+  the halo to 1 degree past its body, a new signpost needs the ray in its
+  body, and a rock keeps the halo to 1 degree past its body with the ray in a
+  signpost. The ray in a signpost and in the body of a villager gives the
+  villager. With no signpost among the candidates, `PickClassed` gives the
+  target and the reason of `PickRanked` in 210 cases of the man beside a
+  tree. The Creature: by the point of its mesh, the aim on the head of a
+  Creature of size 0.22, 44 cm from the Hand, is 4.3 degrees from it, and a
+  tree behind it has the halo. By its body the angle is 0, and the Creature
+  has the halo. The same for a Creature of size 0.5 at 70 cm (6.8 degrees by
+  the point). The Creature keeps the halo in its stay margin, and a tree 12
+  units beside it is the target when the aim is on its crown.
+- A miracle beside a signpost in a desktop run (`hand_run.ps1 -Kind fixed
+  -Save temple`, 100 units a meter). The God view goes to a signpost
+  (`seek_plan=go,scrolls`), the test key `miracle_test_seeds` makes a miracle
+  11.7 units from it, and the aim steps from the miracle to the signpost, past
+  it, and back (`far_test_aim_class=8`, `far_test_aim_toward=3`,
+  `far_test_aim_blends`). The hand is 66 cm from both. With the default keys
+  the miracle has the halo at 0, 25, 50 and 75 percent of the way. At 75
+  percent the aim is 5.4 degrees from the miracle and 1.6 degrees from the
+  signpost, and the miracle keeps the halo by the stay rule. At 100 percent
+  the signpost takes it ("the aim is on the signpost and on no other
+  target"). On the way back the miracle takes it at 75 percent ("a signpost
+  comes after each other target"). With `far_grab_sign=0` and
+  `far_grab_miracle=0` the signpost takes the halo at 50 percent, with the aim
+  2.9 degrees from the miracle and 4.0 degrees from the signpost (score 1.75
+  against 4.50). It keeps the halo until the aim is on the miracle again.
+- The Creature in a desktop run (the same script, 72 units a meter, a
+  Creature of size 0.22, `far_test_aim_class=4` and
+  `far_test_aim_up_pct=100`). The Hand's point is 34 cm from the Creature,
+  the controller is 17 cm over the land, and the aim is on the top of the
+  body of the Creature. By its body the angle
+  is 0.0 degrees. By the point of its mesh it is 5.3 degrees, past the cone
+  of 4 degrees. That point is 1.8 units below the middle of the body: at the
+  feet. With a thing that has no rank 1.7 units beside the Creature (a
+  miracle of the test key, with `far_grab_miracle=0`), `far_grab_creature=0`
+  gives the halo to that thing (score 1.29 against 6.06 for the Creature,
+  5.6 degrees away). The default gives it to the Creature, by its rank. With
+  the hand 60 cm in front of the head, the aim comes from above and both
+  measures give 0 degrees.
 - The choice in a desktop run (`village_run.ps1 -Kind choice`, the test save
   `temple`, 44.4 units a meter). The aim steps from a villager at the Village
   Store toward a tree 9 units from him, and past the tree. A rock is on the
@@ -2133,7 +2313,7 @@ in a new game, with the dialog recipe of [god-view.md](god-view.md), section
 gets the Hand (`fake_controller_play_frame=2750`, `aim_queue.ps1` and
 `throw_queue.ps1` in `bwvr/tools/desk`).
 
-**Not shown in a run:** a villager beside a tree (the start of Land 1 has no villager in view, so the runs use a rock and a tree), a locked target that drifts out of the
+**Not shown in a run:** a villager beside a tree (the start of Land 1 has no villager in view, so the runs use a rock and a tree), a tree or a signpost beside the Creature (the test save `temple` has no tree 20 units or less from the Creature), a large Creature that the draw does not offer, a miracle of a quest beside its signpost, a locked target that drifts out of the
 influence, a villager in the sea, the tether and the halo during a take at a
 distance, a take at a distance from a pile that the game deletes (the runs
 make that case with the test key and a pile of the store), a `Field` and a
@@ -2144,7 +2324,7 @@ land outside the influence, a multiplayer game, a fetch of a villager, a
 Creature or a building, the haptics on a real controller, and the look of the
 halo against open land (the pen is a slope).
 
-**Needs the headset.** Whether 2 m is the right range. Whether the body, the size term and the bias of 3 degrees pick the villager that the hand points at in a crowd, in the quest to save the children. Whether the cone of 8
+**Needs the headset.** Whether 2 m is the right range. Whether the body, the size term and the bias of 3 degrees pick the villager that the hand points at in a crowd, in the quest to save the children. Whether the Creature, a miracle and a signpost are easy to choose with the real aim, and whether a signpost in the last rank is still easy to choose with the aim on it. Whether the cone of 8
 degrees feels right with the real aim pose. Whether the pull at 0.8 m/s or 12 cm
 is easy to do and does not fire by accident. Whether the glide time reads well.
 Whether a take at a distance reads well: the halo, the tether and the count at
@@ -2355,7 +2535,8 @@ rules in `village_math.h`.
 object of the pick record of now (`GInterface+0x3C8`). When it is a Creature that
 says yes to the object in the Hand, the Hand keeps it at `CHand+0x49B4` for 1100
 ms (the timer at `0x00D13F3C`). So the record must hold the Creature before the
-press.
+press. What the game does after the press, and how it ends a gift, is in
+`creature.md`, section 1.8.
 
 **What each object goes onto** (`ValidToApplyThisToObject` of its class):
 
@@ -2433,6 +2614,12 @@ takes most objects. For these two the Hand's point, or the object in the Hand, m
 be in the body. So a villager that the player sets down beside the altar is no
 sacrifice, and a Creature that stands near the Hand does not take the wood.
 
+**A Creature that is the target stays the target** (`hold_creature_stay=1`,
+`HoldReachNow`). A Creature that was the target in the last frame has the reach of
+each other thing, `hold_target_cm`. Its body is small and it moves, so with no stay
+the halo comes and goes while the hand is almost still. The gift itself is in
+`creature.md`, section 2.9.
+
 **The record, the halo and the card.** `VillageKeepRecord` puts the target in the
 next pick record after each eye pass, before each interface step and before each
 press. The target has the gold halo of a target of the grip (`VillageHalo`,
@@ -2469,6 +2656,7 @@ the target at the next close and opening of the grip.
 | --- | --- | --- |
 | `hold_target` | 1 | 0: the pick record of an object in the Hand is the object behind the pixel of the Hand's point |
 | `hold_target_cm` | 6 | The reach of a thing, from the Hand's point or from the object in the Hand to its body, in cm of the room. 1 to 50 |
+| `hold_creature_stay` | 1 | 1: a Creature that is the target stays the target to `hold_target_cm` from its body. 0: a Creature is the target only with the Hand's point or the object in its body |
 
 `scaffold_join` and `scaffold_join_cm` are second names of the two keys. The mod
 reads them when `hold_target` and `hold_target_cm` are not in the file. The keys
@@ -2503,24 +2691,26 @@ times the game put an object on a thing. The tag `hand press` has "the grip pres
 with ... in the Hand. The pick record holds ...".
 
 The math test (`village_checks.h`): the choice with the two gaps, the reach, no
-reach for the altar and for a Creature, and the line of the card for each pair of
-the tables above.
+reach for the altar and for a Creature, the reach of a Creature that was the target,
+and the line of the card for each pair of the tables above.
 
 Desktop runs (the God view, `village_run.ps1`) have shown wood at the Village Store,
 a tree at the Village Store (the card says "Open to give the tree as wood", and the
 store has more wood after the opening), two scaffolds, wood at the Workshop, wood at
 a building site and a scaffold, and a villager at a tree and at the Village Store.
+Desktop runs of `creature_recipe.ps1 -Kind gift` have shown an animal given to a
+Creature (`creature.md`, section 6.2).
 
 **Not run on the desktop:** food, an animal and a crop at a store (the same
-code with a different class), the altar and a sacrifice, a teleport, an object given
-to a Creature, a thing outside the influence (the red halo and its line), a villager
-at a field, at a building site and at the Workshop, and a scaffold that the Workshop
-makes.
+code with a different class), the altar and a sacrifice, a teleport, a thing outside
+the influence (the red halo and its line), a villager at a field, at a building site
+and at the Workshop, and a scaffold that the Workshop makes.
 
 **Needs the headset.** Whether 6 cm is the right reach for a store and a scaffold.
 Whether the halo of a large thing (the Village Store has a body of 15 units, 35 cm of
 the room) reads as "the wood goes here". Whether a player gives an object to the
-Creature with no effort when the object must be in its body.
+Creature with no effort: the Creature becomes the target in its body, and it stays
+the target to 6 cm.
 
 **Limits.** The draw offers a thing only when the point of its mesh is near the Hand.
 A very large building with its point far from the Hand's point can be no target, and

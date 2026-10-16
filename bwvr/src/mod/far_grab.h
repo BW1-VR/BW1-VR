@@ -100,6 +100,7 @@ struct FarPick {
                             // the grip takes from it, with no pull
   bool touch;               // a scroll: the grip activates it, with no pull
                             // (the far touch)
+  bool sign;                // and the scroll is a signpost, for the log
   bool forest;              // a forest: the fetch puts a new tree in the Hand
   int leash;                // the player's own Creature: a short grip changes
                             // the leash, with no pull and no press of the

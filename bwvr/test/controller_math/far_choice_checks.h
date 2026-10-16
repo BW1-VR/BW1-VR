@@ -380,6 +380,374 @@ inline void FarRankChecks() {
   }
 }
 
+// THE CLASSES OF THE RANKS (ClassOf, PickClassed) AND THE BODY OF THE CREATURE.
+// One candidate of a scene, with what FarSelect knows of it.
+struct Item {
+  const char* name;
+  float base[3];
+  float radius;
+  float height;
+  bool living;
+  bool scroll;   // a scroll: it keeps the point
+  bool sign;     // and the scroll is a signpost
+  bool miracle;  // a miracle that the Hand can take
+  bool point;    // the Creature with far_grab_creature=0: the point of its mesh
+};
+
+struct SceneOut {
+  controller_math::FarScore s[6];
+  float near_deg[6];
+  int cls[6];
+  int why;
+};
+
+// The pipeline of FarSelect for a list of items, with the keys far_grab_sign
+// and far_grab_miracle. units is world units in a meter of the room, and the
+// Hand's point is the origin of the ray.
+inline int PickScene(int choice, int stay, bool sign_last, bool miracle_first,
+                     float units, const float origin[3], const float ray[3],
+                     const Item* items, int count, int current,
+                     SceneOut* out) {
+  using namespace far_choice_math;
+  const ChoiceSizes sizes = {kLivingDeg, kBallLivingDeg, kBallOtherDeg};
+  for (int i = 0; i < count; ++i) {
+    const float dx = items[i].base[0] - origin[0];
+    const float dy = items[i].base[1] - origin[1];
+    const float dz = items[i].base[2] - origin[2];
+    const float hand_m = controller_math::FarScoreMeters(
+        sqrtf(dx * dx + dy * dy + dz * dz) / units);
+    const bool living = choice != kChoicePoint && items[i].living;
+    out->s[i] = ChoiceScore(choice, sizes, origin, ray, items[i].base,
+                            items[i].height, items[i].radius, living,
+                            items[i].scroll || items[i].point, hand_m,
+                            &out->near_deg[i]);
+    if (choice == kChoiceBias && living) {
+      out->s[i].score = RankedScore(out->s[i].score, true);
+    }
+    out->cls[i] = ClassOf(ChoiceRanks(choice), living,
+                          choice != kChoicePoint && items[i].scroll,
+                          items[i].sign, items[i].miracle, sign_last,
+                          miracle_first);
+    out->s[i].score -= TouchBias(items[i].scroll, out->cls[i]);
+  }
+  const StayRule rule = MakeStayRule(
+      choice, kLivingDeg, stay, kStayDeg, controller_math::kFarSelectDeg,
+      controller_math::kFarKeepDeg, controller_math::kFarSwitchDeg);
+  controller_math::FarScore work[6];
+  bool first[6];
+  return PickClassed(out->s, out->near_deg, out->cls, count, current, rule,
+                     work, first, &out->why);
+}
+
+inline void FarClassChecks() {
+  using namespace controller_math;
+  using namespace far_choice_math;
+  printf("\nThe classes of the ranks: a miracle, a signpost, the Creature\n");
+
+  // THE CLASS OF A CANDIDATE, with each value of the two keys.
+  Check(ClassOf(true, false, true, true, false, true, true) == kClassLast,
+        "a signpost is in the last class (far_grab_sign=1)",
+        ClassOf(true, false, true, true, false, true, true), kClassLast);
+  Check(ClassOf(true, false, true, true, false, false, true) == kClassFirst,
+        "with far_grab_sign=0 a signpost is a scroll of the first class",
+        ClassOf(true, false, true, true, false, false, true), kClassFirst);
+  Check(ClassOf(false, false, true, true, false, true, true) == kClassFirst,
+        "a choice with no ranks has no last class",
+        ClassOf(false, false, true, true, false, true, true), kClassFirst);
+  Check(ClassOf(true, false, true, false, false, true, true) == kClassFirst,
+        "a scroll of a quest stays in the first class",
+        ClassOf(true, false, true, false, false, true, true), kClassFirst);
+  Check(ClassOf(true, false, false, false, true, true, true) == kClassFirst,
+        "a miracle is in the first class (far_grab_miracle=1)",
+        ClassOf(true, false, false, false, true, true, true), kClassFirst);
+  Check(ClassOf(true, false, false, false, true, true, false) == kClassPlain,
+        "with far_grab_miracle=0 a miracle has no rank",
+        ClassOf(true, false, false, false, true, true, false), kClassPlain);
+  Check(ClassOf(false, false, false, false, true, true, true) == kClassPlain,
+        "a choice with no ranks gives a miracle no rank",
+        ClassOf(false, false, false, false, true, true, true), kClassPlain);
+  Check(ClassOf(true, true, false, false, false, true, true) == kClassFirst &&
+            ClassOf(true, false, false, false, false, true, true) ==
+                kClassPlain,
+        "a living thing is in the first class, and a tree has no rank", 1, 1);
+  Near("a scroll of a quest keeps its bias of 3 degrees",
+       TouchBias(true, kClassFirst), 3.0, 1e-6);
+  Near("a signpost of the last class has no bias", TouchBias(true, kClassLast),
+       0.0, 1e-6);
+
+  // A MIRACLE BESIDE A SIGNPOST, as in the pit of the tutorial. 100 units a
+  // meter. The hand is 30 cm over the land. The miracle is 1 m away, 4.6 cm
+  // across and 4.5 cm tall. The signpost stands 12 cm to the right of it.
+  const float origin[3] = {0.0f, 30.0f, 0.0f};
+  const Item kSeed = {"miracle", {0.0f, 0.0f, 100.0f}, 2.3f, 4.5f,
+                      false, false, false, true, false};
+  const Item kSign = {"signpost", {12.0f, 0.0f, 100.0f}, 3.0f, 0.0f,
+                      false, true, true, false, false};
+  {
+    const Item scene[2] = {kSeed, kSign};
+    const float middle[3] = {0.0f, 2.25f, 100.0f};
+    float ray[3], off[3];
+    Aim(origin, middle, ray);
+    SceneOut o;
+    // The aim on the miracle.
+    int pick = PickScene(kChoiceDefault, 1, true, true, 100.0f, origin, ray,
+                         scene, 2, -1, &o);
+    printf("  the aim on the miracle: miracle te %.2f score %.2f, signpost te "
+           "%.2f score %.2f\n", o.s[0].te, o.s[0].score, o.s[1].te,
+           o.s[1].score);
+    Check(pick == 0 && o.why == kWhyRank,
+          "the aim on a miracle gives the miracle, by its rank", pick, 0);
+    // The aim 2.5 degrees off the miracle, toward the signpost.
+    Turn(ray, 2.5f, off);
+    pick = PickScene(kChoiceDefault, 1, false, false, 100.0f, origin, off,
+                     scene, 2, -1, &o);
+    printf("  2.5 degrees toward the signpost: miracle te %.2f, signpost te "
+           "%.2f\n", o.s[0].te, o.s[1].te);
+    Check(o.s[0].te > 0.0f && o.s[0].te < 1.0f && o.s[1].te > 1.0f &&
+              o.s[1].te < kLivingDeg,
+          "there the aim is less than 1 degree past the cover of the miracle, "
+          "and the signpost is in its cone but not in the aim", o.s[1].te, 2.6);
+    Check(pick == 1 && o.why == kWhyRank,
+          "with the keys at 0 the signpost has the halo there, by its rank",
+          pick, 1);
+    pick = PickScene(kChoiceDefault, 1, true, true, 100.0f, origin, off, scene,
+                     2, -1, &o);
+    Check(pick == 0, "with the keys at 1 the miracle has the halo there", pick,
+          0);
+    pick = PickScene(kChoiceDefault, 1, true, false, 100.0f, origin, off,
+                     scene, 2, -1, &o);
+    Check(pick == 0 && o.why == kWhyNotLast,
+          "far_grab_sign=1 alone gives the miracle there too: a signpost comes "
+          "after a plain thing", pick, 0);
+    pick = PickScene(kChoiceDefault, 1, false, true, 100.0f, origin, off,
+                     scene, 2, -1, &o);
+    Check(pick == 0 && o.why == kWhyNearest,
+          "far_grab_miracle=1 alone gives the miracle there: it is the nearer "
+          "one of the first rank", pick, 0);
+    // The signpost has the halo, and the aim comes back onto the miracle.
+    pick = PickScene(kChoiceDefault, 1, false, false, 100.0f, origin, ray,
+                     scene, 2, 1, &o);
+    Check(pick == 1 && o.why == kWhyHeld,
+          "with the keys at 0 a signpost that has the halo keeps it with the "
+          "aim on the miracle", pick, 1);
+    pick = PickScene(kChoiceDefault, 1, true, true, 100.0f, origin, ray, scene,
+                     2, 1, &o);
+    Check(pick == 0, "with the keys at 1 the miracle takes the halo from the "
+          "signpost", pick, 0);
+    // The aim on the signpost.
+    float at_sign[3];
+    Aim(origin, kSign.base, at_sign);
+    pick = PickScene(kChoiceDefault, 1, true, true, 100.0f, origin, at_sign,
+                     scene, 2, -1, &o);
+    printf("  the aim on the signpost: miracle te %.2f, signpost te %.2f\n",
+           o.s[0].te, o.s[1].te);
+    Check(pick == 1 && o.why == kWhyLastOn,
+          "the aim on the signpost and on no other target gives the signpost",
+          pick, 1);
+    // A tree behind the signpost, and the ray crosses its body.
+    const Item behind[3] = {
+        kSeed, kSign,
+        {"tree", {12.0f, 0.0f, 112.0f}, 3.0f, 15.0f, false, false, false,
+         false, false}};
+    pick = PickScene(kChoiceDefault, 1, true, true, 100.0f, origin, at_sign,
+                     behind, 3, -1, &o);
+    Near("the ray on the signpost crosses the body of the tree behind it",
+         o.s[2].te, 0.0, 1e-3);
+    Check(pick == 2 && o.why == kWhyNotLast,
+          "then the tree has the halo: a signpost comes last", pick, 2);
+    pick = PickScene(kChoiceDefault, 1, false, true, 100.0f, origin, at_sign,
+                     behind, 3, -1, &o);
+    Check(pick == 1, "with far_grab_sign=0 the signpost has it, by its rank",
+          pick, 1);
+    // A signpost with no other candidate in the cone.
+    const Item alone[1] = {kSign};
+    Turn(at_sign, 5.0f, off);
+    pick = PickScene(kChoiceDefault, 1, true, true, 100.0f, origin, off, alone,
+                     1, -1, &o);
+    Check(pick == 0 && o.s[0].te > 2.0f,
+          "a signpost with no other target in the cone has the halo, also "
+          "with the aim beside it", pick, 0);
+  }
+
+  // THE EDGE OF A BODY. The aim is on the target of now to kLastStayDeg, so
+  // the halo does not go to and fro. Candidate 0 is a rock, 1 a signpost and
+  // 2 a villager.
+  {
+    const StayRule rule = MakeStayRule(kChoiceRanks, kLivingDeg, 1, kStayDeg,
+                                       kFarSelectDeg, kFarKeepDeg,
+                                       kFarSwitchDeg);
+    FarScore s[3] = {{true, 3.0f, 3.5f}, {true, 0.8f, 1.3f},
+                     {false, 0.0f, 0.0f}};
+    float near_deg[3] = {3.0f, 0.8f, 0.0f};
+    const int cls[3] = {kClassPlain, kClassLast, kClassFirst};
+    FarScore work[3];
+    bool first[3];
+    int why = 0;
+    int pick = PickClassed(s, near_deg, cls, 3, 1, rule, work, first, &why);
+    Check(pick == 1 && why == kWhyLastOn,
+          "a signpost that has the halo keeps it to 1 degree past its body",
+          pick, 1);
+    pick = PickClassed(s, near_deg, cls, 3, -1, rule, work, first, &why);
+    Check(pick == 0, "a new signpost needs the ray in its body", pick, 0);
+    s[1].te = 1.5f;
+    pick = PickClassed(s, near_deg, cls, 3, 1, rule, work, first, &why);
+    Check(pick == 0, "past 1 degree the rock takes the halo from the signpost",
+          pick, 0);
+    s[1].te = 0.0f;
+    s[0].te = 0.7f;
+    pick = PickClassed(s, near_deg, cls, 3, 0, rule, work, first, &why);
+    Check(pick == 0, "a rock that has the halo keeps it while the aim is less "
+          "than 1 degree past its body, with the ray in a signpost", pick, 0);
+    s[0].te = 1.5f;
+    pick = PickClassed(s, near_deg, cls, 3, 0, rule, work, first, &why);
+    Check(pick == 1, "and past 1 degree the signpost takes it", pick, 1);
+    // A villager 2 degrees past his cover, and the ray in the signpost.
+    s[0].valid = false;
+    s[2].valid = true;
+    s[2].te = 2.0f;
+    s[2].score = 2.5f;
+    near_deg[2] = 4.0f;
+    pick = PickClassed(s, near_deg, cls, 3, -1, rule, work, first, &why);
+    Check(pick == 1, "the ray in a signpost and beside a villager gives the "
+          "signpost", pick, 1);
+    s[2].te = 0.0f;
+    pick = PickClassed(s, near_deg, cls, 3, -1, rule, work, first, &why);
+    Check(pick == 2 && why == kWhyRank,
+          "the ray in a signpost and in the body of a villager gives the "
+          "villager", pick, 2);
+    s[2].te = 2.0f;
+    s[1].te = 0.5f;
+    pick = PickClassed(s, near_deg, cls, 3, -1, rule, work, first, &why);
+    Check(pick == 2, "a villager in his cone comes before a signpost that the "
+          "ray is not in", pick, 2);
+  }
+
+  // NO SIGNPOST: THE ANSWER OF PickRanked. The rule of the quest character
+  // beside a tree does not change.
+  {
+    const float low[3] = {0.0f, 30.0f, 0.0f};
+    const Thing scene[2] = {
+        {"man", {0.0f, 0.0f, 100.0f}, 0.4f, 1.8f, true},
+        {"tree", {4.0f, 0.0f, 100.0f}, 3.0f, 15.0f, false}};
+    const float crown[3] = {4.0f, 7.0f, 100.0f};
+    float ray[3];
+    Aim(low, crown, ray);
+    int same = 0, cases = 0;
+    for (int choice = 0; choice <= kChoiceMost; ++choice) {
+      for (int stay = 0; stay <= 1; ++stay) {
+        for (int current = -1; current <= 1; ++current) {
+          for (int step = 0; step <= 6; ++step) {
+            float turned[3];
+            Turn(ray, -3.0f + static_cast<float>(step), turned);
+            ChoiceOut o;
+            const int want = PickChoice(choice, stay, low, turned, scene, 2,
+                                        current, -1, &o);
+            const StayRule rule = MakeStayRule(
+                choice, kLivingDeg, stay, kStayDeg, kFarSelectDeg, kFarKeepDeg,
+                kFarSwitchDeg);
+            const int cls[2] = {o.first[0] ? kClassFirst : kClassPlain,
+                                o.first[1] ? kClassFirst : kClassPlain};
+            FarScore work[2];
+            bool first[2];
+            int why = 0;
+            const int got = PickClassed(o.s, o.near_deg, cls, 2, current, rule,
+                                        work, first, &why);
+            ++cases;
+            if (got == want && why == o.why) ++same;
+          }
+        }
+      }
+    }
+    Check(same == cases, "with no signpost among the candidates, PickClassed "
+          "gives the target and the reason of PickRanked in each case", same,
+          cases);
+  }
+
+  // THE CREATURE BY ITS BODY (far_grab_creature). 50 units a meter. The
+  // capsule of a Creature of size 0.22 is 3.63 units tall with a radius of
+  // 1.02. The point of its mesh is at its feet.
+  {
+    // The hand is 30 cm over the land and 44 cm from the Creature. The aim
+    // is on its head, and the ray crosses the body of a tree behind it.
+    const float hand[3] = {0.0f, 15.0f, 0.0f};
+    const float head[3] = {0.0f, 3.4f, 22.0f};
+    float ray[3];
+    Aim(hand, head, ray);
+    Item scene[2] = {
+        {"Creature", {0.0f, 0.0f, 22.0f}, 1.02f, 3.63f, true, false, false,
+         false, true},
+        {"tree", {2.0f, 0.0f, 30.0f}, 3.0f, 15.0f, false, false, false, false,
+         false}};
+    SceneOut o;
+    int pick = PickScene(kChoiceDefault, 1, true, true, 50.0f, hand, ray,
+                         scene, 2, -1, &o);
+    printf("  a small Creature 44 cm away, by its point: Creature te %.2f "
+           "score %.2f, tree te %.2f score %.2f\n", o.s[0].te, o.s[0].score,
+           o.s[1].te, o.s[1].score);
+    Check(o.s[0].te > kLivingDeg,
+          "by the point of its mesh, the aim on the head of a small Creature "
+          "44 cm away is out of the cone of a living thing", o.s[0].te, 4.3);
+    Check(pick == 1, "and the tree behind it has the halo", pick, 1);
+    scene[0].point = false;
+    pick = PickScene(kChoiceDefault, 1, true, true, 50.0f, hand, ray, scene, 2,
+                     -1, &o);
+    Near("by its body, the aim on its head is on the Creature", o.s[0].te, 0.0,
+         1e-3);
+    Check(pick == 0 && o.why == kWhyRank,
+          "and the Creature has the halo, by its rank", pick, 0);
+  }
+  {
+    // A Creature of size 0.5 (8.25 units tall, a radius of 2.6), 70 cm from a
+    // hand that is 40 cm over the land.
+    const float hand[3] = {0.0f, 20.0f, 0.0f};
+    const float head[3] = {0.0f, 7.8f, 35.0f};
+    float ray[3], off[3];
+    Aim(hand, head, ray);
+    Item scene[2] = {
+        {"Creature", {0.0f, 0.0f, 35.0f}, 2.6f, 8.25f, true, false, false,
+         false, true},
+        {"tree", {2.5f, 0.0f, 45.0f}, 3.0f, 15.0f, false, false, false, false,
+         false}};
+    SceneOut o;
+    int pick = PickScene(kChoiceDefault, 1, true, true, 50.0f, hand, ray,
+                         scene, 2, -1, &o);
+    printf("  a Creature of size 0.5, 70 cm away, by its point: Creature te "
+           "%.2f, tree te %.2f\n", o.s[0].te, o.s[1].te);
+    Check(pick == 1 && o.s[0].te > kLivingDeg,
+          "by its point, the aim on the head of a Creature of size 0.5 gives "
+          "the tree behind it", pick, 1);
+    scene[0].point = false;
+    pick = PickScene(kChoiceDefault, 1, true, true, 50.0f, hand, ray, scene, 2,
+                     -1, &o);
+    Check(pick == 0 && o.s[0].te < 1e-3f,
+          "by its body, the same aim gives the Creature", pick, 0);
+    // The Creature has the halo, and the hand shakes to the side.
+    Turn(ray, 9.5f, off);
+    pick = PickScene(kChoiceDefault, 1, true, true, 50.0f, hand, off, scene, 2,
+                     0, &o);
+    printf("  9.5 degrees to the side: Creature te %.2f, tree te %.2f\n",
+           o.s[0].te, o.s[1].te);
+    Check(o.s[0].te > kLivingDeg && o.s[0].te < kLivingDeg + kStayDeg,
+          "there the aim is past the cone of the Creature and in its stay "
+          "margin", o.s[0].te, 4.3);
+    Check(pick == 0, "and the Creature keeps the halo, as a living thing does",
+          pick, 0);
+    // A tree 12 units beside the Creature, with the aim on its crown.
+    const Item beside[2] = {
+        scene[0],
+        {"tree", {12.0f, 0.0f, 40.0f}, 3.0f, 15.0f, false, false, false, false,
+         false}};
+    const float crown[3] = {12.0f, 8.0f, 40.0f};
+    Aim(hand, crown, ray);
+    pick = PickScene(kChoiceDefault, 1, true, true, 50.0f, hand, ray, beside,
+                     2, -1, &o);
+    printf("  the aim on the crown of a tree beside it: Creature te %.2f, "
+           "tree te %.2f\n", o.s[0].te, o.s[1].te);
+    Check(pick == 1, "a tree beside the Creature is the target when the aim "
+          "is on its crown", pick, 1);
+  }
+}
+
 inline void FarChoiceChecks() {
   using namespace controller_math;
   printf("\nThe choice of a far target\n");
@@ -624,6 +992,7 @@ inline void FarChoiceChecks() {
          CommandRangeM(far_choice_math::kChoiceBallRanks, -1.0f), 10.0, 1e-6);
   }
   FarRankChecks();
+  FarClassChecks();
 }
 
 }  // namespace far_choice_checks

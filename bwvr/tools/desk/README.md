@@ -90,10 +90,11 @@ calls it. It keeps these rules, and a new script must keep them too:
 | `dialog.ps1` | Measures the start dialog for a render size, and gives the dialog points. Gives the way through the Main Menu of a run in a test save |
 | `verify_build.ps1` | The three runs before a merge |
 | `exit_run.ps1` | A run in which the game ends by itself, and the check of its end |
+| `launcher_shot.ps1` | A picture of the window of the launcher, for a change of its table or its layout. It does not start the game, and it puts no window on the screen, so it needs no idle PC. `-Rows <n>` gives the picture of a table with more columns. See `launcher.md`, "A picture of the window for a test" |
 | `aim_run.ps1`, `aim_queue.ps1` | The far fetch, the aim presets, the teleport |
 | `throw_queue.ps1` | Throws and landings |
 | `spawn_run.ps1` | A start with "Keep your old Creature": no story, the player at the Temple |
-| `creature_recipe.ps1` | The Creature state, strokes and a slap. With `-Kind leash`, `-Kind stay` or `-Kind tie`: the leash, the stay from a distance, and the leash tied to an object. With `-Kind click`: a text that waits for a click. With `-Kind walk`: the walk mode of a command |
+| `creature_recipe.ps1` | The Creature state, strokes and a slap. With `-Kind leash`, `-Kind stay` or `-Kind tie`: the leash, the stay from a distance, and the leash tied to an object. With `-Kind click`: a text that waits for a click. With `-Kind walk`: the walk mode of a command. With `-Kind gift` or `-Kind giftfree`: the gift of an object to the Creature, with the leash on or with no leash |
 | `hand_run.ps1`, `village_run.ps1`, `temple_run.ps1`, `miracle_run.ps1` | Runs for the near hand, the village, the Temple and miracles. See "The scripts of one area" |
 | `intro_run.ps1` | The Lionhead logo in stereo, with a picture of each eye each few seconds. The run does not skip the logos. See "The logos" |
 | `bench_run.ps1` | The frame cost measure: six still scenes, the numbers of each scene, the spread of some runs, and the comparison of two builds or of two sets of keys. See "The frame cost measure" |
@@ -139,7 +140,7 @@ that `-NewGame` uses, and the length of a run in the test save.
 | `hand_run.ps1` | `pen`, "Skip straight to the Creature select" (`one`, `fixed`). `temple`, "Keep your old Creature" (`old`) | `one`: the grip in the air, at a scroll and at the crown of a tree, with `near_rule` 1 and 2. With `near_rule` 2 the grip at the scroll takes the rock beside it and sets it down. `old`: the grip on the Creature, strokes and slaps. `fixed`: places from `-Points` and steps from `-Steps` | 44 s for `one`, 142 s for `old` |
 | `throw_queue.ps1 -Runs <names>` | `pen`, "Skip straight to the Creature select" | A far fetch at the pen and a throw (`land`, `base`, `early`, `tree`, `sea`), the same at a different scale (`landout`, and `landin`, `landin2`, `landin3` and `landlife` for 66.7, 44.4, 29.6 and 7.5 units for each meter), a release with a still hand (`fall`, `fallold`), the same with a tree that the hand holds upright or turns by 30 degrees (`treeset`, `treelean`), a new grip on an object that falls, flies or rolls (the names with `drop`, `fly` and `roll`), a grip on a rock in its fall, on a rock that the hand threw up, on a rock on the land that still moves, and a grip of 50 ms on a rock in its fall (`dropnear`, `tossup`, `landgrip`, `dropshort`: with `-More 'catch_at_once=0'` the rock moves on until the game takes it, and with `-More 'catch_at_once=0;grip_press_hold=0'` the game takes each of these presses as a click), a throw after a catch of a rock in its fall (`catchthrow`), eye pictures of the frame of a catch and of 3 frames later (`catchshot`, with no `-Fps`), a fetch from a distance of a tree that still moves on the land (`catchfar`), and a tree that comes to rest while the Hand takes it (`treedropend`, with the test key `catch_rest_test` for the runs in which the tree does not come to rest by itself in the take) | 31 to 63 s each |
 | `aim_queue.ps1 -Runs <names>` | `pen`, "Skip straight to the Creature select" | The aim presets and the trim (`aim2`), a fetch of a thrown rock over the sea and from the sea (`move2`, `move1b`), a Creature command with the leash counted as on (`cmd1b`), the teleport at three scales (`ring1`, `ring0`), and the aim and the grip at a Creature that is not the Creature of the player (`other`) | 21 to 54 s each |
-| `creature_recipe.ps1` | `temple`, "Keep your old Creature" | `state`: the Creature state, strokes and a slap. `leash`: the leash on and off. `stay`: the stay from a distance. `tie`: the leash tied to an object, and the walk of the Creature to it. `click`: a text of the game that waits for a click, with the leash on and with the Hand off the view (`text_click`). `walk`: a held press of the trigger on an object while the aim goes to the land and comes back, a tap and a press that ends on the object (`creature_command_rule`) | 42 to 62 s |
+| `creature_recipe.ps1` | `temple`, "Keep your old Creature" | `state`: the Creature state, strokes and a slap. `leash`: the leash on and off. `stay`: the stay from a distance. `tie`: the leash tied to an object, and the walk of the Creature to it. `click`: a text of the game that waits for a click, with the leash on and with the Hand off the view (`text_click`). `walk`: a held press of the trigger on an object while the aim goes to the land and comes back, a tap and a press that ends on the object (`creature_command_rule`). `gift`: the leash goes on, the Hand takes an object and opens the grip at the Creature, two times (`creature_gift`). `giftfree`: the same with no leash | 42 to 62 s |
 | `village_run.ps1` | `temple`, "Keep your old Creature" | `miracle`: a miracle from an icon of the Worship Site (`-Icon 3` is Food). `totem`, `charge`. `store`, `tree` and `job`: wood, a tree and a villager at the Village Store. `throw`: a thrown villager. `scaffold`, `build`, `site`, `probe`, `workshop`. `choice`: the aim steps from a villager to the tree nearest to him, past the tree, and back, and the log has each far target with its reason (`far_grab_choice`, `far_grab_stay`). `fartake`: a take at a distance from a pile of the Village Store with the grip closed, which the test key `far_test_take_gone` ends at its game turn 30 as the game ends the take of a pile that it deletes. The log shows who has the bundle then (`far_take_carry`), and with `audio_trace=1` the loop of the take (`audio_take_loop`). The lines `take stream` have the start and the end of the stream of the take (`take_stream`) | 31 to 63 s |
 | `miracle_run.ps1` | `temple`, "Keep your old Creature" | `creature`, `throw`, `cancel`, `place`, `shield`: a miracle from a seed that the test key `miracle_test_seeds` makes. `-Seeds` gives other seed types, and `-Steps` other steps | 44 to 57 s |
 | `temple_run.ps1` | `temple`, "Keep your old Creature" | The ring item `enter`, then the items of `-Rooms` on the ring of the Temple (`-Rooms "room_save@3400 leave@5600"`), and the steps of `-Steps`. Each choice of the ring holds Y of the left hand and steps the left hand to the item (`Get-BwvrRingChoice` in `game.ps1`). With `button_layout=0` in `-Set` it holds X. `-NoEnter` stays on the land. `-EnterFrame N` presses Y for `enter` at frame N and not at frame 820 (1400 for a new game with `backend=vulkan`). `-SaveTest` makes a save, and starts only when the profile has no saved game in the slots 0 to 13. It always starts in a new game | 180 s, or `-Seconds` |
@@ -336,6 +337,7 @@ each number for its own start and the load of the land.
 | --- | --- | --- | --- |
 | A new game, the row `select` | The start dialog, then the first story: the doors and the walk to the Creature pens | At the frame at which the player gets the Hand (frame 3430 to 3750) | 63 |
 | A new game, the row `keep` | The start dialog, then the game camera goes to the door of the Temple | At frame 800 | 22 |
+| A new game, the row `normal` | The start dialog, then the whole first story of the tutorial. See "The start of the tutorial" | At the frame at which the story ends (about frame 9720) | 237 |
 | A test save, `-Save <name>` | The Main Menu over the loaded game, which the mod closes at frame 70 (a test key) | At the frame at which the controller places the Hand (frame 70) | 11 |
 
 ### The logos
@@ -364,6 +366,35 @@ the stereo frame of the logo. Each picture is 14 MB at a render of 2208 by
 `intro`: the camera for each second of the effect clock, and for each pair of
 pictures the pixels of some orbs. `-Set` gives other keys, for example the
 test keys `intro_motion_test_seconds` and `intro_push_test_px`.
+
+### The start of the tutorial
+
+`spawn_run.ps1 -Choice normal` starts a new game with the row "Start the game
+normally": the whole first story, and then the first step of the tutorial, in
+which the villagers ask the player to follow them. No test save has this
+state, so a run that tests the tutorial plays the story.
+
+Four texts of the story wait for a click of the left button, and the story
+stops at each one until the click comes. With `text_click=1` a press of the
+trigger is that click. The game takes a click only 1 s or more after the
+text came. The recipe below has a press at the frames 6750 and 7350, and
+then each 220 frames:
+
+```powershell
+$w = @('aimturn@700+1', 'trigger@6750+6', 'trigger@7350+6')
+for ($k = 0; $k -lt 9; $k++) { $w += "trigger@$(7950 + 220 * $k)+6" }
+.\bwvr\tools\desk\spawn_run.ps1 -Name tut1 -Dll <build>\src\mod\Release\ddraw.dll -Choice normal `
+    -Steps (($w + '<your steps from frame 10000>') -join ' ') -Set "fake_controller_turns=0,-40,0" -Seconds 300
+```
+
+The story ends at about frame 9720, 237 s after the start of the game
+process. The log then has "the cinema bars are down, and the player's camera
+owns the view" and "the camera controls of the game are 0x48": the game lets
+the player drag the land, and each other camera control is off
+(`docs/god-view.md`, section 7, "The interface levels"). `aimturn` with
+`fake_controller_turns=0,-40,0` turns the aim to the land near the head, for
+a teleport. A teleport of 140 units from the place of the start, straight
+ahead, comes to the village, and the story of the village then plays.
 
 ### A test save
 

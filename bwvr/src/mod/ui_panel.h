@@ -70,6 +70,8 @@ const UiPanelSettings& UiPanelOptions();
 // value and 0.
 int UiPanelMode();
 void UiPanelToggle();
+// The test key of subtitle_read_ahead. keys names the keys for the log.
+void UiPanelSubtitleReadAheadToggle(const char* keys);
 // Once a stereo frame, after UiDepthNewFrame. It latches the route for both
 // eye passes.
 void UiPanelBeginFrame(bool to_headset, bool projection, uint64_t frame,
@@ -132,6 +134,16 @@ void GpuBridgePanelReadDone();
 // until GpuBridgePanelReadDone.
 const void* GpuBridgePanelReadHalf(const int rect[4], int* pitch,
                                    uint32_t* width, uint32_t* height);
+// The read ahead of the subtitle card (subtitle_read_ahead=1). After the eye
+// passes, QueueHalf puts the half size copy of rect in the queue, with no
+// wait. At the start of a later frame, FetchHalf reads a copy that the GPU
+// has done. After the eye passes, ReadyHalf gives the newest pixels that were
+// read, of a copy from the frame `since` or later, and the rect of the panel
+// that they hold. The pixels stay valid until GpuBridgePanelReadDone.
+bool GpuBridgePanelQueueHalf(const int rect[4], uint64_t frame);
+void GpuBridgePanelFetchHalf();
+const void* GpuBridgePanelReadyHalf(uint64_t since, int rect[4], int* pitch,
+                                    uint32_t* width, uint32_t* height);
 void GpuBridgePanelReport();
 // True when `surface` (an IDirect3DSurface9) is the panel target. The Vulkan
 // renderer draws the draws for it into its own panel (vk_scene.h, vk_panel).

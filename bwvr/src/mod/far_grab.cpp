@@ -172,9 +172,12 @@ Glide g_glide = {};
 const int kMaxGlideLogs = 24;
 const double kGlideWaitSeconds = 4.0;
 
-// For the log and the report.
+// For the log and the report. The log has room for kMaxLogs lines in each
+// window of the report, so a long session has the lines of its last targets
+// too. The report says how many lines a window left out.
 int g_logs = 0;
-const int kMaxLogs = 200;
+const int kMaxLogs = 40;
+uint64_t g_logs_left_out = 0;
 uint64_t g_targets = 0;
 uint64_t g_locks = 0;
 uint64_t g_pulls = 0;
@@ -194,7 +197,10 @@ uint64_t g_gone_takes = 0;  // of them, in the Take state with the grip closed
 float g_lock_at[3] = {0.0f, 0.0f, 0.0f};
 
 bool LogRoom() {
-  if (g_logs >= kMaxLogs) return false;
+  if (g_logs >= kMaxLogs) {
+    ++g_logs_left_out;
+    return false;
+  }
   ++g_logs;
   return true;
 }
@@ -669,6 +675,7 @@ void FarGrabSelect(const FarPick& pick) {
              pick.name != nullptr ? pick.name : "unknown",
              pick.leash != 0 ? ", your Creature: the grip changes the leash"
              : pick.bulk ? ", a bulk source"
+             : pick.sign ? ", a signpost: the grip activates it"
              : pick.touch ? ", a scroll: the grip activates it"
              : pick.forest ? ", a forest: the fetch gives a tree" : "",
              pick.te, pick.hand_m,
@@ -1005,6 +1012,13 @@ bool FarGrabDrawState(FarDraw* out) {
 
 void FarGrabReport() {
   CreatureStayReport();
+  // A new window: the log has its room again.
+  if (g_logs_left_out != 0) {
+    ModLog("far grab    : the log had room for %d lines in this window, and "
+           "%llu more lines are not in it", kMaxLogs, g_logs_left_out);
+    g_logs_left_out = 0;
+  }
+  g_logs = 0;
   if (g_gone != 0) {
     ModLog("far grab    : %llu targets were deleted by the game while the mod "
            "held them, %llu of them the source of a take with the grip closed "

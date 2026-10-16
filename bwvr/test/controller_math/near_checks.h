@@ -492,6 +492,92 @@ inline void OneTargetChecks() {
     Check(SizeClass(1.0f) == 0 && SizeClass(1.9f) == 0 && SizeClass(2.0f) == 1 &&
               SizeClass(10.0f) == 3 && SizeClass(0.6f) == -1,
           "the size counts in steps of a factor of 2", SizeClass(10.0f), 3);
+    // A SIGNPOST COMES LAST (hand_sign_last, rule 6). A signpost 3 cm from
+    // the point, and a miracle, the Creature and a tree in the reach.
+    {
+      Check(SignOut(true, true, 3.0f, touch) && !SignOut(true, true, 0.5f, touch),
+            "a signpost comes last while the point is not in it", 1, 1);
+      Check(!SignOut(false, true, 3.0f, touch) &&
+                !SignOut(true, false, 3.0f, touch),
+            "hand_sign_last=0 and a scroll of a quest keep the rule of a "
+            "scroll", 0, 0);
+      Target sign = {{3.0f, 6.0f}, kTap, 3.0f, true, false};
+      const Target miracle = {{3.5f, 5.5f}, kHold, 2.3f, false, false};
+      const Target creature = {{3.8f, 5.0f}, kCreature, 1.8f, false, false};
+      Check(TargetRule(sign, touch) == 2 &&
+                BeatsTarget(sign, miracle, touch, eps) &&
+                BeatsTarget(sign, creature, touch, eps),
+            "as a scroll, a signpost 3 cm away wins over a miracle and over "
+            "the Creature in the reach", TargetRule(sign, touch), 2);
+      sign.last = SignOut(true, true, sign.gap.gap, touch);
+      Check(TargetRule(sign, touch) == 6, "the rule of such a signpost is 6",
+            TargetRule(sign, touch), 6);
+      Check(BeatsTarget(miracle, sign, touch, eps) &&
+                !BeatsTarget(sign, miracle, touch, eps),
+            "with the rule, a miracle 3.5 cm away wins over the signpost", 1,
+            1);
+      Check(BeatsTarget(creature, sign, touch, eps) &&
+                !BeatsTarget(sign, creature, touch, eps),
+            "and the Creature 3.8 cm away wins over it", 1, 1);
+      Check(BeatsTarget(tree, sign, touch, eps) &&
+                BeatsTarget(scroll_away, sign, touch, eps),
+            "a tree that the point is in and a scroll of a quest win over it "
+            "too", 1, 1);
+      // A scroll of a quest in its longer reach (rule 5) comes before it.
+      Target far_scroll = {{8.0f, 10.0f}, kTap, 2.5f, true, false};
+      far_scroll.outer = true;
+      Check(BeatsTarget(far_scroll, sign, touch, eps),
+            "a scroll of a quest 8 cm away comes before a signpost 3 cm away",
+            1, 1);
+      // The point in the signpost: a body that the point touches (rule 1).
+      Target sign_in = {{0.5f, 3.0f}, kTap, 3.0f, true, false};
+      sign_in.last = SignOut(true, true, sign_in.gap.gap, touch);
+      Check(TargetRule(sign_in, touch) == 1 &&
+                BeatsTarget(sign_in, tree, touch, eps) &&
+                BeatsTarget(sign_in, miracle, touch, eps),
+            "a signpost that the point is in wins over a tree that the point "
+            "is in and over a miracle 3.5 cm away", TargetRule(sign_in, touch),
+            1);
+      // The wide pick: 9 cm from a signpost and 6 cm from a miracle. The
+      // nearest object that counts is the miracle, at each gap of the
+      // signpost.
+      const float reach = 4.0f, wide = 15.0f;
+      Check(WidePick(6.0f, reach, wide, 6.0f, eps),
+            "9 cm from a signpost and 6 cm from a miracle: the miracle is "
+            "the wide target, because the signpost does not count as the "
+            "nearest object", 1, 1);
+      Check(!WidePick(6.0f, reach, wide, 2.0f, eps),
+            "as a near object, a signpost 2 cm away stops that wide pick", 0,
+            0);
+      // The grab from a distance: only an object that counts turns it off.
+      Check(!NearBlocks(1e30f, false, 10.0f, 15.0f),
+            "with a signpost of rule 6 as the only near object, the far grab "
+            "stays on", 0, 0);
+      Check(NearBlocks(0.5f, false, 10.0f, 15.0f),
+            "a signpost that the point is in turns it off", 1, 1);
+      Check(SignGivesWay(true, true) && !SignGivesWay(true, false) &&
+                !SignGivesWay(false, true),
+            "a signpost of rule 6 is no target while the aim has a target, "
+            "and it is the target when the aim has none", 1, 1);
+      // Each order of the candidates gives the same target.
+      const Target with_sign[5] = {sign, miracle, creature, tree, far_scroll};
+      int order[5] = {0, 1, 2, 3, 4};
+      int first = -1;
+      bool same = true;
+      do {
+        int best = order[0];
+        for (int i = 1; i < 5; ++i) {
+          if (BeatsTarget(with_sign[order[i]], with_sign[best], touch, eps)) {
+            best = order[i];
+          }
+        }
+        if (first < 0) first = best;
+        if (best != first) same = false;
+      } while (std::next_permutation(order, order + 5));
+      Check(same && first == 3,
+            "each order of a signpost, a miracle, the Creature, a tree that "
+            "the point is in and a far scroll gives the tree", first, 3);
+    }
     // The order is the same for each order of the candidates: with the best
     // of each of the 720 orders of 6 bodies.
     const Target set[6] = {tree, scroll_away, villager_in, villager_away,

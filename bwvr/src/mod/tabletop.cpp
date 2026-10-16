@@ -3297,6 +3297,10 @@ bool TabletopGodZoomSmooth() {
   return g_installed && g_settings.god && g_settings.god_zoom_smooth != 0;
 }
 
+bool TabletopGodZoomForwardIn() {
+  return g_settings.god_zoom_forward_in != 0;
+}
+
 bool TabletopGodZoomHold(float push) {
   if (!TabletopGodZoomSmooth() || !TabletopGodOwnsView()) return false;
   if (!(push == push) || push == 0.0f) return false;
@@ -3366,6 +3370,8 @@ int TabletopGodMoveStick() {
   if (!g_installed || !g_settings.god) return walk_math::kRuleOff;
   return walk_math::Rule(g_settings.move_stick);
 }
+
+bool TabletopMoveAllowed() { return (CameraFeatures() & kFeatureDrag) != 0; }
 
 bool TabletopGodWalk(const float push[2], const float* aim) {
   if (TabletopGodMoveStick() == walk_math::kRuleOff || !TabletopGodOwnsView()) {

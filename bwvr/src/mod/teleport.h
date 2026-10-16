@@ -17,7 +17,13 @@ struct TeleportSettings {
   int ring_units = 11;      // teleport_ring_units: the world size of mode 1
   int ring_min_cm = 4;      // teleport_ring_min_cm: the smallest size, mode 1
   int ring_max_cm = 40;     // teleport_ring_max_cm: the largest size, mode 1
-  bool test_keys = false;   // test_keys: Ctrl and Insert change the mode
+  // teleport_switch: which switch of the game the press of A keeps to. 1 is
+  // the switch for the drag of the land, as the walk with the stick. 0 is the
+  // switch of the game's double click jump.
+  int move_switch = 1;
+  // test_keys: Ctrl and Insert change the mode. Ctrl, Shift and the comma key
+  // change move_switch.
+  bool test_keys = false;
 };
 
 void TeleportSetOptions(const TeleportSettings& settings);
@@ -28,6 +34,16 @@ bool TeleportOwnsA();
 
 // True while the player aims the teleport (A is down).
 bool TeleportAiming();
+
+// The test key of teleport_switch (Ctrl, Shift and the comma key, with
+// test_keys=1), and the word "teleportkey" of the scripted controller: the
+// switch changes between 1 and 0. `by` names the cause in the log.
+void TeleportSwitchToggle(const char* by);
+
+// True while a press of A can move the player, for the hint card. With
+// teleport=1: the last TeleportFrame found no reason to refuse the press.
+// With teleport=0: the game's jump switch is on.
+bool TeleportPossible();
 
 // The land height at a world point for the teleport. The sea and the places
 // off the map are 0.

@@ -71,16 +71,26 @@
 // Hand's length nearer to the eye than the Hand's point. So the Hand's own
 // mesh does not hide the disc, and land or an object further in front does.
 // The disc writes no depth. The screen position stays at the true point.
+//
+// ONE WALK (one_walk.cpp). The pass of the left eye draws the right eye too,
+// and a batch goes to the right eye with the eye difference of the rhw in its
+// vertices. The rhw of a disc is that of the point of its depth test, which
+// is nearer to the eye than the disc of the glow and farther than the disc of
+// a halo. So with one_walk_marks=1 each disc is drawn for the left eye only,
+// and then for the right eye only with the eye difference of its own depth
+// (DrawDisc). That is the place that a pass of the right eye gives it.
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <ddraw.h>
 #include <d3d.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <string.h>
 #include <math.h>
 
 #include "one_walk.h"
+#include "one_walk_math.h"
 #include "../common/bw_addresses.h"
 #include "controller_math.h"
 #include "creature_command.h"
@@ -279,6 +289,13 @@ Look g_look[2] = {kLookNothing, kLookNothing};
 // the looks with no target are not drawn.
 bool g_shown[2] = {false, false};
 uint64_t g_hidden[kLooks] = {0, 0, 0, 0};
+// ONE WALK: the disc of the right eye that the pass of the left eye drew, the
+// frame of it, and whether the disc had its own draw there (one_walk_marks).
+// The words for the log line of that frame.
+GlowDisc g_walk_disc = {};
+uint64_t g_walk_frame = 0;
+bool g_walk_own = false;
+char g_walk_words[200] = "";
 
 // THE HAND'S POINT IN EACH EYE, for the hint at the Hand (draw_hooks.cpp,
 // TooltipAtHand). Set in each eye pass, with the glow on or off: the pixel of
@@ -457,6 +474,33 @@ void PutStatesBack(IDirect3DDevice7* device) {
   }
 }
 
+// ONE WALK. The pixels from a disc in the left eye to the same disc in the
+// right eye: the eye difference of the depth of the disc. 0 when the pass
+// does not draw the right eye, and with one_walk_marks=0.
+float WalkMove(const GlowDisc& disc, float near_plane, int eye) {
+  if (eye != 0 || !OneWalkActive() || !OneWalkMarks()) return 0.0f;
+  return one_walk_math::ShiftAtDepth(OneWalkShiftPerRhw(), near_plane,
+                                     disc.depth);
+}
+
+// The draw of the disc that Build made. With a move, the disc goes to the
+// left eye only, and then to the right eye only, `move` pixels across.
+HRESULT DrawDisc(IDirect3DDevice7* device, float move) {
+  if (move == 0.0f) {
+    return device->DrawPrimitive(D3DPT_TRIANGLELIST, kFvf, g_vertices,
+                                 kVertices, 0);
+  }
+  OneWalkSetMode(kOneWalkLeftOnly);
+  const HRESULT left = device->DrawPrimitive(D3DPT_TRIANGLELIST, kFvf,
+                                             g_vertices, kVertices, 0);
+  for (int i = 0; i < kVertices; ++i) g_vertices[i].x += move;
+  OneWalkSetMode(kOneWalkRightOnly);
+  const HRESULT right = device->DrawPrimitive(D3DPT_TRIANGLELIST, kFvf,
+                                              g_vertices, kVertices, 0);
+  OneWalkSetMode(kOneWalkBoth);
+  return FAILED(left) ? left : right;
+}
+
 // One halo: the disc around an object, in the pass of this eye.
 void DrawOneHalo(IDirect3DDevice7* device, const FarDraw& d,
                  const Style& style, int eye, uint64_t frame) {
@@ -483,15 +527,14 @@ void DrawOneHalo(IDirect3DDevice7* device, const FarDraw& d,
     return;
   }
   if (disc.rx > info->half_res_x || disc.ry > info->half_res_y) return;
+  const float move = WalkMove(disc, near_plane, eye);
   Build(disc, style, false);
   SetStates(device);
-  HRESULT result = device->DrawPrimitive(D3DPT_TRIANGLELIST, kFvf, g_vertices,
-                                         kVertices, 0);
+  HRESULT result = DrawDisc(device, move);
   if (SUCCEEDED(result) &&
       SetOne(device, D3DRENDERSTATE_DESTBLEND, D3DBLEND_ONE)) {
     Build(disc, style, true);
-    result = device->DrawPrimitive(D3DPT_TRIANGLELIST, kFvf, g_vertices,
-                                   kVertices, 0);
+    result = DrawDisc(device, move);
   }
   PutStatesBack(device);
   if (FAILED(result)) {
@@ -645,15 +688,14 @@ void DrawNearHalo(IDirect3DDevice7* device, int eye, uint64_t frame,
   g_tilt_x = shape.tilt_x;
   g_tilt_y = shape.tilt_y;
   const Style& style = acts ? kHaloValid : kHaloInvalid;
+  const float move = WalkMove(disc, near_plane, eye);
   Build(disc, style, false);
   SetStates(device);
-  HRESULT result = device->DrawPrimitive(D3DPT_TRIANGLELIST, kFvf, g_vertices,
-                                         kVertices, 0);
+  HRESULT result = DrawDisc(device, move);
   if (SUCCEEDED(result) &&
       SetOne(device, D3DRENDERSTATE_DESTBLEND, D3DBLEND_ONE)) {
     Build(disc, style, true);
-    result = device->DrawPrimitive(D3DPT_TRIANGLELIST, kFvf, g_vertices,
-                                   kVertices, 0);
+    result = DrawDisc(device, move);
   }
   PutStatesBack(device);
   g_tilt_x = 0.0f;
@@ -708,10 +750,27 @@ void LogFrame(uint64_t frame, int32_t mode, float units_per_meter,
   const GlowDisc& r = g_disc[1];
   ModLog("hand glow    : %s (hand mode 0x%X), frame %llu. Left eye at %.1f "
          "%.1f, right eye at %.1f %.1f, %.1f px apart. Radius %.1f cm, "
-         "%.1f px. Depth %.2f units, %.1f cm of the room",
+         "%.1f px. Depth %.2f units, %.1f cm of the room%s",
          kStyles[look].name, mode, frame, l.x, l.y, r.x, r.y, l.x - r.x,
          radius_cm, l.rx, l.depth,
-         units_per_meter > 0.0f ? l.depth / units_per_meter * 100.0f : 0.0f);
+         units_per_meter > 0.0f ? l.depth / units_per_meter * 100.0f : 0.0f,
+         g_walk_frame == frame ? g_walk_words : "");
+}
+
+// one_walk_check=1: the right eye also got a walk of its own in this frame.
+// One line with the disc of that walk beside the disc that one walk drew.
+void LogCheck(uint64_t frame, const GlowDisc& own) {
+  ModLog("hand glow    : test key one_walk_check: the right eye in its own "
+         "walk has the glow at %.1f %.1f. One walk drew it at %.1f %.1f: "
+         "%.1f px apart. The left eye has it at %.1f %.1f. Depth %.2f units, "
+         "and the depth of its rhw is %.2f units. one_walk_marks=%d, frame "
+         "%llu",
+         own.x, own.y, g_walk_disc.x, g_walk_disc.y, own.x - g_walk_disc.x,
+         g_disc[0].x, g_disc[0].y, own.depth,
+         own.rhw > 0.0f
+             ? *reinterpret_cast<const float*>(bw::tech::kNearPlane) / own.rhw
+             : 0.0f,
+         g_walk_own ? 1 : 0, frame);
 }
 
 }  // namespace
@@ -799,7 +858,13 @@ void HandGlowDraw() {
     ++g_hidden[look];
     g_look[eye] = look;
     g_shown[eye] = false;
-    if (eye == 1) LogFrame(frame, mode, units_per_meter, 0.0f);
+    // In one walk the pass of the left eye is the last one of the frame.
+    const bool both = eye == 0 && OneWalkActive();
+    if (both) {
+      g_look[1] = look;
+      g_shown[1] = false;
+    }
+    if (eye == 1 || both) LogFrame(frame, mode, units_per_meter, 0.0f);
     return;
   }
   const Style& style = kStyles[look];
@@ -815,15 +880,14 @@ void HandGlowDraw() {
     ++g_too_near;
     return;
   }
+  const float move = WalkMove(disc, near_plane, eye);
   Build(disc, style, false);
   SetStates(device);
-  HRESULT result = device->DrawPrimitive(D3DPT_TRIANGLELIST, kFvf, g_vertices,
-                                         kVertices, 0);
+  HRESULT result = DrawDisc(device, move);
   // The core adds its light: source alpha and one.
   if (SUCCEEDED(result) && SetOne(device, D3DRENDERSTATE_DESTBLEND, D3DBLEND_ONE)) {
     Build(disc, style, true);
-    result = device->DrawPrimitive(D3DPT_TRIANGLELIST, kFvf, g_vertices,
-                                   kVertices, 0);
+    result = DrawDisc(device, move);
   }
   PutStatesBack(device);
   if (FAILED(result)) {
@@ -845,7 +909,28 @@ void HandGlowDraw() {
     ModLog("hand glow    : the first glow is drawn, frame %llu, eye %d",
            frame, eye);
   }
-  if (eye == 1 && g_drawn_frame[0] == frame) {
+  if (eye == 0 && OneWalkActive()) {
+    // The disc of the right eye, which this pass drew: with its own draw, or
+    // as one walk makes it from the rhw of the disc.
+    const float per_rhw = OneWalkShiftPerRhw();
+    const float at_depth =
+        one_walk_math::ShiftAtDepth(per_rhw, near_plane, disc.depth);
+    g_walk_own = move != 0.0f;
+    g_walk_disc = disc;
+    g_walk_disc.x += g_walk_own ? move : per_rhw * disc.rhw;
+    g_walk_frame = frame;
+    sprintf_s(g_walk_words, sizeof(g_walk_words),
+              ". One walk: the pass of the left eye draws the right eye too. "
+              "The eye difference of that depth is %.1f px (one_walk_marks="
+              "%d)",
+              -at_depth, g_walk_own ? 1 : 0);
+    g_disc[1] = g_walk_disc;
+    g_look[1] = look;
+    g_shown[1] = true;
+    LogFrame(frame, mode, units_per_meter, style.radius_cm);
+  } else if (eye == 1 && g_walk_frame == frame) {
+    LogCheck(frame, disc);
+  } else if (eye == 1 && g_drawn_frame[0] == frame) {
     LogFrame(frame, mode, units_per_meter, style.radius_cm);
   }
 }

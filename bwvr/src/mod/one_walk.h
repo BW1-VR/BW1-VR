@@ -41,6 +41,17 @@ float OneWalkShiftPerRhw();
 void OneWalkHoldShift(bool hold, float shift);
 void OneWalkSetMode(int mode);
 
+// THE CARDS AND THE MARKS OF THE MOD (one_walk_marks). A speech bubble as a
+// card (bubble_card.cpp) and a disc of hand_glow.cpp do not have the rhw of
+// their place in their vertices. With 1 each of them draws its batch for the
+// left eye only, and then for the right eye only at the place that the right
+// eye of its own walk gives it (one_walk_math::ShiftAtDepth). With 0 the right
+// eye gets them as each other batch.
+void OneWalkSetMarks(bool on, int test_frame);
+bool OneWalkMarks();
+// The test key (Ctrl, Shift and the right square bracket key, test_keys=1).
+void OneWalkMarksToggle(const char* cause);
+
 // The wide target (an IDirect3DSurface9) and the part of it that one eye
 // holds, as left, top, right, bottom.
 void* OneWalkTarget();

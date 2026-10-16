@@ -32,6 +32,16 @@
 #pragma comment(lib, "comctl32.lib")
 #pragma comment(lib, "shell32.lib")
 #pragma comment(lib, "advapi32.lib")
+#pragma comment(lib, "gdi32.lib")
+
+// The controls of Windows with its visual styles (version 6 of the common
+// controls). Without this line Windows gives the launcher version 5, which
+// draws in the old style and cannot show a picture beside the text of a
+// button.
+#pragma comment(linker, "\"/manifestdependency:type='win32' " \
+    "name='Microsoft.Windows.Common-Controls' version='6.0.0.0' " \
+    "processorArchitecture='*' publicKeyToken='6595b64144ccf1df' " \
+    "language='*'\"")
 
 namespace {
 
@@ -234,6 +244,11 @@ const Setting kSettings[] = {
      "In steps: one push of the right stick forward or back is one zoom "
      "step. Smooth: the zoom changes while you hold the stick. It stops when "
      "you let the stick go."},
+    {kValues, "god_zoom_forward_in", "Stick forward",
+     "Zooms out=0|Zooms in=1", 0,
+     "The direction of the zoom on the right stick. Zooms out: push the "
+     "stick forward and the world gets smaller, pull it back and the world "
+     "gets larger. Zooms in is the other way."},
     {kValues, "god_zoom_about", "Center of the zoom",
      "The land you look at=1|The land under you=0|Your Hand=2", 1,
      "The point that stays where it is when you zoom with the stick. The "
@@ -281,7 +296,7 @@ const Setting kSettings[] = {
     //  "Direct hand: the Hand is where your controller is. Stretch your arm to "
     //  "reach far into the world. Pointer: the controller points a ray, and the "
     //  "Hand goes where the ray points."},
-    {kBool, "hand_glow", "Glow at the Hand's point", nullptr, 1,
+    {kBool, "hand_glow", "Glow at the Hand's point", nullptr, 0,
      "A small glow at the tip of the index finger shows the point of the "
      "Hand that picks up and clicks. It shows while a press of the grip "
      "acts on something."},
@@ -314,6 +329,9 @@ HFONT g_bold = nullptr;
 char g_game_dir[MAX_PATH];
 char g_ini_path[MAX_PATH];
 int g_dpi = 96;
+// The most rows of a column. A test sets a smaller number with "-rows" to get
+// a picture of a table that has more columns.
+int g_max_rows = 22;
 
 int Scaled(int at96) { return MulDiv(at96, g_dpi, 96); }
 
@@ -826,7 +844,7 @@ const char* const kRetiredKeys[] = {
     "far_test_no_trees", "far_test_scroll", "far_test_thrown",
     "far_test_tree", "far_test_aim_blends", "far_test_aim_pair",
     "far_test_quest", "far_test_take_gone", "bubble_card_test",
-    "bubble_card_test_frame",
+    "bubble_card_test_frame", "one_walk_marks_test_frame",
     "eye_clean_test", "eye_clean_test_frame",
     "frame_time_test_frame", "frame_time_test_readers",
     "frame_time_test_readers_frames", "god_zoom_about_test",
@@ -836,7 +854,8 @@ const char* const kRetiredKeys[] = {
     "spawn_test_temple",
     "spawn_test_toggle", "spawn_test_x", "spawn_test_z",
     "spirit_point_world_test", "spirit_world_size_test",
-    "subtitle_card_test", "subtitle_selftest", "profile_sample",
+    "subtitle_card_test", "subtitle_selftest",
+    "subtitle_read_ahead_test_seconds", "profile_sample",
     "profile_sample_thread", "profile_sample_dump", "profile_gpu",
     "hang_watch", "gpu_flush_ab", "ab_test", "d3d7_count", "fast_transform_check",
     "test_cores", "vk_scene", "vk_scene_test_frame", "vk_scene_follow", "vk_eyes", "xr_vulkan_upload", "vk_panel", "vk_only", "vk_only_test", "vk_upload_queue", "vk_scene_reread_test", "ddraw_census", "test_smt", "test_spin_walk_us", "test_spin_idle_us",
@@ -1115,17 +1134,64 @@ int GroupRows(int group) {
   return rows;
 }
 
+// The heart on the "Support" button: a red heart with soft edges, as an icon
+// of `size` pixels. The form is the curve (x^2 + y^2 - 1)^3 = x^2 y^3, and
+// each pixel gets its alpha from 16 samples.
+HICON MakeHeartIcon(int size) {
+  if (size < 8) size = 8;
+  if (size > 64) size = 64;
+  BITMAPINFO info = {};
+  info.bmiHeader.biSize = sizeof(info.bmiHeader);
+  info.bmiHeader.biWidth = size;
+  info.bmiHeader.biHeight = -size;
+  info.bmiHeader.biPlanes = 1;
+  info.bmiHeader.biBitCount = 32;
+  info.bmiHeader.biCompression = BI_RGB;
+  void* bits = nullptr;
+  HBITMAP color =
+      CreateDIBSection(nullptr, &info, DIB_RGB_COLORS, &bits, nullptr, 0);
+  if (color == nullptr) return nullptr;
+  DWORD* pixel = static_cast<DWORD*>(bits);
+  const int sub = 4;
+  for (int py = 0; py < size; ++py) {
+    for (int px = 0; px < size; ++px) {
+      int inside = 0;
+      for (int sy = 0; sy < sub; ++sy) {
+        for (int sx = 0; sx < sub; ++sx) {
+          // The curve is 2.3 wide and goes from -1.0 to 1.24 in y, so the
+          // picture is 2.5 across and its middle is at y = 0.12.
+          const double x = ((px + (sx + 0.5) / sub) / size - 0.5) * 2.5;
+          const double y = (0.5 - (py + (sy + 0.5) / sub) / size) * 2.5 + 0.12;
+          const double a = x * x + y * y - 1.0;
+          if (a * a * a - x * x * y * y * y <= 0.0) ++inside;
+        }
+      }
+      const DWORD alpha = static_cast<DWORD>(inside * 255 / (sub * sub));
+      *pixel++ = (alpha << 24) | (224u << 16) | (49u << 8) | 72u;
+    }
+  }
+  // An icon needs a mask. All of its bits are 0, so the alpha decides.
+  static const unsigned char kNoMask[8 * 64] = {0};
+  HBITMAP mask = CreateBitmap(size, size, 1, 1, kNoMask);
+  ICONINFO parts = {TRUE, 0, 0, mask, color};
+  HICON icon = CreateIconIndirect(&parts);
+  DeleteObject(mask);
+  DeleteObject(color);
+  return icon;
+}
+
 // Lay the table out in columns, starting a new one when the current gets tall.
 // This is what lets the table grow without the window growing past the screen.
 void BuildControls() {
   const int pad = Scaled(12);
   const int row = Scaled(26);
   const int label_w = Scaled(210);
-  const int field_w = Scaled(120);
+  // Wide enough for the longest choice, "Grip of the other hand".
+  const int field_w = Scaled(160);
   const int col_w = label_w + field_w + pad;
   // The tallest a column may get. Rows and pixels are interchangeable
-  // everywhere below, so this number also caps the window height.
-  const int max_rows = 22;
+  // everywhere below, so this number also caps the height of the table.
+  const int max_rows = g_max_rows;
 
   int column = 0;
   int used = 0;
@@ -1233,55 +1299,76 @@ void BuildControls() {
     if (used > tallest) tallest = used;
   }
 
-  // The buttons and the status line, along the bottom. The window is as
-  // wide as its columns, and at least as wide as the five buttons in a row.
-  const int button_w = Scaled(110);
+  // The buttons are a block below the last column, as wide as its fields.
+  // The two ways to play in VR are in the first row, "Save Config" and "Play,
+  // no VR" in the second, and "Support" has the third row to itself. When a
+  // column before the last is taller, the block is at the bottom of the
+  // window. The buttons are made in the order of the Tab key.
   const int button_h = Scaled(28);
   const int button_gap = Scaled(8);
   const int columns = column + 1;
-  const int columns_w = pad + columns * (col_w + pad);
-  const int buttons_w = pad * 2 + button_w * 5 + button_gap * 4;
-  const int width = columns_w > buttons_w ? columns_w : buttons_w;
-  const int height = pad + tallest * row + Scaled(76);
-  const int button_y = height - Scaled(66);
+  const int width = columns * (col_w + pad);
+  const int block_w = label_w + field_w;
+  const int block_h = button_h * 3 + button_gap * 2;
+  const int half_w = (block_w - button_gap) / 2;
+  const int left_x = pad + column * (col_w + pad);
+  const int right_x = left_x + block_w - half_w;
+  const int table_bottom = pad + tallest * row;
+  int row1_y = pad + used * row + Scaled(10);
+  if (row1_y < table_bottom - block_h) row1_y = table_bottom - block_h;
+  const int row2_y = row1_y + button_h + button_gap;
+  const int row3_y = row2_y + button_h + button_gap;
   HWND play = CreateWindowExA(
       0, "BUTTON", "Play in VR", WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON,
-      width - pad - button_w * 2 - Scaled(8), button_y, button_w, button_h,
-      g_window, reinterpret_cast<HMENU>(1), nullptr, nullptr);
+      left_x, row1_y, half_w, button_h, g_window, reinterpret_cast<HMENU>(1),
+      nullptr, nullptr);
   HWND fresh = CreateWindowExA(0, "BUTTON", "Play, new game",
-                               WS_CHILD | WS_VISIBLE, width - pad - button_w,
-                               button_y, button_w, button_h, g_window,
-                               reinterpret_cast<HMENU>(2), nullptr, nullptr);
-  HWND plain = CreateWindowExA(
-      0, "BUTTON", "Play, no VR", WS_CHILD | WS_VISIBLE,
-      width - pad - button_w * 3 - button_gap * 2, button_y, button_w,
-      button_h, g_window, reinterpret_cast<HMENU>(5), nullptr, nullptr);
-  SendMessageA(plain, WM_SETFONT, reinterpret_cast<WPARAM>(g_font), TRUE);
-  AddTip(plain, "Start the game on the monitor, without the headset. The game "
-                "is full screen, at the size of the desktop, and the mod does "
-                "nothing in it.");
-  HWND support = CreateWindowExA(
-      0, "BUTTON", "Support", WS_CHILD | WS_VISIBLE, pad + button_w + Scaled(8),
-      button_y, button_w, button_h, g_window,
-      reinterpret_cast<HMENU>(4), nullptr, nullptr);
-  SendMessageA(support, WM_SETFONT, reinterpret_cast<WPARAM>(g_font), TRUE);
-  AddTip(support, "Opens " BWVR_SUPPORT_URL " in your browser. The mod is "
-                  "free, and it stays free.");
-  HWND save = CreateWindowExA(0, "BUTTON", "Save", WS_CHILD | WS_VISIBLE, pad,
-                              button_y, button_w, button_h, g_window,
+                               WS_CHILD | WS_VISIBLE, right_x, row1_y, half_w,
+                               button_h, g_window, reinterpret_cast<HMENU>(2),
+                               nullptr, nullptr);
+  HWND save = CreateWindowExA(0, "BUTTON", "Save Config", WS_CHILD | WS_VISIBLE,
+                              left_x, row2_y, half_w, button_h, g_window,
                               reinterpret_cast<HMENU>(3), nullptr, nullptr);
-  // SS_NOPREFIX, because the product name holds an ampersand and a static
-  // control would otherwise read it as an access key.
+  HWND plain = CreateWindowExA(0, "BUTTON", "Play, no VR",
+                               WS_CHILD | WS_VISIBLE, right_x, row2_y, half_w,
+                               button_h, g_window, reinterpret_cast<HMENU>(5),
+                               nullptr, nullptr);
+  // The space at the start of the text keeps the text off the heart.
+  HWND support = CreateWindowExA(0, "BUTTON", " Support", WS_CHILD | WS_VISIBLE,
+                                 left_x, row3_y, block_w, button_h, g_window,
+                                 reinterpret_cast<HMENU>(4), nullptr, nullptr);
+  // The heart shows to the left of the text, at the height of a capital.
+  HICON heart = MakeHeartIcon(Scaled(14));
+  if (heart != nullptr) {
+    SendMessageA(support, BM_SETIMAGE, IMAGE_ICON,
+                 reinterpret_cast<LPARAM>(heart));
+  }
+  // The status line is below the table and the buttons, over the whole
+  // window, and has room for two lines of text. SS_NOPREFIX, because the
+  // product name holds an ampersand and a static control would otherwise
+  // read it as an access key.
+  const int block_bottom = row3_y + button_h;
+  const int status_y =
+      (block_bottom > table_bottom ? block_bottom : table_bottom) + Scaled(8);
+  const int status_h = Scaled(32);
+  const int height = status_y + status_h + Scaled(6);
   g_status = CreateWindowExA(0, "STATIC", "",
                              WS_CHILD | WS_VISIBLE | SS_LEFT | SS_NOPREFIX,
-                             pad, height - Scaled(32), width - pad * 2,
-                             Scaled(24), g_window, nullptr, nullptr, nullptr);
+                             pad, status_y, width - pad * 2, status_h,
+                             g_window, nullptr, nullptr, nullptr);
   SendMessageA(play, WM_SETFONT, reinterpret_cast<WPARAM>(g_font), TRUE);
   SendMessageA(fresh, WM_SETFONT, reinterpret_cast<WPARAM>(g_font), TRUE);
   SendMessageA(save, WM_SETFONT, reinterpret_cast<WPARAM>(g_font), TRUE);
+  SendMessageA(plain, WM_SETFONT, reinterpret_cast<WPARAM>(g_font), TRUE);
+  SendMessageA(support, WM_SETFONT, reinterpret_cast<WPARAM>(g_font), TRUE);
   SendMessageA(g_status, WM_SETFONT, reinterpret_cast<WPARAM>(g_font), TRUE);
-  AddTip(save, "Write the settings without starting the game.");
   AddTip(fresh, "Start a new game on the first island, skipping the menu.");
+  AddTip(save, "Write the settings without starting the game.");
+  AddTip(plain, "Start the game on the monitor, without the headset. The game "
+                "is full screen, at the size of the desktop, and the mod does "
+                "nothing in it.");
+  AddTip(support, "Opens " BWVR_SUPPORT_URL " in your browser. The mod is "
+                  "free, and it stays free.");
 
   RECT want = {0, 0, width, height};
   AdjustWindowRect(&want, WS_OVERLAPPEDWINDOW & ~WS_THICKFRAME, FALSE);
@@ -1371,6 +1458,74 @@ void MakeFonts() {
   }
 }
 
+// A PICTURE OF THE WINDOW FOR A TEST.
+//
+// "-shot <file>" at the end of the command line makes the launcher write its
+// window to a BMP file and end. A person who uses the PC does not see the
+// window: it is outside the screen, it has no button on the taskbar, and it
+// does not take the focus. It must show there, because a list draws its text
+// only in a window that shows. The picture is the client area, which each
+// control draws into a bitmap (WM_PRINT). The launcher reads the settings
+// for it and writes nothing but the file.
+bool WriteShot(const char* path) {
+  SetWindowLongA(g_window, GWL_EXSTYLE,
+                 GetWindowLongA(g_window, GWL_EXSTYLE) | WS_EX_NOACTIVATE);
+  SetWindowPos(g_window, nullptr, -32000, -32000, 0, 0,
+               SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+  ShowWindow(g_window, SW_SHOWNOACTIVATE);
+  UpdateWindow(g_window);
+
+  RECT client = {0, 0, 0, 0};
+  GetClientRect(g_window, &client);
+  BITMAPINFO info = {};
+  info.bmiHeader.biSize = sizeof(info.bmiHeader);
+  info.bmiHeader.biWidth = client.right;
+  info.bmiHeader.biHeight = client.bottom;
+  info.bmiHeader.biPlanes = 1;
+  info.bmiHeader.biBitCount = 32;
+  info.bmiHeader.biCompression = BI_RGB;
+  void* bits = nullptr;
+  HDC dc = CreateCompatibleDC(nullptr);
+  HBITMAP bitmap =
+      CreateDIBSection(dc, &info, DIB_RGB_COLORS, &bits, nullptr, 0);
+  if (bitmap == nullptr) {
+    DeleteDC(dc);
+    return false;
+  }
+  HGDIOBJ before = SelectObject(dc, bitmap);
+  FillRect(dc, &client, GetSysColorBrush(COLOR_BTNFACE));
+  // WM_PRINT draws from the corner of the frame of the window. Move the
+  // origin, so that the corner of the client area is the corner of the
+  // picture.
+  RECT frame = {0, 0, 0, 0};
+  GetWindowRect(g_window, &frame);
+  POINT corner = {0, 0};
+  ClientToScreen(g_window, &corner);
+  SetViewportOrgEx(dc, frame.left - corner.x, frame.top - corner.y, nullptr);
+  SendMessageA(g_window, WM_PRINT, reinterpret_cast<WPARAM>(dc),
+               PRF_CLIENT | PRF_CHILDREN | PRF_ERASEBKGND);
+  GdiFlush();
+
+  const DWORD size =
+      static_cast<DWORD>(client.right) * static_cast<DWORD>(client.bottom) * 4;
+  BITMAPFILEHEADER header = {};
+  header.bfType = 0x4D42;
+  header.bfOffBits = sizeof(header) + sizeof(info.bmiHeader);
+  header.bfSize = header.bfOffBits + size;
+  bool written = false;
+  FILE* file = nullptr;
+  if (fopen_s(&file, path, "wb") == 0 && file != nullptr) {
+    written = fwrite(&header, sizeof(header), 1, file) == 1 &&
+              fwrite(&info.bmiHeader, sizeof(info.bmiHeader), 1, file) == 1 &&
+              fwrite(bits, 1, size, file) == size;
+    fclose(file);
+  }
+  SelectObject(dc, before);
+  DeleteObject(bitmap);
+  DeleteDC(dc);
+  return written;
+}
+
 }  // namespace
 
 // A TEST AID: "--picture <file>" saves a picture of the window as a BMP
@@ -1420,6 +1575,13 @@ bool SavePicture(const char* path) {
 }
 
 int WINAPI WinMain(HINSTANCE instance, HINSTANCE, LPSTR command, int) {
+  // The words of a test: "-rows <n>", then "-shot <file>" to the end of the
+  // line.
+  const char* shot = strstr(command, "-shot ");
+  if (shot != nullptr) shot += 6;
+  const char* rows = strstr(command, "-rows ");
+  if (rows != nullptr && atoi(rows + 6) >= 4) g_max_rows = atoi(rows + 6);
+
   SetProcessDPIAware();
   HDC screen = GetDC(nullptr);
   if (screen != nullptr) {
@@ -1431,7 +1593,6 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE, LPSTR command, int) {
                                                          ICC_BAR_CLASSES};
   InitCommonControlsEx(&controls);
 
-  (void)command;
   const char* picture = nullptr;
   const char* game = nullptr;
   for (int i = 1; i + 1 < __argc; ++i) {
@@ -1446,11 +1607,16 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE, LPSTR command, int) {
   }
   if (!found) {
     if (picture != nullptr) return 1;
-    MessageBoxA(nullptr,
-                "Cannot find runblack.exe. Install the " BWVR_PRODUCT_NAME
-                " in the folder that holds your Black & White game.",
-                kProductName, MB_ICONERROR | MB_OK);
-    return 1;
+    if (shot == nullptr) {
+      MessageBoxA(nullptr,
+                  "Cannot find runblack.exe. Install the " BWVR_PRODUCT_NAME
+                  " in the folder that holds your Black & White game.",
+                  kProductName, MB_ICONERROR | MB_OK);
+      return 1;
+    }
+    // A picture of -shot needs no game. The table then shows its defaults,
+    // and the status line names a file that is missing.
+    TakeGameDir(".");
   }
 
   MakeFonts();
@@ -1502,6 +1668,7 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE, LPSTR command, int) {
     DestroyWindow(g_window);
     return saved ? 0 : 1;
   }
+  if (shot != nullptr) return WriteShot(shot) ? 0 : 1;
   ShowWindow(g_window, SW_SHOW);
   UpdateWindow(g_window);
 

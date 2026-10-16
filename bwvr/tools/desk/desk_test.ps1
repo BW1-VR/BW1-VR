@@ -84,6 +84,9 @@ try {
     # is 800 by 640, so it does not fill the screen. The render keeps its
     # size, and the window keeps the shape of the render of the rig, so the
     # pointer scales the same way both ways.
+    # god_zoom_forward_in=1: the word stick_up of a recipe zooms in. Each
+    # recipe counts on that, and the default of the mod zooms out with the
+    # stick forward.
     $keys = [ordered]@{
         vr = 0; stereo = 1; stereo_headless = 1; fake_head = 1;
         fake_head_yaw = 0; fake_head_pitch = 0; fov_absolute_deg = 110
@@ -91,6 +94,7 @@ try {
         intro_skip_test_frame = 5
         registry_test_guard = 1
         window_width = 800; window_height = 640
+        god_zoom_forward_in = 1
     }
     foreach ($k in $Extra.Keys) { $keys[$k] = $Extra[$k] }
 

@@ -10,8 +10,9 @@ and you reach in.
 The mod is free. If you like it, you can support the work on
 [Ko-fi](https://ko-fi.com/buckzor).
 
-**Status: alpha.** This repo is private and by invitation. Please do not give
-a build or a link to a person outside the group.
+**Status: alpha.** Expect faults, and please report them (see
+[Report a problem](#report-a-problem)). Talk with other players and with the
+makers of the mod on [Discord](https://discord.gg/FTn8y4eypU).
 
 To build the mod or to change its code, see
 [`CONTRIBUTING.md`](CONTRIBUTING.md).
@@ -144,6 +145,9 @@ things make a report useful:
 The known problems are in the section "KNOWN ISSUES" of the readme in your
 game folder, and the work list is at the top of
 [`bwvr/docs/roadmap.md`](bwvr/docs/roadmap.md).
+
+To ask a question or to talk with other players, join the
+[Discord server](https://discord.gg/FTn8y4eypU).
 
 ## To remove the mod
 

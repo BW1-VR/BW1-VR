@@ -1040,14 +1040,27 @@ text of the HelpText scope draws in an eye picture. This runs with
    the hint card.
 3. After both eye passes (`UiDepthSetEye(-1)`), `SubtitleEndPasses` takes the
    bounds of what drew, with 8 pixels of room, on a grid of 16 pixels
-   (`CardRect`). `GpuBridgePanelReadHalf` copies that rect at half the size
-   with one `StretchRect` (linear, so each pixel is the mean of four) and one
-   `GetRenderTargetData`. That call copies a whole surface, so the copy goes
-   through a target that is only as large as the rect, on a grid of 128 pixels.
-   Six sizes are kept. A subtitle costs a copy of about 1 MB. Both eye captures
-   are done at that time, so the GPU has no work left and the copy does not
-   wait.
-4. `XrScreen::StageCard(kCardSubtitles)` gives the pixels and the pose to
+   (`CardRect`). The copy of that rect at half the size is one `StretchRect`
+   (linear, so each pixel is the mean of four) into a target that is only as
+   large as the rect, on a grid of 128 pixels, and one `GetRenderTargetData`
+   to system memory. A subtitle costs a copy of about 1 MB.
+4. **The read ahead** (`subtitle_read_ahead=1`, the default). The GPU does the
+   calls of the device in the order of its queue, so `GetRenderTargetData`
+   waits until the GPU has done each call before it. After the eye passes that
+   is both eye passes. With `frame_send` 1 and 2 the frame thread does not
+   wait for the GPU at all, so that read would be a wait of the frame thread.
+   So the copy goes into one of three slots, with an event query after it
+   (`GpuBridgePanelQueueHalf`). At the start of a later frame, before the eye
+   passes, `GpuBridgePanelFetchHalf` reads the newest slot whose query is done,
+   when the query of the last frame end is done too. Then the GPU has no work
+   left, and the read is only the copy. `GpuBridgePanelReadyHalf` gives those
+   pixels and the rect that they hold, and the quad has that rect. So the card
+   shows the help text of one or two frames before. A copy from before the
+   frame in which the help text of now started does not show, so old text
+   never comes back.
+   With `subtitle_read_ahead=0`, `GpuBridgePanelReadHalf` reads the copy of
+   the frame at once, and the frame thread waits for the GPU.
+5. `XrScreen::StageCard(kCardSubtitles)` gives the pixels and the pose to
    `EndFrame`. That makes a swapchain of half the render size at the first
    subtitle, writes the rect with `UpdateSubresource`, and adds ONE quad layer
    in the LOCAL space. This is the path of the hint card.
@@ -1122,12 +1135,18 @@ window the help text stays in the picture of the window.
 | `subtitle_card_down_deg` | 17 | The angle of the subtitles below eye level, -20 to 60 |
 | `subtitle_card_width_cm` | 100 | The width of the whole render on the card, 30 to 300. It sets the size of the letters |
 | `subtitle_fallback_cm` | 75 | The fixed depth of the fallback, 30 to 400 |
+| `subtitle_read_ahead` | 1 | 1 reads the copy of the card at the start of a later frame, when the GPU has done it, so the frame thread does not wait (17.2, step 4). 0 reads it after the eye passes of its frame, and the frame thread waits for the GPU |
 
 Test keys: `subtitle_card_test=1` runs the route with no headset, for the desktop
 rig. `subtitle_selftest=1` draws two lines of help text in the HelpText scope
 with the game's own text code (`SubtitleSelfTest`), because a desktop run shows
 no subtitle. With `test_keys=1` and `ui_panel=0`, Ctrl Shift F11 switches
-between the cards and the eye pictures, for a live comparison.
+between the cards and the eye pictures, for a live comparison. With
+`test_keys=1`, Ctrl Shift Semicolon turns `subtitle_read_ahead` off and
+on.
+`subtitle_read_ahead_test_seconds=N` (5 to 600) does the same each N seconds
+while the card is in use, with the same pulses, for a comparison in the
+headset with no keyboard. A save of the launcher removes this key.
 
 ### 17.6 The log
 
@@ -1149,15 +1168,19 @@ The tag `subtitles`:
 - Each report window: the frames with the route, the frames with a card, the
   moves, the time and the size of the copy, the frames with help text and no
   card, and the batches of the fallback. `ui panel` gives the batches that went
-  to the target and the half size copies. `XrScreen` counts the quad layers of
-  the card.
+  to the target and the half size copies. With the read ahead it gives the
+  copies in the queue, the reads, the frame starts with a copy that the GPU
+  had not done, and the copies that were never read. The time of the copy is
+  then the time of the lock and of the copy in the CPU, with no wait for the
+  GPU. `XrScreen` counts the quad layers of the card.
 
 ### 17.7 Cost
 
 | Item | Cost |
 | --- | --- |
 | Memory | The panel target and its depth at the render size (66 MiB at 2880 by 2880), the copy targets (1 to 2 MiB each for a subtitle), a buffer and a swapchain of half the render size (8 MiB, and 24 MiB for 3 images) [I] |
-| A frame with a subtitle | One clear of the panel, one bind for each span, one `StretchRect`, one `GetRenderTargetData`, one copy and one `UpdateSubresource` of the rect. The log gives the time of the copy. |
+| A frame with a subtitle | One clear of the panel, one bind for each span, one `StretchRect`, one event query, one `GetRenderTargetData`, one copy and one `UpdateSubresource` of the rect. The log gives the time of the copy. |
+| The wait for the GPU at the copy | With `subtitle_read_ahead=1`: none. With 0 and `frame_send` 1 or 2: the frame thread waits until the GPU has done both eye passes. Headset sessions with `frame_send=2`, `one_walk=1` and the card in each frame had 4 to 8 ms in each frame that no part of the frame report had, and 45 fps in views that held 90 fps with no card. With `frame_send=0` the frame thread waits for the GPU after the eye passes anyway |
 | The copy, with no game [M] | The same Direct3D 9 calls on an RTX 3090: a subtitle strip of 2112 by 304 pixels takes 0.41 ms, the Creature panel 0.32 ms, and a rect that holds both 2.2 ms |
 | A frame with no help text | Nothing: no clear, no copy, no layer |
 | `subtitle_card=0` | Nothing |
@@ -1308,6 +1331,15 @@ The bubble is one flat card at the depth of the sign (`bubble_card.cpp`,
 - **The text at its pixels.** `DrawInterface` draws each flat batch of a
   bubble as the game made it: the text, the arrows and the icon. Such a
   batch gets no interface depth and no interface size.
+- **One walk for both eyes.** With `one_walk=1` the game places and draws
+  the bubble one time, for the left eye, and no batch of the bubble has the
+  depth of the sign in it. So the mod draws each batch of the card for the
+  left eye only, and then for the right eye only, moved by the eye difference
+  of the sign (`BubbleCardWalkMove`, `one_walk_marks=1`). The depth of the
+  sign is the one that the place function wrote in this frame. The card of
+  the right eye is then the card that the place function makes in a pass of
+  the right eye. `backend.md`, "The cards and the marks of the mod", has the
+  rule and the key.
 
 With `bubble_card=0` the mod changes nothing of the bubble.
 
@@ -1331,6 +1363,12 @@ view. It has these numbers:
 - the box of the game, the box as drawn and the flat parts as drawn, each
   with how far apart the two eyes have it
 
+In one walk the line has the depth of the sign, its pixel in the left
+picture, the eye difference of that depth, the value of `one_walk_marks`, and
+the box and the flat parts as drawn in each eye. On a frame of
+`one_walk_check=1` (`backend.md`) one more line has the box and the flat
+parts of the right eye in its own walk beside those that one walk drew.
+
 Each report has the counts.
 
 ### 18.5 Tests
@@ -1344,24 +1382,43 @@ a bubble 34 units deep, the game draws the box 97.9 pixels to the side in
 each eye picture. `CornerToItsPixel` puts each corner back within 0.01
 pixels, also for a camera of an eye with its own turn and a roll.
 
-No desktop run has shown the change in the game. A run needs a tap on a
-signpost. `bwvr/tools/desk/hand_run.ps1 -Kind fixed -Save temple` can make
-one, with these test keys in `-Set`:
+A desktop run shows the card. It needs a tap on a signpost.
+`bwvr/tools/desk/hand_run.ps1 -Kind fixed -Save temple` makes one, with
+`-Steps "seek@4640+1 seek@4700+1 shot@4730+1 grip@4760+10 shot@4840+1
+shot@4900+1 shot@4990+1 shot@5050+1"` and these test keys in `-Set`:
 
-- `seek_plan=go,scrolls` and `seek_go=<x>,<z>`. The first word `seek` of
-  `-Steps` puts the head over that place of the land. The second one writes
-  each scroll in view to the log and puts the Hand's point on the nearest
-  one. The log names a signpost a silver scroll. A `grip` after that taps
-  it.
-- `fake_head_pitch=-50`, so the land near the head is in the pictures.
+- `seek_plan=go,scrolls` and `seek_go=1977.94,2338.25`. The first word
+  `seek` puts the head over that place of the land, where the test save has
+  a signpost. The second one writes each scroll in view to the log and puts
+  the Hand's point on the one nearest to the eye. The log names a signpost a
+  silver scroll (type 1). A scroll of a challenge is a gold scroll (type 2):
+  a tap on it makes no bubble. The `grip` after that taps the signpost.
+- `fake_head_pitch=-60`, so the land under the head is in the pictures.
 - `bubble_card_test=1`, and `bubble_card_test_frame=<frame>` for the old
   value in the same run. Each line `bubble card` of the log then has the
   pixel of the sign in each eye, and how far apart the two eyes have the
   box and the text. With 1 the three numbers must be the same. A word
   `shot` after each line saves the two eye pictures.
+- `one_walk=0` for two walks. For one walk: `one_walk=1`, `one_walk_check=1`
+  and `one_walk_marks_test_frame=4930`, which gives the last two pictures
+  `one_walk_marks=0`. A desktop run takes `one_walk` from the installed
+  `bwvr.ini` when the run does not set it.
 
-No run has made this recipe yet: the place of a signpost in the test save
-is not known.
+What such a run shows, with a render of 3600 by 2880 and the sign 49.6 units
+deep:
+
+| | Sign | Box | Text |
+| --- | --- | --- | --- |
+| Two walks: how far apart the two eyes have it | 169.9 px | 170.0 px | 169.9 px |
+| One walk, `one_walk_marks=1`: how far apart | 169.9 px | 169.9 px | 169.9 px |
+| One walk, `one_walk_marks=1`: the right eye, from its place in its own walk | | 0.1 px | 0.0 px |
+| One walk, `one_walk_marks=0`: how far apart | | 302.2 px | 0.0 px |
+| One walk, `one_walk_marks=0`: the right eye, from its place in its own walk | | 132.2 px | 169.9 px |
+
+The game makes the corners of the box whole pixels in each pass, which is
+the 0.1 px. With `one_walk_marks=0` the text of the right eye is beside the
+box, not in it. In the pictures of the right eye, the card of one walk with
+`one_walk_marks=1` is the card of its own walk.
 
 ### 18.6 Limits
 
@@ -1379,3 +1436,11 @@ is not known.
 - `Draw3DWorldTriangle` clips the box at the edge of the picture before the
   corners go to their pixels. So a box at the edge of an eye picture can
   lose a strip, as wide as the move of its corners.
+- In one walk the game clips the box and the text at the right edge of the
+  picture of the left eye. So a card at the right edge of the picture of the
+  right eye can lose a strip there, as wide as the eye difference of the
+  sign (`backend.md`, "The edge of the right eye").
+- In one walk with `bubble_card=0`, the text has the pixels of the left eye
+  in both eyes, with the interface depth. It has no eye difference of the
+  sign. The text of the name of a villager is the same. No run has shown
+  either.

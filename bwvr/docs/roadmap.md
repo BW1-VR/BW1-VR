@@ -215,11 +215,11 @@ is built, and no test has proven it.
 - **B17. The name of a villager, and the size of a speech bubble.** The
   speech bubble of a signpost is one flat card at the depth of the sign
   (`bubble_card=1`, `ui-layer.md`, section 18), and a headset session read
-  it well. No desktop run has shown the card: a run with a tap on the silver
-  scroll at the Temple made no bubble (section 18.5 has the recipe). Still
+  it well. A desktop run shows the card (section 18.5 has the recipe). Still
   open:
   - The name of a villager draws its own box, and the mod does not change
-    it (`ui-layer.md`, 18.6).
+    it (`ui-layer.md`, 18.6). By the code, its text has no eye difference of
+    the villager in one walk. No run has shown that.
   - The size of a bubble comes from the depth of the sign in units, with no
     change for the scale of the God view.
 - **B18. A flash of lightning in the left eye only: check it in a
@@ -264,6 +264,108 @@ is built, and no test has proven it.
   repeated it. A full screen game makes no try (`vr_full_screen=0`), and a
   game with `vr=0` makes none. A game in a window with no headset makes a
   try each 3 seconds for 2 minutes.
+- **B22. The glow at the Hand's point with one walk: check it in a
+  headset.** In one walk the mod draws the glow for each eye by itself, and
+  the right eye has it at the eye difference of the Hand's point
+  (`one_walk_marks=1`, `backend.md`, "The cards and the marks of the mod").
+  A desktop run shows the glow of the right eye at its place in each pose of
+  a hand that turns. The glow is off by default (`hand_glow=0`). Still open:
+  - Check in a headset that the glow stays at one place on the hand when the
+    hand turns. Ctrl, Shift and the right square bracket key (`test_keys=1`)
+    give the right eye the glow by the rhw of its disc for a comparison.
+- **B23. The card of a signpost with one walk: check it in a headset.** In
+  one walk the mod draws the card of a speech bubble for each eye by itself,
+  and the right eye has the box and the text at the eye difference of the
+  sign (`one_walk_marks=1`, `ui-layer.md`, section 18). A desktop run shows
+  the card of the right eye at its place in its own walk. The hint cards and
+  the subtitle card are quad layers, and one walk does not draw them. Still
+  open:
+  - Check in a headset that the text of a signpost is in its box and easy to
+    read with one walk. Ctrl, Shift and the right square bracket key
+    (`test_keys=1`) give the right eye the card by the rule of each other
+    batch for a comparison.
+- **B24. After a cut scene the controllers do nothing until a press.** In a
+  headset session the controllers were not active at the end of a cut
+  scene. A press of a grip or of a trigger made them active again. The
+  cause is not known.
+- **B25. The video after the drowning boy is not one picture for the two
+  eyes.** At the start of a new game the game plays a video (the birth of
+  the god). It looks right while the head looks straight at it. With the
+  head turned, the edges of the video do not lie on each other in the two
+  eyes. Wanted: the video plays on the screen of the cut scene window,
+  about 2 m in front of the player.
+- **B26. The tutorial after its first step.** The aim: a player can play the
+  whole tutorial in VR, also where the words of the game do not fit the
+  controllers. The first step is shown in a desktop run: the walk to the
+  village with the teleport and with the stick (`god-view.md`, section 14.9).
+  No run and no headset session has the later steps: the way to the Temple,
+  the three lessons of the camera, the guide at the mountain. `god-view.md`,
+  section 7, "The interface levels", has the camera controls that the game
+  allows in each step. Wanted: a headset session through the whole tutorial,
+  and a correction for each step that stops the player.
+- **B27. The walk with the stick is not smooth over some parts of the
+  land.** In a headset session the motion was jagged and it jittered over
+  some parts of the map. The cause is not known. A guess: the height of the
+  land under the head changes in steps.
+- **B28. Light shows between a bar and the cut scene window.** The black
+  bars over and under the cut scene window are a little too narrow: a
+  column of light pixels shows between the bar at the left and the window.
+  A guess: the bar and the window have different depths, so their edges do
+  not meet in each eye.
+- **B29. The advisors and the cut scene window.** In a cut scene the mod
+  draws the advisors over the window and outside it at times, and their
+  depth is the depth of the inside of the window. Wanted: the cut scene
+  plays inside the window, and the advisors have a depth between the
+  player and the window.
+- **B30. The gift of an object to the Creature: check it in a headset.**
+  An object in the Hand that the player lets go at the Creature is a gift,
+  with the leash on and with no leash. The gift goes on while the hand is at
+  the Creature (`creature_gift=1`), and a Creature that is the target of
+  the object stays the target to 6 cm (`hold_creature_stay=1`,
+  `creature.md`, section 2.9). Desktop runs show a pig that the Creature
+  takes with the leash on, and the game that ends the same gift with
+  `creature_gift=0` (`creature_recipe.ps1 -Kind gift` in
+  `bwvr/tools/desk`). Check in a headset, with a real hand:
+  - The Creature takes a pig at the first opening of the grip, with the
+    leash on and with no leash.
+  - A move of the hand away from the Creature keeps the object in the Hand.
+  - 20 cm (`creature_gift_cm`) is a good reach, and the halo on the
+    Creature is steady while the hand is at it.
+- **B31. With the leash on, a grip at a distance takes nothing from some
+  objects.** The grab at a distance has no test of the leash: with the
+  leash on it takes each object in its range. Three rules stop a grip
+  there, and the halo does not tell them apart:
+  - The target of a Creature command has its halo to 10 m of the room from
+    the head (`creature_command_max_m`), and the grab at a distance takes an
+    object to 2 m (`far_grab_max_m`). So a tree at 2.2 m has the halo of a
+    command, and a grip on it takes nothing.
+  - The game does not let the Hand take the object that holds a tied
+    leash. A press on that object is a press for the leash (hand mode
+    `0x20`), at the Hand and from a distance.
+  - Near objects win (`grab.md`): an object that a press acts on near the
+    Hand's point turns the grab at a distance off. A Creature on the leash
+    comes to the Hand, so this happens more often with the leash on.
+
+  To decide: a halo or a line of the card that shows which objects the
+  grip takes, a longer range of the grab while the leash is on, or no
+  change.
+- **B32. In a fight of Creatures, the grip on a Creature does not block or
+  attach.** In the Creature tutorial, the words of the game and the hint
+  tell the player to press the action button (the grip) on the other
+  Creature or on the player's own Creature, to block or to attach. In a
+  headset session that did nothing. A grip together with the trigger
+  (perhaps in the other order) did work. Not known: what the game needs for
+  that press in a fight (which button, which click, which place of the
+  Hand), and what the mod sends for a grip on a Creature in a fight. The
+  rules of the mod for a grip on the Creature (the leash click, the stay,
+  `creature.md`, section 5) can take that press.
+- **B33. The marks on the other Creature in a fight have no depth.** In a
+  fight, a click on the other Creature puts glowing stars on it, at the
+  place that the player's Creature must hit. In a headset session they
+  showed over each other thing, and not on the body of the Creature: they
+  looked as if they had no depth. Not known: how the game draws them (a
+  sprite or a flat batch of the interface), and whether one walk or the
+  interface chain of the mod gives them the wrong depth in the eyes.
 
 B1b, B2, B4 and B11 are one package: a thing that is held, thrown, or
 that moves while the Hand takes it.
@@ -295,9 +397,37 @@ that moves while the Hand takes it.
   Creature command. The screen test offers an object to the pick by its base
   point (12 degrees), so a tall tree that the ray crosses only at its crown,
   far from its base, is a candidate only when the draw offers it by the pixel.
-  The log of the grab from a distance has room for 200 lines in a session
-  (`kMaxLogs` in `far_grab.cpp`), so a long headset session has no line of a
-  new target after that.
+
+  The Creature, a miracle and a signpost in the aim (`far_grab_creature`,
+  `far_grab_miracle`, `far_grab_sign`, `grab.md`, "The cone and the
+  choice"): the aim measures your Creature by its body, a miracle that the
+  Hand can take is in the first rank, and a signpost is in the last rank.
+  The math checks and desktop runs show the rules, with a miracle beside a
+  signpost and with a thing of no rank beside the Creature. No run had a
+  tree or a signpost beside the Creature, a large Creature, or a miracle of
+  a quest. Check in a headset:
+  - the aim on the body of your Creature gives it the halo with a tree or a
+    signpost beside it, and a tree beside it is still easy to take,
+  - a miracle beside a signpost takes the halo, and it keeps it,
+  - a signpost is still easy to choose with the aim on it.
+
+  A signpost and the Creature at the Hand (`hand_sign_last`,
+  `hand_wide_creature`, `grab.md`, "The rule of the choice" and "Near
+  objects win"): a signpost that the Hand's point is not in comes last, it
+  does not turn the grab from a distance off, and the Creature has the wide
+  reach of 15 cm. The math checks and desktop runs show the rules. No run
+  had a miracle in the wide reach beside a signpost, or a grip that stays
+  closed on the Creature in the wide reach. Check in a headset:
+  - a miracle or the Creature beside a signpost is the target of the grip,
+    and the aim keeps its target with the hand beside a signpost,
+  - a signpost is still easy to tap: with the Hand's point in it, or with
+    no other target in reach and no target of the aim,
+  - the grip on the Creature from 4 to 15 cm: the leash click, and the start
+    of the Creature state with the hand that far from the body.
+
+  The far grab is still off while the Hand's point is 10 cm or less from a
+  tree or a house (`grab.md`, "Near objects win"). So the aim has no target
+  there, the Creature too.
 - **P2. The stay of the Creature: test it in the headset.** A grip from a
   distance that stays closed on the Creature makes it stop and stay until
   the grip opens. A short grip changes the leash when it opens
@@ -421,6 +551,18 @@ that moves while the Hand takes it.
   - The interface in the eye pictures (the Creature panel, a tooltip): with a
     margin it is larger and farther from the middle. Not known: whether that
     needs a correction.
+- **P17. A cut scene with no window.** An option for a player who is at
+  ease with a camera that moves: a cut scene plays around the player, with
+  the camera of the game at its place and with all its motion, and with no
+  cut scene window. The cut scene window stays the default
+  (`cutscene-window.md`).
+- **P18. The left hand option of the game.** The game has an option for a
+  left hand. Wanted: the mod reads that option, and with it the left
+  controller is the Hand: the player points, takes and throws with the left
+  hand, and each job of the right controller and of the left controller
+  changes sides (the sticks, the buttons, the hints). Not known: where the
+  game keeps the option, and what the mod does with it now. The mod has the
+  key `controller_hand` for the hand that points.
 - **P5. Hand tracking.** The player plays with the hands and no
   controllers: the Hand follows the real hand and its fingers, one to one,
   as it follows a controller. First find what the headset gives to the
@@ -514,6 +656,17 @@ that moves while the Hand takes it.
     the right eye, moved by the disparity of its `rhw`. On the desktop the
     scene time of `verify_build.ps1` went down by 35 to 40 percent. Not shown:
     a session in a headset with a person in it, and its feel.
+  - **The read ahead of the subtitle card, and `frame_send=2`.** With
+    `frame_send` 1 and 2 the frame thread does not wait for the GPU, but the
+    read of the copy of the subtitle card did (`ui-layer.md`, 17.2). The
+    read ahead takes that wait away (`subtitle_read_ahead=1`). Not shown: a
+    headset session with `frame_send=2` and the card on, and its frame
+    rate against `frame_send=0`. The default 0 came from headset sessions
+    in which the card read had that wait. A desktop run cannot show it:
+    with no headset the mod makes no wait for the GPU, and no thread has a
+    frame to send, so `bench_run.ps1` gives the same numbers for each value
+    of `frame_send`. The comparison needs two sessions in a headset with
+    `profile=1`, at one place with a still head.
   - **The merge of draw calls in a headset.** The mod gives a row of draw
     calls with one state to Direct3D as one draw call (`draw_merge=1`,
     `backend.md`, "One draw call for a row of draw calls"). Desktop runs of
@@ -732,6 +885,3 @@ that moves while the Hand takes it.
   from a forest (`forest_take.cpp`). The keys of the keyboard that no code
   of the game or of the mod reads are few: a new test key needs a search
   first (`backend.md`, the hotkey table).
-- **R11. The log of the far grab stops in a long session.** The far grab
-  writes 200 lines at most, so in a long session only its report counters
-  stay.

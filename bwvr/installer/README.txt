@@ -56,7 +56,7 @@ HOW TO START
 
 The launcher saves your settings, starts the game in the headset,
 and closes. "Play, new game" does the same and starts a new game.
-"Save" keeps your settings and does not start the game.
+"Save Config" keeps your settings and does not start the game.
 
 A new game opens the start dialog of the game. You can play the
 tutorial of the game in VR, but it is made for the mouse and the
@@ -147,7 +147,10 @@ are zoomed out, is held between your thumb and your index finger. Set
 hand_pinch=0 in bwvr.ini to hold it in your fist. Set hand_feel=0 for
 fingers that follow the trigger and the grip only.
 
-  Stick up, down      Zoom in or out one step. Push again for the
+  Stick up, down      Zoom out or in one step: up makes the world
+                      smaller, down makes it larger. "Stick forward"
+                      in the launcher turns the direction (key
+                      god_zoom_forward_in). Push again for the
                       next step. The land that you look at stays where
                       it is, and its size changes. In the launcher,
                       "Center of the zoom" chooses a different point
@@ -192,7 +195,11 @@ With the mouse:
 
 The tutorial of the game turns on the camera controls one at a time.
 Until the tutorial turns on a control, that control does nothing in
-the God view.
+the God view. The grip on the land, the walk with the left stick and
+the teleport go together. They work from the first step of the
+tutorial, when the villagers ask you to follow them. Set
+teleport_switch=0 in bwvr.ini to keep the teleport off until the
+tutorial turns on the double click jump of the game.
 
 Ctrl F11 turns the God view off and on. Off gives the immersive
 view, which is for tests only.
@@ -261,6 +268,12 @@ still:
   Shift Menu key      Change the walk with the left stick: where your
                       head faces, where the controller points, or off
                       (move_stick).
+  Ctrl Shift Comma    Change the switch of the game that the teleport
+                      keeps to: the drag of the land, or the double
+                      click jump (teleport_switch).
+  Ctrl Shift Period   Change the lines "Stick Move" and "A Teleport"
+                      of the hint cards: only while they can move
+                      you, or as before (prompt_moves).
   Number pad keys     Switch between two ways of one behavior, while
                       you play. See TEST KEYS OF THE NUMBER PAD.
 
@@ -305,7 +318,7 @@ size of your hand.
                       grip changes its leash. Keep the grip closed,
                       and your Creature stops and stays until you
                       open the grip.
-  Stick up, down      Zoom in or out one step.
+  Stick up, down      Zoom out or in one step.
   Stick left, right   Turn one step.
   A                   Hold it and an arc shows where you will go.
                       Let go to go there. B cancels.
@@ -462,8 +475,8 @@ give this hint the rule of the other trigger hints.
 
 Each controller has its own card. A line for a button of the other
 controller shows beside the wrist of that hand: "Grip Move the land",
-"Y Ring menu" and "Menu Game menu" show at your left hand. The two
-cards can show at the same time.
+"Stick Move", "Y Ring menu" and "Menu Game menu" show at your left
+hand. The two cards can show at the same time.
 
 The cards also show prompts: what a button does now. Examples are "Grip
 Take" over an object, "Grip Pull to fetch" for a far object, "Grip Hold
@@ -473,6 +486,12 @@ the land. A prompt for the thing that your hand or your aim is on shows
 at once and stays while you are on it. The other prompts show for a few
 seconds, and only the first times. Set prompts=2 in bwvr.ini to show
 those always, or prompts=0 for none. Set hint_card_size_pct=150 for larger cards.
+
+"Stick Move" shows only while the left stick can move you, and "A
+Teleport" shows only while the A button can. For example, they do not
+show while a step of the tutorial holds you in your place. Set
+prompt_moves=0 in bwvr.ini for no line of the stick and a line of A
+in each case.
 
 With a tree in your Hand, the card says "Grip Plant" only when opening
 the grip plants the tree. If your Hand is more than 15 cm over the land,
@@ -526,6 +545,15 @@ An object that you can hold, for example a rock, is also taken from
 farther: up to 15 cm from your finger tip, when no other object that a
 press acts on is nearer. The halo shows which object it is. Set
 hand_wide_pick_cm in bwvr.ini to change the distance (0 turns it off).
+Your Creature has this longer reach too. Set hand_wide_creature=0 in
+bwvr.ini to give it the reach of 4 cm only.
+
+A wooden signpost comes last at your Hand. When a miracle, your
+Creature or a different object is in reach, the grip acts on that
+object and not on the signpost beside it. To read a signpost, put the
+glow of your Hand on it. With no other target in reach, the signpost is
+the target from 10 cm. Set hand_sign_last=0 in bwvr.ini for a signpost
+that comes first as each other scroll does.
 
 An object that moves, for example a rock that falls, can be taken from
 farther: the faster it moves, the longer the reach, up to 8 cm more.
@@ -568,13 +596,14 @@ starts at the first press of the grip on it. Set scroll_reach_cm in
 bwvr.ini to change the 10 cm. Set scroll_click=0 and scroll_draw=0
 to turn off the press on a scroll and the drawing of its halo.
 
-The color of the glow is the color of the grip on the hint cards.
-It is gold when the grip can pick something up or take from a store
-or a field. It is a paler gold when the grip can start a scroll,
-knock on a house or touch your Creature. There is no glow when a
-press does nothing, and none while the Hand holds an object. To turn
-the glow off, clear "Glow at the Hand's point" in the launcher. Set
-hand_glow_idle=1 in bwvr.ini for a glow that shows always.
+A glow at the point of the Hand itself is off. To turn it on, set
+"Glow at the Hand's point" in the launcher. Its color is the color
+of the grip on the hint cards. It is gold when the grip can pick
+something up or take from a store or a field. It is a paler gold
+when the grip can start a scroll, knock on a house or touch your
+Creature. There is no glow when a press does nothing, and none while
+the Hand holds an object. Set hand_glow_idle=1 in bwvr.ini for a glow
+that shows always.
 
 In the God view the quests of the game see where you are. When a
 quest waits for you to come near a thing, your head or a hand must be
@@ -612,11 +641,22 @@ about 9 degrees away from it. So a tree beside it does not take the
 halo back when your hand shakes. With no living thing near the line,
 a small object comes before a large one that stands behind it.
 
+A miracle in a bubble on the land comes first too, as a living thing
+does. A wooden signpost comes last: it takes the halo only when you
+point straight at it and at no other target, or when no other target is
+near the line of your hand. So a signpost beside a miracle or beside
+your Creature does not take the halo from it. Your Creature takes the
+halo when you point at each part of its body, from its feet to its
+head.
+
 Set far_grab_stay=0 in bwvr.ini if a living thing must not keep the
 halo past its own 6 degrees. Set far_grab_choice=1 for a choice with
 no ranks, in which a villager only scores better than a tree. Set
 far_grab_choice=0 to choose by one point of the object. The values 3
-and 4 give each object a ball of one size for its class.
+and 4 give each object a ball of one size for its class. Set
+far_grab_miracle=0 if a miracle must have no rank, far_grab_sign=0 if a
+signpost must come first as each other scroll does, and
+far_grab_creature=0 to choose your Creature by the point at its feet.
 
 A far object must be near you: at most 2 m of your room from your
 head, along the floor. Set far_grab_max_m in bwvr.ini to change this
@@ -655,7 +695,9 @@ that a press acts on, there is no far target and no halo, and the grip
 of the pointing hand does not grab the world. So the grip acts only on
 the object at your Hand. The far targets come back when your Hand is
 more than 15 cm from each such object. Set far_grab_near_cm and
-far_grab_near_out_cm in bwvr.ini to change the two distances.
+far_grab_near_out_cm in bwvr.ini to change the two distances. A signpost
+beside your Hand does not turn the far targets off: you can point past
+it at your Creature or at a different object.
 
 
 HOLD, RELEASE AND THROW
@@ -754,6 +796,16 @@ The glow is pale gold while your hand touches the Creature. Open the
 grip to stop. A short press of the grip on your Creature changes its
 leash, as a short click with the mouse does. When the interface panel
 is set up, the panel of the Creature shows near the Creature.
+
+To give an object to your Creature, take the object, hold it in the
+body of your Creature and open the grip. Your Creature has a gold halo
+then, and the card says "Grip Open to give it to the Creature". Keep
+your hand near your Creature until it takes the object from your Hand.
+To keep the object, move your hand away before your Creature has it.
+The leash makes no difference. Set creature_gift_cm in bwvr.ini to
+change how far your hand can go from your Creature, in cm (20). Set
+creature_gift=0 in bwvr.ini for the rule of the plain game: your hand
+must stay at the place where your Creature reaches for the object.
 
 To change the leash from a distance, point your hand at your Creature,
 close the grip and open it again at once. The leash changes when the
@@ -981,7 +1033,8 @@ first line of the log gives the build of the mod.
 
 To report a fault:
 
-1. Open the Issues page of the project on GitHub.
+1. Open the Issues page of the project on GitHub:
+   https://github.com/BW1-VR/BW1-VR/issues
 2. Select "New issue", and fill in the form.
 3. Attach bwvr.log and each bwvr-old file of the same day.
 4. Write what you did, what you expected and what happened.
@@ -991,6 +1044,11 @@ The log holds:
   - the settings that the mod read,
   - the hooks that went in, and the hooks that failed,
   - the frame rate reports, and a count of the frames.
+
+To ask a question or to talk with other players, join the Discord
+server of the mod:
+
+  https://discord.gg/FTn8y4eypU
 
 
 HOW TO REMOVE IT

@@ -140,6 +140,54 @@ inline void VillageChecks() {
   Near("a Creature has no reach", HoldReach(kOntoCreature, 2.7f), 0.0, 1e-6);
   Near("a store has the reach of the key", HoldReach(kOntoStore, 2.7f), 2.7,
        1e-6);
+  // A Creature that is the target stays the target to the reach of the key.
+  Near("a Creature that was the target has the reach of the key",
+       HoldReachNow(kOntoCreature, 2.7f, true, true), 2.7, 1e-6);
+  Near("a Creature that was not the target has no reach",
+       HoldReachNow(kOntoCreature, 2.7f, false, true), 0.0, 1e-6);
+  Near("hold_creature_stay=0: a Creature has no reach",
+       HoldReachNow(kOntoCreature, 2.7f, true, false), 0.0, 1e-6);
+  Near("an altar that was the target has no reach",
+       HoldReachNow(kOntoAltar, 2.7f, true, true), 0.0, 1e-6);
+  Near("a store that was not the target has the reach of the key",
+       HoldReachNow(kOntoStore, 2.7f, false, true), 2.7, 1e-6);
+  Check(HoldTakes(1.5f, 4.0f, HoldReachNow(kOntoCreature, 2.7f, true, true),
+                  1e30f),
+        "the Hand's point 1.5 units beside a Creature that was the target", 1,
+        1);
+  Check(!HoldTakes(1.5f, 4.0f, HoldReachNow(kOntoCreature, 2.7f, false, true),
+                   1e30f),
+        "the Hand's point 1.5 units beside a Creature that was not", 0, 0);
+  // THE GIFT TO A CREATURE. A Creature of size 0.22, as a young Creature, at
+  // 51 world units in a meter of the room.
+  Near("the test of the game takes a Hand to 15 sizes", GiftGameReach(0.22f),
+       3.3, 1e-5);
+  Near("the reach of the mod: 15 sizes and 20 cm of the room",
+       GiftReach(0.22f, 51.0f, 20.0f), 13.5, 1e-4);
+  Check(GiftStays(0.0f, 0.22f, 51.0f, 20.0f),
+        "the Hand's point in the body: the gift goes on", 1, 1);
+  Check(GiftStays(5.0f, 0.22f, 51.0f, 20.0f),
+        "5 units from the body, past the 3.3 units of the game: it goes on",
+        1, 1);
+  Check(GiftStays(13.4f, 0.22f, 51.0f, 20.0f),
+        "13.4 units from the body: it goes on", 1, 1);
+  Check(!GiftStays(13.6f, 0.22f, 51.0f, 20.0f),
+        "13.6 units from the body: the hand went away", 0, 0);
+  Check(!GiftStays(5.0f, 0.22f, 51.0f, 0.0f),
+        "creature_gift_cm=0 gives the reach of the game", 0, 0);
+  Check(GiftStays(3.2f, 0.22f, 51.0f, 0.0f),
+        "creature_gift_cm=0, in the reach of the game", 1, 1);
+  Check(GiftStays(35.0f, 2.0f, 51.0f, 20.0f),
+        "a Creature of size 2: 35 units from the body, in its 40.2 units", 1,
+        1);
+  Check(!GiftStays(41.0f, 2.0f, 51.0f, 20.0f),
+        "a Creature of size 2: 41 units from the body", 0, 0);
+  Check(GiftStays(20.0f, 0.22f, 100.0f, 20.0f),
+        "more units in a meter give a longer reach in units", 1, 1);
+  Check(!GiftStays(1.0f, 0.22f, 0.0f, 20.0f),
+        "no scale of the room: the game decides", 0, 0);
+  Check(!GiftStays(1.0f, 0.0f, 51.0f, 20.0f),
+        "no size of the Creature: the game decides", 0, 0);
   // The line of the card for each pair that the game accepts.
   Check(HoldLineOf(kHeldWood, kOntoStore) == kLineStoreWood,
         "wood at the Village Store", HoldLineOf(kHeldWood, kOntoStore),

@@ -50,6 +50,16 @@
 // the sign. The Z value of the box stays the one of the game, so the land
 // near the sign does not cut the card.
 //
+// IN ONE WALK (one_walk.cpp) the game places and draws the bubble one time,
+// for the left eye. No batch of the bubble has the depth of the sign in it:
+// a corner of the box has the rhw of the depth of the bubble, which is
+// nearer than the sign, and the flat batches have no depth. So the card does
+// not go to the right eye by the rule of one walk for a batch. With
+// one_walk_marks=1 draw_hooks.cpp draws each batch of the card for the left
+// eye only, and then for the right eye only, moved by the eye difference of
+// the sign (BubbleCardWalkMove, one_walk_math::ShiftAtDepth). That is the
+// place that the place function gives the card in a pass of the right eye.
+//
 // With bubble_card=0 the mod changes nothing of the bubble.
 
 #define WIN32_LEAN_AND_MEAN
@@ -62,6 +72,8 @@
 #include "../common/bw_addresses.h"
 #include "bubble_card.h"
 #include "bubble_card_math.h"
+#include "one_walk.h"
+#include "one_walk_math.h"
 
 extern void ModLog(const char* format, ...);
 // controllers.cpp
@@ -123,11 +135,20 @@ struct Seen {
   Layout used[2];
   float box[2][4] = {};     // left, top, width, height
   float depth = 0.0f;
-  float drawn_box[2][2] = {};   // the least and the largest x of the corners
-  float drawn_flat[2][2] = {};
-  bool have_box[2] = {false, false};
-  bool have_flat[2] = {false, false};
+  // The least and the largest x of the corners and of the flat parts as
+  // drawn: in each eye pass, and at kWalkRight for the right eye of one walk.
+  float drawn_box[3][2] = {};
+  float drawn_flat[3][2] = {};
+  bool have_box[3] = {false, false, false};
+  bool have_flat[3] = {false, false, false};
+  // One walk: the frame in which the pass of the left eye drew the right eye
+  // too, the eye difference of the sign in that frame, and whether the card
+  // went to the right eye with it (one_walk_marks).
+  uint64_t walk_frame = 0;
+  float walk_move = 0.0f;
+  bool walk_moved = false;
 };
+const int kWalkRight = 2;
 const int kMaxSeen = 16;
 Seen g_seen[kMaxSeen];
 Seen* g_drawing = nullptr;
@@ -135,6 +156,12 @@ int g_scope = 0;
 
 float g_saved_x[kMaxCorners];
 float g_saved_y[kMaxCorners];
+// The batch of the box with each corner at its pixel, as it is before the
+// draw for the left eye. LH3DRender::DrawTriangle changes the vertices that
+// it gets (0x0082F82C to 0x0082F8F7: an offset of the picture, and an offset
+// of the texture), so the draw for the right eye of one walk starts from this
+// copy.
+uint8_t g_at_pixels[kMaxCorners * kStride];
 
 // For the report.
 uint64_t g_frames_shown = 0;
@@ -145,6 +172,7 @@ uint64_t g_boxes = 0;
 double g_box_moved = 0.0;
 uint64_t g_flat = 0;
 uint64_t g_too_large = 0;
+uint64_t g_walk_boxes = 0;  // boxes that one walk drew for the right eye
 
 Seen* SeenOf(const void* bubble) {
   Seen* oldest = &g_seen[0];
@@ -218,6 +246,63 @@ void Widen(float range[2], bool* have, float x) {
   if (x > range[1]) range[1] = x;
 }
 
+// ONE WALK. True in the pass of the left eye when that pass draws the right
+// eye too.
+bool InWalk() { return g_eye == 0 && OneWalkActive(); }
+
+// The pixels from the left eye to the right eye for a thing at the depth of
+// the sign. Negative: the right eye sees a near thing further to the left.
+float SignMove(const Seen& s) {
+  return one_walk_math::ShiftAtDepth(
+      OneWalkShiftPerRhw(),
+      *reinterpret_cast<const float*>(bw::tech::kNearPlane), s.depth);
+}
+
+// One line with the numbers of a frame of a bubble in one walk, after the
+// pass of the left eye drew it for both eyes.
+void SayWalk(const Seen& s, const char* why) {
+  const float sign = SignPixel(s.box[0][0], s.box[0][2], s.used[0]);
+  ModLog("bubble card  : %s. One walk: the pass of the left eye draws the "
+         "right eye too. The sign is %.1f units deep, and its pixel is %.1f "
+         "in the left picture. The eye difference of that depth is %.1f "
+         "pixels. The card %s (one_walk_marks=%d). The box as drawn is %.1f "
+         "to %.1f in the left picture and %.1f to %.1f in the right one: "
+         "%.1f apart. The flat parts as drawn (the text) are %.1f to %.1f and "
+         "%.1f to %.1f: %.1f apart. bubble_card=%d, frame %llu",
+         why, s.depth, sign, -s.walk_move,
+         s.walk_moved ? "goes to the right eye with that difference"
+                      : "goes to the right eye as each other batch",
+         s.walk_moved ? 1 : 0, s.drawn_box[0][0], s.drawn_box[0][1],
+         s.drawn_box[kWalkRight][0], s.drawn_box[kWalkRight][1],
+         Middle(s.drawn_box[0]) - Middle(s.drawn_box[kWalkRight]),
+         s.drawn_flat[0][0], s.drawn_flat[0][1], s.drawn_flat[kWalkRight][0],
+         s.drawn_flat[kWalkRight][1],
+         Middle(s.drawn_flat[0]) - Middle(s.drawn_flat[kWalkRight]),
+         g_on ? 1 : 0, ControllersFrameCount());
+}
+
+// one_walk_check=1: the right eye also got a walk of its own in this frame.
+// One line with the card of that walk beside the card that one walk drew.
+void SayCheck(const Seen& s) {
+  const float sign_left = SignPixel(s.box[0][0], s.box[0][2], s.used[0]);
+  const float sign_own = SignPixel(s.box[1][0], s.box[1][2], s.used[1]);
+  ModLog("bubble card  : test key one_walk_check: the right eye in its own "
+         "walk. The pixel of the sign is %.1f there, and the pixel of the "
+         "left picture with the eye difference of the sign is %.1f. The box "
+         "as drawn is %.1f to %.1f in its own walk and %.1f to %.1f in one "
+         "walk: %.1f apart. The flat parts as drawn (the text) are %.1f to "
+         "%.1f and %.1f to %.1f: %.1f apart. one_walk_marks=%d, "
+         "bubble_card=%d, frame %llu",
+         sign_own, sign_left + s.walk_move, s.drawn_box[1][0],
+         s.drawn_box[1][1], s.drawn_box[kWalkRight][0],
+         s.drawn_box[kWalkRight][1],
+         Middle(s.drawn_box[1]) - Middle(s.drawn_box[kWalkRight]),
+         s.drawn_flat[1][0], s.drawn_flat[1][1], s.drawn_flat[kWalkRight][0],
+         s.drawn_flat[kWalkRight][1],
+         Middle(s.drawn_flat[1]) - Middle(s.drawn_flat[kWalkRight]),
+         s.walk_moved ? 1 : 0, g_on ? 1 : 0, ControllersFrameCount());
+}
+
 int __fastcall h_Place(void* self, void* unused, const float* position,
                        float offset, float anchor) {
   if (g_eye < 0 || g_eye > 1 || self == nullptr) {
@@ -239,6 +324,7 @@ int __fastcall h_Place(void* self, void* unused, const float* position,
       seen->placed[e] = seen->drew[e] = false;
       seen->have_box[e] = seen->have_flat[e] = false;
     }
+    seen->have_box[kWalkRight] = seen->have_flat[kWalkRight] = false;
     ++g_frames_shown;
   }
   Layout used = asked;
@@ -272,6 +358,15 @@ void __fastcall h_Draw(void* self, void* unused) {
   Seen* outer = g_drawing;
   g_drawing = SeenOf(self);
   ++g_scope;
+  // ONE WALK: this draw is for both eyes. The numbers of the frame are for
+  // the log, also when the card goes to the right eye as each other batch.
+  const uint64_t frame = ControllersFrameCount();
+  if (InWalk() && g_drawing->have && g_drawing->frame == frame &&
+      g_drawing->placed[0]) {
+    g_drawing->walk_frame = frame;
+    g_drawing->walk_move = SignMove(*g_drawing);
+    g_drawing->walk_moved = false;
+  }
   o_Draw(self, unused);
   --g_scope;
   Seen* seen = g_drawing;
@@ -279,11 +374,28 @@ void __fastcall h_Draw(void* self, void* unused) {
   seen->drew[g_eye] = true;
   // The log: one line when a bubble comes into view, and with the test key
   // one line each 30 frames.
+  if (seen->walk_frame == frame) {
+    if (g_eye == 1) {
+      // The pass of the right eye in a frame of one walk: one_walk_check.
+      if (seen->placed[1] && seen->have_box[1] && seen->have_box[kWalkRight]) {
+        SayCheck(*seen);
+      }
+      return;
+    }
+    if (!seen->have_box[0] || !seen->have_box[kWalkRight]) return;
+    if (seen->first_frame != 0 && seen->last_said < seen->first_frame) {
+      seen->last_said = frame;
+      SayWalk(*seen, "a bubble of the game comes into view");
+    } else if (g_test && frame - seen->last_said >= 30) {
+      seen->last_said = frame;
+      SayWalk(*seen, "test key bubble_card_test: a bubble in view");
+    }
+    return;
+  }
   if (g_eye != 1 || !seen->drew[0] || !seen->placed[0] || !seen->placed[1] ||
       !seen->have_box[0] || !seen->have_box[1]) {
     return;
   }
-  const uint64_t frame = ControllersFrameCount();
   if (seen->first_frame != 0 && seen->last_said < seen->first_frame) {
     seen->last_said = frame;
     Say(*seen, "a bubble of the game comes into view");
@@ -383,15 +495,41 @@ bool BubbleCardInBubble() { return g_scope > 0; }
 
 bool BubbleCardOn() { return g_on; }
 
-void BubbleCardFlat(const void* verts, uint32_t fvf, uint32_t count) {
+void BubbleCardFlat(const void* verts, uint32_t fvf, uint32_t count,
+                    bool right) {
   if (g_drawing == nullptr || g_eye < 0 || g_eye > 1) return;
   ++g_flat;
   if (verts == nullptr || fvf != kFvf) return;
+  const int to = right ? kWalkRight : g_eye;
   const uint8_t* vertex = static_cast<const uint8_t*>(verts);
   for (uint32_t i = 0; i < count; ++i, vertex += kStride) {
-    Widen(g_drawing->drawn_flat[g_eye], &g_drawing->have_flat[g_eye],
+    Widen(g_drawing->drawn_flat[to], &g_drawing->have_flat[to],
           *reinterpret_cast<const float*>(vertex));
   }
+}
+
+bool BubbleCardWalkMove(float* move) {
+  if (!g_on || g_drawing == nullptr || !InWalk() || !OneWalkMarks()) {
+    return false;
+  }
+  // The place function gave the depth of the sign in this frame.
+  if (g_drawing->walk_frame != ControllersFrameCount()) return false;
+  g_drawing->walk_moved = true;
+  *move = g_drawing->walk_move;
+  return true;
+}
+
+void BubbleCardBoxRight(void* verts, uint32_t count, float move) {
+  if (g_drawing == nullptr || verts == nullptr || count > kMaxCorners) return;
+  memcpy(verts, g_at_pixels, static_cast<size_t>(count) * kStride);
+  uint8_t* vertex = static_cast<uint8_t*>(verts);
+  for (uint32_t i = 0; i < count; ++i, vertex += kStride) {
+    float* p = reinterpret_cast<float*>(vertex);
+    p[0] += move;
+    Widen(g_drawing->drawn_box[kWalkRight], &g_drawing->have_box[kWalkRight],
+          p[0]);
+  }
+  ++g_walk_boxes;
 }
 
 bool BubbleCardBoxIn(void* verts, uint32_t count, uintptr_t caller) {
@@ -421,13 +559,24 @@ bool BubbleCardBoxIn(void* verts, uint32_t count, uintptr_t caller) {
     g_box_moved += fabs(sum / count);
     ++g_boxes;
     moved = true;
+    memcpy(g_at_pixels, verts, static_cast<size_t>(count) * kStride);
   } else if (g_on && count > kMaxCorners) {
     ++g_too_large;
   }
+  // With no draw of its own for the right eye, one walk moves each corner by
+  // the rhw of the corner. That place is for the log.
+  const bool by_rhw = InWalk() && !(moved && OneWalkMarks() &&
+                                    g_drawing->walk_frame ==
+                                        ControllersFrameCount());
+  const float per_rhw = by_rhw ? OneWalkShiftPerRhw() : 0.0f;
   const uint8_t* vertex = static_cast<const uint8_t*>(verts);
   for (uint32_t i = 0; i < count; ++i, vertex += kStride) {
-    Widen(g_drawing->drawn_box[g_eye], &g_drawing->have_box[g_eye],
-          *reinterpret_cast<const float*>(vertex));
+    const float* p = reinterpret_cast<const float*>(vertex);
+    Widen(g_drawing->drawn_box[g_eye], &g_drawing->have_box[g_eye], p[0]);
+    if (by_rhw) {
+      Widen(g_drawing->drawn_box[kWalkRight],
+            &g_drawing->have_box[kWalkRight], p[0] + per_rhw * p[3]);
+    }
   }
   return moved;
 }
@@ -450,11 +599,13 @@ void BubbleCardReport() {
          "stayed near the middle on %llu frames. %llu boxes went to their "
          "pixels (%.1f pixels across in the mean), %llu "
          "flat batches were drawn at the pixels of the game, %llu boxes had "
-         "too many corners",
+         "too many corners. In one walk %llu boxes were drawn for the right "
+         "eye with the eye difference of the sign (one_walk_marks=%d)",
          g_on ? 1 : 0, g_frames_shown, g_layouts_kept, g_layouts_differ,
          g_sides_kept, g_boxes, g_boxes > 0 ? g_box_moved / g_boxes : 0.0,
-         g_on ? g_flat : 0, g_too_large);
+         g_on ? g_flat : 0, g_too_large, g_walk_boxes,
+         OneWalkMarks() ? 1 : 0);
   g_frames_shown = g_layouts_kept = g_layouts_differ = g_sides_kept = 0;
-  g_boxes = g_flat = g_too_large = 0;
+  g_boxes = g_flat = g_too_large = g_walk_boxes = 0;
   g_box_moved = 0.0;
 }
