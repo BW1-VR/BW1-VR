@@ -682,13 +682,17 @@ that moves while the Hand takes it.
     Not run: a headset session, and the check of the triangles in the Temple,
     in a story, in a fight of Creatures and with the effect of a miracle
     (`draw_merge_test=1` in the ini for one session).
-  - **The cost of the lock of the Direct3D 9 device.** With `test_keys=1` or
-    `frame_send=2` the mod asks for a device for two threads, and such a
-    device takes a lock on each call. A sampling profile of the frame thread
-    had 3.8 percent of its samples in critical sections (`backend.md`, "The
-    clock of the game and the hooks of dxwrapper"). To do: `bench_run.ps1`
-    with `test_keys` 1 and 0. If the lock costs time, ask for that device
-    only for `frame_send=2`.
+  - **The cost of the lock of the Direct3D 9 device.** A device for two
+    threads takes a lock on each call. A sampling profile of the frame
+    thread had 3.8 percent of its samples in critical sections (`backend.md`,
+    "The clock of the game and the hooks of dxwrapper"). The device of
+    dxwrapper is a device for two threads in each case: the log has the
+    behavior flags 0x84 with `test_keys` 0 and 1, so the request of the mod
+    (`test_keys=1` or `frame_send=2`) changes nothing, and `bench_run.ps1`
+    gives the same numbers for both values. To do: find whether dxwrapper
+    calls the device from a second thread. If it does not, a test that takes
+    `D3DCREATE_MULTITHREADED` off at the creation of the device when
+    `frame_send` is not 2, and a benchmark of it.
   - **State calls that change nothing.** The game makes 3200 to 5400 state
     calls in a frame. To do: count how many of them set the value that the
     state has. If the share is large, the mod drops them before dxwrapper
