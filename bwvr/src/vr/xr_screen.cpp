@@ -522,6 +522,7 @@ struct XrScreen::Impl {
     bool with_card[kCards];
     bool with_subtitles;      // a screen with the subtitle card
     LARGE_INTEGER waited_at;  // the end of xrWaitFrame of this frame
+    LARGE_INTEGER begun_at;   // the end of BeginFrame of this frame
     LARGE_INTEGER before;     // the start of BuildFrame
     LARGE_INTEGER built;      // its end
     LARGE_INTEGER end_start;  // the start of xrEndFrame
@@ -605,6 +606,11 @@ struct XrScreen::Impl {
   uint64_t hold_runs = 0;
   uint64_t hold_failed = 0;
   uint64_t hold_worst = 0;  // ticks: the longest time with no frame of the game
+  // A long time with no frame of the game, and no frame of the hold: why.
+  uint64_t hold_lock_busy = 0;  // the frame thread had hold_lock
+  uint64_t hold_sending = 0;    // the frame of the game was in SendFrame
+  LARGE_INTEGER begun_at = {};  // the end of BeginFrame of the open frame
+  int slow_lines = 0;           // the lines of slow frames in the log
   // On the frame thread: hold_lock for a scope, with frame_wants, so the
   // second thread ends a run of the hold.
   class HoldGuard {
@@ -1548,6 +1554,7 @@ bool XrScreen::BeginFrame() {
     InterlockedExchange64(&s.game_open_at, now.QuadPart);
     // xrBeginFrame comes after the end of the frame before (Join).
     InterlockedExchange(&s.frame_state_now, Impl::kFrameGame);
+    s.begun_at = now;
   }
   s.frame_open = true;
   should_render_ = (s.frame_state.shouldRender == XR_TRUE);
@@ -2127,13 +2134,17 @@ void XrScreen::ReportUpload(uint64_t frames) {
   if (s.hold_ms > 0 && s.frequency.QuadPart != 0) {
     s.log("  hold         : xr_hold_ms=%ld. %llu frames of the hold in %llu runs "
           "(%llu frames of the game taken, %llu failed). The longest time "
-          "with no frame of the game was %.1f ms",
+          "with no frame of the game was %.1f ms. No frame of the hold after "
+          "%ld ms: %llu times the frame thread had the lock, %llu times the "
+          "frame of the game was in SendFrame",
           static_cast<long>(s.hold_ms), s.hold_frames, s.hold_runs,
           s.hold_taken, s.hold_failed,
           static_cast<double>(s.hold_worst) * 1000.0 /
-              static_cast<double>(s.frequency.QuadPart));
+              static_cast<double>(s.frequency.QuadPart),
+          static_cast<long>(3 * s.hold_ms), s.hold_lock_busy, s.hold_sending);
     s.hold_frames = s.hold_runs = s.hold_taken = s.hold_failed = 0;
     s.hold_worst = 0;
+    s.hold_lock_busy = s.hold_sending = 0;
   }
   if (s.frequency.QuadPart != 0) {
     const double to_ms = 1000.0 / static_cast<double>(s.frequency.QuadPart);
@@ -2208,6 +2219,9 @@ void XrScreen::SetRenderPose(int index, const float position[3],
 }
 
 void XrScreen::EndFrame() {
+  // A frame with no wait for the GPU and no copies of a late frame.
+  impl_->late_gpu = 0;
+  impl_->late_copy = 0;
   if (!BuildFrame()) return;
   impl_->SendFrame();
   FinishFrame();
@@ -2247,6 +2261,7 @@ bool XrScreen::BuildFrame() {
   Impl::Built& b = s.built;
   QueryPerformanceCounter(&b.before);
   b.waited_at = s.waited_at;
+  b.begun_at = s.begun_at;
   s.frame_open = false;
   b.layer_count = 0;
   b.display_time = s.frame_state.predictedDisplayTime;
@@ -2579,6 +2594,34 @@ void XrScreen::FinishFrame() {
     s.age_ticks += age;
     if (age > s.age_worst) s.age_worst = age;
     ++s.age_frames;
+    // A frame of more than 250 ms, in its parts (the first 30).
+    const double to_ms =
+        s.frequency.QuadPart != 0
+            ? 1000.0 / static_cast<double>(s.frequency.QuadPart)
+            : 0.0;
+    if (age * to_ms > 250.0 && s.slow_lines < 30) {
+      ++s.slow_lines;
+      const double begin =
+          b.begun_at.QuadPart > b.waited_at.QuadPart
+              ? (b.begun_at.QuadPart - b.waited_at.QuadPart) * to_ms
+              : 0.0;
+      const double game =
+          b.begun_at.QuadPart != 0 && b.before.QuadPart > b.begun_at.QuadPart
+              ? (b.before.QuadPart - b.begun_at.QuadPart) * to_ms
+              : 0.0;
+      const double between =
+          (b.end_start.QuadPart - b.built.QuadPart) * to_ms;
+      s.log("  slow frame   : %.1f ms from xrWaitFrame to the end of "
+            "xrEndFrame: BeginFrame after the wait %.1f, the game %.1f, "
+            "BuildFrame %.1f, from BuildFrame to xrEndFrame %.1f (the wait "
+            "for the GPU %.1f, the copies %.1f), xrEndFrame %.1f. Frames of "
+            "the hold so far: %llu, %llu taken",
+            age * to_ms, begin, game,
+            (b.built.QuadPart - b.before.QuadPart) * to_ms, between,
+            s.late_gpu * to_ms, s.late_copy * to_ms,
+            (b.end_done.QuadPart - b.end_start.QuadPart) * to_ms,
+            s.hold_frames, s.hold_taken);
+    }
   }
 }
 
@@ -2742,8 +2785,14 @@ void XrScreen::Impl::HoldFrames() {
     const LONGLONG last = InterlockedCompareExchange64(&last_end, 0, 0);
     const LONGLONG limit = hz.QuadPart * ms / 1000;
     if (last == 0 || now.QuadPart - last < limit) return;
-    if (!TryAcquireSRWLockExclusive(&hold_lock)) return;
+    if (!TryAcquireSRWLockExclusive(&hold_lock)) {
+      if (now.QuadPart - last >= 3 * limit) ++hold_lock_busy;
+      return;
+    }
     const LONG owner = frame_state_now;
+    if (owner == kFrameSending && now.QuadPart - last >= 3 * limit) {
+      ++hold_sending;
+    }
     bool ok = false;
     bool tried = false;
     if (frame_wants == 0 && built.layer_count > 0 && session_running) {

@@ -514,7 +514,16 @@ or 1.
 
 For each 450 frames the log has the line `hold         :` with the frames of
 the hold, the runs, the frames of the game that a hold took, the failed
-frames, and the longest time with no frame of the game.
+frames, the longest time with no frame of the game, and why no frame of the
+hold came after three times `xr_hold_ms` (the frame thread had the lock, or
+the frame of the game was in `SendFrame`). Each of the first 30 frames of
+more than 250 ms from `xrWaitFrame` to the end of `xrEndFrame` has a line
+`slow frame   :` with its parts: `BeginFrame` after the wait, the game,
+`BuildFrame`, the wait for the GPU and the copies, and `xrEndFrame`.
+
+Open: a headset session after the load of a saved game had a frame of
+2945 ms, and no frame of the hold took it. The line `slow frame` names the
+part of such a frame.
 
 Known limit: when the game copies a new eye picture into its swapchain image
 before it makes its layers (a flat frame or the intro in stereo with
