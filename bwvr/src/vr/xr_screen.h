@@ -247,6 +247,10 @@ class XrScreen {
   // frame. 0: the headset gets no frame while the game gives none.
   void SetHoldMs(int ms);
   int HoldMs() const;
+  // The display time that the runtime predicted for the frame of the last
+  // BeginFrame, in seconds. 0 before the first frame. A move of the view by
+  // the time between two of these has the rate of the display.
+  double DisplaySeconds() const;
   bool vulkan_upload() const;
 
   // The size of each eye picture, as Start had it.

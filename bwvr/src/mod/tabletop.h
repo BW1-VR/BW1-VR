@@ -54,6 +54,10 @@ struct TabletopSettings {
   // head, and 2 along the direction in which that controller points.
   int move_stick = 1;            // move_stick: 0 off, 1 head, 2 controller
   int move_stick_speed_cm = 150; // move_stick_speed_cm: a full push, a second
+  // god_display_time: 1 the time of a frame for the walk and the smooth zoom
+  // is the time between the display times of two frames of the headset, 0
+  // the time of the CPU between two main camera calls.
+  int god_display_time = 1;
   bool test_keys = false;        // test_keys: Ctrl and Numpad 0 change it
 };
 

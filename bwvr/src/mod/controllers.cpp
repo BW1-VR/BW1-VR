@@ -136,6 +136,9 @@ void HeadPoseFakeLeanStep(bool on);
 void HeadPoseFakeLookStep(bool on);
 // world_grab.cpp: the player's camera mode ran on a recent frame, with input.
 bool WorldGrabCameraReady();
+// mod_main.cpp: the predicted display time of the open frame of the headset,
+// in seconds, or 0 with no session.
+double ModDisplaySeconds();
 // tabletop.cpp: the room of the table in this frame. See docs/tabletop.md,
 // "The hand on the table".
 // hand_exact.cpp: the exact Hand is on, so the Hand's point is the real
@@ -2114,7 +2117,14 @@ void GrabSamples() {
     g_grab_tracked[slot] = tracked;
     g_grab_have[slot] = true;
   }
-  g_grab_time = NowSeconds();
+  // The time of the sample, for the smoothing of the grips: the display time
+  // of the frame of the headset with god_display_time=1, so each frame eases
+  // the grips by the time between two pictures. The time of the CPU changes
+  // by some milliseconds from frame to frame, and a fast grab then judders.
+  static int display_time = -1;
+  if (display_time < 0) display_time = IniInt("god_display_time", 1) != 0;
+  const double display = display_time != 0 ? ModDisplaySeconds() : 0.0;
+  g_grab_time = display > 0.0 ? display : NowSeconds();
   g_grab_frame = g_frame;
 }
 

@@ -140,7 +140,7 @@ void PassGuardSetSkipPrepare(bool on);
 void PassGuardInstall();
 void FrameTimersInstall();
 // tick_direct.cpp: the clock of the game with no check of busy waiting.
-void TickDirectInstall(bool on);
+void TickDirectInstall(int mode);
 void FovInstall();
 void InputWatchInstall();
 void HeadCameraInstall();
@@ -300,7 +300,9 @@ bool g_move_camera_point = false;
 // frame time. 0 gives the number from before the passes. The three test keys
 // are for desktop runs. See frame_time.cpp.
 int g_frame_time_real = 1;
-bool g_tick_direct = true;
+// tick_direct: 0 GetTickCount through dxwrapper, 1 GetTickCount64, 2 the
+// milliseconds of the performance counter (tick_direct.cpp).
+int g_tick_direct = 2;
 int g_frame_time_test_frame = 0;
 int g_frame_time_test_readers = 0;
 int g_frame_time_test_readers_frames = 600;
@@ -650,7 +652,7 @@ void ReadSettings() {
   g_frame_time_real =
       GetPrivateProfileIntA("bwvr", "frame_time_real", 1, path) != 0 ? 1 : 0;
   g_tick_direct =
-      GetPrivateProfileIntA("bwvr", "tick_direct", 1, path) != 0;
+      static_cast<int>(GetPrivateProfileIntA("bwvr", "tick_direct", 2, path));
   g_frame_time_test_frame = static_cast<int>(
       GetPrivateProfileIntA("bwvr", "frame_time_test_frame", 0, path));
   g_frame_time_test_readers = static_cast<int>(
@@ -802,6 +804,11 @@ void ReadSettings() {
     // with the stick").
     t.move_stick = number("move_stick", 1);
     t.move_stick_speed_cm = number("move_stick_speed_cm", 150);
+    // The time of a frame for the walk and the smooth zoom: the time between
+    // the display times of two frames of the headset (1), or the time of
+    // the CPU between two main camera calls (0). docs/god-view.md, "The time
+    // of a frame".
+    t.god_display_time = number("god_display_time", 1);
     t.test_keys = number("test_keys", 0) != 0;
     // Tests with no key press, for a desktop run: the game's zoom to the
     // Temple at an update of the camera mode, and the test key of god_spawn.
@@ -2489,6 +2496,13 @@ void XrVulkanUploadToggle(const char* keys) {
          keys, g_xr_vulkan_upload,
          g_xr_vulkan_upload != 0 ? "into the swapchains with Vulkan"
                                  : "through the relays of Direct3D 11");
+}
+
+// For tabletop.cpp: the predicted display time of the frame of the headset
+// that is open, in seconds, or 0 with no session.
+double ModDisplaySeconds() {
+  if (g_screen == nullptr || !g_screen->running()) return 0.0;
+  return g_screen->DisplaySeconds();
 }
 
 // The test key of xr_hold_ms (stereo.cpp, Shift W): the hold goes off, and

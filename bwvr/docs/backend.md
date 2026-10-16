@@ -1546,7 +1546,15 @@ percent and the mod 7.3 percent.
 `tick_direct=1` gives the import slot of `GetTickCount` in `runblack.exe`
 (`0x008A91C4`) a function of the mod (`tick_direct.cpp`). It gives the low
 32 bits of `GetTickCount64`, which is the number of `GetTickCount`, and it
-makes no call into the kernel. The game does not wait for its clock in a
+makes no call into the kernel. `tick_direct=2` (the default) gives the
+milliseconds of the performance counter from the number of `GetTickCount64`
+at the start. `GetTickCount64` goes up in steps of the timer of Windows,
+15.6 ms by default: at 120 frames a second about one frame in two then has a
+time step of the game of 0 and the next one of 16 ms, so each move of the
+game goes in steps of 60 a second. A desktop run of a new game at
+`test_frame_rate=120`: with 1 the line `time step` has 209 to 210 of 450
+frames with a step of 0 and steps up to 16 ms, with 2 it has none and steps
+of 7 to 10 ms. The game does not wait for its clock in a
 loop, because the headset paces the frame. The other hooks of dxwrapper
 stay. The log has one line at the start and the count of the calls of each
 report window.
@@ -4377,7 +4385,7 @@ keys that the launcher sets.
 | `frame_send` | 0 | 0: the mod waits for the GPU after each eye pass. 1: one wait a frame. 2: one wait a frame on a second thread, which also gives the frame to the runtime. See "One wait a frame, and a second thread" |
 | `xr_hold_ms` | 30 | When the game gives the runtime no frame for this many ms, a second thread sends the layers of the last frame again, at the rate of the headset. 0 is off: the headset gets no frame while the game gives none. 0 to 1000. A test key: Shift W. See "The hold of the last frame" |
 | `draw_merge` | 1 | 1: in an eye pass of the scene, a row of draw calls of the game with one state goes to Direct3D as one draw call. 0: each draw call goes as it comes. See "One draw call for a row of draw calls" |
-| `tick_direct` | 1 | 1: the `GetTickCount` of the game goes past the check of busy waiting of dxwrapper. 0: the game calls it through the hooks of dxwrapper. See "The clock of the game and the hooks of dxwrapper" |
+| `tick_direct` | 2 | 2: the `GetTickCount` of the game gives the milliseconds of the performance counter, with no check of busy waiting of dxwrapper. 1: it gives `GetTickCount64`, in steps of the timer of Windows. 0: the game calls it through the hooks of dxwrapper. See "The clock of the game and the hooks of dxwrapper" |
 | `draw_merge_test`, `draw_merge_test_frame` | 0, 0 | Test keys of the desktop runs. See the same section |
 | `depth24` | 1 | A 24 bit Z buffer |
 | `near_plane_cm`, `near_plane_cm_16` | 5, 10 | The near plane in the room. 0 keeps the game's |

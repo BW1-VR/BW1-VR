@@ -606,6 +606,9 @@ struct XrScreen::Impl {
   uint64_t hold_runs = 0;
   uint64_t hold_failed = 0;
   uint64_t hold_worst = 0;  // ticks: the longest time with no frame of the game
+  // The predicted display time of the frame of the last BeginFrame (the
+  // frame thread writes it). XrScreen::DisplaySeconds.
+  XrTime display_seconds_ns = 0;
   // A long time with no frame of the game, and no frame of the hold: why.
   uint64_t hold_lock_busy = 0;  // the frame thread had hold_lock
   uint64_t hold_sending = 0;    // the frame of the game was in SendFrame
@@ -1519,6 +1522,9 @@ bool XrScreen::BeginFrame() {
   // the time of that frame, so the time of this frame is set after it.
   Join();
   s.waited_at = waited_at;
+  if (XR_SUCCEEDED(waited)) {
+    s.display_seconds_ns = s.frame_state.predictedDisplayTime;
+  }
   if (!s.Check(waited, "xrWaitFrame")) {
     s.ClearInput(hands_);
     return true;
@@ -4194,6 +4200,10 @@ void XrScreen::SetHoldMs(int ms) {
 }
 
 int XrScreen::HoldMs() const { return static_cast<int>(impl_->hold_ms); }
+
+double XrScreen::DisplaySeconds() const {
+  return static_cast<double>(impl_->display_seconds_ns) * 1e-9;
+}
 
 bool XrScreen::vulkan_upload() const { return impl_->vk_upload; }
 

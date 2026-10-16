@@ -82,6 +82,9 @@
 #include "zoom_math.h"
 
 extern void ModLog(const char* format, ...);
+// mod_main.cpp: the predicted display time of the open frame of the headset,
+// in seconds, or 0 with no session.
+double ModDisplaySeconds();
 // head_camera.cpp: build the matrices and the stored camera from the game
 // camera of the last main call.
 bool HeadCameraUseGameCamera();
@@ -400,6 +403,11 @@ struct HoldCheck {
 // The time of the last main camera call of the God view, in seconds, and 0
 // before the first one.
 double g_god_clock = 0.0;
+// god_display_time: the display time of the headset at the last main camera
+// call, in seconds, and the frames that took their time from it (for the
+// report).
+double g_god_display = 0.0;
+uint64_t g_display_frames = 0;
 uint64_t g_holds = 0;
 double g_hold_seconds = 0.0;
 void StopZoomHold(const char* cause, bool view_stays);
@@ -2605,10 +2613,26 @@ bool TabletopCamera(const float asked_position[3], const float asked_focus[3],
       ModLog("god view     : your camera is back, so the God view is too");
     }
     if (!GodLand()) return false;
-    // The time of this frame, for the smooth zoom and the walk.
+    // The time of this frame, for the smooth zoom and the walk. With
+    // god_display_time=1 it is the time between the display times of two
+    // frames of the headset, so each frame moves the view by the time
+    // between two pictures. The time of the CPU between two calls changes by
+    // some milliseconds from frame to frame, and a fast walk then judders.
     const double clock = Seconds();
-    const double frame_seconds = g_god_clock > 0.0 ? clock - g_god_clock : 0.0;
+    double frame_seconds = g_god_clock > 0.0 ? clock - g_god_clock : 0.0;
     g_god_clock = clock;
+    const double display = ModDisplaySeconds();
+    if (g_settings.god_display_time != 0 && display > 0.0 &&
+        g_god_display > 0.0) {
+      const double between = display - g_god_display;
+      // A display time that did not move, or a gap of a stop, keeps the
+      // time of the CPU.
+      if (between > 0.0 && between < 0.1) {
+        frame_seconds = between;
+        ++g_display_frames;
+      }
+    }
+    g_god_display = display;
     // The test god_zoom_test_toggle: the test key acts at one frame.
     if (g_settings.god_zoom_test_toggle > 0 &&
         ControllersFrameCount() ==
@@ -3050,6 +3074,10 @@ void GodReport() {
            "in all, and it moved the view on %llu frames (move_stick=%d)",
            g_walks, g_walk_seconds, g_walk_moves, g_settings.move_stick);
   }
+  ModLog("god view     : god_display_time=%d. %llu frames took the time of the "
+         "walk and the smooth zoom from the display times of the headset",
+         g_settings.god_display_time, g_display_frames);
+  g_display_frames = 0;
   g_walks = g_walk_moves = 0;
   g_walk_seconds = 0.0;
   g_holds = 0;

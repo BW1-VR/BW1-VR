@@ -644,6 +644,16 @@ event.
   land, and at the life size scale it is 11 units a second. The step of a
   frame is the speed times the real time of the frame, and a frame counts at
   most 50 ms.
+- **The time of a frame** (`god_display_time`, 1 is the default). The walk,
+  the smooth zoom and the smoothing of the grips of a grab (5.1) take the
+  time of a frame from the display times that the runtime predicts for two
+  frames of the headset (`XrScreen::DisplaySeconds`), so each frame moves by
+  the time between two pictures. With 0, or with no session, it is the time
+  of the CPU between two main camera calls (or two samples of the grips),
+  which changes by some milliseconds from frame to frame, and a fast move
+  then judders. A time between two display times of 0, or of 100 ms or
+  more, keeps the time of the CPU. The report has the count of the frames
+  of the walk and the zoom that took the display time.
 - **It stops at once.** The pump of the controllers asks the view again
   before each frame (`PumpWalk`, `TabletopGodWalk`), and the main camera call
   moves the view one time (`ApplyGodWalk`). A frame with no request moves
@@ -680,6 +690,7 @@ event.
 | --- | --- | --- |
 | `move_stick` | 1 | 0: the stick does not move the player. 1: forward is the direction of the head. 2: forward is the direction in which the controller of the stick points. The launcher row "Move with the left stick" |
 | `move_stick_speed_cm` | 150 | The speed of a full push, in cm of the room for each second, 10 to 500 |
+| `god_display_time` | 1 | 1: the walk, the smooth zoom and the smoothing of the grips take the time of a frame from the display times of the headset. 0: from the time of the CPU |
 
 With `test_keys=1`, Shift and the Menu key of the keyboard change `move_stick`
 from 1 to 2, to 0 and back to 1 while the game runs. The Menu key is the key
