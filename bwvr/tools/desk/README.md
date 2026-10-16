@@ -160,6 +160,12 @@ What these scripts need:
 
 Known limits of the recipes:
 
+- The recipes count frames, for a game at about 60 to 150 frames a second.
+  With `backend=vulkan` a desktop frame is 1.5 to 3 ms (400 to 650 frames
+  a second), so each step comes seconds too early, and the run of
+  `make_test_save.ps1` does not come to its save. Run `verify_build.ps1`
+  with the renderer Direct3D 9 (`backend=dxwrapper\ddraw.dll` in
+  `bwvr.ini`).
 - No recipe chooses a Creature at the Creature select. A Creature in a pen
   has no player, so a grip on it starts no Creature state. A press of the
   trigger there starts a drag of the land, and the double click of A makes
