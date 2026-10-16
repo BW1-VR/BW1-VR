@@ -52,8 +52,10 @@ sets the flags of each mode.
   release.
 - **The walk with the stick.** The stick of the hand that does not point
   moves the player over the land while it is pushed, along the direction of
-  the head or of the controller (`move_stick`). It stops when the stick comes
-  back (section 5.7).
+  the head or of the controller (`move_stick`). The height of the view
+  follows the land under the head through a smooth filter
+  (`move_stick_follow_land`). It stops when the stick comes back (section
+  5.7).
 - **The Hand** is always the real hand (`hand_real_cm`, 19 cm) at the scale
   now. Zoomed out, it is large against the villagers.
 - **The game camera** stays over the player's place at 400 units, for the
@@ -616,10 +618,14 @@ headset this line shows the tracking noise times the gain.
 The stick of the hand that does not point (the left stick, by default) moves
 the player over the land while it is pushed. The move is the pan of a grab of
 the world (5.1): the waist point goes to the land that was one step from it
-in the room, and the height of the ground, the heading and the scale stay.
+in the room, and the heading and the scale stay. With
+`move_stick_follow_land=1` the height of the view follows the land under the
+head (see "The land under the head" below). With 0 the height of the ground
+stays too.
 
 ```
 G' = G + s * Lt * (step.x, 0, step.z)      step = speed * the time of the frame
+G'.y = G.y + (F' - F)                      F = the filtered land under the head
 ```
 
 The plain game has a move of its camera over the land by the keys. Its code
@@ -654,11 +660,43 @@ event.
   moves the view one time (`ApplyGodWalk`). A frame with no request moves
   nothing, so the walk stops in the frame in which the stick comes back.
   There is no glide and no ease.
-- **A hill at the new place.** The view does not rise and fall with the land.
-  When the land at the new place of the head is nearer than 10 cm below the
-  head, all of the land goes down to that limit (`ZoomClearHead`), as in a
-  zoom that moves the head over the land. The land does not come up again by
-  itself.
+- **The land under the head** (`move_stick_follow_land`, 1). While the
+  player walks, the height of the view follows the land under the head, so
+  the land stays at the same height below the hands. The land height under
+  the head at the new place goes through two stages of a first order filter
+  (`FollowStep` in `walk_math.h`), and the view goes up or down by the change
+  of its output. The filter counts the way of the head in the room, not the
+  time:
+  - A frame with no step changes nothing. So the view does not move while the
+    stick is let go, and it does not drift after the walk.
+  - Each stage has a length of 25 cm of the room (0.17 s at a full push), so
+    the view is about 50 cm of the walk behind the land. A swell of the land
+    with a wavelength of 40 cm of the room moves the view by 6 percent of its
+    height, one of 1 m by 29 percent, and a hill of 3 m by 78 percent. So a
+    long hill moves the view, and a small bump does not shake it. The second
+    stage starts from rest, so the view does not start to rise with a jolt.
+  - The stages take the exact answer of the filter for each step, so the
+    heights do not change with the frame rate.
+  - The height that the player set (the ground step, the grab, a zoom) is
+    the height above the land. The filter keeps its state from one walk to
+    the next, so a climb in short pushes follows the land as a long push
+    does. When something else moved the view since the last frame of a walk
+    (a teleport, a grab, a zoom, a ground step, a new build), the filter
+    starts again at the land under the head, and the land keeps the height
+    below the head that it has then.
+  - The teleport puts the land under the head at the same height in the room
+    as before the teleport (section 14.4), with each value of the key. So
+    after a teleport the land is at the height below the hands that the
+    player has.
+  - With `move_stick_follow_land=0` the view keeps its height in the world.
+    The launcher row "Walk follows the land" sets the key.
+- **A hill at the new place.** When the land at the new place of the head is
+  nearer than 10 cm below the head, all of the land goes down to that limit
+  (`ZoomClearHead`), as in a zoom that moves the head over the land. The
+  land does not come up again by itself. With the follow of the land, only a
+  short sharp hill that the filter does not follow comes that near. With
+  `move_stick_follow_land=0` the limit acts on each frame of a hill near the
+  head, so the view then goes up with each bump at once.
 - **The map and the game camera.** The waist point stays on the map, as for a
   grab. The version of the view goes up on each frame that moves, so the game
   camera follows the player (section 7).
@@ -688,6 +726,8 @@ event.
 | --- | --- | --- |
 | `move_stick` | 1 | 0: the stick does not move the player. 1: forward is the direction of the head. 2: forward is the direction in which the controller of the stick points. The launcher row "Move with the left stick" |
 | `move_stick_speed_cm` | 150 | The speed of a full push, in cm of the room for each second, 10 to 500 |
+| `move_stick_follow_land` | 1 | 1: while the player walks, the height of the view follows the land under the head through the filter. 0: the view keeps its height. The launcher row "Walk follows the land" |
+| `move_stick_trace` | 0 | A test for a desktop run: the log has one line for each of the first N frames of each walk (at most 2000 lines in a game) |
 
 With `test_keys=1`, Shift and the Menu key of the keyboard change `move_stick`
 from 1 to 2, to 0 and back to 1 while the game runs. The Menu key is the key
@@ -701,14 +741,43 @@ The log has one line for the start of a walk, one for its end, and one for a
 check 30 frames later:
 
 ```
-god view     : the walk with the stick starts at 100.00 units per meter, with the land under your head at 1858.8 2528.7. Forward is the direction of your head (move_stick=1), and it is 30.0 degrees to the left of straight ahead in the room. A full push moves you 150 cm of the room each second (move_stick_speed_cm), frame 171.
-god view     : the walk with the stick stopped (the stick is back). You went 173.48 units over the land, which is 173.48 cm of the room, 30.0 degrees to the left of straight ahead in the room. The land under your head was at 1858.8 2528.7 and is at 2025.6 2576.6. The stick was pushed for 1.157 s, which gives 150.0 cm of the room each second, and the view moved on 60 of 60 frames (move_stick=1, 100.00 to 100.00 units per meter), frame 231.
-god view     : walk check, 30 frames after the stop the waist point is at 2025.56 2576.62, and it was at 2025.56 2576.62 at the stop: 0.000 units apart. In those frames the drawn head moved 0.00 cm of the room.
+god view     : the walk with the stick starts at 100.00 units per meter, with the land under your head at 1858.8 2528.7, 61.6 cm below your head. Forward is the direction of your head (move_stick=1), and it is 0.0 degrees to the right of straight ahead in the room. A full push moves you 150 cm of the room each second (move_stick_speed_cm). The height of the view follows the land under your head (move_stick_follow_land=1), frame 901.
+god view     : the walk with the stick stopped (the stick is back). You went 789.67 units over the land, which is 789.67 cm of the room, 0.0 degrees to the right of straight ahead in the room. The land under your head was at 1858.8 2528.7 and is at 2625.1 2338.0. The stick was pushed for 5.264 s, which gives 150.0 cm of the room each second, and the view moved on 300 of 300 frames (move_stick=1, 100.00 to 100.00 units per meter), frame 1201. The land under your head was 61.6 cm below your head and is 63.8 cm below it. The view went 118.7 cm up and 130.4 cm down with the land (move_stick_follow_land=1). A frame took 16.2 to 27.4 ms, and a step was 2.43 to 4.11 cm of the room.
+god view     : walk check, 30 frames after the stop the waist point is at 2625.12 2338.04, and it was at 2625.12 2338.04 at the stop: 0.000 units apart. In those frames the drawn head moved 0.00 cm of the room.
 controllers  : the stick of the other hand does not move you: a grip holds the world, frame 1081
 ```
 
 The line of the end also says how far the land went down for a hill, and on
-how many frames the controller had no direction. The report of a window has
+how many frames the controller had no direction. The shortest and the
+longest frame and step show whether the walk was even: at a steady push each
+step is the speed times the time of its frame. In the headset the line also
+counts the frames of the headset that came more than one refresh after the
+frame before (see "An even walk" below):
+
+```
+Of N frames of the headset, M came more than one refresh of 8.3 ms after the frame before, and the headset showed the frame before again for them.
+```
+
+With `move_stick_trace=N` the log also has one line for each of the first N
+frames of each walk:
+
+```
+god view     : walk trace, frame 61 of the walk: 18.05 ms, a step of 2.707 cm of the room, the waist point at 2023.553 42.130 2487.737, the land under your head at 49.517 (filtered 40.547) and 52.61 cm below your head, frame 961
+```
+
+**An even walk.** The step of each frame is the speed times the real time
+of that frame, so the walk is even in the time of the game: each frame
+moves the view at the speed of the push, and no limit, hill or switch of
+the game stops it on some frames (section 12 has the run). In the headset
+the walk can still look uneven. At about 97 frames each second on a display
+of 120 Hz with Space Warp off, about one refresh in five has no new frame.
+The headset then shows the frame before again, and with no Space Warp it
+corrects only the turn of the head. So a move of the view stops for one
+refresh and jumps at the next. A turn of the head hides this, but a walk
+shows it on all of the land, and more where the frame rate is lower. A frame
+rate at the refresh rate of the headset (for example 90 Hz in Virtual
+Desktop), or Space Warp, gives an even walk. The count in the line of the
+end shows how many frames came late. The report of a window has
 the count of the walks, their time and the frames that moved the view.
 
 ## 6. The Hand
@@ -1145,7 +1214,7 @@ The launcher removes these keys from `bwvr.ini` when it saves.
 | --- | --- |
 | `src/mod/table_math.h` | `GodRoom`, `PoseWorld`, `PoseRoom`, `GroundInRoom`, `ScaleAbout`, `GodZoomAbout`, `GodZoom`, `GodRaise`, `GodTurn`, `GameCameraOver`, `RayLevel`, `RayLand`, `GodSpawn`, `CameraLookPoint` and `HeadYaw`, as pure functions |
 | `src/mod/zoom_math.h` | The smooth zoom: the share of the top rate for a push (`StickShare`), the time of a frame (`FrameSeconds`) and the ratio of a frame (`FrameRatio`). The point of a zoom: its place across the room for each value of `god_zoom_about` (`PointAcross`), the level (`ZoomLevel`), the point in the world (`PivotAt`) and the rule for a hill at the new place of the head (`ClearHead`). All are pure functions |
-| `src/mod/walk_math.h` | The walk with the stick: the push (`Push`), the forward direction of the head and of the controller (`HeadForward`, `AimForward`), the speed in the room (`Speed`), the step of a frame (`Step`) and the view after a step (`Walk`). All are pure functions |
+| `src/mod/walk_math.h` | The walk with the stick: the push (`Push`), the forward direction of the head and of the controller (`HeadForward`, `AimForward`), the speed in the room (`Speed`), the step of a frame (`Step`), the view after a step (`Walk`) and the filter of the land that the view follows (`FollowStart`, `FollowStep`). All are pure functions |
 | `src/mod/tabletop.cpp`, `tabletop.h` | The God view in the table state: the place at a game camera (`PlaceGod`, `ApplyGodSpawn`), the steps (`ApplyGodSteps`), the point of a zoom (`GodZoomPoint`, `ZoomClearHead`), the smooth zoom (`TabletopGodZoomHold`, `ApplyGodZoomHold`), the walk with the stick (`TabletopGodWalk`, `ApplyGodWalk`), the mouse pan (`MousePan`), the camera switches and events, the hook on `GGame::ClearMap`, the values that follow the scale, the Hand's size, the ears and the game camera it wants |
 | `src/mod/near_plane.cpp` | The near plane hook, for the God view, the table and the immersive view |
 | `src/mod/teleport.cpp`, `teleport.h`, `aim_smooth.h` | The teleport: the states, the arc and the hit on the CPU, the refusals, the mouse double click, the aim filter, the log (section 14) |
@@ -1234,7 +1303,12 @@ checks the pure functions at 7.5, 100 and 2000 units per meter:
   was ahead under the head, keeps the height, the heading and the scale, is
   the pan of a grab with one hand, and is 400 units at 4000 units for each
   meter and 0.75 units at life size. A hill at the new place goes 10 cm below
-  the head.
+  the head. The follow of the land (`FollowStep`): a step over flat land and
+  a frame with no step move nothing, also over a hill. A step of 10 cm onto
+  higher land gives the exact answer of two stages, and ten steps of 1 cm
+  give the same. On a long hill the view rises with the land, 50 cm of the
+  walk behind it. A bump of 10 cm moves the view by less than 15 percent of
+  its height, and 80 cm later the view is back within 5 percent.
 - The teleport (14.8), the place at a game camera (15.9) and the player that a
   script sees (16.8) have their own checks.
 
@@ -1324,6 +1398,29 @@ render size, because the recipes depend on it.
   The push during the grab is refused with one log line. After the word
   `layoutkey` the stick opens the ring and moves nothing. The scripted stick
   has full pushes only, so the speed of a small push has only the math test.
+- The follow of the land [R]: `spawn_run.ps1 -Save temple` with
+  `move_stick_trace=320` and the steps `lstick_up@900+300
+  lstick_right@1300+300 lstick_down@1700+200`, once with
+  `move_stick_follow_land=1` and once with 0. The first walk goes 7.9 m of
+  the room over the hills at the Temple, where the land under the head goes
+  from 0 to 112 units (at 100 units for each meter), and the third walk is
+  over the sea. In each walk of both runs each frame moves the view at
+  149.93 to 150.07 cm of the room each second, with frames of 14.8 to 46.2
+  ms.
+  - With 1: the land under the head is 61.6 cm below the head at the start
+    of each walk, and 63.8, 61.6 and 61.6 cm at their ends. In the hills it
+    is 19 to 115 cm below the head (the filter is behind the land on the
+    steep slopes), and the land never comes nearer than 10 cm. The height of
+    the view changes by at most 2.5 cm in a frame, and its speed up or down
+    changes by at most 14 cm each second from one frame to the next. Over
+    the sea the height does not change. After each stop the waist point
+    keeps its height in the report of each window.
+  - With 0: the view keeps its height. The land comes to 10 cm below the
+    head, and the limit puts it 32.8 cm down in the room. While the limit
+    acts, the view goes up with each bump of the land at once: up to 5.5 cm
+    in a frame, and its speed up or down changes by up to 181 cm each second
+    from one frame to the next. After the hills the land is 108.2 cm below
+    the head, and 122.3 cm after the second walk.
 
 **The mouse pan and the tutorial events** need a run with the test mouse. Use
 `play_mode=0` (it must log the God view), `-NEWGAME` on Land 1,
@@ -1390,10 +1487,13 @@ and the camera events (0x304 for a wheel click and 0x308 for a land drag).
   the controller as the direction (Shift and the Menu key change the rule),
   whether 150 cm of the room for each second is a good top speed near the
   land and far out, and whether the dead zone of 30 percent fits a real
-  stick. No run has shown a small push, a hill at the new place of the head,
-  the edge of the map, a push with the switch for the drag off, a controller
-  that points straight up or down, or the test key with a real key. These
-  have the math test or no test.
+  stick. It must also show whether the follow of the land is calm on the
+  hills and keeps the land near enough to the hands on a steep slope, and
+  whether the walk is even (the count of the late frames in the line of the
+  end of a walk, "An even walk" in section 5.7). No run has shown a small
+  push, the edge of the map, a push with the switch for the drag off, a
+  controller that points straight up or down, or the test key with a real
+  key. These have the math test or no test.
 - **The tutorial** (section 7, "The interface levels"). A desktop run shows
   the first step: the walk to the village with the teleport and with the
   stick (section 14.9). On that walk and on the way to the Temple the game

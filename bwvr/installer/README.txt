@@ -127,8 +127,10 @@ The God view is the default play mode. The land is at your waist, so
 your hands can reach it. It works with motion controllers and with
 the mouse.
 
-The view does not go up or down with the hills. Zoom out to see more
-of the island. Zoom in until the world is life size. A cut scene of
+When you move with the left stick, the view goes up and down
+smoothly with the hills, so the land stays below your hands. When you
+do not move, the view stays where it is. Zoom out to see more of the
+island. Zoom in until the world is life size. A cut scene of
 the game plays on a screen in front of you, and the God view comes
 back after it. When you load a saved game, the God view starts again
 at the place of that game.
@@ -360,6 +362,13 @@ off. A full push moves you 150 cm of your room each second, at each
 zoom (key move_stick_speed_cm in bwvr.ini). The stick does not move
 you while a grip holds the land, in a menu, in a cut scene and in the
 Temple.
+
+While you move with the left stick, the height of your view follows
+the land under your head. A long hill moves the view up or down, and
+a small bump does not. The height that you set with the left grip
+stays your height above the land. To keep the view at one height, set
+"Walk follows the land" to Off in the launcher (key
+move_stick_follow_land=0).
 
 Set button_layout=0 in bwvr.ini for a different layout of the left
 controller: Y opens the game menu, X opens the ring, and the left

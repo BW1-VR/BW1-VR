@@ -91,6 +91,9 @@ bool HeadCameraEnabled();
 // the life size scale.
 float HeadPoseScale();
 bool HeadPoseCurrent(float matrix_out[9], float translation_out[3]);
+// stereo.cpp: the display time of the last frame of the headset and the
+// display period, in nanoseconds. False with no headset.
+bool StereoDisplayTime(int64_t* time, int64_t* period);
 // frame_timers.cpp hooks GGame::ProcessGraphicsEngine, and calls
 // TabletopGraphicsDone after it.
 bool FrameTimersGraphicsHooked();
@@ -497,7 +500,9 @@ uint64_t g_clears = 0;
 // last frame, the waist point, the land point under the head and the scale
 // at its start, that land point after its last frame, the time of its
 // frames, how many of them moved the view, and the way that the player went
-// in the room.
+// in the room. For the log of the end: the shortest and the longest frame
+// and step, how far the view went up and down with the land, and how far
+// the land under the head was below the head at the start.
 struct WalkHold {
   float push[2] = {0.0f, 0.0f};
   bool fresh = false;
@@ -518,7 +523,30 @@ struct WalkHold {
   uint64_t frames = 0;
   uint64_t moved = 0;
   uint64_t blind = 0;  // frames in which the controller had no direction
+  float frame_least = 0.0f, frame_most = 0.0f;  // seconds
+  float step_least = 0.0f, step_most = 0.0f;    // meters of the room
+  float rose = 0.0f, fell = 0.0f;  // the follow of the land, meters of room
+  float start_below = 0.0f, below = 0.0f;  // meters of the room
+  bool have_below = false;
+  // The display times of the headset in the walk: the last one, how many
+  // came after it, and how many of those came more than one refresh later.
+  int64_t shown_at = 0, period = 0;
+  uint64_t shown = 0, late = 0;
 } g_walk;
+// THE LAND THAT THE VIEW FOLLOWS (move_stick_follow_land=1, walk_math.h).
+// The filter keeps its state from one walk to the next, so a climb in short
+// pushes follows the land as a long push does. version is g_god_version
+// after the last frame of the walk that moved the view. When something else
+// moved the view since then (a teleport, a grab, a zoom, a ground step, a
+// new build), the filter starts again at the land under the head.
+struct WalkFollow {
+  walk_math::LandFollow land;
+  bool have = false;
+  uint64_t version = 0;
+} g_follow;
+// The test move_stick_trace: the lines of the trace in this game.
+uint64_t g_walk_traces = 0;
+const uint64_t kMaxWalkTraces = 2000;
 // The check after a walk: this many frames after the stop, the log compares
 // the waist point and the render head with the ones at the stop.
 const int kWalkCheckFrames = 30;
@@ -1450,6 +1478,17 @@ float MovedInRoomCm(const TablePose& from, const TablePose& to,
   return sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]) * 100.0f;
 }
 
+// The land height under the head in a view, with the waist point kept on
+// the map.
+float LandUnderHead(const TablePose& pose, const float room[3],
+                    const float head[3]) {
+  TablePose on_map = pose;
+  for (int i = 0; i < 3; i += 2) on_map.center[i] = ClampMap(pose.center[i]);
+  float at[3];
+  PoseWorld(on_map, room, head, at);
+  return GroundAt(at[0], at[2]);
+}
+
 // A HILL UNDER THE HEAD AFTER A ZOOM. A zoom about a point that is not under
 // the head moves the head over the land, as a pan does. When the land at the
 // new place of the head is nearer than kGroundNearest below the head, all of
@@ -1458,13 +1497,9 @@ float MovedInRoomCm(const TablePose& from, const TablePose& to,
 // Returns how far the land went down, in meters of the room.
 float ZoomClearHead(TablePose* pose, const float room[3],
                     const float head[3]) {
-  TablePose on_map = *pose;
-  for (int i = 0; i < 3; i += 2) on_map.center[i] = ClampMap(pose->center[i]);
-  float at[3];
-  PoseWorld(on_map, room, head, at);
-  const float y =
-      zoom_math::ClearHead(pose->center[1], GroundAt(at[0], at[2]), room[1],
-                           pose->scale, head[1], kGroundNearest);
+  const float y = zoom_math::ClearHead(
+      pose->center[1], LandUnderHead(*pose, room, head), room[1], pose->scale,
+      head[1], kGroundNearest);
   const float down = (y - pose->center[1]) / pose->scale;
   pose->center[1] = y;
   return down;
@@ -1888,6 +1923,13 @@ const char* WalkRuleText(int rule) {
              : "the direction of your head";
 }
 
+const char* FollowText() {
+  return g_settings.move_stick_follow_land != 0
+             ? "The height of the view follows the land under your head "
+               "(move_stick_follow_land=1)"
+             : "The view keeps its height (move_stick_follow_land=0)";
+}
+
 // THE END OF A WALK with the stick: the stick came back, or the player
 // cannot move now. A request that waits is dropped. One log line gives the
 // place at the start and at the end, how far the player went over the land
@@ -1929,20 +1971,43 @@ void StopWalk(const char* cause, bool view_stays) {
     sprintf_s(blind, " On %llu frames the controller pointed too far up or "
               "down for a direction.", g_walk.blind);
   }
+  char land[256] = "";
+  if (g_walk.have_below) {
+    sprintf_s(land, " The land under your head was %.1f cm below your head "
+              "and is %.1f cm below it. The view went %.1f cm up and %.1f cm "
+              "down with the land (move_stick_follow_land=%d).",
+              g_walk.start_below * 100.0f, g_walk.below * 100.0f,
+              g_walk.rose * 100.0f, g_walk.fell * 100.0f,
+              g_settings.move_stick_follow_land);
+  }
+  char late[224] = "";
+  if (g_walk.shown != 0) {
+    sprintf_s(late, " Of %llu frames of the headset, %llu came more than one "
+              "refresh of %.1f ms after the frame before, and the headset "
+              "showed the frame before again for them.", g_walk.shown,
+              g_walk.late, g_walk.period / 1e6);
+  }
+  char even[160] = "";
+  if (g_walk.moved != 0) {
+    sprintf_s(even, " A frame took %.1f to %.1f ms, and a step was %.2f to "
+              "%.2f cm of the room.", g_walk.frame_least * 1000.0f,
+              g_walk.frame_most * 1000.0f, g_walk.step_least * 100.0f,
+              g_walk.step_most * 100.0f);
+  }
   ModLog("god view     : the walk with the stick stopped (%s). You went %.2f "
          "units over the land, which is %.2f cm of the room, %.1f degrees to "
          "the %s of straight ahead in the room. The land under your head was "
          "at %.1f %.1f and is at %.1f %.1f. The stick was pushed for %.3f s, "
          "which gives %.1f cm of the room each second, and the view moved on "
          "%llu of %llu frames (move_stick=%d, %.2f to %.2f units per "
-         "meter), frame %llu.%s%s",
+         "meter), frame %llu.%s%s%s%s%s",
          cause, sqrtf(dx * dx + dz * dz), room_m * 100.0f, fabsf(degrees),
          degrees < -0.05f ? "left" : "right", g_walk.start_under[0],
          g_walk.start_under[1], g_walk.under[0], g_walk.under[1],
          g_walk.seconds,
          g_walk.seconds > 0.0 ? g_walk.path * 100.0f / g_walk.seconds : 0.0,
          g_walk.moved, g_walk.frames, g_walk.rule, g_walk.start_scale, g_scale,
-         ControllersFrameCount(), hill, blind);
+         ControllersFrameCount(), hill, blind, land, even, late);
 }
 
 // THE WALK WITH THE STICK (move_stick, docs/god-view.md, "The walk with the
@@ -2054,6 +2119,16 @@ void ApplyGodWalk(double frame_seconds) {
     g_walk.sunk = 0.0f;
     g_walk.seconds = 0.0;
     g_walk.frames = g_walk.moved = g_walk.blind = 0;
+    g_walk.frame_least = g_walk.frame_most = 0.0f;
+    g_walk.step_least = g_walk.step_most = 0.0f;
+    g_walk.rose = g_walk.fell = 0.0f;
+    g_walk.shown_at = g_walk.period = 0;
+    g_walk.shown = g_walk.late = 0;
+    g_walk.have_below = pose.scale > 0.0f;
+    g_walk.start_below = g_walk.below =
+        g_walk.have_below
+            ? head[1] - GroundInRoom(pose, room, LandUnderHead(pose, room, head))
+            : 0.0f;
     g_walk_check.frames_left = 0;
     if (WalkLog()) {
       char where[96] = "has no direction on the land now";
@@ -2063,16 +2138,24 @@ void ApplyGodWalk(double frame_seconds) {
                   "room", fabsf(degrees), degrees < -0.05f ? "left" : "right");
       }
       ModLog("god view     : the walk with the stick starts at %.2f units per "
-             "meter, with the land under your head at %.1f %.1f. Forward is "
-             "%s (move_stick=%d), and it %s. A full push moves you %d cm of "
-             "the room each second (move_stick_speed_cm), frame %llu.",
-             pose.scale, under[0], under[2], WalkRuleText(rule), rule, where,
-             g_settings.move_stick_speed_cm, ControllersFrameCount());
+             "meter, with the land under your head at %.1f %.1f, %.1f cm "
+             "below your head. Forward is %s (move_stick=%d), and it %s. A "
+             "full push moves you %d cm of the room each second "
+             "(move_stick_speed_cm). %s, frame %llu.",
+             pose.scale, under[0], under[2], g_walk.start_below * 100.0f,
+             WalkRuleText(rule), rule, where, g_settings.move_stick_speed_cm,
+             FollowText(), ControllersFrameCount());
     }
   }
   const float seconds = zoom_math::FrameSeconds(frame_seconds, kHoldFrameCap);
   ++g_walk.frames;
   g_walk.seconds += seconds;
+  if (seconds > 0.0f) {
+    if (g_walk.frame_most == 0.0f || seconds < g_walk.frame_least) {
+      g_walk.frame_least = seconds;
+    }
+    if (seconds > g_walk.frame_most) g_walk.frame_most = seconds;
+  }
   if (have_forward) {
     g_walk.forward[0] = forward[0];
     g_walk.forward[1] = forward[1];
@@ -2099,23 +2182,81 @@ void ApplyGodWalk(double frame_seconds) {
   float took[2];
   walk_math::InRoom(pose, next.center[0] - pose.center[0],
                     next.center[2] - pose.center[2], took);
+  const float way = sqrtf(took[0] * took[0] + took[1] * took[1]);
+  if (g_walk.step_most == 0.0f || way < g_walk.step_least) {
+    g_walk.step_least = way;
+  }
+  if (way > g_walk.step_most) g_walk.step_most = way;
+  // THE LAND THAT THE VIEW FOLLOWS (move_stick_follow_land=1). The land
+  // height under the head at the new place goes through the filter of
+  // walk_math.h, and the view goes up or down by the change of its output,
+  // so the filtered land keeps its height in the room. The filter starts
+  // again when something else moved the view since the last frame of a walk.
+  if (g_settings.move_stick_follow_land != 0 && next.scale > 0.0f) {
+    if (!g_follow.have || g_follow.version != g_god_version) {
+      walk_math::FollowStart(LandUnderHead(pose, room, head), &g_follow.land);
+      g_follow.have = true;
+    }
+    const float rise =
+        walk_math::FollowStep(&g_follow.land, LandUnderHead(next, room, head),
+                              way, walk_math::kFollowLength);
+    next.center[1] += rise;
+    if (rise > 0.0f) {
+      g_walk.rose += rise / next.scale;
+    } else {
+      g_walk.fell -= rise / next.scale;
+    }
+  }
   // The head moves over the land, and a hill there stays below it.
   g_walk.sunk += ZoomClearHead(&next, room, head);
   for (int i = 0; i < 3; ++i) g_center[i] = next.center[i];
   Derive();
   ++g_serial;
   ++g_god_version;
+  g_follow.version = g_god_version;
   // A walk is no snap turn: the game camera goes over the land under the
   // head, and does not turn about its focus (TabletopGodTurnedOnly).
   g_god_nonturn_version = g_god_version;
   ++g_walk.moved;
   ++g_walk_moves;
+  // THE FRAMES OF THE HEADSET. The step of a frame is the speed times the
+  // time of that frame, so the walk is even in the time of the game. The
+  // headset shows a frame at a refresh. When a frame comes more than one
+  // refresh after the frame before, the headset shows the frame before
+  // again. A runtime with no Space Warp corrects only the turn of the head
+  // for it, so the land stops for that refresh and jumps at the next one.
+  // The log of the end counts those frames.
+  int64_t shown_at = 0, period = 0;
+  if (StereoDisplayTime(&shown_at, &period) && shown_at != g_walk.shown_at) {
+    if (g_walk.shown_at != 0 && period > 0) {
+      ++g_walk.shown;
+      if (shown_at - g_walk.shown_at > period + period / 2) ++g_walk.late;
+      g_walk.period = period;
+    }
+    g_walk.shown_at = shown_at;
+  }
   g_walk.went[0] += took[0];
   g_walk.went[1] += took[1];
   g_walk.path += sqrtf(took[0] * took[0] + took[1] * took[1]);
-  PoseWorld(Pose(), room, head, under);
+  const TablePose now = Pose();
+  PoseWorld(now, room, head, under);
   g_walk.under[0] = under[0];
   g_walk.under[1] = under[2];
+  const float land = LandUnderHead(now, room, head);
+  g_walk.below = head[1] - GroundInRoom(now, room, land);
+  // The test move_stick_trace: one line for each of the first frames.
+  if (g_walk.moved <= static_cast<uint64_t>(g_settings.move_stick_trace) &&
+      g_walk_traces < kMaxWalkTraces) {
+    ++g_walk_traces;
+    ModLog("god view     : walk trace, frame %llu of the walk: %.2f ms, a step "
+           "of %.3f cm of the room, the waist point at %.3f %.3f %.3f, the "
+           "land under your head at %.3f (filtered %.3f) and %.2f cm below "
+           "your head, frame %llu",
+           g_walk.frames, seconds * 1000.0f, way * 100.0f, now.center[0],
+           now.center[1], now.center[2], land,
+           g_follow.have ? g_follow.land.stage[1] : land,
+           g_walk.below * 100.0f, ControllersFrameCount());
+  }
   Help(kHelpDrag, kInputButton);
 }
 
@@ -2377,8 +2518,9 @@ void LogMoveStick(const char* tag) {
   }
   ModLog("%s: move_stick=%d. While the stick of the hand that does not point "
          "is pushed, you move over the land. Forward is %s, and a full push "
-         "moves you %d cm of the room each second (move_stick_speed_cm)%s",
-         tag, rule, WalkRuleText(rule), g_settings.move_stick_speed_cm, keys);
+         "moves you %d cm of the room each second (move_stick_speed_cm). %s%s",
+         tag, rule, WalkRuleText(rule), g_settings.move_stick_speed_cm,
+         FollowText(), keys);
 }
 
 }  // namespace
@@ -2423,6 +2565,10 @@ void TabletopSetOptions(const TabletopSettings& settings) {
   if (g_settings.move_stick_speed_cm > 500) {
     g_settings.move_stick_speed_cm = 500;
   }
+  g_settings.move_stick_follow_land =
+      g_settings.move_stick_follow_land != 0 ? 1 : 0;
+  if (g_settings.move_stick_trace < 0) g_settings.move_stick_trace = 0;
+  if (g_settings.move_stick_trace > 2000) g_settings.move_stick_trace = 2000;
 }
 
 // Only when play_mode picks the table. With any other play mode, nothing in

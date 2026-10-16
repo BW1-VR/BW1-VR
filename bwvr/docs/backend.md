@@ -2854,6 +2854,7 @@ keys that the launcher sets.
 | `turn_help_degrees`, `god_turn_keeps_focus`, `tilt_help_degrees` | 5, 1, 3 | See `god-view.md`, "The turn lesson" |
 | `zoom_step` | 2 | See "Zoom in steps" |
 | `move_stick`, `move_stick_speed_cm` | 1, 150 | The walk with the stick of the hand that does not point, in the God view. See `god-view.md`, section 5.7 |
+| `move_stick_follow_land` | 1 | 1: in the walk with the stick, the height of the view follows the land under the head. 0: the view keeps its height. See `god-view.md`, section 5.7 |
 | `button_layout` | 1 | The layout of the buttons of the hand that does not point. See `controllers.md`, 5.1 |
 | `drag_smoothing_ms` | 35 | See "Smoother drags far out" |
 | `script_camera` and its keys | 2 | See "The story camera" |

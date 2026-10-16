@@ -192,6 +192,13 @@ const Setting kSettings[] = {
      "forward is where that controller points. Off: the stick does not move "
      "you. Some people feel ill when a stick moves them: use Off then, and "
      "move with the grip and with the teleport."},
+    {kValues, "move_stick_follow_land", "Walk follows the land", "On=1|Off=0",
+     1,
+     "When you move with the left stick, the height of your view follows "
+     "the hills, so the land stays at the same height below your hands. The "
+     "view goes up and down smoothly, and it does not follow each small "
+     "bump. It moves only while you push the stick. Off: the view keeps its "
+     "height, and a hill comes nearer or goes farther away."},
     // Not offered. These four keys act on the camera of the game. In the
     // God view the mod moves the view in cuts and in its own zoom steps,
     // and a story shows in a window in the room, so the defaults are the
@@ -260,7 +267,7 @@ char g_ini_path[MAX_PATH];
 int g_dpi = 96;
 // The most rows of a column. A test sets a smaller number with "-rows" to get
 // a picture of a table that has more columns.
-int g_max_rows = 22;
+int g_max_rows = 24;
 
 int Scaled(int at96) { return MulDiv(at96, g_dpi, 96); }
 

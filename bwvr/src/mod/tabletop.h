@@ -57,6 +57,13 @@ struct TabletopSettings {
   // head, and 2 along the direction in which that controller points.
   int move_stick = 1;            // move_stick: 0 off, 1 head, 2 controller
   int move_stick_speed_cm = 150; // move_stick_speed_cm: a full push, a second
+  // While the stick walks, 1: the height of the view follows the land under
+  // the head through a smooth filter (walk_math::FollowStep). 0: the view
+  // keeps its height in the world.
+  int move_stick_follow_land = 1;  // move_stick_follow_land: 1 follows, 0 not
+  // A test for a desktop run: the log has a line for each of the first N
+  // frames of each walk. 0 is off.
+  int move_stick_trace = 0;        // move_stick_trace: frames to log
   bool test_keys = false;        // test_keys: Ctrl and Numpad 0 change it
 };
 

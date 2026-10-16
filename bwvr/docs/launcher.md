@@ -37,9 +37,9 @@ A row gives a control, a tooltip, a default, and the reading and writing.
 There is no layout to keep in step and no separate load and save code.
 
 The window sizes itself around the table and starts a new column when one gets
-tall. A heading stays with at least three of its settings. A column has 22
-rows at most. The table of now has 22 rows, so the window has one column. One
-more row starts a second column.
+tall. A heading stays with at least three of its settings. A column has 24
+rows at most. The table of now has 23 rows, so the window has one column. Two
+more rows start a second column.
 
 A field is 160 units wide, which is enough for the longest choice ("Grip of
 the other hand"). The block of the buttons is below the last column and as
@@ -181,6 +181,7 @@ move the camera in steps.
 | Zoom with the stick | In steps | Key `god_zoom_smooth`, a value. 0 In steps: one push of the right stick forward or back is one zoom step. 1 Smooth: the zoom changes while the stick is held, and it stops when the stick is let go (`god-view.md`, section 2). |
 | Center of the zoom | The land you look at | Key `god_zoom_about`, a value. The point that stays where it is in a zoom with the stick. 1 The land that the head looks at. 0 The land under the head. 2 The Hand's point (`god-view.md`, section 2). |
 | Move with the left stick | Head direction | Key `move_stick`, a value. In the God view the stick of the other hand (the left stick, or the right stick of a left handed player) moves you over the land while you push it, and you stop when you let it go. 1 Head direction: forward is where the head faces. 2 Controller direction: forward is where that controller points. 0 Off: the stick does not move you. A walk with a stick makes some players ill, so the row has Off (`god-view.md`, section 5.7). The key `move_stick_speed_cm` sets the speed, and the launcher has no row for it. |
+| Walk follows the land | On | Key `move_stick_follow_land`, a value. 1 On: while you move with the left stick, the height of the view follows the land under the head through a smooth filter, so the land stays at the same height below the hands. A long hill moves the view, a small bump does not, and the view moves only while the stick is pushed. 0 Off: the view keeps its height (`god-view.md`, section 5.7). |
 | Blink when you jump or turn | off | Key `blink`, index 0 to 2: off, short (0.1 seconds), long (0.2 seconds). Black after a jump, a turn and a story camera cut. |
 
 ### Controllers

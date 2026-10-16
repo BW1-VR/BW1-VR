@@ -1863,6 +1863,13 @@ void StereoSetCaptureInterval(int seconds) {
 
 void StereoSetScreen(bwvr::XrScreen* screen) { g_screen = screen; }
 
+// The display time of the last frame of the headset and the display period,
+// in nanoseconds. False with no headset.
+bool StereoDisplayTime(int64_t* time, int64_t* period) {
+  if (g_screen == nullptr || !g_screen->running()) return false;
+  return g_screen->LastDisplayTime(time, period);
+}
+
 // What the intro (intro_vr.cpp) needs from this file. It draws its own frame
 // pair, so it shares the head view setup, the capture timer and the mark that
 // tells the mono path that stereo is driving.

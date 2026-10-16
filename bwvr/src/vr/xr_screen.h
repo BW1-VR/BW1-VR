@@ -274,6 +274,11 @@ class XrScreen {
   // has the frame.
   uint64_t LateWaitTicks() const;
 
+  // The display time of the last frame that BeginFrame started, and the
+  // display period of the runtime, in nanoseconds. False before the first
+  // frame and after a failed wait.
+  bool LastDisplayTime(int64_t* time, int64_t* period) const;
+
   // Mono convenience: one call does a whole frame.
   bool SubmitBgra(const void* pixels, int pitch);
 

@@ -303,10 +303,17 @@ is built, and no test has proven it.
   section 7, "The interface levels", has the camera controls that the game
   allows in each step. Wanted: a headset session through the whole tutorial,
   and a correction for each step that stops the player.
-- **B27. The walk with the stick is not smooth over some parts of the
-  land.** In a headset session the motion was jagged and it jittered over
-  some parts of the map. The cause is not known. A guess: the height of the
-  land under the head changes in steps.
+- **B27. The walk with the stick is not smooth in the headset.** The walk
+  itself is even: each frame moves the view at the speed of the push, and no
+  limit, hill or switch stops it on some frames (`god-view.md`, section 5.7,
+  "An even walk"). The likely cause is the frame rate: about 97 frames each
+  second on a display of 120 Hz with Space Warp off, about one refresh in
+  five has no new frame. The headset then shows the frame before again, so a
+  move of the view stops for a refresh and jumps. Wanted: a headset session with a walk. The line of the end of
+  each walk counts the frames that came more than one refresh late. Compare
+  a walk at 120 Hz with a walk at 90 Hz in Virtual Desktop, or with Space
+  Warp on. If the walk is even at 90 Hz, the fault is the frame rate, and
+  this item goes to the performance work.
 - **B28. Light shows between a bar and the cut scene window.** The black
   bars over and under the cut scene window are a little too narrow: a
   column of light pixels shows between the bar at the left and the window.
@@ -478,6 +485,10 @@ that moves while the Hand takes it.
   - The comfort of the walk, with the head as the direction and with the
     controller as the direction. Shift and the Menu key of the keyboard
     change `move_stick` from 1 to 2, to 0 and back.
+  - The comfort of the follow of the land (`move_stick_follow_land=1`, the
+    launcher row "Walk follows the land"): whether the view goes up and down
+    calmly on the hills, and whether the land stays near enough to the hands
+    on a steep slope. The filter is 50 cm of the walk behind the land.
   - The top speed of 150 cm of the room for each second
     (`move_stick_speed_cm`), near the land and far out, and the dead zone of
     the stick.
@@ -487,9 +498,9 @@ that moves while the Hand takes it.
     keep that button for its own menu (`controllers.md`, section 6), and
     with `button_layout=1` no other button opens the game menu.
 
-  Not run: a small push of the stick, a hill at the new place of the head,
-  the edge of the map, a push with the switch for the drag off, an Index
-  controller, and a controller with no face buttons.
+  Not run: a small push of the stick, the edge of the map, a push with the
+  switch for the drag off, an Index controller, and a controller with no
+  face buttons.
 - **P14. The stream of a take at a distance: check it in a headset.** In a
   take at a distance the pieces of wood or grain go on a curve from the top
   of the source to the Hand (`take_stream`, `grab.md`, "The stream of a take

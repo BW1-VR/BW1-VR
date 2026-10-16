@@ -2227,6 +2227,14 @@ void XrScreen::Join() {
 
 bool XrScreen::sending() const { return impl_->send_busy; }
 
+bool XrScreen::LastDisplayTime(int64_t* time, int64_t* period) const {
+  const Impl& s = *impl_;
+  if (s.frame_state.predictedDisplayTime <= 0) return false;
+  *time = s.frame_state.predictedDisplayTime;
+  *period = s.frame_state.predictedDisplayPeriod;
+  return true;
+}
+
 uint64_t XrScreen::LateWaitTicks() const {
   return impl_->send_busy ? 0 : impl_->late_gpu;
 }

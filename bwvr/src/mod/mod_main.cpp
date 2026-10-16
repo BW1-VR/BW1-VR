@@ -737,6 +737,12 @@ void ReadSettings() {
     // with the stick").
     t.move_stick = number("move_stick", 1);
     t.move_stick_speed_cm = number("move_stick_speed_cm", 150);
+    // While the stick walks, 1: the height of the view follows the land
+    // under the head through a smooth filter, and 0: the view keeps its
+    // height. move_stick_trace=N logs the first N frames of each walk, for
+    // a desktop run.
+    t.move_stick_follow_land = number("move_stick_follow_land", 1);
+    t.move_stick_trace = number("move_stick_trace", 0);
     t.test_keys = number("test_keys", 0) != 0;
     // Tests with no key press, for a desktop run: the game's zoom to the
     // Temple at an update of the camera mode, and the test key of god_spawn.
