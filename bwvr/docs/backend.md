@@ -2289,9 +2289,8 @@ not drawn, for each reason. The vertex shader gives the clip position of that pi
 viewport of the walk, times `1 / rhw`, and moves it by half a pixel, because
 a pixel of Direct3D has its centre at the whole number and a pixel of Vulkan
 at the half. The fragment shader makes texture stage 0 (the operations and
-inputs of Direct3D 7), the alpha test, the specular color and the fog of the
-vertices. Texture stage 1 adds its texture (color operation 7), but the game
-sets no texture on it in a walk. The state that a walk does not set comes
+inputs of Direct3D 7), texture stage 1 ("The second stage"), the alpha test,
+the specular color and the fog of the vertices. The state that a walk does not set comes
 from the device at the start of the walk. In Direct3D 7 the state
 `D3DTSS_ADDRESS` sets the address mode of u and of v, and the game sets
 only this state (wrap or clamp), so the renderer copies it into
@@ -2446,13 +2445,45 @@ ring, and the waits of a walk for the fence of its slot.
 
 **The states of the draws.** The log has one line for each new combination
 of the operations and the inputs of texture stages 0 and 1, the blend and a
-texture ("vk scene : states N"). The renderer makes texture stage 0 alone. A
-line with "STAGE 1 IS ON" names draws whose second stage is left out: in
-play the game adds a second texture with stage 1 (`D3DTOP_ADD` of the
-texture and the current colour), for example the light maps of the land,
-and once with no texture on stage 1. These draws have less light than with
-Direct3D 9. A line with "A complement input" names a draw with an input of
-1 minus a colour.
+texture ("vk scene : states N"). A line with a texture on stage 1 says
+whether the renderer makes that stage ("The second stage"). A line with "A
+complement input" names a draw with an input of 1 minus a colour.
+
+**The second stage** (`vk_stage1`, 1 is the default). With `backend=vulkan`
+the game adds a second texture with texture stage 1 for some draws:
+`D3DTOP_MODULATE2X` (5) or `D3DTOP_ADD` (7) of the texture and the current
+colour, with the alpha of stage 0 (`fn_0082B680`). These are the light maps
+of the rooms of the Temple, with their light and their shadows, and of the
+land: 230 to 290 draws of a frame in the hall of the Temple, 1 to 11 on the
+land. At its start the game tests each mode with `ValidateDevice`
+(`fn_0082BF10`, "check additive", "check modulate 2x"), and the device of
+the mod says that each mode takes one pass. With dxwrapper the game puts no
+texture on stage 1, and the hall has draws with the blends `DESTCOLOR,
+SRCCOLOR` and `ONE, ONE` in place of them. Not known: which test gives
+that choice with dxwrapper. Such a draw comes in
+a format of XYZRHW with two sets of texture coordinates. The renderer binds
+the texture of stage 1 as descriptor set 1 (the layout of set 0, with the
+sampler of the states of stage 1), and puts the set of texture coordinates
+of `D3DTSS_TEXCOORDINDEX` of stage 1 into the ring after the vertices, 8
+bytes for each vertex, as vertex buffer 1. The fragment shader then makes
+stage 1 after stage 0, with the operations and the inputs of Direct3D 7 and
+the result of stage 0 as the current colour. A draw with no stage 1 binds
+the set of stage 0 as set 1 and its vertices as buffer 1. A draw with a
+color operation on stage 1 and no texture there keeps the result of stage
+0. With 0 the renderer makes stage 0 alone, and these draws have no light
+map: a room of the Temple is flat and has no shadows. Shift E
+(`test_keys=1`) changes it from the next walk. The report of each 450
+frames counts the draws with a texture on stage 1, and those that got it.
+
+Desktop runs in the hall of the Temple (`temple_run.ps1 -NewGame
+-EnterFrame 1400`, `backend=vulkan`, render 4080 by 3264, the pictures of
+the steps `shot@2600` and `shot@3400`). With `vk_stage1=1` each draw with a
+texture on stage 1 got it (233 to 290 of a frame), and the mean luma of the
+left eye is 29.6. The hall has the light of the chandeliers and dark
+corners, as the picture of Direct3D 9 of the same scene in a run with
+dxwrapper (mean luma 33.3, the shadow test at frame 2600). With
+`vk_stage1=0` the mean luma is 83.8: the walls and the floor have the full
+colour of their texture and no shadow. Not run: a headset session.
 
 A row of a locked surface goes into a buffer of the CPU with streaming
 loads of SSE4.1 (MOVNTDQA) before the conversion, because a `Lock` of
@@ -4245,6 +4276,7 @@ in front. The mod reads the keys and never takes them from the game.
 | Shift O | `test_keys=1` | Foveated rendering goes on, then on with the colour over the coarse parts (`foveation_show`), then off, from the next walk. A long pulse when it is on, a short pulse when it is off (`foveation`, "Foveated rendering"). Ctrl must be up |
 | Shift P | `test_keys=1` | Foveated resolution goes on and off, from the next walk. A long pulse and a short pulse (`fovea_res`, "Foveated resolution"). Ctrl must be up |
 | Shift T | `test_keys=1` | With `backend=vulkan`: a walk with no clear of the whole target starts with the picture of the walk before, or black, from the next walk. A long pulse and a short pulse (`vk_keep_picture`, "The picture of the walk before"). Ctrl must be up |
+| Shift E | `test_keys=1` | With the Vulkan renderer: a draw with a texture on texture stage 1 gets that stage (the light maps of the Temple), or the renderer makes stage 0 alone, from the next walk. A long pulse and a short pulse (`vk_stage1`, "The second stage"). Ctrl must be up |
 | Shift Q | `test_keys=1` | The read ahead of the files of LHFile goes on and off, from the next call on each file. The log has the line `read ahead   : test key` (`file_read_ahead`, "The read ahead of the files of the game"). Ctrl must be up |
 | Ctrl Shift Numpad Slash | `test_keys=1` | The mod waits for the GPU after each eye pass, one time a frame, or one time a frame on a second thread that also gives the frame to the runtime. A long pulse, a pulse of middle length and a short pulse (`frame_send`, "One wait a frame, and a second thread"). The slash key with Shift and no Ctrl is a key of the Temple, and with no Shift it is a key of the throw |
 | Menu key | `test_keys=1` | One walk for both eyes on and off (see "One walk for both eyes"). The key beside the right Ctrl key that opens a context menu. Ctrl and Shift must be up |
@@ -4378,6 +4410,7 @@ keys that the launcher sets.
 | `hang_watch` | 0 | A test key: 1 the place of the frame thread when it makes no frame for 8 s, 2 each 8 s. With each of the two the place of a fault. See "The watch of the frame thread" |
 | `vk_lines` | 1 | With `backend=vulkan`: 1 a draw of points or lines becomes triangles of 1 pixel across, 0 it is not drawn. See "The backend of the mod on Vulkan" |
 | `vk_keep_picture` | 1 | With `backend=vulkan`: 1 a walk with no clear of the whole target before its first draw starts with the picture of the walk before, and the intro in stereo keeps the picture of each eye. 0 each walk starts black. A test key: Shift T. See "The picture of the walk before" |
+| `vk_stage1` | 1 | With the Vulkan renderer: 1 a draw with a color operation and a texture on texture stage 1 gets that stage, for example the light maps of the Temple. 0 the renderer makes stage 0 alone. A test key: Shift E. See "The second stage" |
 | `vk_present_late` | 1 | With `backend=vulkan`: 1 the window on the monitor shows the picture of the present before, with no wait for the GPU, 0 each present waits for its own picture. See "The backend of the mod on Vulkan" |
 | `vk_texture_reuse` | 1 | 1 a texture that a walk reads again goes into the image it has when it can, and its pixels into a ring of the slot, so a read makes no allocation of the GPU. 0 each read makes a new image and a staging buffer. See "The Vulkan renderer" |
 | `foveation` | 0 | 0 each pixel of the eye pictures has the full rate. 1 light, 2 medium, 3 strong (the launcher writes 1 and the two degrees of its sliders): the part around the centre of the fovea has the full rate, and the rest fewer shades. Only the eye pictures of the Vulkan renderer. The launcher has the row "Foveated rendering (test)". A test key: Shift O. See "Foveated rendering" |

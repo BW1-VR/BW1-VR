@@ -2,8 +2,9 @@
 #extension GL_EXT_multiview : require
 // The fragment shader of the Vulkan renderer of the scene (vk_scene.cpp,
 // docs/backend.md, "The Vulkan renderer"). It makes texture stage 0 of
-// Direct3D 7 for the operations and inputs that the game uses, the alpha
-// test, the specular color and the fog of the vertices.
+// Direct3D 7 for the operations and inputs that the game uses, texture
+// stage 1 when the draw has it (vk_stage1), the alpha test, the specular
+// color and the fog of the vertices.
 //
 //   ops.x  the color of stage 0: operation | arg1 << 8 | arg2 << 16
 //   ops.y  the alpha of stage 0, in the same form
@@ -11,6 +12,9 @@
 //          function, bit 8 the specular color, bit 9 the fog
 //   alpha  x: the reference of the alpha test (0 to 1)
 //   fog_color  the color of the fog
+//   ops1.x  the color of stage 1: operation | arg1 << 8 | arg2 << 16, or 0
+//           when the draw has no stage 1
+//   ops1.y  the alpha of stage 1, in the same form
 //
 // Compile with:
 //   glslang -V --target-env vulkan1.3 --vn kVkSceneFrag -o vk_scene_frag.h
@@ -19,8 +23,10 @@
 layout(location = 0) in vec4 in_diffuse;
 layout(location = 1) in vec4 in_specular;
 layout(location = 2) in vec2 in_uv;
+layout(location = 3) in vec2 in_uv1;
 
 layout(set = 0, binding = 0) uniform sampler2D tex;
+layout(set = 1, binding = 0) uniform sampler2D tex1;
 
 layout(push_constant) uniform Draw {
   vec4 viewport;
@@ -28,6 +34,7 @@ layout(push_constant) uniform Draw {
   uvec4 ops;
   vec4 alpha;
   vec4 fog_color;
+  uvec4 ops1;
 } draw;
 
 layout(location = 0) out vec4 out_color;
@@ -91,6 +98,21 @@ void main() {
   if (alpha_op > 1u) {
     color.a = Op(alpha_op, Arg((draw.ops.y >> 8) & 255u, texel, in_diffuse),
                  Arg((draw.ops.y >> 16) & 255u, texel, in_diffuse)).a;
+  }
+  // Stage 1 takes the result of stage 0 as its current color, for example
+  // the light map of a room of the Temple (D3DTOP_MODULATE2X or D3DTOP_ADD
+  // of the texture and the current color). An alpha operation of 1 keeps the alpha of stage 0.
+  const uint color_op1 = draw.ops1.x & 255u;
+  if (color_op1 > 1u) {
+    const vec4 texel1 = texture(tex1, in_uv1);
+    const vec4 current = color;
+    color.rgb = Op(color_op1, Arg((draw.ops1.x >> 8) & 255u, texel1, current),
+                   Arg((draw.ops1.x >> 16) & 255u, texel1, current)).rgb;
+    const uint alpha_op1 = draw.ops1.y & 255u;
+    if (alpha_op1 > 1u) {
+      color.a = Op(alpha_op1, Arg((draw.ops1.y >> 8) & 255u, texel1, current),
+                   Arg((draw.ops1.y >> 16) & 255u, texel1, current)).a;
+    }
   }
   if ((flags & 2u) != 0u &&
       !Passes((flags >> 4) & 15u, floor(color.a * 255.0 + 0.5),

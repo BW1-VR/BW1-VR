@@ -541,6 +541,7 @@ int g_vk_upload_queue = 1;
 int g_vk_present_late = 1;
 int g_vk_texture_reuse = 1;
 int g_vk_keep_picture = 1;
+int g_vk_stage1 = 1;
 // Foveated rendering (docs/backend.md, "Foveated rendering").
 int g_foveation = 0;
 int g_foveation_inner_deg = 0;
@@ -1388,6 +1389,8 @@ void ReadSettings() {
       GetPrivateProfileIntA("bwvr", "vk_texture_reuse", 1, path) != 0 ? 1 : 0;
   g_vk_keep_picture =
       GetPrivateProfileIntA("bwvr", "vk_keep_picture", 1, path) != 0 ? 1 : 0;
+  g_vk_stage1 =
+      GetPrivateProfileIntA("bwvr", "vk_stage1", 1, path) != 0 ? 1 : 0;
   g_foveation =
       static_cast<int>(GetPrivateProfileIntA("bwvr", "foveation", 0, path));
   g_foveation_inner_deg = static_cast<int>(
@@ -1725,6 +1728,7 @@ void StartVrOnce() {
     VkSceneSetPresentLate(g_vk_present_late);
     VkSceneSetTextureReuse(g_vk_texture_reuse);
     VkSceneSetKeepPicture(g_vk_keep_picture);
+    VkSceneSetStage1(g_vk_stage1);
     VkSceneSetFoveation(g_foveation, g_foveation_inner_deg,
                         g_foveation_outer_deg, g_foveation_show);
     VkSceneSetFoveaRes(g_fovea_res, g_fovea_res_outer_pct,

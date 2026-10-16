@@ -623,8 +623,8 @@ float FrameSeparation() {
 // character of Shift 8 and Shift 9 is not the same on each keyboard layout.
 // Shift 8, Shift 9, Shift F, Shift G, Shift H, Shift J, Shift K, Shift L,
 // Shift M, Shift N, Shift B, Shift V, Shift C, Shift X, Shift Z, Shift Y,
-// Shift U, Shift I, Shift O, Shift P, Shift T, Shift W, Shift Q
-static const int kShiftKeys = 23;
+// Shift U, Shift I, Shift O, Shift P, Shift T, Shift W, Shift Q, Shift E
+static const int kShiftKeys = 24;
 static volatile LONG g_shift_key[kShiftKeys] = {};
 static DWORD g_shift_key_at[kShiftKeys] = {};
 static HHOOK g_message_hook = nullptr;
@@ -654,6 +654,7 @@ static int ShiftKeyIndex(WPARAM key) {
          : key == 'T' ? 20
          : key == 'W' ? 21
          : key == 'Q' ? 22
+         : key == 'E' ? 23
                       : -1;
 }
 
@@ -976,6 +977,11 @@ void PollHotkeys() {
   // read ahead of the files of the game").
   if (InterlockedExchange(&g_shift_key[22], 0) != 0) {
     FileReadAheadToggle("Shift and Q");
+  }
+  // An A/B of texture stage 1 of the Vulkan renderer (docs/backend.md, "The
+  // Vulkan renderer", "The second stage").
+  if (InterlockedExchange(&g_shift_key[23], 0) != 0) {
+    VkSceneStage1Toggle("Shift and E");
   }
   // An A/B of one walk (docs/backend.md, "One walk for both eyes"). The
   // menu key (VK_APPS) has no action in the game and no other test key.

@@ -585,7 +585,9 @@ that moves while the Hand takes it.
     saved game, to show that the black flicker of the load and of the time
     after it is gone (`vk_keep_picture`, Shift T, and the hold of the last
     frame, `xr_hold_ms`, Shift W, `backend.md`, "The hold of the last
-    frame"). Foveated
+    frame"). In that session, check the light maps of the rooms of the
+    Temple in the headset (`vk_stage1`, Shift E, `backend.md`, "The second
+    stage"). Foveated
     rendering (`foveation`, `backend.md`, "Foveated rendering") gives the eye
     pictures of the renderer fewer shades away from the gaze of an eye
     tracker, or from straight ahead, and foveated resolution

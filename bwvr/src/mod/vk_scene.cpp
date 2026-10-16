@@ -32,11 +32,11 @@
 // (0x1C4: XYZRHW, diffuse, specular, one texture). docs/backend.md, "The
 // calls of DirectDraw and Direct3D 7 in a session", has the states that a
 // walk sets. The state of the other states comes from the device at the
-// start of each walk. The fragment shader makes texture stage 0, the alpha
-// test, the specular color and the fog of the vertices (vk_scene.frag). The
-// blend has a pipeline for each pair of factors. The cull mode, the depth
-// test, the depth write, the depth function and the primitive type are
-// dynamic states.
+// start of each walk. The fragment shader makes texture stage 0, texture
+// stage 1 (THE SECOND STAGE), the alpha test, the specular color and the fog
+// of the vertices (vk_scene.frag). The blend has a pipeline for each pair of
+// factors. The cull mode, the depth test, the depth write, the depth
+// function and the primitive type are dynamic states.
 //
 // THE EYES IN THE HEADSET (vk_eyes=1, with xr_vulkan=1). The renderer then
 // has the instance and the device of the OpenXR session (vk_core.h), and it
@@ -82,6 +82,18 @@
 // subtitle card (VkScenePanelReadHalf) and the panel layer of a session with
 // Vulkan (VkScenePanelFor) read the panel of the last walk that drew into
 // it in the frame.
+//
+// THE SECOND STAGE (vk_stage1=1). The game puts a second texture on texture
+// stage 1 for some draws, for example the light maps of the rooms of the
+// Temple and of the land (D3DTOP_MODULATE2X or D3DTOP_ADD of the texture and
+// the current color).
+// These draws come in a format with two sets of texture coordinates. The
+// renderer then binds that texture as descriptor set 1, and the set of
+// coordinates of D3DTSS_TEXCOORDINDEX of stage 1 goes into the ring after
+// the vertices, 8 bytes for each vertex, as vertex buffer 1. A draw with no
+// stage 1 binds the set of stage 0 as set 1 and its vertices as buffer 1,
+// so each draw has each binding, and the shader does not read them. With
+// vk_stage1=0 the renderer makes stage 0 alone.
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -169,6 +181,7 @@ struct Seed {
   bool both;  // a walk of one walk: both layers get a picture
   bool follow;
   bool panel;    // vk_panel
+  bool stage1;   // vk_stage1
   bool only;     // the walk goes without Direct3D 9 (vk_only)
   bool upload_queue;  // vk_upload_queue
   int reread;    // vk_scene_reread_test: the textures that the walk reads again
@@ -405,11 +418,15 @@ uint64_t g_uploads = 0;
 uint64_t g_upload_bytes = 0;
 uint64_t g_right_only = 0;
 uint64_t g_stage1 = 0;  // draws with texture stage 1 on
+uint64_t g_stage1_drawn = 0;  // of them with stage 1 in the shader
+// THE SECOND STAGE. On the frame thread: vk_stage1 now (the test key changes
+// it). On the D3D7 thread: the walk now.
+bool g_stage1_mode = true;
+bool g_walk_stage1 = false;
 // THE STATES OF THE DRAWS (a census for the log): each new combination of
 // the operations and the inputs of texture stages 0 and 1, the blend and a
-// texture writes one line. The renderer makes stage 0 alone, so a line with
-// stage 1 on, or with a complement input (0x10), names a draw that can look
-// wrong.
+// texture writes one line. A line with a complement input (0x10) names a
+// draw that can look wrong.
 struct StateKind {
   uint32_t key[4];
   uint64_t draws;
@@ -498,15 +515,16 @@ struct DrawPush {
   uint32_t ops[4];
   float alpha[4];
   float fog_color[4];
+  uint32_t ops1[4];  // stage 1, see vk_scene.frag
 };
 // A draw or a clear of the walk, in pixels of the game.
 struct MresRecord {
   int clear;  // -1 a draw, else the index of the clear
   VkPipeline pipeline;
-  VkDescriptorSet set;
+  VkDescriptorSet set, set1;  // the sets of stage 0 and stage 1
   uint32_t cull, zenable, zwrite, zfunc, type;
   DrawPush push;
-  VkDeviceSize vertex_at, index_at;
+  VkDeviceSize vertex_at, uv1_at, index_at;
   uint32_t vertex_count, index_count;
   float viewport[4];  // x, y, width, height of the viewport of the game
   // The rect of its vertices in pixels of the game, x0, y0, x1, y1, with
@@ -577,18 +595,20 @@ VkPipeline Pipeline(uint32_t key) {
   stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
   stages[1].module = g_frag;
   stages[1].pName = "main";
-  const VkVertexInputBindingDescription binding = {
-      0, 32, VK_VERTEX_INPUT_RATE_VERTEX};
-  const VkVertexInputAttributeDescription attributes[4] = {
+  // Buffer 1 has the texture coordinates of stage 1 (THE SECOND STAGE).
+  const VkVertexInputBindingDescription bindings[2] = {
+      {0, 32, VK_VERTEX_INPUT_RATE_VERTEX}, {1, 8, VK_VERTEX_INPUT_RATE_VERTEX}};
+  const VkVertexInputAttributeDescription attributes[5] = {
       {0, 0, VK_FORMAT_R32G32B32A32_SFLOAT, 0},
       {1, 0, VK_FORMAT_B8G8R8A8_UNORM, 16},
       {2, 0, VK_FORMAT_B8G8R8A8_UNORM, 20},
-      {3, 0, VK_FORMAT_R32G32_SFLOAT, 24}};
+      {3, 0, VK_FORMAT_R32G32_SFLOAT, 24},
+      {4, 1, VK_FORMAT_R32G32_SFLOAT, 0}};
   VkPipelineVertexInputStateCreateInfo input = {
       VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
-  input.vertexBindingDescriptionCount = 1;
-  input.pVertexBindingDescriptions = &binding;
-  input.vertexAttributeDescriptionCount = 4;
+  input.vertexBindingDescriptionCount = 2;
+  input.pVertexBindingDescriptions = bindings;
+  input.vertexAttributeDescriptionCount = 5;
   input.pVertexAttributeDescriptions = attributes;
   VkPipelineInputAssemblyStateCreateInfo assembly = {
       VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};
@@ -762,21 +782,25 @@ const uint32_t* LutOf(const vk_texture_math::Format& format) {
 // bytes. A draw in another format with XYZRHW (for example two sets of
 // texture coordinates) is copied into that layout: a missing diffuse color
 // is white, a missing specular color is black, and the set of texture
-// coordinates is the one of D3DTSS_TEXCOORDINDEX of stage 0.
+// coordinates is the one of D3DTSS_TEXCOORDINDEX of stage 0. The set of
+// stage 1 goes into a buffer of its own (THE SECOND STAGE).
 struct VertexLayout {
   uint32_t stride;
   int diffuse;   // the offset, or -1
   int specular;
   int uv;        // the offset of the set that stage 0 reads, or -1
+  int uv1;       // the offset of the set that stage 1 reads, or -1
 };
 
 // False for a format that has no XYZRHW.
-bool LayoutOf(uint32_t fvf, uint32_t uv_set, VertexLayout* out) {
+bool LayoutOf(uint32_t fvf, uint32_t uv_set, uint32_t uv1_set,
+              VertexLayout* out) {
   if ((fvf & D3DFVF_POSITION_MASK) != D3DFVF_XYZRHW) return false;
   uint32_t at = 16;
   out->diffuse = -1;
   out->specular = -1;
   out->uv = -1;
+  out->uv1 = -1;
   if (fvf & D3DFVF_DIFFUSE) {
     out->diffuse = static_cast<int>(at);
     at += 4;
@@ -791,12 +815,13 @@ bool LayoutOf(uint32_t fvf, uint32_t uv_set, VertexLayout* out) {
     const uint32_t size = (fvf >> (16 + i * 2)) & 3;
     const uint32_t floats = size == 0 ? 2 : size == 1 ? 3 : size == 2 ? 4 : 1;
     if (i == uv_set && floats >= 2) out->uv = static_cast<int>(at);
+    if (i == uv1_set && floats >= 2) out->uv1 = static_cast<int>(at);
     at += floats * 4;
   }
-  if (out->uv < 0 && sets > 0 && ((fvf >> 16) & 3) == 0) {
-    out->uv = static_cast<int>(16 + (out->diffuse >= 0 ? 4 : 0) +
-                               (out->specular >= 0 ? 4 : 0));
-  }
+  const int first = static_cast<int>(16 + (out->diffuse >= 0 ? 4 : 0) +
+                                     (out->specular >= 0 ? 4 : 0));
+  if (out->uv < 0 && sets > 0 && ((fvf >> 16) & 3) == 0) out->uv = first;
+  if (out->uv1 < 0 && sets > 0 && ((fvf >> 16) & 3) == 0) out->uv1 = first;
   out->stride = at;
   return true;
 }
@@ -813,6 +838,18 @@ void ConvertVertices(const uint8_t* from, const VertexLayout& layout,
       memcpy(to + 24, from + layout.uv, 8);
     } else {
       memset(to + 24, 0, 8);
+    }
+  }
+}
+
+// Copies the texture coordinates of stage 1, 8 bytes for each vertex.
+void CopyUv1(const uint8_t* from, const VertexLayout& layout, uint32_t count,
+             uint8_t* to) {
+  for (uint32_t i = 0; i < count; ++i, from += layout.stride, to += 8) {
+    if (layout.uv1 >= 0) {
+      memcpy(to, from + layout.uv1, 8);
+    } else {
+      memset(to, 0, 8);
     }
   }
 }
@@ -1339,11 +1376,14 @@ bool Ready() {
     return Fail("the descriptor set layout");
   }
   VkPushConstantRange push = {
-      VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, 80};
+      VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0,
+      sizeof(DrawPush)};
+  // Set 0 has the texture of stage 0, and set 1 the texture of stage 1.
+  const VkDescriptorSetLayout set_layouts[2] = {g_set_layout, g_set_layout};
   VkPipelineLayoutCreateInfo layout_info = {
       VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
-  layout_info.setLayoutCount = 1;
-  layout_info.pSetLayouts = &g_set_layout;
+  layout_info.setLayoutCount = 2;
+  layout_info.pSetLayouts = set_layouts;
   layout_info.pushConstantRangeCount = 1;
   layout_info.pPushConstantRanges = &push;
   if (f.vkCreatePipelineLayout(device, &layout_info, nullptr, &g_layout) !=
@@ -1928,6 +1968,24 @@ void DrawStates(VkCommandBuffer cb, uint32_t cull, uint32_t zenable,
 
 // Vertices of the format 0x1C4 into the ring of the slot. UINT64_MAX when
 // the ring has no room.
+// THE SECOND STAGE: set 0 and set 1 of a draw. A draw with no stage 1 gives
+// null, and set 1 is then the set of stage 0.
+void BindSets(VkCommandBuffer cb, VkDescriptorSet set, VkDescriptorSet set1) {
+  const VkDescriptorSet sets[2] = {set, set1 != VK_NULL_HANDLE ? set1 : set};
+  f.vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, g_layout, 0,
+                            2, sets, 0, nullptr);
+}
+
+// Vertex buffer 0 and vertex buffer 1 (the texture coordinates of stage 1)
+// of a draw, both in the ring. A draw with no stage 1 gives the place of its
+// vertices for both.
+void BindVertices(VkCommandBuffer cb, const Slot& s, VkDeviceSize vertex_at,
+                  VkDeviceSize uv1_at) {
+  const VkBuffer buffers[2] = {s.ring.buffer, s.ring.buffer};
+  const VkDeviceSize offsets[2] = {vertex_at, uv1_at};
+  f.vkCmdBindVertexBuffers(cb, 0, 2, buffers, offsets);
+}
+
 VkDeviceSize RingVertices(Slot& s, const void* data, VkDeviceSize bytes) {
   if (s.used + bytes > kRingBytes) return UINT64_MAX;
   const VkDeviceSize at = s.used;
@@ -2024,6 +2082,7 @@ void PlayMres(Slot& s) {
     bool in_view = false;
     VkPipeline last_pipeline = VK_NULL_HANDLE;
     VkDescriptorSet last_set = VK_NULL_HANDLE;
+    VkDescriptorSet last_set1 = VK_NULL_HANDLE;
     for (const MresRecord& r : g_mres_records) {
       if (r.clear >= 0) {
         PlayClear(cb, g_mres_clears[r.clear], color, depth, ox, oy, sx, sy,
@@ -2054,16 +2113,16 @@ void PlayMres(Slot& s) {
         f.vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, r.pipeline);
         last_pipeline = r.pipeline;
       }
-      if (r.set != last_set) {
-        f.vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                                  g_layout, 0, 1, &r.set, 0, nullptr);
+      if (r.set != last_set || r.set1 != last_set1) {
+        BindSets(cb, r.set, r.set1);
         last_set = r.set;
+        last_set1 = r.set1;
       }
       DrawStates(cb, r.cull, r.zenable, r.zwrite, r.zfunc, r.type);
       f.vkCmdPushConstants(
           cb, g_layout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
           0, sizeof(r.push), &r.push);
-      f.vkCmdBindVertexBuffers(cb, 0, 1, &s.ring.buffer, &r.vertex_at);
+      BindVertices(cb, s, r.vertex_at, r.uv1_at);
       if (r.index_count > 0) {
         f.vkCmdBindIndexBuffer(cb, s.ring.buffer, r.index_at,
                                VK_INDEX_TYPE_UINT16);
@@ -2149,12 +2208,11 @@ void ComposeMres(Slot& s) {
     VkDeviceSize at = RingVertices(s, outer, sizeof(outer));
     if (at == UINT64_MAX) continue;
     f.vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, opaque);
-    f.vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, g_layout, 0,
-                              1, &outer_set, 0, nullptr);
+    BindSets(cb, outer_set, VK_NULL_HANDLE);
     f.vkCmdPushConstants(cb, g_layout,
                          VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
                          0, sizeof(push), &push);
-    f.vkCmdBindVertexBuffers(cb, 0, 1, &s.ring.buffer, &at);
+    BindVertices(cb, s, at, at);
     f.vkCmdDraw(cb, 6, 1, 0, 0);
     // The centre with its soft edge.
     Vertex center[54];
@@ -2183,12 +2241,11 @@ void ComposeMres(Slot& s) {
     if (at == UINT64_MAX) continue;
     push.ops[0] = 2u | 2u << 8;  // the texture alone
     f.vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, blended);
-    f.vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, g_layout, 0,
-                              1, &center_set, 0, nullptr);
+    BindSets(cb, center_set, VK_NULL_HANDLE);
     f.vkCmdPushConstants(cb, g_layout,
                          VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
                          0, sizeof(push), &push);
-    f.vkCmdBindVertexBuffers(cb, 0, 1, &s.ring.buffer, &at);
+    BindVertices(cb, s, at, at);
     f.vkCmdDraw(cb, 54, 1, 0, 0);
   }
   f.vkCmdEndRendering(cb);
@@ -2425,6 +2482,7 @@ void BeginOnWorker(const void* data) {
   g_eye_target = seed->target;
   g_draw_target = seed->target;
   g_walk_panel = seed->panel;
+  g_walk_stage1 = seed->stage1;
   g_draw_panel = false;
   g_panel_drawn = false;
   g_rendering_panel = false;
@@ -2807,6 +2865,7 @@ void VkSceneWalkBegin(void* device7) {
   seed.both = OneWalkActive();
   seed.follow = g_follow;
   seed.panel = g_panel_mode;
+  seed.stage1 = g_stage1_mode;
   seed.upload_queue = g_upload_queue;
   seed.reread = g_reread_test;
   seed.only = g_only_mode && g_only_frame && g_panel_mode && g_follow &&
@@ -2962,9 +3021,10 @@ void VkSceneDraw(uint32_t type, uint32_t fvf, const void* vertices,
   if (OneWalkActive() && OneWalkModeNow() == kOneWalkRightOnly) {
     ++g_right_only;
   }
-  // Texture stage 1 adds its texture to stage 0 (seed: color op 7), but
-  // the game sets no texture on it in a walk, so it adds nothing.
-  if (g_ts[1][D3DTSS_COLOROP] > 1 && g_texture1 != nullptr) ++g_stage1;
+  // THE SECOND STAGE: a draw with a color operation and a texture on stage
+  // 1. With no texture there the draw keeps the result of stage 0.
+  const bool stage1 = g_ts[1][D3DTSS_COLOROP] > 1 && g_texture1 != nullptr;
+  if (stage1) ++g_stage1;
   {
     const uint32_t* t0 = g_ts[0];
     const uint32_t* t1 = g_ts[1];
@@ -3003,15 +3063,19 @@ void VkSceneDraw(uint32_t type, uint32_t fvf, const void* vertices,
              (key[3] & 1) ? "on" : "off", (key[3] >> 8) & 255,
              (key[3] >> 16) & 255,
              complement ? ". A complement input" : "",
-             (key[2] & 255) > 1 ? ". STAGE 1 IS ON, the renderer leaves it out"
-                                : "");
+             (key[2] & 255) > 1 && (key[2] >> 24) != 0
+                 ? (g_walk_stage1 ? ". Stage 1 is on, and the renderer makes it"
+                                  : ". STAGE 1 IS ON, the renderer leaves it "
+                                    "out (vk_stage1=0)")
+                 : "");
     }
     if (k < g_state_kind_count) ++g_state_kinds[k].draws;
   }
   if (vertices == nullptr || vertex_count == 0) return;
-  VertexLayout layout = {32, 16, 20, 24};
+  VertexLayout layout = {32, 16, 20, 24, 24};
   if (fvf != 0x1C4 &&
-      !LayoutOf(fvf, g_ts[0][D3DTSS_TEXCOORDINDEX] & 0xFFFF, &layout)) {
+      !LayoutOf(fvf, g_ts[0][D3DTSS_TEXCOORDINDEX] & 0xFFFF,
+                g_ts[1][D3DTSS_TEXCOORDINDEX] & 0xFFFF, &layout)) {
     ++g_skipped;
     ++g_skip_format;
     bool said = false;
@@ -3028,9 +3092,12 @@ void VkSceneDraw(uint32_t type, uint32_t fvf, const void* vertices,
     return;
   }
   Slot& s = g_slots[g_slot];
+  const bool with1 = stage1 && g_walk_stage1;
   const VkDeviceSize vertex_bytes = static_cast<VkDeviceSize>(vertex_count) * 32;
+  const VkDeviceSize uv1_bytes =
+      with1 ? static_cast<VkDeviceSize>(vertex_count) * 8 : 0;
   const VkDeviceSize index_bytes = (static_cast<VkDeviceSize>(index_count) * 2 + 3) & ~3ull;
-  if (s.used + vertex_bytes + index_bytes > kRingBytes) {
+  if (s.used + vertex_bytes + uv1_bytes + index_bytes > kRingBytes) {
     ++g_skipped;
     ++g_skip_ring;
     return;
@@ -3062,6 +3129,20 @@ void VkSceneDraw(uint32_t type, uint32_t fvf, const void* vertices,
     ++g_skip_state;
     return;
   }
+  // THE SECOND STAGE: the texture and the sampler of stage 1. With no set,
+  // or with no read of the texture, the draw keeps the result of stage 0.
+  VkDescriptorSet set1 = VK_NULL_HANDLE;
+  Texture* texture1 = with1 ? TextureOf(g_texture1) : g_white;
+  if (texture1 != g_white) {
+    texture1->used_walk = g_walk_number;
+    const uint32_t* ts1 = g_ts[1];
+    const VkSampler sampler1 = Sampler(
+        ts1[D3DTSS_MAGFILTER], ts1[D3DTSS_MINFILTER], ts1[D3DTSS_MIPFILTER],
+        ts1[D3DTSS_ADDRESSU] != 0 ? ts1[D3DTSS_ADDRESSU] : 1,
+        ts1[D3DTSS_ADDRESSV] != 0 ? ts1[D3DTSS_ADDRESSV] : 1,
+        ts1[D3DTSS_MAXANISOTROPY]);
+    set1 = SetOf(texture1, sampler1);
+  }
   // Copy the vertices and the indices into the ring, in the layout of 0x1C4
   // (THE VERTEX FORMATS).
   uint8_t* ring = static_cast<uint8_t*>(s.ring.mapped);
@@ -3071,10 +3152,19 @@ void VkSceneDraw(uint32_t type, uint32_t fvf, const void* vertices,
   } else {
     ConvertVertices(static_cast<const uint8_t*>(vertices), layout,
                     vertex_count, ring + vertex_at);
-    vertices = ring + vertex_at;
     ++g_converted;
   }
   s.used += vertex_bytes;
+  // The texture coordinates of stage 1, after the vertices.
+  VkDeviceSize uv1_at = vertex_at;
+  if (set1 != VK_NULL_HANDLE) {
+    uv1_at = s.used;
+    CopyUv1(static_cast<const uint8_t*>(vertices), layout, vertex_count,
+            ring + uv1_at);
+    s.used += uv1_bytes;
+    ++g_stage1_drawn;
+  }
+  if (fvf != 0x1C4) vertices = ring + vertex_at;
   const VkDeviceSize index_at = s.used;
   if (index_count > 0) memcpy(ring + index_at, indices, index_count * 2);
   s.used += index_bytes;
@@ -3122,6 +3212,15 @@ void VkSceneDraw(uint32_t type, uint32_t fvf, const void* vertices,
   }
   push.ops[2] = flags;
   push.ops[3] = still | eyes << 8;
+  if (set1 != VK_NULL_HANDLE) {
+    const uint32_t* ts1 = g_ts[1];
+    push.ops1[0] = (ts1[D3DTSS_COLOROP] & 255) |
+                   (ts1[D3DTSS_COLORARG1] & 255) << 8 |
+                   (ts1[D3DTSS_COLORARG2] & 255) << 16;
+    push.ops1[1] = (ts1[D3DTSS_ALPHAOP] & 255) |
+                   (ts1[D3DTSS_ALPHAARG1] & 255) << 8 |
+                   (ts1[D3DTSS_ALPHAARG2] & 255) << 16;
+  }
   push.alpha[0] = static_cast<float>(rs[D3DRENDERSTATE_ALPHAREF] & 255) / 255.0f;
   const uint32_t fog = rs[D3DRENDERSTATE_FOGCOLOR];
   push.fog_color[0] = static_cast<float>((fog >> 16) & 255) / 255.0f;
@@ -3135,6 +3234,7 @@ void VkSceneDraw(uint32_t type, uint32_t fvf, const void* vertices,
     r.clear = -1;
     r.pipeline = pipeline;
     r.set = set;
+    r.set1 = set1;
     r.cull = rs[D3DRENDERSTATE_CULLMODE];
     r.zenable = rs[D3DRENDERSTATE_ZENABLE];
     r.zwrite = rs[D3DRENDERSTATE_ZWRITEENABLE];
@@ -3142,6 +3242,7 @@ void VkSceneDraw(uint32_t type, uint32_t fvf, const void* vertices,
     r.type = type;
     r.push = push;
     r.vertex_at = vertex_at;
+    r.uv1_at = uv1_at;
     r.index_at = index_at;
     r.vertex_count = vertex_count;
     r.index_count = index_count;
@@ -3178,14 +3279,13 @@ void VkSceneDraw(uint32_t type, uint32_t fvf, const void* vertices,
   if (!panel) KeepPicture();
   VkCommandBuffer cb = s.cb;
   f.vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
-  f.vkCmdBindDescriptorSets(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, g_layout, 0,
-                            1, &set, 0, nullptr);
+  BindSets(cb, set, set1);
   DrawStates(cb, rs[D3DRENDERSTATE_CULLMODE], rs[D3DRENDERSTATE_ZENABLE],
              rs[D3DRENDERSTATE_ZWRITEENABLE], rs[D3DRENDERSTATE_ZFUNC], type);
   f.vkCmdPushConstants(cb, g_layout,
                        VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT,
                        0, sizeof(push), &push);
-  f.vkCmdBindVertexBuffers(cb, 0, 1, &s.ring.buffer, &vertex_at);
+  BindVertices(cb, s, vertex_at, uv1_at);
   if (index_count > 0) {
     f.vkCmdBindIndexBuffer(cb, s.ring.buffer, index_at, VK_INDEX_TYPE_UINT16);
     f.vkCmdDrawIndexed(cb, index_count, 1, 0, 0, 0);
@@ -3516,6 +3616,24 @@ void VkSceneSetKeepPicture(int on) {
              : "Each walk starts with a black target");
 }
 
+void VkSceneSetStage1(int on) {
+  g_stage1_mode = on != 0;
+  if (g_mode == 0) return;
+  ModLog("vk scene     : vk_stage1=%d. %s", g_stage1_mode ? 1 : 0,
+         g_stage1_mode
+             ? "A draw with a texture on stage 1 gets that stage, for example "
+               "the light maps of the Temple"
+             : "The renderer makes stage 0 alone, and a draw with a texture "
+               "on stage 1 has less light than with Direct3D 9");
+}
+
+void VkSceneStage1Toggle(const char* keys) {
+  g_stage1_mode = !g_stage1_mode;
+  ControllersGesturePulse(0.5f, g_stage1_mode ? 0.30f : 0.08f);
+  ModLog("test key     : %s, vk_stage1 is %d from the next walk", keys,
+         g_stage1_mode ? 1 : 0);
+}
+
 void VkSceneKeepPictureToggle(const char* keys) {
   g_keep_picture = !g_keep_picture;
   ControllersGesturePulse(0.5f, g_keep_picture ? 0.30f : 0.08f);
@@ -3731,9 +3849,11 @@ void VkSceneReport(uint64_t frames) {
   if (g_mode == 0 || frames == 0) return;
   const double per = static_cast<double>(frames);
   ModLog("vk scene     : a frame: %.1f draws for the right eye only, %.1f "
-         "draws with a texture on stage 1, which the renderer does not draw",
-         g_right_only / per, g_stage1 / per);
-  g_right_only = g_stage1 = 0;
+         "draws with a texture on stage 1, %.1f of them with stage 1 "
+         "(vk_stage1=%d)",
+         g_right_only / per, g_stage1 / per, g_stage1_drawn / per,
+         g_stage1_mode ? 1 : 0);
+  g_right_only = g_stage1 = g_stage1_drawn = 0;
   ModLog("vk scene     : %llu walks, a frame: %.0f draws, %.1f not drawn "
          "(%.1f with no XYZRHW, %.1f with no room in the ring, %.1f with no "
          "pipeline or set, %.1f for another target), %.1f in another format "

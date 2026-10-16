@@ -24,6 +24,10 @@ layout(location = 0) in vec4 position;  // x, y, z, rhw
 layout(location = 1) in vec4 diffuse;   // B8G8R8A8: the format gives RGBA
 layout(location = 2) in vec4 specular;
 layout(location = 3) in vec2 uv;
+// The texture coordinates of stage 1, from a second vertex buffer of 8
+// bytes for each vertex. A draw with no stage 1 binds the vertices there,
+// and the fragment shader does not read the value.
+layout(location = 4) in vec2 uv1;
 
 layout(push_constant) uniform Draw {
   vec4 viewport;  // X, Y, 2 / Width, 2 / Height
@@ -31,11 +35,13 @@ layout(push_constant) uniform Draw {
   uvec4 ops;      // see vk_scene.frag
   vec4 alpha;     // the reference of the alpha test, the fog color
   vec4 fog_color;
+  uvec4 ops1;     // stage 1, see vk_scene.frag
 } draw;
 
 layout(location = 0) out vec4 out_diffuse;
 layout(location = 1) out vec4 out_specular;
 layout(location = 2) out vec2 out_uv;
+layout(location = 3) out vec2 out_uv1;
 
 void main() {
   const uint eyes = (draw.ops.w >> 8) & 3u;
@@ -44,6 +50,7 @@ void main() {
     out_diffuse = vec4(0.0);
     out_specular = vec4(0.0);
     out_uv = vec2(0.0);
+    out_uv1 = vec2(0.0);
     return;
   }
   const float w = position.w > 0.0 ? 1.0 / position.w : 1.0;
@@ -58,4 +65,5 @@ void main() {
   out_diffuse = diffuse;
   out_specular = specular;
   out_uv = uv;
+  out_uv1 = uv1;
 }

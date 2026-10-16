@@ -174,6 +174,12 @@ void VkSceneSetKeepPicture(int on);
 void VkSceneCounts(uint64_t* walks, uint64_t* draws, uint64_t* clears,
                    uint64_t* kept, uint64_t* whole);
 void VkSceneKeepPictureToggle(const char* keys);
+// vk_stage1 of bwvr.ini: 1 (the default) a draw with a color operation and a
+// texture on texture stage 1 gets that stage, for example the light maps of
+// the Temple. 0: the renderer makes stage 0 alone. Shift E (test_keys=1)
+// changes it from the next walk.
+void VkSceneSetStage1(int on);
+void VkSceneStage1Toggle(const char* keys);
 // The picture of the last walk of the left eye (or of a scene with no eye
 // pass), at width by height with a linear filter, as BGRA pixels for the
 // CPU, for the window on the monitor (see vk_present_late). Null before the
