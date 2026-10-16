@@ -174,6 +174,10 @@ void VkSceneSetKeepPicture(int on);
 void VkSceneCounts(uint64_t* walks, uint64_t* draws, uint64_t* clears,
                    uint64_t* kept, uint64_t* whole);
 void VkSceneKeepPictureToggle(const char* keys);
+// vk_black_check of bwvr.ini, backend=vulkan, a test aid: 1 (the default)
+// 16 by 16 points of each eye picture go to the CPU, and a black picture
+// gives a line of the log with what its walk drew. 0: no check.
+void VkSceneSetBlackCheck(int on);
 // vk_stage1 of bwvr.ini: 1 (the default) a draw with a color operation and a
 // texture on texture stage 1 gets that stage, for example the light maps of
 // the Temple. 0: the renderer makes stage 0 alone. Shift E (test_keys=1)

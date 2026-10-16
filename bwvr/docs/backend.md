@@ -2787,9 +2787,22 @@ last record is a clear of the color, have the line too. Each walk of the
 game ends with a quad of the screen with z 1 that sets the depth, with an
 alpha of 0, and a fade of the game gives that quad a higher alpha.
 
+**The check for a black picture** (`vk_black_check=1`, the default, a test
+aid). At the end of each walk that finishes the eye picture, 16 by 16 points
+of each layer go into a buffer of the slot (a blit with the nearest pixel).
+After the fence of the slot the frame thread reads them. A layer with no
+point above 0 is a black picture, and the first picture of each run of black
+pictures gives the line `a black eye picture in walk N` with what the walk
+drew: the draws, the clears, what each pass drew, and the quads of the
+screen with their diffuse color. The report of 450 frames counts the black
+pictures. A fade of the game is black too: in a desktop run of a new game
+the story fades to black with a quad of the screen with diffuse 0xFF000000,
+and a run with Direct3D 9 has a black picture at the same place of the story.
+
 Open: in a headset session the eye pictures and both images were all black
 in some frames after the load of a saved game and near the Temple, with
-`fovea_res=1`. With `fovea_res=0` a picture of a later moment was right.
+`fovea_res=1`. With `fovea_res=0` a picture of a later moment was right. Not
+known: whether these are fades of the game.
 
 Only a walk of the eyes has the two images: another walk of the game keeps
 the pixels of the render. The two images only grow: a smaller layout uses
@@ -4423,6 +4436,7 @@ keys that the launcher sets.
 | `hang_watch` | 0 | A test key: 1 the place of the frame thread when it makes no frame for 8 s, 2 each 8 s. With each of the two the place of a fault. See "The watch of the frame thread" |
 | `vk_lines` | 1 | With `backend=vulkan`: 1 a draw of points or lines becomes triangles of 1 pixel across, 0 it is not drawn. See "The backend of the mod on Vulkan" |
 | `vk_keep_picture` | 1 | With `backend=vulkan`: 1 a walk with no clear of the whole target before its first draw starts with the picture of the walk before, and the intro in stereo keeps the picture of each eye. 0 each walk starts black. A test key: Shift T. See "The picture of the walk before" |
+| `vk_black_check` | 1 | With `backend=vulkan`, a test aid: 1 checks 16 by 16 points of each eye picture, and a black picture gives a line of the log with what its walk drew. 0 no check. See "The check for a black picture" |
 | `vk_stage1` | 1 | With the Vulkan renderer: 1 a draw with a color operation and a texture on texture stage 1 gets that stage, for example the light maps of the Temple. 0 the renderer makes stage 0 alone. A test key: Shift E. See "The second stage" |
 | `vk_present_late` | 1 | With `backend=vulkan`: 1 the window on the monitor shows the picture of the present before, with no wait for the GPU, 0 each present waits for its own picture. See "The backend of the mod on Vulkan" |
 | `vk_texture_reuse` | 1 | 1 a texture that a walk reads again goes into the image it has when it can, and its pixels into a ring of the slot, so a read makes no allocation of the GPU. 0 each read makes a new image and a staging buffer. See "The Vulkan renderer" |

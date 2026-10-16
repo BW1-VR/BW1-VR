@@ -354,6 +354,12 @@ struct Slot {
   // back to the pool when the fence of the slot says the GPU is done.
   VkDescriptorSet dead_sets[1024];
   int dead_count;
+  // THE CHECK FOR A BLACK PICTURE (vk_black_check): 16 by 16 points of each
+  // layer of the eye picture of the walk, and what the walk drew.
+  vk::Buffer probe;
+  bool probe_written;
+  uint64_t probe_walk;
+  char probe_text[1024];
 };
 // On the D3D7 thread: vk_upload_queue for the walk now. On the frame
 // thread: the key now (the test key changes it).
@@ -369,6 +375,7 @@ uint64_t g_upload_wait_ticks = 0;  // the uploads that waited, on the CPU
 bool g_texture_reuse = true;
 const VkDeviceSize kStageRingBytes = 32ull << 20;
 uint64_t g_walk_number = 0;      // counts each walk, from the start
+uint64_t g_walk_draws_start = 0;  // g_draws at the start of the walk now
 uint64_t g_reused = 0;           // for the report
 uint64_t g_ring_stages = 0;
 uint64_t g_fence_waits = 0;      // walks that waited for the fence of their slot
@@ -2224,7 +2231,156 @@ void PlayMres(Slot& s) {
                 VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 1, 2);
   }
   MresWalkLine(s, drawn, out_of_view, left_out);
+  // For the check for a black picture: what the walk drew, and the quads
+  // of the screen that cover half of the picture or more (the first 3).
+  {
+    uint32_t draws = 0;
+    for (const MresRecord& r : g_mres_records) {
+      if (r.clear < 0) ++draws;
+    }
+    int at = _snprintf_s(
+        s.probe_text, sizeof(s.probe_text), _TRUNCATE,
+        "fovea_res, %u draws, %u clears, drawn %u and %u, out of the view %u "
+        "and %u",
+        draws, static_cast<unsigned>(g_mres_clears.size()), drawn[0], drawn[1],
+        out_of_view[0], out_of_view[1]);
+    const float width = static_cast<float>(Target().width);
+    const float height = static_cast<float>(Target().height);
+    int listed = 0;
+    for (size_t i = 0; i < g_mres_records.size() && listed < 3 && at > 0; ++i) {
+      const MresRecord& r = g_mres_records[i];
+      if (r.clear >= 0) {
+        const MresClear& c = g_mres_clears[r.clear];
+        if ((c.flags & D3DCLEAR_TARGET) && i + 1 == g_mres_records.size()) {
+          at += _snprintf_s(s.probe_text + at, sizeof(s.probe_text) - at,
+                            _TRUNCATE, ", the last record is a clear of 0x%08X",
+                            c.color);
+        }
+        continue;
+      }
+      if (r.vertex_count > 8) continue;
+      const float x0 = r.bounds[0] > 0.0f ? r.bounds[0] : 0.0f;
+      const float y0 = r.bounds[1] > 0.0f ? r.bounds[1] : 0.0f;
+      const float x1 = r.bounds[2] < width ? r.bounds[2] : width;
+      const float y1 = r.bounds[3] < height ? r.bounds[3] : height;
+      if (!(x1 > x0 && y1 > y0) ||
+          (x1 - x0) * (y1 - y0) < 0.5f * width * height) {
+        continue;
+      }
+      ++listed;
+      uint32_t diffuse = 0;
+      memcpy(&diffuse,
+             static_cast<const uint8_t*>(s.ring.mapped) + r.vertex_at + 16, 4);
+      at += _snprintf_s(s.probe_text + at, sizeof(s.probe_text) - at,
+                        _TRUNCATE,
+                        ", a quad of the screen at record %u: blend 0x%X, ops "
+                        "0x%X 0x%X, diffuse 0x%08X",
+                        static_cast<unsigned>(i), r.blend, r.push.ops[0],
+                        r.push.ops[1], diffuse);
+    }
+  }
   ComposeMres(s);
+}
+
+// THE CHECK FOR A BLACK PICTURE (vk_black_check=1, backend=vulkan). At the
+// end of a walk that finishes the eye picture, 16 by 16 points of each layer
+// go into the buffer of the slot (a blit with the nearest pixel, and a
+// copy). At the next use of the slot, after its fence, the frame thread
+// reads them (BlackCheckRead). A layer with no point above 0 is a black
+// picture: the log gets a line with what the walk drew.
+const uint32_t kProbeSide = 16;
+bool g_black_check = true;
+vk::Image g_probe_image = {};
+uint64_t g_black_walks = 0;  // for the report
+uint64_t g_probed_walks = 0;
+int g_black_lines = 0;
+bool g_black_before = false;  // the walk checked before was black
+
+void BlackCheckWrite(Slot& s) {
+  if (!g_black_check || !g_direct || !(g_walk_both || g_walk_right)) return;
+  const VkDeviceSize bytes = kProbeSide * kProbeSide * 4 * 2;
+  if (g_probe_image.image == VK_NULL_HANDLE &&
+      !vk::MakeImage(kProbeSide, kProbeSide, 1, vk::Get().color_format,
+                     VK_IMAGE_USAGE_TRANSFER_DST_BIT |
+                         VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
+                     VK_IMAGE_ASPECT_COLOR_BIT, &g_probe_image, 2)) {
+    g_black_check = false;
+    return;
+  }
+  if (s.probe.buffer == VK_NULL_HANDLE &&
+      !vk::MakeBuffer(bytes, VK_BUFFER_USAGE_TRANSFER_DST_BIT, true,
+                      &s.probe)) {
+    g_black_check = false;
+    return;
+  }
+  const VkCommandBuffer cb = s.cb;
+  vk::Barrier(cb, Target().image, VK_IMAGE_ASPECT_COLOR_BIT,
+              VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+              VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, 1, 2);
+  vk::Barrier(cb, g_probe_image.image, VK_IMAGE_ASPECT_COLOR_BIT,
+              VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+              1, 2);
+  VkImageBlit blit = {};
+  blit.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 2};
+  blit.srcOffsets[1] = {static_cast<int32_t>(Target().width),
+                        static_cast<int32_t>(Target().height), 1};
+  blit.dstSubresource = blit.srcSubresource;
+  blit.dstOffsets[1] = {static_cast<int32_t>(kProbeSide),
+                        static_cast<int32_t>(kProbeSide), 1};
+  f.vkCmdBlitImage(cb, Target().image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                   g_probe_image.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                   1, &blit, VK_FILTER_NEAREST);
+  vk::Barrier(cb, g_probe_image.image, VK_IMAGE_ASPECT_COLOR_BIT,
+              VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+              VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, 1, 2);
+  VkBufferImageCopy copy = {};
+  copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 2};
+  copy.imageExtent = {kProbeSide, kProbeSide, 1};
+  f.vkCmdCopyImageToBuffer(cb, g_probe_image.image,
+                           VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                           s.probe.buffer, 1, &copy);
+  vk::Barrier(cb, Target().image, VK_IMAGE_ASPECT_COLOR_BIT,
+              VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+              VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, 1, 2);
+  s.probe_written = true;
+  s.probe_walk = g_walk_number;
+  if (!g_walk_mres) {
+    _snprintf_s(s.probe_text, sizeof(s.probe_text), _TRUNCATE,
+                "no fovea_res, %llu draws in the walk",
+                g_draws - g_walk_draws_start);
+  }
+}
+
+// After the fence of the slot: the points of the walk that used it before.
+void BlackCheckRead(Slot& s) {
+  if (!s.probe_written) return;
+  s.probe_written = false;
+  const uint8_t* p = static_cast<const uint8_t*>(s.probe.mapped);
+  if (p == nullptr) return;
+  ++g_probed_walks;
+  bool black[2] = {true, true};
+  for (int layer = 0; layer < 2; ++layer) {
+    const uint8_t* q = p + layer * kProbeSide * kProbeSide * 4;
+    for (uint32_t i = 0; i < kProbeSide * kProbeSide; ++i) {
+      if (q[i * 4] != 0 || q[i * 4 + 1] != 0 || q[i * 4 + 2] != 0) {
+        black[layer] = false;
+        break;
+      }
+    }
+  }
+  const bool any = black[0] || black[1];
+  if (any) ++g_black_walks;
+  // A line at the start of each run of black pictures, the first 60.
+  if (any && !g_black_before && g_black_lines < 60) {
+    ++g_black_lines;
+    ModLog("vk scene     : a black eye picture in walk %llu (%s): %s",
+           s.probe_walk,
+           black[0] && black[1] ? "both eyes"
+           : black[0]           ? "the left eye"
+                                : "the right eye",
+           s.probe_text);
+  }
+  g_black_before = any;
 }
 
 // THE EYE PICTURE from the two images: for each eye the outer image over
@@ -2476,6 +2632,7 @@ void BeginOnWorker(const void* data) {
     ++g_fence_waits;
     g_fence_wait_ticks += static_cast<uint64_t>(t1.QuadPart - t0.QuadPart);
   }
+  BlackCheckRead(s);
   f.vkResetFences(device, 1, &s.fence);
   s.stage_used = 0;
   if (s.query_written) {
@@ -2623,6 +2780,7 @@ void BeginOnWorker(const void* data) {
   g_picture_frame = seed->frame;
   ++g_walks;
   ++g_walk_number;
+  g_walk_draws_start = g_draws;
   // Without Direct3D 9 only when the renderer follows the target and has
   // the panel, so each draw has its place.
   g_walk_only = seed->only && g_walk_follow && g_walk_panel;
@@ -2762,6 +2920,7 @@ void EndOnWorker(const void*) {
   } else {
     f.vkCmdEndRendering(s.cb);
   }
+  BlackCheckWrite(s);
   if (s.query != VK_NULL_HANDLE) {
     f.vkCmdWriteTimestamp2(s.cb, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT,
                            s.query, 1);
@@ -3723,6 +3882,16 @@ void VkSceneStage1Toggle(const char* keys) {
          g_stage1_mode ? 1 : 0);
 }
 
+void VkSceneSetBlackCheck(int on) {
+  g_black_check = on != 0;
+  if (!g_direct) return;
+  ModLog("vk scene     : vk_black_check=%d. %s", g_black_check ? 1 : 0,
+         g_black_check
+             ? "16 by 16 points of each eye picture go to the CPU, and a "
+               "black picture gives a line with what its walk drew"
+             : "No check for a black eye picture");
+}
+
 void VkSceneKeepPictureToggle(const char* keys) {
   g_keep_picture = !g_keep_picture;
   ControllersGesturePulse(0.5f, g_keep_picture ? 0.30f : 0.08f);
@@ -4013,6 +4182,11 @@ void VkSceneReport(uint64_t frames) {
            "their eye",
            g_keep_picture ? 1 : 0, g_kept_walks, g_cleared_walks, g_own_walks);
     g_kept_walks = g_cleared_walks = g_own_walks = 0;
+    if (g_black_check) {
+      ModLog("vk scene     : vk_black_check=1. %llu of %llu checked eye "
+             "pictures were black", g_black_walks, g_probed_walks);
+      g_black_walks = g_probed_walks = 0;
+    }
   }
   if (g_gpu_walks > 0) {
     ModLog("vk scene     : the GPU took %.3f ms for a walk, in %llu walks "
