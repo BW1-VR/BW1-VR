@@ -893,6 +893,15 @@ off when you do not want it to, set leash_shake_mps=1.0 in bwvr.ini.
 The default is 0.6, the speed of each move in meters a second. The
 value 0 turns the shake off.
 
+In a fight of Creatures, put your hand on a Creature and close the
+grip. On the other Creature this is an attack at the place of your
+hand. On your Creature it is a block at that place. Glowing stars show
+that place on the body. In a fight, the grip from a distance does not
+change the leash and does not make your Creature stay. Set
+fight_grip=0 in bwvr.ini to turn this off. Set fight_mark_depth=0 to
+show the stars as the plain game does: half way between your eyes and
+the Creature.
+
 
 HAPTICS
 -------

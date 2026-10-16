@@ -2699,7 +2699,7 @@ a tree at the Village Store (the card says "Open to give the tree as wood", and 
 store has more wood after the opening), two scaffolds, wood at the Workshop, wood at
 a building site and a scaffold, and a villager at a tree and at the Village Store.
 Desktop runs of `creature_recipe.ps1 -Kind gift` have shown an animal given to a
-Creature (`creature.md`, section 6.2).
+Creature (`creature.md`, section 7.2).
 
 **Not run on the desktop:** food, an animal and a crop at a store (the same
 code with a different class), the altar and a sacrifice, a teleport, a thing outside

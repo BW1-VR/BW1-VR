@@ -173,6 +173,8 @@ float UiBarsBegin();
 void UiBarsEnd(float saved);
 // spirit_anchor.cpp
 void SpiritAnchorInstall();
+// fight_marks.cpp: the marks of a fight of Creatures at their depth.
+void FightMarksInstall();
 void AudioSetRoom(bool room, int units_per_meter, bool places);
 void AudioSetRange(bool by_ears, bool keep_loops, int test_tag,
                    int test_tag_bank);
@@ -1382,6 +1384,7 @@ void StartVrOnce() {
                              g_spirit_world_size_test,
                              g_spirit_point_world_test);
     SpiritAnchorInstall();
+    FightMarksInstall();
     AudioSetRoom(g_audio_room, g_audio_units_per_meter,
                  g_audio_flat_places);
     AudioSetRange(g_audio_range, g_audio_loops_keep, g_audio_test_tag,

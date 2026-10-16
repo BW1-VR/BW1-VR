@@ -1,11 +1,12 @@
 # The Creature and the hands
 
 This doc covers how the player touches, commands and leashes the Creature
-with the VR hands. It has four parts: how the plain game does it, the
+with the VR hands. It has five parts: how the plain game does it, the
 Creature by touch (the open hand, the stroke, the slap, the gift of an
 object), the commands (the
-trigger on the land and on a thing), and the grip from a distance (the leash,
-the leash on an object, and the stay).
+trigger on the land and on a thing), the grip from a distance (the leash,
+the leash on an object, and the stay), and a fight of Creatures (the
+attack, the block and the marks).
 
 Marks: [V] verified in the disassembly of `runblack.exe` 1.42, [I] inferred,
 [G] a guess.
@@ -42,6 +43,9 @@ Other docs:
 - A short grip from a distance puts the leash on and takes it off. A grip
   from a distance that stays closed makes the Creature stop and stay until
   the grip opens. The two do not start the Creature state.
+- In a fight of Creatures, the grip with the Hand at a Creature is the
+  attack or the block of the game, at the place of the body that is nearest
+  to the Hand. The marks of the fight show at their place on the body.
 
 ## 1. How the plain game does it
 
@@ -1194,8 +1198,9 @@ and `PumpHold` (`far_grab.cpp`) and `hint_card.cpp`. The pure rules are
 - `FarSelect` takes the Creature when `LeashKind` says that the click does
   something. The kinds are 1 (the leash goes on), 2 (it comes off) and 3 (it
   comes back from an object). The Creature of a different player is no
-  target. A Creature that the game would not leash is no target. The halo is
-  the halo of each far target.
+  target. A Creature that the game would not leash is no target. In a fight
+  of Creatures no Creature is a target (section 6.2). The halo is the halo
+  of each far target.
 - The aim measures your Creature by its body, as it measures each living
   thing: the capsule of the choice at the Hand, from the land under the body
   bone up to `1.1 S`, with the 2D radius. `FarSelect` takes the Creature from
@@ -1432,9 +1437,154 @@ creature stay: the game let the Creature go, 107 ms after the packet. Its mind r
 creature stay: the Creature goes on: 206 ms after the stay it is at 1902.88 2519.79, 0.72 units from the place of its stay. Its plan did not change: desire 23, action 81, step 0 of 4, frame 1565
 ```
 
-## 6. Tests
+## 6. A fight of Creatures
 
-### 6.1 The math tests
+### 6.1 How the plain game does it [V]
+
+**The state.** In a fight the camera mode `CameraModeNew3` has `+0x44` set,
+and the interface hand mode is `0x1B`. `Creature::IsFighting` `0x0047B1C0`
+reads the `LH3DCreature` of the Creature (`+0x160`, then `+0x58`): in a fight
+it has the `LH3DCreature` of the other Creature at `+0x528C`. The teleport
+and the grab of the world do not act in a fight (`god-view.md`).
+
+**The step of a fight.** The interface action of a fight has the step
+`0x005D4AC0`. It acts only while the camera mode is `CameraModeNew3` with
+`+0x44` set. It reads the bits of the buttons (`GInterface+0x39`, section
+1.5): first bit 1 (the left button), then bit 2 (the right button, the Action
+button). A bit stays set while its button is down, so the step runs again on
+each frame of a press that did not act yet.
+
+- With an object in the pick record (`+0x400`) that `ValidAsInterfaceTarget`
+  (slot `0x6F0`) accepts, it calls `fn_005D3EF0` (thiscall on `GInterface`,
+  the object, the packet and a flag, `ret 0xC`). The left button gives
+  packet `0x23` and the right button packet `0x22`.
+- With no object, it calls `fn_005D2C40` (left) or `fn_005D2E60` (right)
+  with the land point of the record (`+0x3F0`). `fn_005D2C40` sends packet
+  `0xF`, and its handler `fn_005DA4D0` calls
+  `Creature::SelectFightThisToMapCoord`. `fn_005D2E60` and its handler
+  `fn_005DA590` call `Creature::ApplyFightThisToMapCoord`. Both end in
+  `LH3DCreature::FightClickGround`: the Creature of the player moves in the
+  fight.
+
+**The press on a Creature.** `fn_005D3EF0` acts on the Creature of the player
+and on the other Creature of the fight, while the queue of the fight
+(`LH3DCreature+0x4B30`) has fewer than 12 moves. It casts a ray from the
+stored camera (`0x00EA1DB8`) through the pointer of the interface
+(`GInterface+0x418`, the place of the mouse that `0x005D9970` writes)
+against the mesh of the Creature (`fn_00865020`, the call at `0x005D4033`).
+When the ray misses, the press does nothing. When it hits:
+
+- On the Creature of the player it is a block (value 3).
+- On the other Creature it is an attack. The height of the hit on the body
+  gives the value: 0 above 0.66 of the height, 2 below 0.33, and 1 between
+  them (`0x005D40A7` to `0x005D40C6`).
+- `fn_0048A420` puts the move in the queue of the fight with the place of
+  the hit. The function sends the packet with the index of the Creature and
+  the value, and it sets the interface action `0x16` (right) or `0x17`
+  (left).
+
+The tooltip of the game names the right button. The hint card of a headset
+session showed "Grip Attack" on the other Creature, "Grip Block" on the
+Creature of the player and "Grip Maneuvre" on the land.
+
+**The marks.** `LH3DCreature::DrawFightSparkles` `0x0048DD70` draws a mark
+for each move of the queue, from `GGame::Process3dEngine` (`0x0054DF13`), so
+in each eye pass. It finds the place of the mark: the place of the hit on
+the mesh of the other Creature or of the player's Creature, or a point on
+the land. Then it moves the place half way to the stored camera (the factor
+0.5 at `0x0048E118` to `0x0048E169`). It gives the color, that place, the
+size of the Creature (`LH3DCreature+0x90`) and a frame of the animation to
+`fn_008465A0`. That function fills one `LH3DSprite` (`0x00EF7534`) and calls
+`LH3DSprite::Draw`: a billboard with the depth of its place.
+`DrawFightSparkles` is the only caller of `fn_008465A0`. On a flat screen a
+mark half way to the camera shows on its place and in front of the body.
+
+### 6.2 The grip at a Creature (`fight_grip`)
+
+The grip is the right button, and the step of the fight gets its press. With
+the direct hand the pointer of the interface is the Hand's point seen from
+the eye, and the step runs with the camera of the game. So the game's ray is
+not the ray of the Hand. It misses the body that the Hand is at, and the
+press does nothing.
+
+With `fight_grip=1` the hook on the ray test (`h_MeshRay` in
+`hand_direct.cpp`, by the return address `0x005D4038`) gives the press of a
+fight the ray of the Hand. The conditions are: the controller placed the
+Hand, and the pick record holds the Creature that is the target at the Hand
+(the reach `hand_pick_cm`, and the wide reach `hand_wide_pick_cm` of a
+Creature, `grab.md`). The ray goes from the Hand's point to the nearest point
+of the axis of the body (`fight_math::BodyRay`, the capsule of the choice).
+When the Hand's point is nearer to the axis than two radii, the ray starts
+two radii from the axis, so it starts outside the body. The game then makes
+all the rest from the place that the ray hits: the block or the attack, its
+height, the move in the queue, the packet and the mark. When the ray of the
+Hand misses, the game's ray stays. The press of the trigger (the left
+button) on a Creature gets the same ray.
+
+In a fight the far aim takes no Creature as a target. So a grip from a
+distance does not send the leash click and does not start the stay, and the
+hint card does not offer them. A grip at a Creature goes to the game.
+
+With `fight_grip=0` the game casts its ray through the pointer, and the far
+aim keeps your Creature as a target of the leash and of the stay.
+
+### 6.3 The marks at their depth (`fight_mark_depth`)
+
+In a headset a mark half way to the camera floats in front of each thing near
+the Creature: each eye sees it at half the distance to the body. With
+`fight_mark_depth=1` a hook on `fn_008465A0` (`fight_marks.cpp`) puts each
+mark back on its place (`fight_math::MarkPlace`). It moves the mark toward
+the camera by one size of the mark, so that the body does not cut it. It
+makes the mark larger by the factor of its move, so that the mark has the
+size on the screen that the game gives. A mark never comes nearer to the
+camera than the place of the game. The hook reads the stored camera of the
+eye pass, the camera that `DrawFightSparkles` read. With one walk the right
+eye gets the mark from the depth of its place (`backend.md`, "One walk for
+both eyes").
+
+With `fight_mark_depth=0` the marks stay half way to the camera, as the game
+puts them.
+
+### 6.4 Keys and the log
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `fight_grip` | 1 | 1: in a fight, a press on a Creature at the Hand hits the place of the body that is nearest to the Hand's point, and no Creature is a far target. 0: the game's ray through the pointer, and your Creature stays a far target of the leash |
+| `fight_mark_depth` | 1 | 1: the marks of a fight are at their place on the body, with the size on the screen that the game gives. 0: half way between the camera and their place, as the game puts them |
+
+The log has one line for each press of a fight on a Creature, and one more
+when the result of the ray changes. It says whether the ray of the Hand and
+the game's ray hit the mesh. The far aim says when a fight starts and ends.
+The marks have a line for each of the first draws, and a line in each report
+window.
+
+```
+hand fight   : fight_grip=1. In a fight of Creatures, a press on a Creature at the Hand hits the place of the body that is nearest to the Hand's point ...
+fight marks  : fight_mark_depth=1. The marks of a fight of Creatures have the depth of their place on the body, and the size on the screen that the game gives
+far grab    : a fight of Creatures starts, so no Creature is a far target until it ends (fight_grip=1). The grip at a Creature is the attack or the block of the game, frame F
+hand fight   : a press of the fight on the other Creature (an attack) P: the ray from the Hand's point hits its mesh, and the game's ray through the pointer misses it. The Hand's point is 9.7 cm of the room from its body, at 55% of its height (fight_grip=1), frame F
+hand fight   : N interface steps of a press of the fight on a Creature at the Hand. The ray from the Hand's point hit the body H times, and the game's ray through the pointer G times (fight_grip=1), this window
+fight marks  : N draws of a mark of a fight went to the place of the mark and 0 stayed where the game puts them, this window. The last one moved 4.81 units, to 9.62 units from the camera
+```
+
+The numbers in these lines are an example: no run had a fight.
+
+### 6.5 What is not known
+
+- No desktop run reaches a fight. A test save starts at the Creature pens or
+  at the door of the Temple, and the scripted controller cannot start a
+  fight. The math checks have the ray and the place of a mark. Only a
+  headset session shows the attack, the block and the marks.
+- Whether one size of the mark in front of the body is enough at each place
+  of the body: a part of the body that is nearer to the eye than the place of
+  the mark can still cut it.
+- Why a press of the trigger with the grip did act in a headset session
+  without the ray of the Hand was not traced. Both buttons go to the same
+  ray of the game.
+
+## 7. Tests
+
+### 7.1 The math tests
 
 The math tests are in `bwvr/test/controller_math/` and run with
 `.\dev.ps1 build`. They cover:
@@ -1476,12 +1626,18 @@ The math tests are in `bwvr/test/controller_math/` and run with
   while the grip is closed, the wait of the end (`EndNow`), and the distance
   and the watch for the log (`GoesOn`, `WatchDone`).
 - The near target is in `far_checks.h` (see `grab.md`).
+- A fight (`fight_checks.h`): the ray of a press from a Hand at the side of
+  the body, at the legs, over the head, in the body and on the axis, a body
+  with no height, and the height of the place. The marks: the place of a
+  mark at 10 units, a large mark that stays at the place of the game, a mark
+  at a slant on the line from the camera, the size on the screen in each
+  case, and a mark at the camera.
 - The gift (`village_checks.h`): the reach of the test of the game (15 times
   the size), the reach of the test of the mod at size 0.22 and at size 2,
   `creature_gift_cm=0`, more units in a meter, no scale of the room, and a
   Creature that was the target and one that was not (`HoldReachNow`).
 
-### 6.2 A Creature in a desktop run
+### 7.2 A Creature in a desktop run
 
 Two scripts in `bwvr/tools/desk/` reach the Creature of the player:
 
@@ -1635,7 +1791,7 @@ path works. The headset shows how it feels. A capture of 2880 by 2880 can take
 more than 250 ms. The controller then lets go of its buttons ("not usable
 now"), and the Creature state ends.
 
-### 6.3 What the desktop cannot show
+### 7.3 What the desktop cannot show
 
 - Whether a real hand gives an object to the Creature at the first opening of
   the grip, with the leash on and with no leash. Whether 20 cm of the room
@@ -1681,7 +1837,7 @@ now"), and the Creature state ends.
   Creature help, read well with no stroke after them.
 - Whether the halo and the pulse are enough to show that the stay is on.
 
-## 7. Not built, open
+## 8. Not built, open
 
 - **The touch with no press** (`creature_touch`). The
   Hand within 25 cm of the body would press the trigger for the player, and

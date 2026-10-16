@@ -2883,6 +2883,7 @@ keys that the launcher sets.
 | `draw_probe`, `capture_every_seconds` | 0 | Reports and eye pictures |
 | `eye_test_luma` | 0 | A test key. 1: the log names each run of frames with one dark eye and each run of black frames. See "Testing without a headset" |
 | `land_light_eyes` | 1 | 1: the white light of a lightning on the land, and each other light on the land that comes one time in a frame, shows in both eyes. 0: it shows in the left eye only. See "The lights on the land in the second eye pass" |
+| `fight_mark_depth` | 1 | 1: the marks of a fight of Creatures are at their place on the body. 0: half way between the camera and their place, as the game puts them. See `creature.md`, "The marks at their depth" |
 | `land_light_test` | 0 | A test key. 1: the step of the atmosphere adds the light of a lightning at the place of the Hand, for 150 frames of each 500 frames |
 | `target_glow` | 1 | What marks a target of the Hand. 1: the glow on its mesh, and a halo only for a target whose mesh does not glow. 0: the halo. 2: the glow and the halo. See `hand-model.md`, "The glow on the mesh of a target" |
 | `target_glow_pct`, `target_glow_anim` | 45, 3 | The strength of that glow, 0 to 200 percent of the halo color. Its animation: 0 steady, 1 the pulse, 2 the band of light that goes up the mesh, 3 both |
