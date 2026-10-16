@@ -291,12 +291,6 @@ is built, and no test has proven it.
   controller on. Still open: check in a headset whether a still controller
   stays on when the setting of the headset that switches between the
   controllers and the hands is off.
-- **B25. The video after the drowning boy is not one picture for the two
-  eyes.** At the start of a new game the game plays a video (the birth of
-  the god). It looks right while the head looks straight at it. With the
-  head turned, the edges of the video do not lie on each other in the two
-  eyes. Wanted: the video plays on the screen of the cut scene window,
-  about 2 m in front of the player.
 - **B26. The tutorial after its first step.** The aim: a player can play the
   whole tutorial in VR, also where the words of the game do not fit the
   controllers. The first step is shown in a desktop run: the walk to the

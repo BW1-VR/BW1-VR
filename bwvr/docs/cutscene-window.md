@@ -32,12 +32,14 @@ The code is in `src/mod/cutscene_window.cpp` and `cutscene_window_math.h`.
   pictures, which the cinema bars and a fade do not cover.
 - **The subtitles** are on a card in the plane of the screen, under the scene.
   None draws in the picture.
+- **A video of the game** (the birth of the god after the drowning boy) is on
+  the screen plane, the same picture for both eyes.
 - **The leave.** The next frame is a full view frame, with the God view built
   where the story left the camera. The walls open in 0.5 s. Nothing in the view
   moves while they open.
 - **The keys.** `cutscene_window` (1) is the window. `cutscene_face_head`,
-  `cutscene_depth`, `cutscene_subtitles` and `cutscene_edge_columns` (all 1)
-  are its parts, and 0 turns each part off. With `test_keys=1`, numpad 0
+  `cutscene_depth`, `cutscene_subtitles`, `cutscene_edge_columns` and
+  `cutscene_video` (all 1) are its parts, and 0 turns each part off. With `test_keys=1`, numpad 0
   changes the window live and numpad 1 the depth limit.
 - **A mouse player** with no headset gets no change.
 
@@ -457,6 +459,50 @@ columns (section 6.2) they cover the whole opening.
 **The cinema bars** show in the picture. At full size they cover 44 percent of a
 square render, so the scene has a wide shape between them.
 
+**A video of the game.** A script starts a video with `GScript::SetAviSequence`
+and `PSysGlobal::StartAVISequence` `0x0068F450`. Sequence 1 is
+`data\intro.bik`, the birth of the god after the drowning boy, through
+`PlayFullScreenMovie` `0x0054D920`. Sequence 2 is the video of a falling spell
+(`GGame::KickOffFallingSpellVideo`), and `FallingSpell::Init` also calls
+`PlayFullScreenMovie` (`0x005261FC`). `PlayFullScreenMovie` keeps the state of
+the bars and puts them up when they are down [V]. `GGame::FinishedVideo`
+`0x0054D8D0` gives the bars their old state. So a video in the God view plays
+in the window.
+
+- **How the game draws it [V].** `GGame + 0x250188` is the video player.
+  `GGame::Process3dEngine` waits for a frame of the video and calls
+  `LHVideoPlayer::DrawToScreen` `0x008456C0` at `0x0054DC6D`, with the full
+  width of the render and the height of a 16 by 9 picture. That call only
+  stores the place and sets a flag. The late FinishFrame callback
+  `LHVideoPlayer::thedraw` `0x00844E30` draws the frame when the flag is set,
+  and clears it. `fn_00845740` draws the frame as tiles of 4 vertices through
+  `DrawAndClip2D` (the call at `0x00845A7D`), with an alpha of 255, or 80 for
+  the video of a falling spell.
+- **Why the rule.** A tile is a flat batch, and the chain of the interface
+  does not move it. With `cutscene_video=0` it gets no rule of the window:
+  - In one walk the copy of the right eye moves a tile by the eye difference of
+    the rhw in its vertices (`backend.md`, "One walk for both eyes").
+    `fn_00845740` writes the x, the y, the color and the texture place of each
+    vertex, and no z and no rhw [V]. A desktop run with a render
+    of 3600 by 2880 measured a move of 390 px. On the screen the right eye then
+    sees the video 21 cm to the left of the left eye, with a black band of 21 cm
+    at the right edge of the opening.
+  - With two walks a tile is at one pixel in both eye pictures. With the shift
+    of the two pictures (section 6.2) that is the depth of a thing far away,
+    which fits only two eyes that are level and face the screen.
+- **The rule (`cutscene_video=1`).** Each eye moves each tile of the video half
+  of the crop toward the nose, as the flat interface (section 6.6). The video is
+  then on the screen plane: the same part of the video at the same place of the
+  screen for both eyes, for each pose of the head. The video fills the width of
+  each eye picture, so it fills the opening from side to side.
+- **One walk.** `DrawAndClip2D` clips a tile in place: a vertex past an edge of
+  the render goes to the edge, with the texture place of its new point. In one
+  walk the right eye draws the same tile after the left eye
+  (`draw_hooks.cpp`, `kOneWalkRightOnly`), so the mod puts the whole tile back
+  after each draw.
+- **Not in the window.** A frame of the full view (the 0.5 s of the enter, or
+  `cutscene_window=0`) gets the video as the game draws it, in each eye.
+
 **The interface, the advisors and the help text** draw as in play mode 1. The
 interface is on the screen plane (section 6.6). The advisors are not fixed in the
 room, and their sound comes from the game camera. They are in the measure of the
@@ -493,6 +539,7 @@ All in `[bwvr]`. None is in the launcher.
 | `cutscene_subtitle_width_cm` | 140 | The width of the whole render on that card, 30 to 400. It sets the size of the letters |
 | `cutscene_subtitle_place` | 0 | 0 hangs the card under the scene. 1 hangs it under the whole opening |
 | `cutscene_edge_columns` | 1 | The columns that each eye picture also loses at each side of the opening, 0 to 16 (section 6.2). 0 shows each picture to its edges, with a column of light at the left edge of the opening |
+| `cutscene_video` | 1 | 1 puts a video of the game in the window on the screen plane, the same picture for both eyes (section 7). 0 gives the video no rule of the window: in one walk the two eyes see it at two places on the screen |
 | `cutscene_window_capture` | 0 | A test: 1 saves the eye pictures of the second and the 90th frame in the window, and of the second frame after it |
 | `cutscene_window_test_off`, `cutscene_window_test_on` | 0, 0 | A test with no key press: at the first frame number the window goes off, and at the second it goes on, as numpad 0 does |
 | `cutscene_depth_test_off`, `cutscene_depth_test_on` | 0, 0 | The same for the depth limit, as numpad 1 does |
@@ -508,7 +555,8 @@ With `test_keys=1` and Num Lock on:
 
 The tags are `cut scene` and `subtitles`. At the start, one line for each part
 says its key and its value (`cutscene_window`, the size of the screen,
-`cutscene_depth`, `cutscene_subtitles`). Then the log has these lines:
+`cutscene_depth`, `cutscene_subtitles`, `cutscene_edge_columns`,
+`cutscene_video`). Then the log has these lines:
 
 - The frame that the bars go up, and the frame that a cut scene starts. With
   `cutscene_face_head=1`, a line gives the head (position and yaw) and the place
@@ -520,6 +568,9 @@ says its key and its value (`cutscene_window`, the size of the screen,
   how many columns each eye picture loses, how far apart the two pictures are on
   the screen, and the size of the opening. A line gives the first and the last
   column of each eye picture that the opening shows.
+- The frame that a video of the game starts, with its move in pixels for each
+  eye picture, and the frame that it is over. The report has the frames with
+  the video on the screen plane.
 - The frame that the bars go down, the frame that the cut scene is over, the
   frame that the window ends, and the frame that the full view is open again. At
   the end, the `god view` tag has a line with the game camera, the waist point
@@ -613,6 +664,9 @@ pictures (`cutscene_window_capture=1`) are the proof. The checks are:
   cameras nearer to each other) looks right, and whether the change of the depth
   at a cut and at a thing that comes near shows. Numpad 1 gives a comparison in
   one shot.
+- **Only the headset can show** that the video after the drowning boy stays on
+  the screen when the head turns and tilts. A desktop run has a fixed head. It
+  shows the two eye pictures of a frame of the video.
 - **Also for the headset:** the place of the screen when a story starts while the
   head looks down or to the side, and the size and the place of the subtitles
   under the scene (21 to 26 degrees below eye level for two lines).

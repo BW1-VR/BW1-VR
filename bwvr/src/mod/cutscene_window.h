@@ -37,6 +37,13 @@ void CutsceneWindowProbeBatch(const void* verts, uint32_t count,
                               const uint16_t* idx, uint32_t n,
                               uint32_t caller);
 
+// A VIDEO OF THE GAME. draw_hooks.cpp calls this for each batch of the video
+// player of the game, with the eye of the draw (0 is the left eye). True when
+// the batch goes on the screen plane (cutscene_video=1 in a flat frame). Then
+// `move` is the move of the batch in pixels for that eye. The call also tells
+// the log that a video plays in this frame.
+bool CutsceneWindowVideoBatch(int eye, float* move);
+
 // THE SUBTITLES. True in a flat frame whose subtitles go to the subtitle card
 // (ui_panel.cpp). SubtitleQuad gives the place of the card for the part of
 // the render that the game drew its text in: `rect` is x, y, width and height

@@ -99,7 +99,7 @@ box drawn in a pass is the one that HelpText queued in the pass before [I].
 | Screen quad, cinema bars | FinishFrame | before the late callbacks | the eyes. The bars are hidden. |
 | Advisors | `HelpDude` code | in the walk and callbacks | the eyes (room camera, `spirit_anchor.cpp`) |
 | Speech bubbles (a signpost, a villager that speaks, the Creature) | the bubble draw `0x005767D0`, an object of the Z sort | in the walk | the eyes, as one card at the depth of the sign (section 18) |
-| Video in play | `LHVideoPlayer::thedraw`, also from `FallingSpell::Draw` | late callbacks | the eyes. Not classified yet. |
+| Video in play | `LHVideoPlayer::thedraw` (`fn_00845740` through `DrawAndClip2D`), also from `FallingSpell::Draw` | late callbacks | the eyes. In the cut scene window, each eye moves it onto the screen plane (`cutscene-window.md`, section 7) |
 
 The size, the placement and the shift of the interface in the eye pictures are
 in `draw_hooks.cpp` and `backend.md` ("Interface size", "Subtitles",
@@ -589,8 +589,8 @@ The biggest cost is memory, and it is small against a headset render.
    target wrong, the world or the next frame draws wrong. The rules of 2.3,
    the target check before each panel draw, and the composite check of 2.5
    cover it. All of it is testable on the desktop.
-2. **A wrong route.** Other drawing in `HelpSystem::Draw3D` and video in play
-   are not classified (1.3). A part that is fixed to the world but goes to the
+2. **A wrong route.** Other drawing in `HelpSystem::Draw3D` is not classified
+   (1.3). A part that is fixed to the world but goes to the
    panel floats in the wrong place. The `ui depth` census names the caller of
    each batch.
 3. **The skipped draw in pass 1.** If a panel caller draws only in pass 1, it
@@ -677,7 +677,10 @@ card between the card and the eye pictures. Ctrl Shift F12 is the audio key.
 2. What else does `HelpSystem::Draw3D` draw, besides the tooltip list?
    **Open.** The census counts `Draw3D` batches by caller ("Draw3D" in the
    caller table), but no run has drawn one.
-3. Where do videos in play draw, and should they go on a panel? **Open.**
+3. Where do videos in play draw, and should they go on a panel? **In the late
+   callbacks, in the cut scene window [V].** `PlayFullScreenMovie` puts the
+   cinema bars up, so a video in the God view plays in the window, on the
+   screen plane. No panel is necessary (`cutscene-window.md`, section 7).
 4. Does the game draw a cursor in the Setup dialogs? **Yes [M].** A teal arrow
    at the pointer, drawn inside the Setup callback.
 5. Do the Setup dialogs sit in the middle of the render at every render size?

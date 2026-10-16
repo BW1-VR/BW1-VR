@@ -68,7 +68,8 @@ make them 3D.
 - Mode 2: free everything.
 
 The step 4 movie `intro.bik` is not a part of the start. A script plays it
-inside the first story, and the skip does not touch it.
+inside the first story, and the skip does not touch it. In the God view it
+plays on the screen of the cut scene window (`cutscene-window.md`, section 7).
 
 `GGame::Loop` starts one sound before it calls `DoLogo` (sound effect `0xA0`,
 `0x0054D046`) and stops it after the call [V]. So the sound of the logo has its

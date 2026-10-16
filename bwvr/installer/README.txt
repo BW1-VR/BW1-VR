@@ -982,6 +982,9 @@ left menu button is Esc. The Hand does not follow your hands until
 the view is open again. To see cut scenes in the full view with held
 shots, set cutscene_window=0 in bwvr.ini.
 
+A video of a story, for example the birth of the god after the
+drowning boy, plays flat on the same screen (cutscene_video=1).
+
 A story camera with no black bars can put a shot in an odd place.
 The game can also move the camera for you with no bars, for example
 to follow the Creature. There the mod cuts to each shot instead of

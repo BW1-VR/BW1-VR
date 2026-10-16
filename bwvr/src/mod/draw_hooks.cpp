@@ -87,6 +87,7 @@
 #include <intrin.h>
 #include <math.h>
 #include <stdio.h>
+#include <string.h>
 
 #include "one_walk.h"
 #include "MinHook.h"
@@ -103,6 +104,9 @@ extern void ModLog(const char* format, ...);
 // window. There the help layer, the subtitles and the cinema bars draw as the
 // game made them for a flat screen.
 bool CutsceneWindowFlat();
+// A batch of the video player of the game. True when it goes on the screen
+// plane of the window, and then `move` is its move for that eye.
+bool CutsceneWindowVideoBatch(int eye, float* move);
 // The measure of the nearest thing in view, for the depth limit of the cut
 // scene window: each eye pass of a flat frame gives its world batches.
 bool CutsceneWindowProbeStart(int eye);
@@ -211,6 +215,18 @@ const UiCaller kUiCallers[] = {
     // it. So the bar is drawn here, after the help scopes have closed.
     {0x0081E3C0, 0x0081E58C, "HelpSystem quads"},
 };
+
+// THE VIDEO PLAYER OF THE GAME. LHVideoPlayer::thedraw 0x00844E30, a late
+// FinishFrame callback, calls fn_00845740 (0x3F0 bytes). It draws each frame
+// of a Bink video as tiles of 4 vertices, each through DrawAndClip2D at
+// 0x00845A7D, from the vertex array at 0x00C391B0. It is not interface: the
+// chain of the interface does not move it.
+const uintptr_t kVideoBegin = 0x00845740;
+const uintptr_t kVideoEnd = 0x00845B30;
+
+bool IsVideoCaller(uint32_t address) {
+  return address >= kVideoBegin && address < kVideoEnd;
+}
 
 // The subtitle bar, which defines the band its letters are found in.
 // DrawAndClip2D returns to 0x0081E516 when it draws the bar.
@@ -728,6 +744,11 @@ void EndWidgetPass() {
 // eye, and the right eye takes it. A second decision would find the left copy
 // of the same batch in the list of the pass and pair the batch with itself.
 bool g_replay_right = false;
+// The batch that draws now is a batch of the video on the screen plane of the
+// cut scene window, and the move of its left eye in pixels. DrawInterface
+// sets both for one batch.
+bool g_video = false;
+float g_video_move = 0.0f;
 bool g_left_dropped = false;
 
 bool IsDuplicateWidgetDecide(void* verts, uint32_t fvf, uint32_t count);
@@ -1891,6 +1912,33 @@ void ShiftOut(void* verts, uint32_t count) {
 
 // Moves each x of a batch by `move` pixels, with none of the tests of the
 // interface depth. True when ShiftOut must put the batch back after the draw.
+// A batch of the video as it came. DrawAndClip2D clips a batch in place: a
+// vertex past an edge of the render goes to the edge and gets the texture
+// place of its new point. In one walk the right eye draws the same vertices
+// after the left eye, so the whole batch goes back after each draw, not only
+// its x.
+const uint32_t kMaxVideoVertices = 64;
+uint8_t g_saved_video[kMaxVideoVertices * kVertexStride];
+
+// Moves each x of a batch of the video by `move` pixels. True when VideoOut
+// must put the batch back after the draw.
+bool VideoIn(void* verts, uint32_t fvf, uint32_t count, float move) {
+  if (fvf != kExpectedFvf || verts == nullptr || count == 0 ||
+      count > kMaxVideoVertices) {
+    return false;
+  }
+  memcpy(g_saved_video, verts, count * kVertexStride);
+  uint8_t* vertex = static_cast<uint8_t*>(verts);
+  for (uint32_t i = 0; i < count; ++i, vertex += kVertexStride) {
+    *reinterpret_cast<float*>(vertex) += move;
+  }
+  return true;
+}
+
+void VideoOut(void* verts, uint32_t count) {
+  memcpy(verts, g_saved_video, count * kVertexStride);
+}
+
 bool MoveIn(void* verts, uint32_t fvf, uint32_t count, float move) {
   if (move == 0.0f || fvf != kExpectedFvf || verts == nullptr || count == 0 ||
       count > kMaxShiftVertices) {
@@ -2148,6 +2196,18 @@ void DrawInterfaceEye(DrawAndClipFn original, D3DPRIMITIVETYPE type,
                       uint32_t fvf, void* verts, uint32_t count, uint16_t* idx,
                       uint32_t n) {
   DumpBatch(verts, fvf, count);
+  // A VIDEO OF THE GAME IN THE CUT SCENE WINDOW (cutscene_video,
+  // docs/cutscene-window.md, section 7). Each eye moves the tiles of the
+  // video half of the crop toward the nose, so the video is on the screen
+  // plane. g_video_move is the move of the left eye.
+  if (g_video) {
+    PanelRelease();
+    const float move = g_eye == 0 ? g_video_move : -g_video_move;
+    const bool moved = VideoIn(verts, fvf, count, move);
+    original(type, fvf, verts, count, idx, n);
+    if (moved) VideoOut(verts, count);
+    return;
+  }
   // THE LIONHEAD LOGO IN STEREO (intro_vr.cpp, docs/intro.md). The effect
   // draws a text and boxes flat, after its orbs. Each corner gets the pixel
   // of its place on the plane of the logo for the camera of this eye pass,
@@ -2263,8 +2323,16 @@ void DrawInterface(DrawAndClipFn original, D3DPRIMITIVETYPE type,
                    uint32_t n) {
   const bool card =
       BubbleCardInBubble() && BubbleCardOn() && OneWalkMarks();
-  if (!OneWalkActive() || g_eye != 0 || (!IsUiCaller(g_caller) && !card)) {
+  // A batch of the video on the screen plane goes to each eye as a batch of
+  // the interface does. The move is for the left eye.
+  float move = 0.0f;
+  g_video = IsVideoCaller(g_caller) &&
+            CutsceneWindowVideoBatch(g_eye < 0 ? -1 : 0, &move);
+  g_video_move = move;
+  if (!OneWalkActive() || g_eye != 0 ||
+      (!IsUiCaller(g_caller) && !card && !g_video)) {
     DrawInterfaceEye(original, type, fvf, verts, count, idx, n);
+    g_video = false;
     return;
   }
   OneWalkSetMode(kOneWalkLeftOnly);
@@ -2284,6 +2352,7 @@ void DrawInterface(DrawAndClipFn original, D3DPRIMITIVETYPE type,
   g_replay_right = false;
   g_shift = shift;
   g_eye = 0;
+  g_video = false;
   if (g_in_tooltip) {
     SaveTooltip(&g_tooltip_right);
     LoadTooltip(left_tooltip);

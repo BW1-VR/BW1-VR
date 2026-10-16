@@ -58,6 +58,17 @@
 // THE SUBTITLES (cutscene_subtitles). The subtitle card of ui_panel.cpp
 // takes the help text of a flat frame too, and CutsceneWindowSubtitleQuad
 // puts the card in the plane of the screen, under the scene.
+//
+// A VIDEO OF THE GAME (cutscene_video). PlayFullScreenMovie 0x0054D920 puts
+// the cinema bars up, so a video of a story (data\intro.bik after the
+// drowning boy) plays in the window. The video player draws each frame as
+// flat tiles, and the chain of the interface does not move them. In one walk
+// the right eye gets them with the eye difference of the rhw in their
+// vertices, which the video code does not write, so the two eyes see the
+// video at two places on the screen. So draw_hooks.cpp gives each batch of
+// the video to CutsceneWindowVideoBatch, and each eye moves it half of the
+// crop toward the nose, as the flat interface. The video is then on the
+// screen plane, the same picture for both eyes.
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -130,10 +141,12 @@ struct Settings {
   float text_width;   // cutscene_subtitle_width_cm, in meters
   int text_place;     // cutscene_subtitle_place
   int edge;           // cutscene_edge_columns
+  bool video;         // cutscene_video
 };
 Settings g_set = {false, true, true, 2.0f, 2.6f,          0.5f, 3.0f,
                   false, 0,    0,    true, kDepthNearest, 0.0f, 0,
-                  0,     true, 1.4f, 0,    1};
+                  0,     true, 1.4f, 0,    1,
+                  true};
 
 window_math::State g_state = {false, 1.0f};
 bool g_wanted = false;
@@ -194,6 +207,13 @@ uint64_t g_capture_at[3] = {0, 0, 0};
 
 // For the report and the log.
 uint64_t g_flat_frames = 0;
+// A VIDEO OF THE GAME. CutsceneWindowVideoBatch latches the frame, and
+// CutsceneWindowEndFrame reads the latch once a frame.
+bool g_video_now = false;    // a batch of the video in this frame
+bool g_video_moved = false;  // and it went on the screen plane
+bool g_video_was = false;    // the frame before had a batch of the video
+uint64_t g_video_start = 0;  // the first frame of the video, for the log
+uint64_t g_video_frames = 0;  // frames with the video on the screen plane
 uint64_t g_change_frames = 0;
 uint64_t g_scenes = 0;
 int g_logs = 0;
@@ -266,6 +286,7 @@ void ReadSettings() {
       limit(number("cutscene_subtitle_width_cm", 140), 30, 400) / 100.0f;
   g_set.text_place = limit(number("cutscene_subtitle_place", 0), 0, 1);
   g_set.edge = limit(number("cutscene_edge_columns", 1), 0, 16);
+  g_set.video = number("cutscene_video", 1) != 0;
   if (!g_set.god) return;
   ModLog("cut scene    : cutscene_window=%d. %s", g_set.on ? 1 : 0,
          g_set.on ? "In the God view a cut scene plays on a screen in the room"
@@ -295,6 +316,12 @@ void ReadSettings() {
                "opening too, where the cinema bars and a fade do not cover "
                "the scene"
              : "The opening shows each eye picture to its edges");
+  ModLog("cut scene    : cutscene_video=%d. %s", g_set.video ? 1 : 0,
+         g_set.video
+             ? "A video of the game in the window is on the screen, the same "
+               "picture for both eyes"
+             : "A video of the game in the window goes to the eye pictures as "
+               "the game draws it, with no rule of the window");
 }
 
 // 1 while the cinema bars are up, 0 while they are not, -1 with no game.
@@ -669,6 +696,15 @@ void CutsceneWindowProbeBatch(const void* verts, uint32_t count,
   if (g_grid.strict > before) g_grid_caller = caller;
 }
 
+bool CutsceneWindowVideoBatch(int eye, float* move) {
+  g_video_now = true;
+  if (!g_state.flat || !g_set.video || eye < 0) return false;
+  g_video_moved = true;
+  const float half = 0.5f * static_cast<float>(g_crop);
+  *move = eye == 0 ? half : -half;
+  return true;
+}
+
 bool CutsceneWindowSubtitles() { return g_state.flat && g_set.subtitles; }
 
 bool CutsceneWindowSubtitleQuad(uint32_t render_w, uint32_t render_h,
@@ -839,6 +875,35 @@ uint64_t CutsceneWindowEndFrame(uint64_t frame) {
                    : "the player's camera owns the view");
     }
   }
+  // A video of the game: one line when it starts and one when it ends.
+  const bool video = g_video_now;
+  const bool moved = g_video_moved;
+  g_video_now = false;
+  g_video_moved = false;
+  if (moved) ++g_video_frames;
+  if (video != g_video_was && g_set.god && Say()) {
+    if (video) {
+      g_video_start = frame;
+      if (moved) {
+        ModLog("cut scene    : frame %llu: a video of the game plays in the "
+               "window. It is on the screen, the same picture for both eyes: "
+               "each eye picture moves it %.0f px toward the nose "
+               "(cutscene_video=1)", frame, 0.5f * static_cast<float>(g_crop));
+      } else {
+        ModLog("cut scene    : frame %llu: a video of the game plays. %s",
+               frame,
+               g_state.flat ? "It goes to the eye pictures as the game draws "
+                              "it (cutscene_video=0)"
+                            : "The frame is not in the window, so the video "
+                              "fills the picture of each eye");
+      }
+    } else {
+      ModLog("cut scene    : frame %llu: the video is over after %llu frames",
+             frame, frame - g_video_start);
+    }
+  }
+  g_video_was = video;
+
   // The screen takes its place when the walls start to close. A cut scene
   // that starts while the walls are in the view keeps the place that they
   // have.
@@ -909,6 +974,10 @@ void CutsceneWindowReport() {
   ModLog("cut scene    : %llu frames in the window and %llu frames of a "
          "change this report. %llu cut scenes had a window this session.",
          g_flat_frames, g_change_frames, g_scenes);
+  if (g_video_frames != 0) {
+    ModLog("cut scene    : a video of the game was on the screen plane in %llu "
+           "frames this report", g_video_frames);
+  }
   if (g_flat_frames != 0 && g_report_plane[1] > 0.0f) {
     ModLog("cut scene    : the screen plane was at %.1f to %.1f units this "
            "report (%.2f to %.2f units for each meter of depth). %llu frames "
@@ -925,4 +994,5 @@ void CutsceneWindowReport() {
   g_report_shots = 0;
   g_flat_frames = 0;
   g_change_frames = 0;
+  g_video_frames = 0;
 }
