@@ -578,13 +578,6 @@ that moves while the Hand takes it.
   around the player, with no window and with the camera of the game and all
   its motion (`script_camera=0`). The window stays the default. No run has
   shown it: a desktop run has no head to feel the motion.
-- **P18. The left hand option of the game.** The game has an option for a
-  left hand. Wanted: the mod reads that option, and with it the left
-  controller is the Hand: the player points, takes and throws with the left
-  hand, and each job of the right controller and of the left controller
-  changes sides (the sticks, the buttons, the hints). Not known: where the
-  game keeps the option, and what the mod does with it now. The mod has the
-  key `controller_hand` for the hand that points.
 - **P5. Hand tracking.** The player plays with the hands and no
   controllers: the Hand follows the real hand and its fingers, one to one,
   as it follows a controller. First find what the headset gives to the

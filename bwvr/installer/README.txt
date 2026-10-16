@@ -298,6 +298,13 @@ or press last is the one that points.
 The right hand points. The Hand is where your hand is, and it has the
 size of your hand.
 
+To play with the left hand, set the left handed option in the options
+of the game, or set "Hand" in the launcher (key left_hand). Then the
+left controller is the Hand, and the controls below change sides: the
+left trigger, grip, stick, X and Y do the jobs of the right trigger,
+grip, stick, A and B. The right controller does the jobs of the left
+controller. The left menu button opens the game menu with each hand.
+
   Trigger             The left mouse button: drag the land, and click
                       on things.
   Trigger, leash on   Point at an object or at the land and press the

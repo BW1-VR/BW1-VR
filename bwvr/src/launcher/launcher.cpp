@@ -239,6 +239,11 @@ const Setting kSettings[] = {
     //  "Direct hand: the Hand is where your controller is. Stretch your arm to "
     //  "reach far into the world. Pointer: the controller points a ray, and the "
     //  "Hand goes where the ray points."},
+    {kValues, "left_hand", "Hand", "Follow the game=-1|Right=0|Left=1", -1,
+     "Which controller is the Hand. Follow the game: the left handed option "
+     "in the options of the game chooses it. Right or Left: the controller "
+     "of that hand is the Hand. The other controller grabs the world, moves "
+     "you with its stick and opens the ring."},
     {kBool, "hand_glow", "Glow at the Hand's point", nullptr, 0,
      "A small glow at the tip of the index finger shows the point of the "
      "Hand that picks up and clicks. It shows while a press of the grip "

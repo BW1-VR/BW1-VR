@@ -90,7 +90,7 @@ void IntroSkipFrame(uintptr_t caller, bwvr::XrScreen* screen);
 // controllers.cpp
 void ControllerHintsSetOptions(bool on, const char* forced_profile);
 bool ControllerHintsInstall();
-void ControllersSetOptions(bool on, bool left_handed, bool haptics,
+void ControllersSetOptions(bool on, int left_hand, bool haptics,
                            bool swap_buttons);
 void ControllersSetFake(const FakeControllerSettings& fake);
 void ControllersSetScreen(bwvr::XrScreen* screen);
@@ -415,7 +415,9 @@ float g_fake_roll = 0.0f;
 bool g_fake_sweep = false;
 // The player key "controllers" turns the whole controller path off.
 bool g_controllers = true;
-bool g_controller_left_handed = false;
+// The player key "left_hand": -1 follows the game's own option, 0 makes the
+// right controller the Hand, 1 the left controller.
+int g_left_hand = -1;
 bool g_controller_swap_buttons = false;
 bool g_controller_hints = true;
 bool g_hint_selftest = false;
@@ -1007,8 +1009,8 @@ void ReadSettings() {
   // through int first, for the same reason as above.
   g_controllers = GetPrivateProfileIntA("bwvr", "controllers", 1, path) != 0;
   // Player keys: which hand points, which trigger is which button, pulses.
-  g_controller_left_handed =
-      GetPrivateProfileIntA("bwvr", "controller_left_handed", 0, path) != 0;
+  g_left_hand = GetPrivateProfileIntA("bwvr", "left_hand", -1, path);
+  if (g_left_hand < -1 || g_left_hand > 1) g_left_hand = -1;
   g_controller_swap_buttons =
       GetPrivateProfileIntA("bwvr", "controller_swap_buttons", 0, path) != 0;
   g_controller_haptics =
@@ -1436,7 +1438,7 @@ void StartVrOnce() {
       HeadPoseSetFakeLean(g_fake_lean_cm[0], g_fake_lean_cm[1],
                           g_fake_lean_cm[2]);
     }
-    ControllersSetOptions(g_controllers, g_controller_left_handed,
+    ControllersSetOptions(g_controllers, g_left_hand,
                           g_controller_haptics, g_controller_swap_buttons);
     ControllersSetFake(g_fake_controller);
     ControllersInstall();

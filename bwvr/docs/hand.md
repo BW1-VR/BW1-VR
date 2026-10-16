@@ -603,7 +603,7 @@ section 7 for the size of the exact Hand.
 | `hand_reach_anchor_down_cm` | 20 | The reach anchor is the head center at the last recenter, this far down (0 to 100) |
 | `hand_real_cm` | 19 | The length of the real hand, from the wrist to the finger tips |
 | `hand_scale_pct` | 100 | The Hand's size in percent of the real hand |
-| `controller_left_handed` | 0 | 1 makes the left hand the Hand (section 8) |
+| `left_hand` | -1 | Which controller is the Hand (section 8). -1 follows the left handed option of the game, 0 the right controller, 1 the left controller |
 | `fake_controller_points` | | Test key. A list of `right,up,forward` in cm |
 
 Test script words (with the fake controller): `point@frame+frames` steps the
@@ -691,7 +691,8 @@ bone, so a Hand that moved glides from its old place.
   toward the thumb. `CHand::LoadBinary` calls `ToggleLeftRight` once
   (`0x0046D56F`), which turns the winding of the triangles and sets `+0x484C`.
   `fn_0046D080` then mirrors x, so the Hand that the game draws is a right
-  hand. The game's own left handed option toggles it back.
+  hand. The game's own left handed option toggles it back, and so does the
+  mod when the left controller is the Hand (section 8).
 - **The pose.** Each Hand state builds a root matrix, then samples its
   animation into the pose array `*(+0x47F0)` (`fn_00860E00` or
   `fn_00861EE0`), then composes the bones with the root: `fn_00839F10`, cdecl
@@ -1004,8 +1005,8 @@ the opening of the hand in the palm looks wrong.
 ## 8. The two real hands and which one is the Hand
 
 The Hand is the pointing hand: the right controller by default
-(`PointingIndex()` is 1), the left one with `controller_left_handed=1`
-(index 0). The pointing hand does these things:
+(`PointingIndex()` is 1), the left one (index 0) with the left handed
+option of the game or with `left_hand=1` (`controllers.md`, 5.6). The pointing hand does these things:
 
 - It places the game's Hand (section 4), points the ray of the teleport, the
   menus and the far grab, and sends the trigger and the grip to the game as
@@ -1023,12 +1024,13 @@ it can hold. With `grab_hand=2` the pointing grip can also start a grab alone
 by the same rule.
 
 The Hand does not move to the other hand. The game has one Hand, and the mod
-keeps it at the pointing controller. With `controller_left_handed=1` the
-game's Hand is still a right hand (`+0x484C` is set), so on the left
-controller its palm and fingers fit and its thumb is on the other side. The
-mesh of the game is hidden by default, and the overlay draws a hand model on
-both controllers (see [hand-model.md](hand-model.md)). The game's own left
-handed option makes the game's Hand a left hand.
+keeps it at the pointing controller. The game's Hand is the hand of that
+controller: when `+0x484C` does not fit, the mod calls
+`CHand::ToggleLeftRight`, as the game does for its own left handed option. So
+on the left controller the game's Hand is a left hand, and its thumb is on
+the side of the real thumb. The mesh of the game is hidden by default, and
+the overlay draws a hand model on both controllers (see
+[hand-model.md](hand-model.md)).
 
 ## Open questions
 

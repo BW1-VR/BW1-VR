@@ -425,8 +425,8 @@ because the trigger is held back. `controller_swap_buttons` exchanges the
 trigger and the grip of the pointing hand.
 
 `khr/simple_controller` has no squeeze, so there the other hand's select (its
-trigger) grabs. A left handed player (`controller_left_handed=1`) has the
-mirror: the left hand points and the right hand grabs.
+trigger) grabs. A left handed player (`left_hand`, `controllers.md`, 5.6)
+has the mirror: the left hand points and the right hand grabs.
 
 | Profile | Grip source |
 | --- | --- |
@@ -1124,7 +1124,8 @@ about 9 degrees (`tabletop.md`, "A spirit at a place of the world"). With
 | Ctrl F11 | The God view off and on. Off is the immersive view |
 | F11 | Recenter: the waist point goes under your head again |
 
-For a left handed player (`controller_left_handed=1`) the hands change sides:
+For a left handed player (the left controller is the Hand, `controllers.md`,
+5.6) the hands change sides:
 the pointing hand's stick zooms and turns, the other hand's grip moves the
 land, across and up and down, and the other hand's stick moves the player.
 The right hand then has the ring on B, and the draw button of the left hand

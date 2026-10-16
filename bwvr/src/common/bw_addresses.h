@@ -65,7 +65,11 @@ constexpr uintptr_t kThrowObject           = 0x0046DDD0;
 constexpr uintptr_t kGetMaxForce           = 0x0046BFB0;
 constexpr uintptr_t kUpdateHeldObject      = 0x0046E490;
 constexpr uintptr_t kOperateInteractionCam = 0x0046CB60;
-constexpr uintptr_t kToggleLeftRight       = 0x0046C260;
+constexpr uintptr_t kToggleLeftRight       = 0x0046C260;  // __thiscall
+// CHand+0x484C is 1 while the game draws its Hand as a right hand. The
+// stored mesh is a left hand. ToggleLeftRight flips this flag and the
+// winding of the triangles of the mesh.
+constexpr uintptr_t kMirrorOffset          = 0x484C;
 constexpr uintptr_t kShow                  = 0x0046C1B0;
 constexpr uintptr_t kDraw                  = 0x0046D210;
 constexpr uintptr_t kGameTurnUpdate        = 0x0046E4E0;
@@ -243,6 +247,15 @@ constexpr uintptr_t kRandomSeedOffset = 0x205A3C;
 
 constexpr uintptr_t kNewZObject      = 0x0083F310;  // LH3DZSorter::NewZObject
 constexpr uintptr_t kZSorter         = 0x00ECA648;  // LH3DZSorter*
+
+// The left hand option of the game: the profile value HAND_ORIENTATION, 1
+// for a left hand. PlayerProfile::GetProfileByName reads it into
+// PlayerProfile::Profile (0x00D4BD38) + 0x81C at 0x0066BC50, and the
+// options screen writes it there at 0x00514925. The game uses it only for
+// its Hand: fn_0046E5F0 (from GInterface::SetupHand and GPlayer::InitReal)
+// and the packet 0x64 call CHand::ToggleLeftRight until CHand+0x484C is 0
+// for a left hand and 1 for a right hand. It does not swap the buttons.
+constexpr uintptr_t kHandOrientation = 0x00D4C554;  // int32
 
 }  // namespace game
 
