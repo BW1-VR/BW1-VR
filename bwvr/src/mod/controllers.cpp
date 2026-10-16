@@ -3932,6 +3932,23 @@ bool ControllerRenderPixel(float* x, float* y, bool* off_view) {
   return true;
 }
 
+// For intro_vr.cpp: the render pixel of the Hand's point of the pointing
+// hand with the direct hand, also while a dialog box is up. The value of the
+// active box is not 0 while the Lionhead logo plays, so ControllerRenderPixel
+// gives the pixel of the aim ray there. False with controller_hand=0. With
+// no pixel of the Hand, off_view is true.
+bool ControllerHandPixel(float* x, float* y, bool* off_view) {
+  if (!DirectMode()) return false;
+  if (!g_point.have_hand_pixel) {
+    *off_view = true;
+    return true;
+  }
+  *x = g_point.hand_x;
+  *y = g_point.hand_y;
+  *off_view = g_point.hand_off_view;
+  return true;
+}
+
 // For gesture_air.cpp: the draw button and the points of the last
 // controllers frame. False with the controllers off, or before the first
 // frame.

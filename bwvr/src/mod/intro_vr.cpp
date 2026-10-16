@@ -50,6 +50,12 @@
 // then does not run, and the motion that the mouse made in that time stays
 // in the device for the next frame (intro_push_once).
 //
+// THE PUSH OF THE HAND. The push needs a motion of the mouse device: the
+// effect reads the two motion sums of LHMouse after LHMouse::UpdateDeltaPos.
+// With the pointer owned by the controller, the first eye pass adds the
+// motion of the pixel of the hand to those sums (intro_hand_push_pct). So the
+// hand pushes the orbs as a mouse does, through the code of the game.
+//
 // Three more values change on each call and are not scaled by time: the
 // smoothed mouse motion, the speed of the effect clock at 0x00D34A8C (the
 // mouse wheel changes it), and the C runtime random seed (each sprite gets a
@@ -143,6 +149,9 @@ void EyeCaptureSave(uint64_t stereo_frame, int eye, const void* pixels,
 // controllers.cpp
 void ControllersFrame();
 void ControllersGesturePulse(float amplitude, float seconds);
+bool ControllersOwnPointer();
+bool ControllerRenderPixel(float* x, float* y, bool* off_view);
+bool ControllerHandPixel(float* x, float* y, bool* off_view);
 
 namespace {
 
@@ -197,6 +206,9 @@ bool g_eye_trails = true;      // intro_eye_trails: each eye has its trails
 bool g_text_place = true;      // intro_text_place: the flat text has a place
 bool g_push_once = true;       // intro_push_once: one push for each frame
 bool g_controller = true;      // intro_controller: the aim moves the pointer
+int g_hand_push_pct = 100;     // intro_hand_push_pct: the hand pushes the orbs
+int g_hand_push_set_pct = 100; // the value of the ini, for the test key
+bool g_hand_point = true;      // intro_hand_point: the pointer is at the hand
 bool g_probe = false;          // intro_probe: log the cameras each second
 bool g_test_keys = false;      // test_keys
 int g_motion_test_ms = 0;      // intro_motion_test_seconds, a test
@@ -262,6 +274,18 @@ uint64_t g_timed = 0;
 int g_clock_logged = -1;
 int g_probe_lines = 0;
 bool g_menu_before = false;
+
+// The push of the hand.
+intro_motion::HandPush g_hand = {false, 0.0f, 0.0f, 0.0f, 0.0f};
+uint64_t g_hand_pair = 0;        // the pair of the last step
+int32_t g_hand_point_x = 0;      // the last pixel of the Hand's point
+int32_t g_hand_point_y = 0;
+bool g_have_hand_point = false;
+int32_t g_push_pointer_x = 0;    // the pointer that the push of the effect read
+int32_t g_push_pointer_y = 0;
+uint64_t g_hand_push_frames = 0; // frames in which the hand gave a motion
+uint64_t g_hand_push_counts = 0; // the sum of that motion, across and down
+bool g_hand_push_said = false;
 
 uint32_t* DeltaTime() {
   return reinterpret_cast<uint32_t*>(bw::tech::kDeltaTime);
@@ -501,11 +525,15 @@ void SwitchTrails(const char* who) {
 // intro, and only while a window of the game is in front. Shift with Page Up
 // steps intro_motion. Shift with Page Down switches intro_eye_trails, and
 // Shift with Delete switches intro_text_place: a long pulse for 1 and a
-// short pulse for 0. Ctrl must be up for each of them.
+// short pulse for 0. Shift with Home switches the push of the hand between
+// off and on, and Shift with End switches intro_hand_point: a long pulse
+// for on and a short pulse for off. Ctrl must be up for each of them.
 void PollKeys() {
   static bool was_motion = false;
   static bool was_trails = false;
   static bool was_text = false;
+  static bool was_hand = false;
+  static bool was_point = false;
   if (g_key_pulses > 0 && GetTickCount() >= g_key_pulse_tick) {
     --g_key_pulses;
     g_key_pulse_tick = GetTickCount() + 250;
@@ -517,13 +545,22 @@ void PollKeys() {
   const bool motion = lone_shift && (GetAsyncKeyState(VK_PRIOR) & 0x8000) != 0;
   const bool trails = lone_shift && (GetAsyncKeyState(VK_NEXT) & 0x8000) != 0;
   const bool text = lone_shift && (GetAsyncKeyState(VK_DELETE) & 0x8000) != 0;
+  const bool hand = lone_shift && (GetAsyncKeyState(VK_HOME) & 0x8000) != 0;
   const bool motion_pressed = motion && !was_motion;
   const bool trails_pressed = trails && !was_trails;
   const bool text_pressed = text && !was_text;
+  const bool point = lone_shift && (GetAsyncKeyState(VK_END) & 0x8000) != 0;
+  const bool hand_pressed = hand && !was_hand;
+  const bool point_pressed = point && !was_point;
   was_motion = motion;
   was_trails = trails;
   was_text = text;
-  if (!motion_pressed && !trails_pressed && !text_pressed) return;
+  was_hand = hand;
+  was_point = point;
+  if (!motion_pressed && !trails_pressed && !text_pressed && !hand_pressed &&
+      !point_pressed) {
+    return;
+  }
   DWORD process = 0;
   const HWND window = GetForegroundWindow();
   if (window != nullptr) GetWindowThreadProcessId(window, &process);
@@ -544,6 +581,27 @@ void PollKeys() {
                           "in each eye",
            *Clock());
   }
+  if (hand_pressed) {
+    g_hand_push_pct = g_hand_push_pct > 0
+                          ? 0
+                          : (g_hand_push_set_pct > 0 ? g_hand_push_set_pct
+                                                     : 100);
+    ControllersGesturePulse(0.5f, g_hand_push_pct > 0 ? 0.24f : 0.08f);
+    ModLog("test key     : Shift and Home: intro_hand_push_pct is %d now "
+           "(%s), clock %.2f", g_hand_push_pct,
+           g_hand_push_pct > 0 ? "a motion of the hand pushes the orbs"
+                               : "only a motion of the mouse pushes the orbs",
+           *Clock());
+  }
+  if (point_pressed) {
+    g_hand_point = !g_hand_point;
+    ControllersGesturePulse(0.5f, g_hand_point ? 0.24f : 0.08f);
+    ModLog("test key     : Shift and End: intro_hand_point is %d now (%s), "
+           "clock %.2f", g_hand_point ? 1 : 0,
+           g_hand_point ? "the pointer is at the Hand's point"
+                        : "the pointer is where the aim ray points",
+           *Clock());
+  }
 }
 
 // A key that goes down ends the logo: DoLogo tests the last key after each
@@ -554,7 +612,9 @@ void KeepLogoForTestKey() {
   if ((GetAsyncKeyState(VK_SHIFT) & 0x8000) == 0 &&
       (GetAsyncKeyState(VK_PRIOR) & 0x8000) == 0 &&
       (GetAsyncKeyState(VK_NEXT) & 0x8000) == 0 &&
-      (GetAsyncKeyState(VK_DELETE) & 0x8000) == 0) {
+      (GetAsyncKeyState(VK_DELETE) & 0x8000) == 0 &&
+      (GetAsyncKeyState(VK_HOME) & 0x8000) == 0 &&
+      (GetAsyncKeyState(VK_END) & 0x8000) == 0) {
     return;
   }
   *reinterpret_cast<uint32_t*>(kLastKey) = 0;
@@ -698,6 +758,24 @@ void ProbeOrbs() {
   }
 }
 
+// With intro_probe: how many orbs are farther than `distance` from their
+// home. Only a push moves an orb from its home, and the spring pulls it back.
+int OrbsAway(float distance) {
+  const uint8_t* records = *reinterpret_cast<uint8_t* const*>(kParticles);
+  const float* homes = *reinterpret_cast<const float* const*>(kHomes);
+  if (records == nullptr || homes == nullptr ||
+      IsBadReadPtr(records, 0x34 * kOrbs) ||
+      IsBadReadPtr(homes, sizeof(float) * 3 * kOrbs)) {
+    return -1;
+  }
+  int away = 0;
+  for (int orb = 0; orb < kOrbs; ++orb) {
+    const float* p = reinterpret_cast<const float*>(records + 0x34 * orb);
+    if (Distance(p, homes + orb * 3) > distance) ++away;
+  }
+  return away;
+}
+
 void LogPair() {
   if (g_timed == 0) return;
   ModLog("intro        : %llu pairs, %.2f ms for the two effect calls (worst "
@@ -707,6 +785,58 @@ void LogPair() {
   g_call_ms_total = g_pair_ms_total = 0.0;
   g_call_ms_worst = g_pair_ms_worst = 0.0;
   g_timed = 0;
+}
+
+// THE PUSH OF THE HAND, in the first eye pass, after LHMouse::UpdateDeltaPos
+// has added the motion of the mouse device and pointer_map.cpp has put the
+// pixel of the controller in the pointer. The value of the active box is not
+// 0 while the logo plays, so that pixel is the pixel of the aim ray. With
+// intro_hand_point=1 the pointer gets the pixel of the Hand's point, so the
+// push is at the hand. The motion of the pixel goes into the motion sums,
+// which the effect then reads. A pair that did not run in stereo before this
+// one is a gap, so the pixel of the hand starts again. A frame with no pixel
+// of the Hand keeps the pointer at the last one: the pixel of the aim ray is
+// at a different place, and the smoothed motion of the frames before still
+// pushes there.
+void HandPush() {
+  float x = 0.0f, y = 0.0f;
+  bool off_view = true;
+  bool has_pixel = false;
+  if (ControllersOwnPointer()) {
+    if (g_hand_point && ControllerHandPixel(&x, &y, &off_view)) {
+      has_pixel = !off_view;
+      if (has_pixel) {
+        g_hand_point_x = static_cast<int32_t>(x);
+        g_hand_point_y = static_cast<int32_t>(y);
+        g_have_hand_point = true;
+      }
+      if (g_have_hand_point) {
+        int32_t* pointer = reinterpret_cast<int32_t*>(kPointerX);
+        pointer[0] = g_hand_point_x;
+        pointer[1] = g_hand_point_y;
+      }
+    } else {
+      has_pixel = ControllerRenderPixel(&x, &y, &off_view) && !off_view;
+    }
+  }
+  if (g_hand_pair + 1 != g_pairs) g_hand.have = false;
+  g_hand_pair = g_pairs;
+  int dx = 0, dy = 0;
+  intro_motion::HandPushStep(&g_hand, has_pixel, x, y, g_hand_push_pct, &dx,
+                             &dy);
+  if (dx == 0 && dy == 0) return;
+  int32_t* motion = reinterpret_cast<int32_t*>(kMouseMotionX);
+  motion[0] += dx;
+  motion[1] += dy;
+  ++g_hand_push_frames;
+  g_hand_push_counts += static_cast<uint64_t>((dx < 0 ? -dx : dx) +
+                                              (dy < 0 ? -dy : dy));
+  if (!g_hand_push_said) {
+    g_hand_push_said = true;
+    ModLog("intro        : the hand moved the pointer to %.1f %.1f and gives "
+           "the mouse a motion of %d %d. The effect pushes the orbs near the "
+           "pointer, clock %.2f", x, y, dx, dy, *Clock());
+  }
 }
 
 void RunPair() {
@@ -814,8 +944,13 @@ void RunPair() {
 
   if (g_probe && (g_pairs % 100) == 0) {
     const int32_t* pointer = reinterpret_cast<const int32_t*>(0x00E852C0);
-    ModLog("intro        : pair %llu pointer at %d %d, buttons 0x%02X", g_pairs,
-           pointer[0], pointer[1], *reinterpret_cast<const uint8_t*>(0x00E85304));
+    ModLog("intro        : pair %llu pointer at %d %d, at the push %d %d, "
+           "buttons 0x%02X, the pointer is the %s, the hand pushed in %llu "
+           "frames, %d orbs are more than 1 unit from their home", g_pairs,
+           pointer[0], pointer[1], g_push_pointer_x, g_push_pointer_y,
+           *reinterpret_cast<const uint8_t*>(0x00E85304),
+           ControllersOwnPointer() ? "controller" : "mouse",
+           g_hand_push_frames, OrbsAway(1.0f));
   }
   if (log_particles) {
     ModLog("intro        : pair %llu clock %.4f before, %.4f after, frame "
@@ -874,7 +1009,12 @@ void __cdecl h_RunAlexFx(int mode) {
              "camera. The keeps of the eye pictures made %llu copies",
              g_pairs, g_flat_frames, g_motion, g_flat_placed, g_flat_dropped,
              GpuBridgeKeepCopies());
+      ModLog("intro        : the hand gave the mouse a motion in %llu frames, "
+             "%llu counts in all (intro_hand_push_pct=%d)", g_hand_push_frames,
+             g_hand_push_counts, g_hand_push_pct);
     }
+    g_hand.have = false;
+    g_have_hand_point = false;
     return;
   }
   const bool ready = mode == 1 && g_on && !g_gave_up && g_installed &&
@@ -941,13 +1081,23 @@ bool IntroMouseCall(uintptr_t caller) {
   return g_eye == 1 && g_push_once;
 }
 
-// For input_watch.cpp: the same call has read the mouse. A test of a desktop
-// run (intro_push_test_px): the first eye pass gets a motion of the mouse
-// that no hand made, and the pointer is in the middle of the picture, on the
-// logo. The second eye pass gets the same pointer and no motion, as from a
-// real mouse.
+// For input_watch.cpp: the same call has read the mouse, and the pointer has
+// its place. The first eye pass adds the motion of the hand (HandPush).
+// A test of a desktop run (intro_push_test_px): the first eye pass gets a
+// motion of the mouse that no hand made, and the pointer is in the middle of
+// the picture, on the logo. The second eye pass gets the same pointer and no
+// motion, as from a real mouse.
 void IntroMouseRead(uintptr_t caller) {
-  if (g_push_test_px == 0 || g_eye < 0 || caller != kMouseCall + 5) return;
+  if (g_eye < 0 || caller != kMouseCall + 5) return;
+  if (g_eye == 0) {
+    HandPush();
+    // The push of the effect reads the pointer next. Other code can write
+    // it later in the frame, so the probe logs this value.
+    const int32_t* pointer = reinterpret_cast<const int32_t*>(kPointerX);
+    g_push_pointer_x = pointer[0];
+    g_push_pointer_y = pointer[1];
+  }
+  if (g_push_test_px == 0) return;
   const bw::tech::InfoTransform* info =
       reinterpret_cast<const bw::tech::InfoTransform*>(
           bw::tech::kInfoTransform);
@@ -1127,6 +1277,16 @@ void IntroSetTests(int motion_seconds, int push_pixels) {
   g_push_test_px = push_pixels;
 }
 
+// intro_hand_push_pct: the motion of the hand, in percent of its pixels, that
+// goes to the motion of the mouse. 0 is off: only a mouse pushes the orbs.
+// intro_hand_point: the pointer is at the Hand's point, not where the aim
+// ray points.
+void IntroSetHandPush(int percent, bool hand_point) {
+  g_hand_push_pct = percent < 0 ? 0 : percent > 400 ? 400 : percent;
+  g_hand_push_set_pct = g_hand_push_pct;
+  g_hand_point = hand_point;
+}
+
 void IntroInstall() {
   if (!g_on || g_installed) return;
   if (!CodeIsWhatWeExpect()) return;
@@ -1153,15 +1313,17 @@ void IntroInstall() {
          "%.2f m from the head at the rest pose (%.2f m for the model of "
          "intro_motion=2), the clock of the effect runs at %d percent, "
          "intro_eye_trails=%d, intro_text_place=%d, intro_push_once=%d, "
-         "controller %s",
+         "controller %s, intro_hand_push_pct=%d, intro_hand_point=%d",
          g_motion, MotionText(g_motion), g_distance_m, g_model_distance_m,
          g_speed_pct, g_eye_trails ? 1 : 0, g_text_place ? 1 : 0,
-         g_push_once ? 1 : 0, g_controller ? "on" : "off");
+         g_push_once ? 1 : 0, g_controller ? "on" : "off", g_hand_push_pct,
+         g_hand_point ? 1 : 0);
   if (g_test_keys) {
     ModLog("intro        : test_keys=1: while the logo plays in stereo, Shift "
            "and Page Up step intro_motion, Shift and Page Down switch "
-           "intro_eye_trails, and Shift and Delete switch intro_text_place. "
-           "These keys do not end the logo");
+           "intro_eye_trails, Shift and Delete switch intro_text_place, Shift "
+           "and Home switch the push of the hand, and Shift and End switch "
+           "intro_hand_point. These keys do not end the logo");
   }
   if (g_motion_test_ms > 0) {
     ModLog("intro        : test key intro_motion_test_seconds: each %d s of "

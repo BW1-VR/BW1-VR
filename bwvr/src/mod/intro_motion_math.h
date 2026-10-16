@@ -263,4 +263,42 @@ inline float LogoWidth(const float* homes, int count) {
   return high > low ? high - low : 0.0f;
 }
 
+// THE PUSH OF THE HAND (intro_hand_push_pct). The effect pushes the orbs
+// near the pointer only when the mouse device moved: it reads the two motion
+// sums of LHMouse. The controller gives the pointer a pixel. The motion of
+// that pixel since the frame before, in render pixels and times the percent,
+// goes into the two sums as whole counts. The fraction stays for the next
+// frame, so a slow hand also pushes. A frame with no pixel gives no motion
+// and forgets the pixel, so a pixel that comes back after a gap is not a
+// motion of the hand.
+struct HandPush {
+  bool have;
+  float last_x, last_y;
+  float carry_x, carry_y;
+};
+
+inline void HandPushStep(HandPush* s, bool has_pixel, float x, float y,
+                         int percent, int* dx, int* dy) {
+  *dx = 0;
+  *dy = 0;
+  if (!has_pixel || percent <= 0) {
+    s->have = false;
+    s->carry_x = 0.0f;
+    s->carry_y = 0.0f;
+    return;
+  }
+  if (s->have) {
+    const float gain = static_cast<float>(percent) * 0.01f;
+    s->carry_x += (x - s->last_x) * gain;
+    s->carry_y += (y - s->last_y) * gain;
+    *dx = static_cast<int>(s->carry_x);
+    *dy = static_cast<int>(s->carry_y);
+    s->carry_x -= static_cast<float>(*dx);
+    s->carry_y -= static_cast<float>(*dy);
+  }
+  s->have = true;
+  s->last_x = x;
+  s->last_y = y;
+}
+
 }  // namespace intro_motion

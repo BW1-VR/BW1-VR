@@ -582,8 +582,12 @@ that moves while the Hand takes it.
     rule "no motion that the player did not make"), 3 is the camera of the
     game with its turns, 0 is the still camera. `intro_speed_pct` makes the
     path slower. Then choose the default, and decide if `intro_vr` goes on.
-  - Not built: a push of the orbs with a controller, and a push in 3D. A
-    controller does not push the orbs now (`intro.md`, "Open work").
+  - Does the push of the hand feel right? A motion of the hand pushes the
+    orbs as a mouse does (`intro_hand_push_pct`, 100 by default), at the
+    Hand's point (`intro_hand_point=1`). Shift and Home switch the push off
+    and on, and Shift and End put the pointer at the aim ray.
+  - Not built: a push in 3D, a push of the second hand, and a push of the
+    hand in the flat intro (`intro.md`, "Open work").
 - **P12. Ideas from Half-Life: Alyx** that are not built are in
   `research-hla.md`, for the far grab, the teleport, the hands, the hints,
   the sound and comfort.

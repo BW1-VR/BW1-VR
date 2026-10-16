@@ -268,6 +268,38 @@ inline void IntroMotionChecks() {
   Near("the width of the logo on its plane, from orbs at each depth",
        LogoWidth(homes, 3), 76.0, 0.001);
   Check(LogoWidth(homes, 0) == 0.0f, "no orbs give no width", 0, 0);
+
+  // THE PUSH OF THE HAND: the motion of the pixel of the hand, as counts of
+  // the mouse.
+  HandPush hand = {false, 0.0f, 0.0f, 0.0f, 0.0f};
+  int dx = 0, dy = 0;
+  HandPushStep(&hand, true, 1000.0f, 600.0f, 100, &dx, &dy);
+  Check(dx == 0 && dy == 0, "the first pixel of the hand gives no motion", dx,
+        dy);
+  HandPushStep(&hand, true, 1012.0f, 595.0f, 100, &dx, &dy);
+  Check(dx == 12 && dy == -5,
+        "12 pixels right and 5 up give 12 counts right and 5 up", dx, dy);
+  HandPushStep(&hand, true, 1012.0f, 595.0f, 100, &dx, &dy);
+  Check(dx == 0 && dy == 0, "a still hand gives no motion", dx, dy);
+  HandPushStep(&hand, true, 1022.0f, 595.0f, 50, &dx, &dy);
+  Check(dx == 5 && dy == 0, "50 percent gives half the counts", dx, dy);
+  int sum = 0;
+  for (int i = 1; i <= 10; ++i) {
+    HandPushStep(&hand, true, 1022.0f + 0.5f * i, 595.0f, 100, &dx, &dy);
+    sum += dx;
+  }
+  Check(sum == 5, "a slow hand, 0.5 pixels a frame for 10 frames, gives 5 "
+        "counts: the fraction stays", sum, 5);
+  HandPushStep(&hand, false, 0.0f, 0.0f, 100, &dx, &dy);
+  Check(dx == 0 && dy == 0, "a frame with no pixel gives no motion", dx, dy);
+  HandPushStep(&hand, true, 300.0f, 900.0f, 100, &dx, &dy);
+  Check(dx == 0 && dy == 0,
+        "a pixel that comes back after a gap is not a motion", dx, dy);
+  HandPushStep(&hand, true, 290.0f, 900.0f, 0, &dx, &dy);
+  Check(dx == 0 && dy == 0, "0 percent gives no motion", dx, dy);
+  HandPushStep(&hand, true, 280.0f, 900.0f, 100, &dx, &dy);
+  Check(dx == 0 && dy == 0,
+        "after 0 percent the next pixel starts again with no motion", dx, dy);
 }
 
 }  // namespace intro_motion_checks
