@@ -1164,8 +1164,8 @@ The cause is not known (`roadmap.md`, N1).
 The cost of a frame follows the count of the draw calls. The mod can give two
 draw calls that follow each other to Direct3D as one when the device has the
 same state at both. `profile=3` counts such rows of draw calls, the runs
-(`bench_run.ps1 -ProfileLevel 3`). The numbers of the six scenes, for both eye
-passes of a frame:
+(`bench_run.ps1 -ProfileLevel 3`). The numbers of the six scenes with two
+scene walks in a frame (`one_walk=0`), for both eye passes of a frame:
 
 | Scene | Draw calls | Runs | Fewer draw calls | Runs that start at a change of a texture only | Runs that start at a change of a render state or of a stage state | State calls of the game |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -1179,8 +1179,17 @@ passes of a frame:
 - Two runs gave the same counts, within 3 draw calls and 5 state calls.
 - Each draw call is a triangle list, so a merge needs only new index values.
 - Each state call of the game changes a value: the game makes no call that
-  sets a state to the value that it has. So a filter of such calls saves
-  nothing.
+  sets a state to the value that it has. The game keeps the value of each
+  render state and of each stage state, and it calls the device only for a
+  different value (`LH3DRender::SetRenderState` at `0x00412940`,
+  `LH3DRender::SetTextureStageState` at `0x0082B9C0`). With one walk
+  (`one_walk=1`, the default) the game makes 1580 to 2610 state calls in a
+  frame in the six scenes, and each of them changes a value. So a cache of
+  the states in the mod has no call to drop.
+- The texture filter (`texture_filter.cpp`) adds about 4 calls in a frame to
+  the calls of the game: the mip filter beside each min filter, and the
+  anisotropy beside each raised filter. In the six scenes the game sets a min
+  filter about 2 times in a frame.
 - A draw call takes 1.6 to 1.7 microseconds in Direct3D, so the draw calls
   that a merge can save are 1.3 to 1.9 ms of a frame in scenes 1 to 5. The
   merge of the mod gets 0.4 to 0.8 ms of that (see the next section). The

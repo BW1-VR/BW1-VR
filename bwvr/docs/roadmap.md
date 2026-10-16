@@ -686,13 +686,9 @@ that moves while the Hand takes it.
     calls the device from a second thread. If it does not, a test that takes
     `D3DCREATE_MULTITHREADED` off at the creation of the device when
     `frame_send` is not 2, and a benchmark of it.
-  - **State calls that change nothing.** The game makes 3200 to 5400 state
-    calls in a frame. To do: count how many of them set the value that the
-    state has. If the share is large, the mod drops them before dxwrapper
-    gets them.
   - **A render thread for the Direct3D calls.** To do. The Direct3D draw
-    calls are 3.3 to 4.8 ms of a frame in scenes 1 to 5, and the game makes
-    3200 to 5400 state calls in a frame. In the sampling profile with one
+    calls are 3.3 to 4.8 ms of a frame in scenes 1 to 5, and with one walk
+    the game makes 1580 to 2610 state calls in a frame. In the sampling profile with one
     walk, the driver, `d3d9.dll` and the calls into the kernel under them
     were about 45 percent of the frame thread, and the code of the game 23
     percent. A thread that gets a record of these calls and gives them to
@@ -707,7 +703,12 @@ that moves while the Hand takes it.
     0.4 ms at the most. The gain for the GPU is not measured. The game turn
     off the render thread: a game turn is 0.4 ms in one frame of six, which
     is 0.05 to 0.11 ms as a mean. So the mean does not change. It can only
-    take the turns of 4.5 to 9.5 ms out of the frame.
+    take the turns of 4.5 to 9.5 ms out of the frame. A cache that drops a
+    state call for the value that the state has: the game makes no such
+    call, because it keeps the values itself (`backend.md`, "Draw calls with
+    one state"). With one walk, each of its 1580 to 2610 state calls in a
+    frame changes a value. The texture filter of the mod adds about 4 calls
+    in a frame.
 - **N2. The hands that react.** The part for bodies that the hand passes
   is built and off (`hand_feel_bodies`): no picture proves it. Not shown: a
   tree taken with the palm to the side. The idle wave is off
