@@ -465,6 +465,9 @@ bool g_cpu_newer = false;
 // a part, before a clear of the whole target starts with the picture of the
 // walk before it (a copy from the other target).
 bool g_keep_picture = true;
+// vk_untextured: a stage 0 with no texture gives the diffuse color for an
+// operation with the texture as an argument (VkSceneDraw).
+bool g_untextured = true;
 bool g_walk_keep = false;          // the walk now can still take the picture
 bool g_target_drawn[2] = {false, false};  // the target has a picture
 uint64_t g_kept_walks = 0;         // for the report
@@ -3448,6 +3451,22 @@ void VkSceneDraw(uint32_t type, uint32_t fvf, const void* vertices,
                 (ts[D3DTSS_COLORARG2] & 255) << 16;
   push.ops[1] = (ts[D3DTSS_ALPHAOP] & 255) | (ts[D3DTSS_ALPHAARG1] & 255) << 8 |
                 (ts[D3DTSS_ALPHAARG2] & 255) << 16;
+  // A STAGE 0 WITH NO TEXTURE (vk_untextured=1): an operation with the
+  // texture as an argument gives the diffuse color, as Direct3D gives it.
+  // The quad of the screen at the end of each frame of the game
+  // (LH3DRender::FinishFrame, 0x0082F614) has the diffuse color 0 and no
+  // texture, and it keeps the operations of the draw before it. With the
+  // white texel and the alpha of the texture alone, that quad was black
+  // over the whole picture.
+  if (texture == g_white && g_untextured) {
+    const auto uses_texture = [](uint32_t op) {
+      return ((op >> 8) & D3DTA_SELECTMASK) == D3DTA_TEXTURE ||
+             ((op >> 16) & D3DTA_SELECTMASK) == D3DTA_TEXTURE;
+    };
+    const uint32_t kDiffuse = D3DTOP_SELECTARG1 | D3DTA_DIFFUSE << 8;
+    if (uses_texture(push.ops[0])) push.ops[0] = kDiffuse;
+    if (uses_texture(push.ops[1])) push.ops[1] = kDiffuse;
+  }
   uint32_t flags = texture != g_white ? 1u : 0u;
   if (rs[D3DRENDERSTATE_ALPHATESTENABLE] != 0) {
     flags |= 2u | (rs[D3DRENDERSTATE_ALPHAFUNC] & 15) << 4;
@@ -3880,6 +3899,24 @@ void VkSceneStage1Toggle(const char* keys) {
   ControllersGesturePulse(0.5f, g_stage1_mode ? 0.30f : 0.08f);
   ModLog("test key     : %s, vk_stage1 is %d from the next walk", keys,
          g_stage1_mode ? 1 : 0);
+}
+
+void VkSceneSetUntextured(int on) {
+  g_untextured = on != 0;
+  if (g_mode == 0) return;
+  ModLog("vk scene     : vk_untextured=%d. %s", g_untextured ? 1 : 0,
+         g_untextured
+             ? "A stage 0 with no texture gives the diffuse color for an "
+               "operation with the texture as an argument, as Direct3D does"
+             : "A stage 0 with no texture reads a white texel with an alpha "
+               "of 1");
+}
+
+void VkSceneUntexturedToggle(const char* keys) {
+  g_untextured = !g_untextured;
+  ControllersGesturePulse(0.5f, g_untextured ? 0.30f : 0.08f);
+  ModLog("test key     : %s, vk_untextured is %d from the next draw", keys,
+         g_untextured ? 1 : 0);
 }
 
 void VkSceneSetBlackCheck(int on) {

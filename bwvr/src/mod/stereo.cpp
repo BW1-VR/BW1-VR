@@ -623,8 +623,9 @@ float FrameSeparation() {
 // character of Shift 8 and Shift 9 is not the same on each keyboard layout.
 // Shift 8, Shift 9, Shift F, Shift G, Shift H, Shift J, Shift K, Shift L,
 // Shift M, Shift N, Shift B, Shift V, Shift C, Shift X, Shift Z, Shift Y,
-// Shift U, Shift I, Shift O, Shift P, Shift T, Shift W, Shift Q, Shift E
-static const int kShiftKeys = 24;
+// Shift U, Shift I, Shift O, Shift P, Shift T, Shift W, Shift Q, Shift E,
+// Shift R
+static const int kShiftKeys = 25;
 static volatile LONG g_shift_key[kShiftKeys] = {};
 static DWORD g_shift_key_at[kShiftKeys] = {};
 static HHOOK g_message_hook = nullptr;
@@ -655,6 +656,7 @@ static int ShiftKeyIndex(WPARAM key) {
          : key == 'W' ? 21
          : key == 'Q' ? 22
          : key == 'E' ? 23
+         : key == 'R' ? 24
                       : -1;
 }
 
@@ -766,6 +768,9 @@ bool GameHasFocus() {
 //   Shift Q     a small read of a file of LHFile comes from a copy of the
 //               next 256 KB of the file, or from ReadFile (file_read_ahead,
 //               file_read_ahead.cpp)
+//   Shift R     a stage 0 of the Vulkan renderer with no texture gives the
+//               diffuse color for the texture argument, or a white texel
+//               (vk_untextured, vk_scene.cpp)
 //   Ctrl Shift Numpad Slash  the mod waits for the GPU after each eye pass,
 //               one time a frame, or one time a frame on a second thread
 //               that also gives the frame to the runtime (frame_send,
@@ -982,6 +987,9 @@ void PollHotkeys() {
   // Vulkan renderer", "The second stage").
   if (InterlockedExchange(&g_shift_key[23], 0) != 0) {
     VkSceneStage1Toggle("Shift and E");
+  }
+  if (InterlockedExchange(&g_shift_key[24], 0) != 0) {
+    VkSceneUntexturedToggle("Shift and R");
   }
   // An A/B of one walk (docs/backend.md, "One walk for both eyes"). The
   // menu key (VK_APPS) has no action in the game and no other test key.

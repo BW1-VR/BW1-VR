@@ -178,6 +178,12 @@ void VkSceneKeepPictureToggle(const char* keys);
 // 16 by 16 points of each eye picture go to the CPU, and a black picture
 // gives a line of the log with what its walk drew. 0: no check.
 void VkSceneSetBlackCheck(int on);
+// vk_untextured of bwvr.ini: 1 (the default) a stage 0 with no texture
+// gives the diffuse color for an operation with the texture as an argument,
+// as Direct3D does. 0: it reads a white texel with an alpha of 1. Shift R
+// (test_keys=1) changes it.
+void VkSceneSetUntextured(int on);
+void VkSceneUntexturedToggle(const char* keys);
 // vk_stage1 of bwvr.ini: 1 (the default) a draw with a color operation and a
 // texture on texture stage 1 gets that stage, for example the light maps of
 // the Temple. 0: the renderer makes stage 0 alone. Shift E (test_keys=1)

@@ -2799,10 +2799,22 @@ pictures. A fade of the game is black too: in a desktop run of a new game
 the story fades to black with a quad of the screen with diffuse 0xFF000000,
 and a run with Direct3D 9 has a black picture at the same place of the story.
 
-Open: in a headset session the eye pictures and both images were all black
-in some frames after the load of a saved game and near the Temple, with
-`fovea_res=1`. With `fovea_res=0` a picture of a later moment was right. Not
-known: whether these are fades of the game.
+**A stage with no texture** (`vk_untextured=1`, the default, a test key:
+Shift R). Each frame of the game ends with a quad of the screen in
+`LH3DRender::FinishFrame` (the draw at `0x0082F614`): diffuse color 0, no
+texture, z 1 with the test always, and the blend SRCALPHA INVSRCALPHA. It
+sets the depth, and it sets no texture stage state, so it keeps the
+operations of the draw before it. When the alpha operation of that draw was
+D3DTOP_SELECTARG1 with D3DTA_TEXTURE, the white texel of a draw with no
+texture gave the quad an alpha of 1, and the eye picture was black. Direct3D
+shows no such quad, so for a stage 0 with no texture an operation with the
+texture as an argument gives the diffuse color. An operation that modulates
+the texture with the diffuse color gives the same color as before. In a
+headset session with `vk_untextured=0` the check for a black picture found
+runs of black pictures after the load of a saved game and near the Temple,
+each with this quad and the alpha operation 0x202. In a desktop run of a new
+game with `vk_untextured=1` the single black pictures are gone, and only
+the fade of the story is black.
 
 Only a walk of the eyes has the two images: another walk of the game keeps
 the pixels of the render. The two images only grow: a smaller layout uses
@@ -4296,6 +4308,7 @@ in front. The mod reads the keys and never takes them from the game.
 | Shift X | `test_keys=1` | The Vulkan renderer follows the render target, the viewport and the clears of a walk, or it draws each draw into the eye pictures, from the next walk. A long pulse and a short pulse (`vk_scene_follow`, "The Vulkan renderer"). Ctrl must be up |
 | Shift Z | `test_keys=1` | In a session with Vulkan the pixels of the CPU (an eye picture of the CPU, a card, the walls of the cut scene window) go into the swapchains with a copy of Vulkan, or through the relays of Direct3D 11, from the next write. A long pulse and a short pulse (`xr_vulkan_upload`, "The session with Vulkan"). Ctrl must be up |
 | Shift W | `test_keys=1` | The hold of the last frame goes off, and on again with the value of the ini (30 ms when the ini has 0). A long pulse and a short pulse (`xr_hold_ms`, "The hold of the last frame"). Ctrl must be up |
+| Shift R | `test_keys=1` | A stage 0 of the Vulkan renderer with no texture gives the diffuse color for the texture argument, or a white texel, from the next draw. A long pulse and a short pulse (`vk_untextured`, "A stage with no texture"). Ctrl must be up |
 | Shift Y | `test_keys=1` | The Vulkan renderer draws the draws for the panel target into a panel of its own, and the subtitle card and the panel layer of a session with Vulkan take it, or they take the panel of Direct3D 9, from the next walk. A long pulse and a short pulse (`vk_panel`, "The Vulkan renderer"). Ctrl must be up |
 | Shift U | `test_keys=1` | A walk of one walk with the eyes of the Vulkan renderer goes to the renderer alone, with no draw for Direct3D 9, or Direct3D 9 draws it too, from the next walk. A long pulse and a short pulse (`vk_only`, "The Vulkan renderer"). Ctrl must be up |
 | Shift I | `test_keys=1` | A texture that a walk reads again goes to the GPU in the submit of the walk, with no wait, or at once with a wait for the GPU, from the next walk. A long pulse and a short pulse (`vk_upload_queue`, "The Vulkan renderer"). Ctrl must be up |
@@ -4437,6 +4450,7 @@ keys that the launcher sets.
 | `vk_lines` | 1 | With `backend=vulkan`: 1 a draw of points or lines becomes triangles of 1 pixel across, 0 it is not drawn. See "The backend of the mod on Vulkan" |
 | `vk_keep_picture` | 1 | With `backend=vulkan`: 1 a walk with no clear of the whole target before its first draw starts with the picture of the walk before, and the intro in stereo keeps the picture of each eye. 0 each walk starts black. A test key: Shift T. See "The picture of the walk before" |
 | `vk_black_check` | 1 | With `backend=vulkan`, a test aid: 1 checks 16 by 16 points of each eye picture, and a black picture gives a line of the log with what its walk drew. 0 no check. See "The check for a black picture" |
+| `vk_untextured` | 1 | With `backend=vulkan` or the Vulkan eyes: 1 a stage 0 with no texture gives the diffuse color for an operation with the texture as an argument, as Direct3D does. 0 it reads a white texel with an alpha of 1. A test key: Shift R. See "A stage with no texture" |
 | `vk_stage1` | 1 | With the Vulkan renderer: 1 a draw with a color operation and a texture on texture stage 1 gets that stage, for example the light maps of the Temple. 0 the renderer makes stage 0 alone. A test key: Shift E. See "The second stage" |
 | `vk_present_late` | 1 | With `backend=vulkan`: 1 the window on the monitor shows the picture of the present before, with no wait for the GPU, 0 each present waits for its own picture. See "The backend of the mod on Vulkan" |
 | `vk_texture_reuse` | 1 | 1 a texture that a walk reads again goes into the image it has when it can, and its pixels into a ring of the slot, so a read makes no allocation of the GPU. 0 each read makes a new image and a staging buffer. See "The Vulkan renderer" |

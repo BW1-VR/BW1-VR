@@ -542,6 +542,7 @@ int g_vk_present_late = 1;
 int g_vk_texture_reuse = 1;
 int g_vk_keep_picture = 1;
 int g_vk_black_check = 1;
+int g_vk_untextured = 1;
 int g_vk_stage1 = 1;
 // Foveated rendering (docs/backend.md, "Foveated rendering").
 int g_foveation = 0;
@@ -1392,6 +1393,8 @@ void ReadSettings() {
       GetPrivateProfileIntA("bwvr", "vk_keep_picture", 1, path) != 0 ? 1 : 0;
   g_vk_black_check =
       GetPrivateProfileIntA("bwvr", "vk_black_check", 1, path) != 0 ? 1 : 0;
+  g_vk_untextured =
+      GetPrivateProfileIntA("bwvr", "vk_untextured", 1, path) != 0 ? 1 : 0;
   g_vk_stage1 =
       GetPrivateProfileIntA("bwvr", "vk_stage1", 1, path) != 0 ? 1 : 0;
   g_foveation =
@@ -1732,6 +1735,7 @@ void StartVrOnce() {
     VkSceneSetTextureReuse(g_vk_texture_reuse);
     VkSceneSetKeepPicture(g_vk_keep_picture);
     VkSceneSetBlackCheck(g_vk_black_check);
+    VkSceneSetUntextured(g_vk_untextured);
     VkSceneSetStage1(g_vk_stage1);
     VkSceneSetFoveation(g_foveation, g_foveation_inner_deg,
                         g_foveation_outer_deg, g_foveation_show);
