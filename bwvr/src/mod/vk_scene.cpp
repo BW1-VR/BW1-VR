@@ -198,6 +198,9 @@ struct Seed {
   // the centre.
   bool mres;
   float mres_outer, mres_center, mres_deg;
+  // The centre of the centre image as tangents of the eye: the gaze, or
+  // with no eye tracker fovea_res_center_down_deg below straight ahead.
+  float mres_gaze[2];
 };
 
 // A bind of render target 0 of Direct3D 9 in a walk.
@@ -512,6 +515,9 @@ uint64_t g_fovea_maps = 0;
 // the walk now and the images.
 bool g_mres_mode = false;
 float g_mres_outer = 50.0f, g_mres_center = 100.0f, g_mres_deg = 25.0f;
+// fovea_res_center_down_deg: with no gaze of an eye tracker the centre of
+// foveated resolution is this many degrees below straight ahead.
+float g_mres_down_deg = 0.0f;
 bool g_walk_mres = false;
 fovea_res_math::Layout g_mres = {};
 vk::Image g_mres_color[2] = {};  // 0 the outer image, 1 the centre image
@@ -1870,8 +1876,9 @@ bool PrepareMres(const Seed* seed) {
   }
   const uint32_t width = Target().width, height = Target().height;
   g_mres = fovea_res_math::MakeLayout(
-      width, height, seed->fovea.tan_h, seed->fovea.tan_v, seed->gaze[0],
-      seed->gaze[1], seed->mres_outer, seed->mres_center, seed->mres_deg);
+      width, height, seed->fovea.tan_h, seed->fovea.tan_v, seed->mres_gaze[0],
+      seed->mres_gaze[1], seed->mres_outer, seed->mres_center,
+      seed->mres_deg);
   // The images only grow: a smaller layout uses the top left part of them,
   // so a change of the layout does not stop the GPU to make new images.
   uint32_t sizes[2][2] = {{g_mres.outer_w, g_mres.outer_h},
@@ -3153,6 +3160,12 @@ void VkSceneWalkBegin(void* device7) {
     seed.mres_outer = g_mres_outer;
     seed.mres_center = g_mres_center;
     seed.mres_deg = g_mres_deg;
+    // A centre that follows an eye tracker has no move down. With no
+    // tracker the player can put the sharp part lower, where the hands and
+    // the land near the waist are.
+    seed.mres_gaze[0] = seed.gaze[0];
+    seed.mres_gaze[1] = g_gaze_valid ? seed.gaze[1]
+                                     : fovea_res_math::DownGaze(g_mres_down_deg);
   }
   if (g_direct) {
     BeginOnWorker(&seed);
@@ -3750,9 +3763,11 @@ void VkSceneFoveationToggle(const char* keys) {
          g_fovea_show ? ", with the marks of the coarse parts" : "");
 }
 
-void VkSceneSetFoveaRes(int on, int outer_pct, int center_pct,
-                        int inset_deg) {
+void VkSceneSetFoveaRes(int on, int outer_pct, int center_pct, int inset_deg,
+                        int down_deg) {
   g_mres_mode = on != 0;
+  g_mres_down_deg = static_cast<float>(
+      down_deg < 0 ? 0 : (down_deg > 60 ? 60 : down_deg));
   g_mres_outer = static_cast<float>(
       outer_pct < 10 ? 10 : (outer_pct > 100 ? 100 : outer_pct));
   g_mres_center = static_cast<float>(
@@ -3764,8 +3779,8 @@ void VkSceneSetFoveaRes(int on, int outer_pct, int center_pct,
          "come from an outer image with %.0f percent of the pixels on each "
          "side and a centre image with %.0f percent, %.0f degrees on each "
          "side of the centre of the fovea (the gaze of an eye tracker, or "
-         "straight ahead)",
-         g_mres_outer, g_mres_center, g_mres_deg);
+         "%.0f degrees below straight ahead, fovea_res_center_down_deg)",
+         g_mres_outer, g_mres_center, g_mres_deg, g_mres_down_deg);
 }
 
 void VkSceneFoveaResToggle(const char* keys) {

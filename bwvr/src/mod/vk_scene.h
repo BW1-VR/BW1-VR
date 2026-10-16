@@ -215,8 +215,11 @@ void VkSceneFoveationToggle(const char* keys);
 // and into a centre image with center_pct percent (fovea_res_center_pct,
 // 100) of a rect inset_deg degrees on each side of the centre of the fovea
 // (fovea_res_center_deg, 25). The eye picture is made from the two. Only the
-// eye pictures of the Vulkan renderer have it.
-void VkSceneSetFoveaRes(int on, int outer_pct, int center_pct, int inset_deg);
+// eye pictures of the Vulkan renderer have it. With no eye tracker the
+// centre is down_deg below straight ahead (fovea_res_center_down_deg, 0,
+// 0 to 60).
+void VkSceneSetFoveaRes(int on, int outer_pct, int center_pct, int inset_deg,
+                        int down_deg);
 // The test key: fovea_res goes between 0 and 1.
 void VkSceneFoveaResToggle(const char* keys);
 // stereo.cpp, on the frame thread before the walks of a frame: the centre of

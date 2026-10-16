@@ -72,6 +72,15 @@ inline Layout MakeLayout(uint32_t width, uint32_t height, float tan_h,
   return l;
 }
 
+// The tangent y (up) of a centre down_deg below straight ahead
+// (fovea_res_center_down_deg). 0 to 60 degrees: a value outside goes to the
+// nearest end.
+inline float DownGaze(float down_deg) {
+  if (!(down_deg > 0.0f)) return 0.0f;
+  if (down_deg > 60.0f) down_deg = 60.0f;
+  return -tanf(down_deg / 57.2957795f);
+}
+
 // The share of the pixels of the two images against the picture.
 inline float PixelShare(const Layout& l, uint32_t width, uint32_t height) {
   return (static_cast<float>(l.outer_w) * l.outer_h +

@@ -187,6 +187,7 @@ where the parts are.
 | Resolution of the whole view | 50% | A slider from 20 to 100 in steps of 5. Key `fovea_res_outer_pct` |
 | Resolution of the middle | 100% | A slider from 50 to 200 in steps of 5. Key `fovea_res_center_pct` |
 | Size of the middle | 25 degrees | A slider from 10 to 45. Key `fovea_res_center_deg` |
+| Middle lower by | 0 degrees | A slider from 0 to 60. Key `fovea_res_center_down_deg`. Only with no eye tracker |
 | Show the parts with fewer details | off | Key `foveation_show`. A blue colour over the parts with fewer shades or fewer pixels |
 
 ### View

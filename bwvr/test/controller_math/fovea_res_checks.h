@@ -59,6 +59,31 @@ inline void FoveaResChecks() {
   Check(big.inset_w <= 4000.0f && big.inset_h <= 3200.0f,
         "70 degrees: the rect is at most the picture", big.inset_w, 4000);
 
+  // The centre moved down with no eye tracker (fovea_res_center_down_deg).
+  Check(DownGaze(0.0f) == 0.0f, "0 degrees down: straight ahead",
+        DownGaze(0.0f), 0.0);
+  Check(DownGaze(-5.0f) == 0.0f, "less than 0 degrees: straight ahead",
+        DownGaze(-5.0f), 0.0);
+  Near("20 degrees down: the tangent", DownGaze(20.0f), -tanf(20.0f / 57.2957795f),
+       1e-6);
+  Near("90 degrees goes to 60", DownGaze(90.0f), -tanf(60.0f / 57.2957795f),
+       1e-6);
+  Layout down = MakeLayout(4000, 3200, th, tv, 0.0f, DownGaze(20.0f), 50.0f,
+                           100.0f, 25.0f);
+  const float down_cy = (1.0f + tanf(20.0f / 57.2957795f) / tv) * 0.5f * 3200.0f;
+  Near("20 degrees down: the rect is round the pixel of that angle",
+       down.inset_y0 + 0.5f * down.inset_h, down_cy, 2.0);
+  Check(down.inset_y0 + 0.5f * down.inset_h > 1600.0f,
+        "a centre down is below the middle of the picture",
+        down.inset_y0 + 0.5f * down.inset_h, 1600.0);
+  Near("a centre down stays in the middle across",
+       down.inset_x0 + 0.5f * down.inset_w, 2000.0, 1.0);
+  Layout low = MakeLayout(4000, 3200, th, tv, 0.0f, DownGaze(60.0f), 50.0f,
+                          100.0f, 25.0f);
+  Check(low.inset_y0 + low.inset_h <= 3200.0f && low.inset_y0 >= 0.0f,
+        "60 degrees down keeps the rect in the picture",
+        low.inset_y0 + low.inset_h, 3200.0);
+
   // The map of a rect.
   float r[4];
   MapRect(1000.0f, 800.0f, 3000.0f, 2400.0f, l.inset_x0, l.inset_y0,

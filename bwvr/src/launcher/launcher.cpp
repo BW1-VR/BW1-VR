@@ -177,6 +177,11 @@ const Setting kSettings[] = {
      25,
      "How far the middle goes from its centre to each side. A larger middle "
      "is sharp further out and costs more frame time."},
+    {kSlider, "fovea_res_center_down_deg", "Middle lower by", "0|60|1| degrees",
+     0,
+     "Moves the sharp middle down from straight ahead, for example to the "
+     "land and the hands at your waist. Only with no eye tracker: a middle "
+     "that follows your gaze stays where you look."},
     {kBool, "foveation_show", "Show the parts with fewer details", nullptr, 0,
      "A blue colour over the parts with fewer shades or fewer pixels, so "
      "you can find the settings that you like. Turn it off to play. With "

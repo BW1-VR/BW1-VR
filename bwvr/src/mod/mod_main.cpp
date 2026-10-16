@@ -564,6 +564,7 @@ int g_fovea_res = 0;
 int g_fovea_res_outer_pct = 50;
 int g_fovea_res_center_pct = 100;
 int g_fovea_res_center_deg = 25;
+int g_fovea_res_center_down_deg = 0;
 int g_vk_scene_reread_test = 0;
 // The OpenXR session with Vulkan, and the eye pictures of the Vulkan
 // renderer in it (docs/backend.md, "The session with Vulkan").
@@ -1440,6 +1441,8 @@ void ReadSettings() {
       GetPrivateProfileIntA("bwvr", "fovea_res_center_pct", 100, path));
   g_fovea_res_center_deg = static_cast<int>(
       GetPrivateProfileIntA("bwvr", "fovea_res_center_deg", 25, path));
+  g_fovea_res_center_down_deg = static_cast<int>(
+      GetPrivateProfileIntA("bwvr", "fovea_res_center_down_deg", 0, path));
   g_vk_scene_reread_test =
       static_cast<int>(GetPrivateProfileIntA("bwvr", "vk_scene_reread_test", 0,
                                              path));
@@ -1766,7 +1769,8 @@ void StartVrOnce() {
     VkSceneSetFoveation(g_foveation, g_foveation_inner_deg,
                         g_foveation_outer_deg, g_foveation_show);
     VkSceneSetFoveaRes(g_fovea_res, g_fovea_res_outer_pct,
-                       g_fovea_res_center_pct, g_fovea_res_center_deg);
+                       g_fovea_res_center_pct, g_fovea_res_center_deg,
+                       g_fovea_res_center_down_deg);
     if ((g_foveation != 0 || g_fovea_res != 0) && g_vk_scene == 0 &&
         !vk_eyes && !direct) {
       ModLog("vk scene     : foveation=%d and fovea_res=%d, but the eye "
