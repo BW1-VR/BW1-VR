@@ -521,6 +521,7 @@ struct DrawPush {
 struct MresRecord {
   int clear;  // -1 a draw, else the index of the clear
   VkPipeline pipeline;
+  uint32_t blend;  // the key of the blend of the pipeline, for MresWalkLine
   VkDescriptorSet set, set1;  // the sets of stage 0 and stage 1
   uint32_t cull, zenable, zwrite, zfunc, type;
   DrawPush push;
@@ -2041,10 +2042,91 @@ void PlayClear(VkCommandBuffer cb, const MresClear& c, vk::Image& color,
 
 void ComposeMres(Slot& s);
 
+// A TEST AID of foveated resolution: one line for a walk that saves its
+// pictures, and for each of the first 40 walks with draws of which the
+// outer image got none, or whose last record is a clear of the color. The
+// line has the layout, the records, the clears and what each pass did.
+void MresWalkLine(const Slot& s, const uint32_t drawn[2],
+                  const uint32_t out_of_view[2], const uint32_t left_out[2]) {
+  uint32_t draws = 0;
+  for (const MresRecord& r : g_mres_records) {
+    if (r.clear < 0) ++draws;
+  }
+  const bool last_clear =
+      !g_mres_records.empty() && g_mres_records.back().clear >= 0 &&
+      (g_mres_clears[g_mres_records.back().clear].flags & D3DCLEAR_TARGET);
+  static int s_lines = 0;
+  const bool odd = (draws > 0 && drawn[0] == 0) || last_clear;
+  if (!g_picture && !(odd && s_lines < 40)) return;
+  if (!g_picture) ++s_lines;
+  char clears[256] = "";
+  int at = 0;
+  for (size_t i = 0; i < g_mres_clears.size() && i < 4 && at < 200; ++i) {
+    const MresClear& c = g_mres_clears[i];
+    at += _snprintf_s(clears + at, sizeof(clears) - at, _TRUNCATE,
+                      " [flags 0x%X color 0x%08X z %.2f eyes %u rects %u]",
+                      c.flags, c.color, c.z, c.eyes, c.count);
+  }
+  const float* vp = nullptr;
+  for (const MresRecord& r : g_mres_records) {
+    if (r.clear < 0) {
+      vp = r.viewport;
+      break;
+    }
+  }
+  ModLog("vk scene     : fovea_res walk %llu%s: %u draws and %u clears%s. "
+         "The outer image %u by %u (scale %.3f %.3f), the centre %u by %u at "
+         "%.0f %.0f, %.0f by %.0f (scale %.3f %.3f). Drawn %u and %u, out of "
+         "the view %u and %u, not in the centre %u. The first viewport %.0f "
+         "%.0f %.0f %.0f. The last record is %s",
+         g_walk_number, g_picture ? " (a picture)" : "", draws,
+         static_cast<unsigned>(g_mres_clears.size()), clears, g_mres.outer_w,
+         g_mres.outer_h, g_mres.outer_scale_x, g_mres.outer_scale_y,
+         g_mres.center_w, g_mres.center_h, g_mres.inset_x0, g_mres.inset_y0,
+         g_mres.inset_w, g_mres.inset_h, g_mres.center_scale_x,
+         g_mres.center_scale_y, drawn[0], drawn[1], out_of_view[0],
+         out_of_view[1], left_out[1], vp ? vp[0] : 0.0f, vp ? vp[1] : 0.0f,
+         vp ? vp[2] : 0.0f, vp ? vp[3] : 0.0f,
+         last_clear ? "a clear of the color" : "a draw or a clear of the depth");
+  // The quads of the screen (8 vertices or fewer) that cover half of the
+  // picture or more: such a quad can hide each draw before it. The first
+  // 12, with their place in the records.
+  const float width = static_cast<float>(Target().width);
+  const float height = static_cast<float>(Target().height);
+  int listed = 0;
+  for (size_t i = 0; i < g_mres_records.size() && listed < 12; ++i) {
+    const MresRecord& r = g_mres_records[i];
+    if (r.clear >= 0 || r.vertex_count > 8) continue;
+    const float x0 = r.bounds[0] > 0.0f ? r.bounds[0] : 0.0f;
+    const float y0 = r.bounds[1] > 0.0f ? r.bounds[1] : 0.0f;
+    const float x1 = r.bounds[2] < width ? r.bounds[2] : width;
+    const float y1 = r.bounds[3] < height ? r.bounds[3] : height;
+    const float area = x1 > x0 && y1 > y0 ? (x1 - x0) * (y1 - y0) : 0.0f;
+    if (area < 0.5f * width * height) continue;
+    ++listed;
+    uint32_t diffuse = 0;
+    float z = 0.0f;
+    const uint8_t* v = static_cast<const uint8_t*>(s.ring.mapped) + r.vertex_at;
+    memcpy(&z, v + 8, 4);
+    memcpy(&diffuse, v + 16, 4);
+    ModLog("vk scene     :   record %u of %u: a draw over %.0f percent of "
+           "the picture, blend 0x%X, ops 0x%X 0x%X 0x%X 0x%X, z enable %u "
+           "write %u func %u, %u vertices, the first diffuse 0x%08X and z "
+           "%.3f",
+           static_cast<unsigned>(i),
+           static_cast<unsigned>(g_mres_records.size()),
+           100.0f * area / (width * height), r.blend, r.push.ops[0],
+           r.push.ops[1], r.push.ops[2], r.push.ops[3], r.zenable, r.zwrite,
+           r.zfunc, r.vertex_count, diffuse, z);
+  }
+}
+
 // The records of the walk into the outer image and the centre image, then
 // the eye picture from the two.
 void PlayMres(Slot& s) {
   const VkCommandBuffer cb = s.cb;
+  // A TEST AID: what each pass did with the records (MresWalkLine).
+  uint32_t drawn[2] = {0, 0}, out_of_view[2] = {0, 0}, left_out[2] = {0, 0};
   for (int pass = 0; pass < 2; ++pass) {
     vk::Image& color = g_mres_color[pass];
     vk::Image& depth = g_mres_depth[pass];
@@ -2101,13 +2183,18 @@ void PlayMres(Slot& s) {
                               &scissor);
         if (in_view) f.vkCmdSetScissor(cb, 0, 1, &scissor);
       }
-      if (!in_view) continue;
+      if (!in_view) {
+        ++out_of_view[pass];
+        continue;
+      }
       if (pass == 1 && (r.bounds[2] < g_mres.inset_x0 - 1.0f ||
                         r.bounds[0] > g_mres.inset_x0 + g_mres.inset_w + 1.0f ||
                         r.bounds[3] < g_mres.inset_y0 - 1.0f ||
                         r.bounds[1] > g_mres.inset_y0 + g_mres.inset_h + 1.0f)) {
+        ++left_out[pass];
         continue;
       }
+      ++drawn[pass];
       ++(pass == 1 ? g_mres_center_draws : g_mres_draws);
       if (r.pipeline != last_pipeline) {
         f.vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, r.pipeline);
@@ -2136,6 +2223,7 @@ void PlayMres(Slot& s) {
                 VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
                 VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, 1, 2);
   }
+  MresWalkLine(s, drawn, out_of_view, left_out);
   ComposeMres(s);
 }
 
@@ -3233,6 +3321,7 @@ void VkSceneDraw(uint32_t type, uint32_t fvf, const void* vertices,
     MresRecord r = {};
     r.clear = -1;
     r.pipeline = pipeline;
+    r.blend = blend;
     r.set = set;
     r.set1 = set1;
     r.cull = rs[D3DRENDERSTATE_CULLMODE];

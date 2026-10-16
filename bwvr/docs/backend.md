@@ -2778,6 +2778,19 @@ the centre image. The present, the session and the pictures of a test take
 the eye picture as before. A smaller image gives a coarser mip level of a
 texture, as the game would at that resolution.
 
+**A test aid.** A walk that saves its pictures (F12, both sticks pressed in)
+has a line `fovea_res walk N`: the layout, the records and the clears, what
+each pass drew, and each quad of the screen that covers half of the picture
+or more, with its blend, its stage operations and its first diffuse color.
+The first 40 walks with draws of which the outer image got none, or whose
+last record is a clear of the color, have the line too. Each walk of the
+game ends with a quad of the screen with z 1 that sets the depth, with an
+alpha of 0, and a fade of the game gives that quad a higher alpha.
+
+Open: in a headset session the eye pictures and both images were all black
+in some frames after the load of a saved game and near the Temple, with
+`fovea_res=1`. With `fovea_res=0` a picture of a later moment was right.
+
 Only a walk of the eyes has the two images: another walk of the game keeps
 the pixels of the render. The two images only grow: a smaller layout uses
 the top left part of them, so a change of the angle of the camera does not
