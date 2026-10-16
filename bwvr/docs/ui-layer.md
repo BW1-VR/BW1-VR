@@ -1283,6 +1283,27 @@ through `LH3DTech::Draw3DWorldTriangle` `0x0081C090`, which ends in
 `LH3DRender::DrawTriangle`. `Get3DPointFromScreen` makes the point from the
 camera point of the game (`0x00EA1DB8`).
 
+**The name of a villager** [V] is a box of `DrawBubble` with no bubble
+object:
+
+- The action Show Villager Details (the key S, action `0x1C`, the ring item
+  `details`) changes bit `0x200` of the word at `+0xB4` of the villager
+  under the Hand (`GGame::DoAction`, `0x0063FCDF`). With no villager under
+  the Hand it changes bit `0x200000` of `g_game + 0x14`, which is for each
+  villager. `Villager::Draw` calls `Villager::DrawVillagerInfo` `0x0051B510`
+  in the scene walk, and it acts only with one of the two bits. A quest
+  character (`SpecialVillager::DrawVillagerInfo` `0x0071F240`) shows its
+  name while `SpecialVillager::CanShowName` is true and the bit is clear.
+- `VillagerName::Add` `0x007629E0` projects the point over the head of the
+  villager. It keeps the pixel (`+0x14`, `+0x18`) and the depth in the
+  camera (`+0x1C`), and it puts the box above the pixel, in the picture and
+  below the names that it made before in the pass.
+  `VillagerName::AddDrawing` gives the Z sort an object for it.
+- `VillagerName::Draw` `0x00762DC0` draws the box through `DrawBubble` at the
+  depth of the bubble (`fn_005766E0` of the depth of the villager), and each
+  line of the text through `GatheringText::DrawTextRaw`. Then it deletes the
+  name. The game makes a new name in each pass.
+
 ### 18.2 What two eye passes do to it
 
 Each step runs in each eye pass, with the camera of the eye. Three things
@@ -1342,11 +1363,25 @@ The bubble is one flat card at the depth of the sign (`bubble_card.cpp`,
 
 With `bubble_card=0` the mod changes nothing of the bubble.
 
+**The name of a villager** (`name_card=1`) is a card by the same rule, at
+the depth of the villager. A hook on `VillagerName::Draw` reads the pixel and
+the depth of the villager, and makes the draw a draw of a card:
+
+- Each corner of the box goes back to its pixel (`CornerToItsPixel`).
+- The text is drawn at the pixels of the game, with no interface depth.
+- In one walk the card goes to the right eye moved by the eye difference of
+  the villager (`one_walk_marks=1`).
+
+The name has no layout of its own, so it needs no `Choose`. With
+`name_card=0` the mod changes nothing of the name, and the log has its
+numbers.
+
 ### 18.4 Keys, the test key and the log
 
 | Key | Default | Meaning |
 | --- | --- | --- |
 | `bubble_card` | 1 | 1: a speech bubble of the game is one flat card at the depth of its sign. 0: the bubble is drawn as the game and the interface depth make it in each eye pass |
+| `name_card` | 1 | 1: the name of a villager is one flat card at the depth of the villager. 0: the name is drawn as the game and the interface depth make it in each eye pass |
 | `bubble_card_test` | 0 | A test key of the desktop runs. 1: one line of the log each 30 frames while a bubble is in view |
 | `bubble_card_test_frame` | 0 | A test key of the desktop runs: the frame at which `bubble_card` changes, as the test key does |
 
@@ -1367,6 +1402,12 @@ picture, the eye difference of that depth, the value of `one_walk_marks`, and
 the box and the flat parts as drawn in each eye. On a frame of
 `one_walk_check=1` (`backend.md`) one more line has the box and the flat
 parts of the right eye in its own walk beside those that one walk drew.
+
+The name of a villager has the tag `name card`, with the same lines: the
+depth and the pixel of the villager in the place of those of the sign. With
+more than one name in a pass, the numbers are those of the first name that
+the pass draws. `bubble_card_test=1` gives a line each 30 frames for a name
+too.
 
 Each report has the counts.
 
@@ -1419,12 +1460,46 @@ the 0.1 px. With `one_walk_marks=0` the text of the right eye is beside the
 box, not in it. In the pictures of the right eye, the card of one walk with
 `one_walk_marks=1` is the card of its own walk.
 
+A desktop run shows the name of a villager in one walk.
+`bwvr/tools/desk/village_run.ps1 -Kind job` makes one, with `-Plan
+'gostore,store,villager'`, `-Steps "stick_up@800+10 stick_up@830+10
+look@860+5000 point@900+1 seek@920+1 seek@1000+1 seek@1040+1 y@1060+30
+lpoint@1066+1 lpoint@1096+1 shot@1120+1 shot@1160+1 shot@1220+1
+shot@1290+1"` and these keys in `-Set`:
+
+- `radial_menu_items=details,creature,town,leash_learning,more,leash_compassion,leash_aggression,enter`
+  and `fake_controller_left_points=-23,-22,40 -20,-30,35`. The third word
+  `seek` puts the Hand's point on a villager at the Village Store, and the
+  ring of the left hand chooses `details` (`Get-BwvrRingChoice` in
+  `game.ps1`, slot 0).
+- `one_walk=1`, `one_walk_check=1`, `bubble_card_test=1`, and `name_card` 0
+  or 1.
+
+What such a run shows, with a render of 3600 by 2880 and the villager 70 to
+80 units deep (an eye difference of 76 to 86 px):
+
+| | Box | Text |
+| --- | --- | --- |
+| `name_card=0`: how far apart the two eyes have it | 85 to 99 px | 48 px |
+| `name_card=0`: the right eye, from its place in its own walk | 77 to 83 px | 77 to 83 px |
+| `name_card=1`: how far apart the two eyes have it | the eye difference of the villager | the same |
+| `name_card=1`: the right eye, from its place in its own walk | 0.1 to 0.4 px | 0.1 to 0.4 px |
+
+The pixel of the villager in the right eye of its own walk is the pixel of
+the left eye with the eye difference of its depth, to 0.4 px. So the depth at
+`+0x1C` is the depth in the camera. In the pictures of the right eye, the
+name of one walk with `name_card=1` is the name of its own walk.
+
+The same run with `one_walk=0` and `name_card=1` shows the card in two walks.
+There the details were on for each villager, and the first name of a pass
+was a villager 615 units deep: the villager, the box and the text are each
+10.0 px apart in the two eye pictures.
+
 ### 18.6 Limits
 
-- The name of a villager (`VillagerName::Draw` `0x00762DC0`) draws its own
-  box through `DrawBubble`, with no bubble object. The mod does not change
-  it. Its box has the eye difference of its depth on top of the eye
-  difference of its pixels, and its text has the interface depth.
+- `VillagerName::Add` keeps the box of a name in the picture and below the
+  other names of the pass. A name at the edge of an eye picture, or one that
+  meets another name, can get a different place in each pass of two walks.
 - The size of a bubble comes from the depth of the sign in units (full size
   at 3 units, gone at 450 units). The mod does not change that for the scale
   of the God view.
@@ -1441,5 +1516,6 @@ box, not in it. In the pictures of the right eye, the card of one walk with
   sign (`backend.md`, "The edge of the right eye").
 - In one walk with `bubble_card=0`, the text has the pixels of the left eye
   in both eyes, with the interface depth. It has no eye difference of the
-  sign. The text of the name of a villager is the same. No run has shown
-  either.
+  sign. No run has shown it. A run shows the same for the text of a name
+  with `name_card=0`.
+- No run had the name of a quest character.

@@ -576,12 +576,13 @@ void OneWalkToggle() { OneWalkSetWanted(!g_wanted); }
 namespace {
 
 const char* MarksText(bool on) {
-  return on ? "in one walk a speech bubble as a card, the glow at the Hand's "
-              "point and a halo are drawn for each eye, and the right eye has "
-              "them at the place of its own walk"
-            : "in one walk the right eye gets a speech bubble as a card, the "
-              "glow at the Hand's point and a halo from the rhw of their "
-              "batches, as each other batch";
+  return on ? "in one walk a speech bubble or the name of a villager as a "
+              "card, the glow at the Hand's point and a halo are drawn for "
+              "each eye, and the right eye has them at the place of its own "
+              "walk"
+            : "in one walk the right eye gets a speech bubble or the name of a "
+              "villager as a card, the glow at the Hand's point and a halo "
+              "from the rhw of their batches, as each other batch";
 }
 
 }  // namespace

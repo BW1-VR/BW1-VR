@@ -524,6 +524,25 @@ inline bool SignGivesWay(bool last, bool far_target) {
   return last && far_target;
 }
 
+// A LOOSE BODY THAT THE POINT IS NOT IN GIVES WAY TO THE AIM
+// (far_grab_beside_loose=1). Trees, houses and piles stand all around the
+// things that the player aims at, and the body of a loose body is wider than
+// what the player sees. So a loose body that the Hand's point is not in (the
+// gap is more than the touch) is no near object, as a signpost of rule 6: it
+// does not turn the grab from a distance off. Its rule in the choice stays.
+// It is the target at the Hand only while the aim has no target at a
+// distance (SignGivesWay). A loose body that the point is in, an object to
+// hold, the Creature and a scroll stay near objects.
+inline bool LooseOut(bool rule_on, bool loose, float gap, float touch) {
+  return rule_on && loose && !(gap <= touch);
+}
+
+// Whether a body in the reach turns the grab from a distance off: its gap
+// counts in NearBlocks. sign_out is SignOut, loose_out is LooseOut.
+inline bool StopsFar(bool sign_out, bool loose_out) {
+  return !sign_out && !loose_out;
+}
+
 // The rule that a target comes under, 1 to 6. The lower one wins.
 inline int TargetRule(const Target& t, float touch) {
   if (t.last) return 6;

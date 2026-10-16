@@ -610,6 +610,11 @@ sees.
 
    With `hand_sign_last=0` a signpost is a scroll of the rules 2 and 5.
 
+A loose body that the point is not in keeps its rule 4, and it gives way to
+the aim as a signpost of rule 6 does (`far_grab_beside_loose=1`,
+`near_math::LooseOut`): while the aim has a far target, it is no target at
+the Hand. A loose body that the point is in (rule 3) does not give way.
+
 In rule 1 and in rule 3 the smaller body wins: a villager in a forest, a rock
 at a house. The size is the larger of the radius and half the height, in steps
 of a factor of 2 (`SizeClass`). In one step the nearer middle wins, so two
@@ -660,16 +665,32 @@ green look. See [hand-model.md](hand-model.md) for the model of the glow.
 
 The grab from a distance is off while an object that a press acts on is near
 the Hand's point. The objects are the four kinds of the table above, and the
-Creature. A signpost that the Hand's point is not in is not such an object
-(`hand_sign_last=1`, rule 6 of the choice): the aim keeps its far target with
-the Hand's point beside a signpost. `Choose` keeps the smallest gap of the
-others (`NearBlocks`):
+Creature. Two kinds of body are not such an object, so the aim keeps its far
+target with the Hand's point beside them:
+
+- A signpost that the Hand's point is not in (`hand_sign_last=1`, rule 6 of
+  the choice).
+- A loose body that the Hand's point is not in: a tree, a forest, a building
+  or a bulk source such as a pile (`far_grab_beside_loose=1`,
+  `near_math::LooseOut`). Trees, houses and piles stand all around the things
+  that the player aims at. Such a body in the reach of the pick is the target
+  at the Hand only while the aim has no far target (see "The rule of the
+  choice"). A loose body that the point is in turns the grab from a distance
+  off.
+
+An object to hold, the Creature and a scroll of a quest stay near objects.
+`Choose` keeps the smallest gap of the near objects (`near_math::StopsFar`,
+`NearBlocks`):
 
 - The far grab goes off when the gap is `far_grab_near_cm` or less (10 cm of
   the room).
 - It comes back when the gap is more than `far_grab_near_out_cm` (15 cm).
 - Between the two, the answer of the last frame stays, so a hand that rests at
   the border does not turn the halo on and off.
+
+The log has one line when a loose body that the point is not in is
+`far_grab_near_cm` or less from the point and the grab from a distance stays
+on ("far grab : stays on").
 
 While it is off, there is no far target, no halo and no claim of the grip. The
 grip goes to the game. The grip of the pointing hand is then no grab of the
@@ -709,7 +730,10 @@ than 35 cm of the room from the Hand's point (`kFarMinHandM`). With the rule
 on, the least distance of a far target is `far_grab_near_out_cm`
 (`FarLeastMeters` in `near_math.h`), and never more than 35 cm. The score takes
 35 cm for a nearer object. So each object is a target of the Hand, or it turns
-the far grab off, or it is a target of the aim.
+the far grab off, or it is a target of the aim. A loose body that the point is
+not in is the exception (`far_grab_beside_loose=1`): past the reach of the
+pick it is no target of the Hand, and the aim goes past it to the things
+behind it.
 
 ### What still acts from the pixel of the Hand's point
 
@@ -793,6 +817,7 @@ put the leash on from a new game.
 | `catch_rest_guard` | 1 | 1 holds the end of the physics of an object back while the Hand takes it, so a tree that comes to rest in that time stays a tree and goes into the Hand (see "An object that comes to rest while the Hand takes it"). 0 lets the game end the physics: the tree is then a dead tree on the land, and the Hand is empty. The test key Ctrl Shift Scroll Lock turns it off and on (`test_keys=1`) |
 | `catch_at_once` | 1 | 1 puts an object that moves in the hand at the press of the grip: the game sends its pick up at once, the body of the object stays where it is, and the mod draws the object in the Hand (see "A catch at once"). 0 is the pick up of the game: it goes out 225 ms after the press, and the object moves on until the game takes it out of its physics. The test key Ctrl Shift Backspace goes between the two (`test_keys=1`) |
 | `far_grab_near_cm` | 10 | The far grab goes off when an object that a press acts on is this near the Hand's point |
+| `far_grab_beside_loose` | 1 | 1: a tree, a forest, a building or a bulk source that the Hand's point is not in does not turn the far grab off, and it is no target at the Hand while the aim has a far target. 0: it turns the far grab off as each other object that a press acts on |
 | `far_grab_near_out_cm` | 15 | The far grab comes back past this distance |
 | `palm_search` | 0 | 1 leaves the game's search at the palm on |
 | `hand_glow_idle` | 0 | 1 draws the glow also with no target and while the Hand holds an object |
@@ -859,9 +884,13 @@ scroll of a quest 8 cm away come before it. A signpost that the point is in
 comes under rule 1. A miracle 6 cm away is the wide target with a signpost 9
 cm away. A signpost of rule 6 does not turn the far grab off, and it gives
 way while the aim has a target. Each order of five bodies gives the same
-target.
+target. A tree 7 cm from the point and a house 3 cm from it do not turn the
+far grab off, the house gives way to a far target, and its rule stays 4. A
+tree that the point is in and a rock 7 cm away turn the far grab off, and
+`far_grab_beside_loose=0` gives the rule of each other object.
 
-Desktop runs (`hand_run.ps1 -Kind fixed -Save temple`) show the two keys:
+Desktop runs show the keys. They use `hand_run.ps1 -Kind fixed -Save temple`
+when the item names no other script:
 
 - A signpost stands at the door of the Temple. The Hand's point is 8 cm from
   it, and the aim is on the Creature 30 cm away. With `hand_sign_last=0` the
@@ -872,6 +901,16 @@ Desktop runs (`hand_run.ps1 -Kind fixed -Save temple`) show the two keys:
 - The Hand's point is 6 cm over a signpost and 2 cm from a house
   (`seek_plan=go,scrolls,up`). With `hand_sign_last=0` the signpost is the
   target, and with the default the house is.
+- `far_grab_beside_loose` (`village_run.ps1 -Kind job -Plan gostore`, the
+  test save `temple`). The Hand's point is 5.9 cm from the Village Store,
+  and the word `aimfar` aims at a villager 0.6 m from the Hand, past the
+  store (`far_test_aim_class=1`). With the default the far
+  grab stays on ("far grab : stays on"), the villager is the far target, and
+  a grip of 20 frames locks on him. With `far_grab_beside_loose=0` the far
+  grab is off, the aim has no target, and the grip presses with no target.
+  With the point 3.9 cm from the store, the store gives way to a tree in the
+  aim ("the StoragePit ... is no target now"). With the point in a tree
+  (`seek_plan=gostore,crown`), the far grab goes off with both values.
 - The Hand's point is 11 cm from the Creature (`seek_plan=creature` and the
   word `slap`). With `hand_wide_creature=0` there is no target, and a grip
   does nothing. With the default the Creature is the target in the wide
@@ -880,8 +919,7 @@ Desktop runs (`hand_run.ps1 -Kind fixed -Save temple`) show the two keys:
 **Not proven on the desktop:** a miracle in the wide reach beside a signpost
 (the test miracle floats at the height of the Hand, so the point is in it), a
 grip that stays closed on the Creature in the wide reach, the body of a tree and the game's height in the
-game, the red halo, the Creature as a choice, the rule of the near objects in a
-village, a scroll that wins over a tree that the point is in, and the hook of
+game, the red halo, the Creature as a choice, a scroll that wins over a tree that the point is in, and the hook of
 the leash past its install. A place at 66 to 100 units a meter, the scale of
 the headset, is not run.
 
@@ -2041,7 +2079,7 @@ not jump.
 | `far_grab_sign` | 1 | 1: a signpost is in the last rank: it takes the halo only when the aim is on it and on no other target, or when no other target is in the cone (`far_grab_choice` 2 and 4). 0: a signpost is a scroll of the first rank |
 | `far_grab_pull` | 80 | The speed of the pull, in cm/s |
 | `far_grab_max_m` | 2.0 | The range: a target is at most this far from the head, in meters of the room along the floor. 0 gives no limit |
-| `far_grab_near_cm`, `far_grab_near_out_cm` | 10, 15 | See "Near objects win" |
+| `far_grab_near_cm`, `far_grab_near_out_cm`, `far_grab_beside_loose` | 10, 15, 1 | See "Near objects win" |
 | `far_touch` | 1 | 1 makes a scroll in the aim a far target that the grip activates |
 | `far_leash` | 1 | The leash click on the player's own Creature at a distance (see [creature.md](creature.md)) |
 | `far_take_carry` | 1 | 1: when the source of a take at a distance goes away while the grip is closed, the grip machine keeps the grip and the grip carries the bundle. 0: the far grab holds the grip back until it opens, and the machine lets the bundle go at once (see "A bulk source at a distance"). Test key: Shift and Backspace |

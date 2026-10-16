@@ -82,7 +82,7 @@ bool IntroFinishFrame();
 void EyeCleanSetOptions(int key, int test, int test_frame);
 void EyeCleanInstall();
 // bubble_card.cpp: a speech bubble of the game as one card.
-void BubbleCardSetOptions(int on, int test, int test_frame);
+void BubbleCardSetOptions(int on, int name_on, int test, int test_frame);
 void BubbleCardInstall();
 // intro_skip.cpp: a press of a controller button skips the logos at the
 // start of the game. `caller` is the address that called FinishFrame.
@@ -275,8 +275,8 @@ bool g_freeze_time = true;
 // time for each eye.
 bool g_one_walk = true;
 bool g_one_walk_check = false;
-// In one walk a speech bubble as a card, the glow at the Hand's point and a
-// halo are drawn for each eye by itself. 0 gives them to the right eye as
+// In one walk a speech bubble or the name of a villager as a card, the glow
+// at the Hand's point and a halo are drawn for each eye by itself. 0 gives them to the right eye as
 // each other batch. The test key one_walk_marks_test_frame changes the value
 // at one frame.
 bool g_one_walk_marks = true;
@@ -505,8 +505,9 @@ int g_draw_merge = 1;
 int g_draw_merge_test = 0;
 int g_draw_merge_test_frame = 0;
 // A speech bubble of the game as one card (bubble_card.cpp), and its test
-// keys for desktop runs.
+// keys for desktop runs. The name of a villager as one card (name_card).
 int g_bubble_card = 1;
+int g_name_card = 1;
 int g_bubble_card_test = 0;
 int g_bubble_card_test_frame = 0;
 bool g_intro_text_place = true;
@@ -1286,6 +1287,8 @@ void ReadSettings() {
       GetPrivateProfileIntA("bwvr", "draw_merge_test_frame", 0, path));
   g_bubble_card =
       GetPrivateProfileIntA("bwvr", "bubble_card", 1, path) != 0 ? 1 : 0;
+  g_name_card =
+      GetPrivateProfileIntA("bwvr", "name_card", 1, path) != 0 ? 1 : 0;
   g_bubble_card_test =
       GetPrivateProfileIntA("bwvr", "bubble_card_test", 0, path) != 0 ? 1 : 0;
   g_bubble_card_test_frame = static_cast<int>(
@@ -1539,7 +1542,7 @@ void StartVrOnce() {
     FrameSendSetOptions(g_frame_send);
     DrawMergeSetOptions(g_draw_merge, g_draw_merge_test,
                         g_draw_merge_test_frame);
-    BubbleCardSetOptions(g_bubble_card, g_bubble_card_test,
+    BubbleCardSetOptions(g_bubble_card, g_name_card, g_bubble_card_test,
                          g_bubble_card_test_frame);
     BubbleCardInstall();
   }

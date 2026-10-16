@@ -975,10 +975,17 @@ bool g_wide_key_down = false;
 bool g_choice_wide = false;               // the choice is a wide pick
 // hand_sign_last: at the Hand a signpost that the point is not in comes last
 // (near_math::SignOut). hand_wide_creature: the Creature has the wide reach.
-// g_choice_last: the choice of this frame is such a signpost.
+// far_grab_beside_loose: a tree, a building or a pile that the point is not
+// in does not turn the grab from a distance off (near_math::LooseOut).
+// g_choice_last: the choice of this frame gives way to a target of the aim:
+// such a signpost, or such a loose body (then g_choice_loose is true too).
 bool g_sign_last = true;
 bool g_creature_wide = true;
+bool g_beside_loose = true;
 bool g_choice_last = false;
+bool g_choice_loose = false;
+// The loose body that the log said leaves the grab from a distance on.
+void* g_loose_said = nullptr;
 int g_sign_way_logs = 0;
 const int kMaxSignWayLogs = 40;
 float g_choice_wide_cm = 0.0f;            // and the wide reach that it had
@@ -4424,6 +4431,7 @@ void Choose() {
   g_near_blocked = false;
   g_choice_wide = false;
   g_choice_last = false;
+  g_choice_loose = false;
   if (!g_active || g_face == nullptr || !HandEmpty()) return;
   // In the Creature state the pick keeps the Creature (KeepCreature).
   if (State(g_hand) == kStateCreature) return;
@@ -4456,6 +4464,12 @@ void Choose() {
   near_math::Gap best = {reach, 1e30f};
   int best_kind = near_math::kNone;
   float nearest = 1e30f;
+  // The gap of the nearest body that turns the grab from a distance off
+  // (near_math::StopsFar): the gap that NearBlocks reads.
+  float block_gap = 1e30f;
+  // The nearest loose body that the point is not in, for the log.
+  float loose_gap = 1e30f;
+  void* loose_object = nullptr;
   float creature_gap = 1e30f;
   Measured chosen = {};
   float chosen_reach = reach, chosen_speed = 0.0f;
@@ -4515,7 +4529,19 @@ void Choose() {
           m.target.gap.gap, touch);
       if (!m.target.last && m.target.gap.gap < nearest) {
         nearest = m.target.gap.gap;
+      }
+      // A TREE, A BUILDING OR A PILE THAT THE POINT IS NOT IN does not turn
+      // the grab from a distance off either (near_math::LooseOut).
+      const bool loose_out = near_math::LooseOut(
+          g_beside_loose, m.target.loose, m.target.gap.gap, touch);
+      if (near_math::StopsFar(m.target.last, loose_out) &&
+          m.target.gap.gap < block_gap) {
+        block_gap = m.target.gap.gap;
         g_near_object = c.object;
+      }
+      if (loose_out && m.target.gap.gap < loose_gap) {
+        loose_gap = m.target.gap.gap;
+        loose_object = c.object;
       }
       if (m.target.gap.gap < g_any_gap) {
         g_any_gap = m.target.gap.gap;
@@ -4575,6 +4601,7 @@ void Choose() {
     }
     if (gap.gap < nearest) {
       nearest = gap.gap;
+      block_gap = gap.gap;
       g_near_object = c.object;
     }
     // The Creature stays with the game's own pick.
@@ -4645,14 +4672,19 @@ void Choose() {
   // A SIGNPOST OF RULE 6 GIVES WAY TO THE AIM (near_math::SignGivesWay). It is
   // no choice while the aim has a target at a distance from the last frame.
   // FarSelect runs with such a choice, and it takes the choice away in the
-  // frame in which the aim gets its target.
-  g_choice_last = g_choice != nullptr && chosen.target.last;
+  // frame in which the aim gets its target. A loose body that the point is
+  // not in gives way the same (far_grab_beside_loose).
+  g_choice_loose = g_choice != nullptr && g_one_target && !g_choice_wide &&
+                   near_math::LooseOut(g_beside_loose, chosen.target.loose,
+                                       chosen.target.gap.gap, touch);
+  g_choice_last = g_choice != nullptr && (chosen.target.last || g_choice_loose);
   if (near_math::SignGivesWay(g_choice_last,
                               g_far_ready && g_far_ray && FarGrabOn() &&
                                   FarGrabTargetObject() != nullptr)) {
     g_choice = nullptr;
     best_kind = near_math::kNone;
     g_choice_last = false;
+    g_choice_loose = false;
   }
   // While a choice stands, the table hook keeps each other object from the
   // game's pick, the Creature too. A house beside the Creature must not do
@@ -4750,8 +4782,24 @@ void Choose() {
   }
   g_near_blocked =
       g_near_rule && g_near_object != nullptr &&
-      near_math::NearBlocks(nearest, was_blocked, near_in, near_out);
+      near_math::NearBlocks(block_gap, was_blocked, near_in, near_out);
   if (g_near_blocked) ++g_near_block_frames;
+  // A loose body that the point is not in, as near as the gap at which the
+  // grab from a distance goes off: one line for each new such body while the
+  // grab from a distance stays on.
+  void* spared = g_near_rule && !g_near_blocked && loose_gap <= near_in
+                     ? loose_object
+                     : nullptr;
+  if (spared != g_loose_said && FarGrabOn()) {
+    g_loose_said = spared;
+    if (spared != nullptr && g_near_logs < kMaxNearLogs) {
+      ++g_near_logs;
+      ModLog("far grab    : stays on. The Hand's point is %.1f cm of the room "
+             "from %p (%s) and not in it (far_grab_beside_loose=1), frame %llu",
+             units > 0.0f ? loose_gap / units * 100.0f : 0.0f, spared,
+             ClassName(spared), g_frame);
+    }
+  }
   if (g_near_blocked != was_blocked && FarGrabOn()) {
     if (g_near_blocked) ++g_near_blocks;
     if (g_near_logs < kMaxNearLogs) {
@@ -4760,8 +4808,9 @@ void Choose() {
         ModLog("far grab    : off. The Hand's point is %.1f cm of the room "
                "from %p (%s), and a press acts on that object. Near objects "
                "win to %d cm, frame %llu",
-               units > 0.0f ? nearest / units * 100.0f : 0.0f, g_near_object,
-               ClassName(g_near_object), g_near_out_cm, g_frame);
+               units > 0.0f ? block_gap / units * 100.0f : 0.0f,
+               g_near_object, ClassName(g_near_object), g_near_out_cm,
+               g_frame);
       } else {
         ModLog("far grab    : on again. No object that a press acts on is "
                "within %d cm of the Hand's point, frame %llu", g_near_out_cm,
@@ -5092,7 +5141,8 @@ void FarSelect() {
     }
     return;
   }
-  // A signpost of rule 6 at the Hand does not stop the aim (g_choice_last).
+  // A signpost of rule 6 at the Hand, or a loose body that the point is not
+  // in, does not stop the aim (g_choice_last).
   if ((g_choice != nullptr && !g_choice_last) || g_near_blocked) {
     FarGrabNoTarget();
     return;
@@ -5488,11 +5538,19 @@ void FarSelect() {
   }
   // The leash click has no test of the influence (fn_005D06E0).
   if (out.leash != 0) out.inside = true;
-  // THE AIM HAS ITS TARGET, so a signpost of rule 6 is no choice at the Hand
-  // from this frame (near_math::SignGivesWay). The grip acts on the far
-  // target.
+  // THE AIM HAS ITS TARGET, so a signpost of rule 6, or a loose body that the
+  // point is not in, is no choice at the Hand from this frame
+  // (near_math::SignGivesWay). The grip acts on the far target.
   if (g_choice_last) {
-    if (g_sign_way_logs < kMaxSignWayLogs) {
+    if (g_sign_way_logs < kMaxSignWayLogs && g_choice_loose) {
+      ++g_sign_way_logs;
+      ModLog("hand pick    : the %s %p is %.1f cm of the room from the Hand's "
+             "point, and the point is not in it. The aim has the target %p "
+             "(%s), so the %s is no target now (far_grab_beside_loose=1), "
+             "frame %llu", ClassName(g_choice), g_choice,
+             g_choice_gap / g_far_units * 100.0f, c.object, g_far_name,
+             ClassName(g_choice), g_frame);
+    } else if (g_sign_way_logs < kMaxSignWayLogs) {
       ++g_sign_way_logs;
       ModLog("hand pick    : the signpost %p is %.1f cm of the room from the "
              "Hand's point, and the point is not in it. The aim has the "
@@ -5510,6 +5568,7 @@ void FarSelect() {
     g_choice_touched = false;
     g_choice_table = nullptr;
     g_choice_last = false;
+    g_choice_loose = false;
   }
   FarGrabSelect(out);
 }
@@ -7080,6 +7139,7 @@ void InstallNear() {
              : "A signpost is a scroll of the first rank");
   g_sign_last = IniKey("hand_sign_last", 1) != 0;
   g_creature_wide = IniKey("hand_wide_creature", 1) != 0;
+  g_beside_loose = IniKey("far_grab_beside_loose", 1) != 0;
   ModLog("hand pick    : hand_sign_last=%d. %s. hand_wide_creature=%d. %s",
          g_sign_last ? 1 : 0,
          g_sign_last
@@ -7119,6 +7179,13 @@ void InstallNear() {
            g_far_touch ? "a scroll in the aim is a target, and the grip "
                          "activates it with no pull"
                        : "a scroll is no target of the aim");
+    ModLog("far grab    : far_grab_beside_loose=%d. %s", g_beside_loose ? 1 : 0,
+           g_beside_loose
+               ? "A tree, a building or a pile that the Hand's point is not "
+                 "in does not turn the grab from a distance off. It is the "
+                 "target at the Hand only while the aim has no target"
+               : "A tree, a building or a pile near the Hand's point turns "
+                 "the grab from a distance off as each other object");
   } else {
     ModLog("hand pick    : near_rule=0, so the pick reaches 60 percent of the "
            "Hand's length");

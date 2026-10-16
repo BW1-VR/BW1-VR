@@ -212,16 +212,16 @@ is built, and no test has proven it.
     sky` names the scene of that frame.
   - Not run: the video of a falling spell, the one scene of play that draws
     no sky. The first frame of such a scene is drawn as before.
-- **B17. The name of a villager, and the size of a speech bubble.** The
-  speech bubble of a signpost is one flat card at the depth of the sign
-  (`bubble_card=1`, `ui-layer.md`, section 18), and a headset session read
-  it well. A desktop run shows the card (section 18.5 has the recipe). Still
-  open:
-  - The name of a villager draws its own box, and the mod does not change
-    it (`ui-layer.md`, 18.6). By the code, its text has no eye difference of
-    the villager in one walk. No run has shown that.
+- **B17. The size of a speech bubble, and the name of a villager in a
+  headset.** The speech bubble of a signpost is one flat card at the depth
+  of the sign (`bubble_card=1`, `ui-layer.md`, section 18), and a headset
+  session read it well. The name of a villager is such a card at the depth
+  of the villager (`name_card=1`). Desktop runs show both cards (section
+  18.5 has the recipes). Still open:
   - The size of a bubble comes from the depth of the sign in units, with no
     change for the scale of the God view.
+  - Check in a headset that the name of a villager reads as well as a
+    bubble. The ring item `details` with the Hand on a villager shows it.
 - **B18. A flash of lightning in the left eye only: check it in a
   headset.** In a headset session the white flashes of the lightning at the
   end of the quest of the singing stones showed in the left eye only. A
@@ -437,9 +437,15 @@ that moves while the Hand takes it.
   - the grip on the Creature from 4 to 15 cm: the leash click, and the start
     of the Creature state with the hand that far from the body.
 
-  The far grab is still off while the Hand's point is 10 cm or less from a
-  tree or a house (`grab.md`, "Near objects win"). So the aim has no target
-  there, the Creature too.
+  A tree, a building or a pile at the Hand (`far_grab_beside_loose=1`,
+  `grab.md`, "Near objects win"): one that the Hand's point is not in does
+  not turn the far grab off, and it gives way to a far target. The math
+  checks and desktop runs at the Village Store show the rule. Check in a
+  headset:
+  - the aim past a tree, a house or a pile with the hand beside it, at the
+    Creature too,
+  - a tree, a house or a pile is still easy to take or to tap: with the
+    Hand's point in it, or with the aim on no far target.
 - **P2. The stay of the Creature: test it in the headset.** A grip from a
   distance that stays closed on the Creature makes it stop and stay until
   the grip opens. A short grip changes the leash when it opens

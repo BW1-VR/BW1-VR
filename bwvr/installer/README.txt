@@ -713,6 +713,13 @@ far_grab_near_out_cm in bwvr.ini to change the two distances. A signpost
 beside your Hand does not turn the far targets off: you can point past
 it at your Creature or at a different object.
 
+A tree, a building or a pile beside your Hand does not turn the far
+targets off either, when the tip of your index finger is not in it. You
+can point past it, and while you point at a far target, the grip acts
+on the far target. An object to hold, your Creature and a scroll near
+your Hand still turn the far targets off. Set far_grab_beside_loose=0
+in bwvr.ini for a tree, a building or a pile that turns them off too.
+
 
 HOLD, RELEASE AND THROW
 -----------------------

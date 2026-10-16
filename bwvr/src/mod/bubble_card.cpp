@@ -61,6 +61,18 @@
 // place that the place function gives the card in a pass of the right eye.
 //
 // With bubble_card=0 the mod changes nothing of the bubble.
+//
+// THE NAME OF A VILLAGER (name_card=1). VillagerName::Add (0x007629E0)
+// projects the point over the head of a villager that shows its details,
+// and keeps its pixel (+0x14) and its depth in the camera (+0x1C). VillagerName::Draw
+// (0x00762DC0), an object of the Z sort, draws the box through DrawBubble at
+// the depth of the bubble (fn_005766E0 of that depth) and the text through
+// GatheringText::DrawTextRaw. It has no layout and no place function. With
+// name_card=1 its draw is a card by the same rule as a bubble: the box at its
+// pixels, the flat batches with no interface depth, and in one walk the copy
+// for the right eye moved by the eye difference of the villager. With
+// name_card=0 the mod changes nothing of the name, and the log has its
+// numbers.
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -91,6 +103,9 @@ using namespace bubble_card;
 const uintptr_t kBubblePlace = 0x00575EA0;
 // The draw: the bubble in ecx, no argument on the stack, a plain ret.
 const uintptr_t kBubbleDraw = 0x005767D0;
+// VillagerName::Draw: the name in ecx, no argument on the stack, a plain ret.
+// It deletes the name at its end.
+const uintptr_t kNameDraw = 0x00762DC0;
 // LH3DTech::Draw3DWorldTriangle, to the function after it. The box is the
 // only batch of a bubble that comes from there.
 const uintptr_t kWorldTriangleBegin = 0x0081C090;
@@ -102,6 +117,9 @@ const int kBoxHeight = 0x54;
 const int kSignDepth = 0x58;  // the depth of the sign in the camera
 const int kBoxLeft = 0x68;
 const int kBoxTop = 0x6C;
+// The floats of a VillagerName that VillagerName::Add writes.
+const int kNamePixel = 0x14;  // the pixel of the villager across the picture
+const int kNameDepth = 0x1C;  // the depth of the villager in the camera
 
 typedef int(__fastcall* PlaceFn)(void* self, void* unused,
                                  const float* position, float offset,
@@ -109,20 +127,23 @@ typedef int(__fastcall* PlaceFn)(void* self, void* unused,
 typedef void(__fastcall* DrawFn)(void* self, void* unused);
 PlaceFn o_Place = nullptr;
 DrawFn o_Draw = nullptr;
+DrawFn o_NameDraw = nullptr;
 
 const uint32_t kFvf = 0x1C4;  // XYZRHW, two colors, one texture: 32 bytes
 const int kStride = 32;
 const uint32_t kMaxCorners = 64;
 
 bool g_on = true;        // bubble_card
+bool g_name_on = true;   // name_card
 bool g_test = false;     // bubble_card_test: a line of the log each 30 frames
 int g_test_frame = 0;    // bubble_card_test_frame
 bool g_installed = false;
 int g_eye = -1;
 
-// One bubble of the game, by its address.
+// One bubble of the game, by its address, or the name of a villager.
 struct Seen {
   const void* bubble = nullptr;
+  bool name = false;        // the name of a villager, not a bubble
   bool have = false;
   uint64_t frame = 0;       // the frame of the layout
   Layout layout;            // the layout of that frame
@@ -134,6 +155,7 @@ struct Seen {
   Layout asked[2];
   Layout used[2];
   float box[2][4] = {};     // left, top, width, height
+  float pixel[2] = {0.0f, 0.0f};  // the pixel of the villager (a name)
   float depth = 0.0f;
   // The least and the largest x of the corners and of the flat parts as
   // drawn: in each eye pass, and at kWalkRight for the right eye of one walk.
@@ -151,6 +173,12 @@ struct Seen {
 const int kWalkRight = 2;
 const int kMaxSeen = 16;
 Seen g_seen[kMaxSeen];
+// The game makes a new VillagerName in each pass and deletes it in its draw,
+// so the names have one record: the first name that a pass draws. Each
+// other name of the pass is drawn with a record of its own that the log does
+// not read.
+Seen g_name;
+Seen g_name_more;
 Seen* g_drawing = nullptr;
 int g_scope = 0;
 
@@ -173,6 +201,13 @@ double g_box_moved = 0.0;
 uint64_t g_flat = 0;
 uint64_t g_too_large = 0;
 uint64_t g_walk_boxes = 0;  // boxes that one walk drew for the right eye
+uint64_t g_name_frames = 0; // frames with the name of a villager in view
+
+// True when the bubble or the name that draws now is a card.
+bool ScopeOn() {
+  if (g_drawing == nullptr) return false;
+  return g_drawing->name ? g_name_on : g_on;
+}
 
 Seen* SeenOf(const void* bubble) {
   Seen* oldest = &g_seen[0];
@@ -250,6 +285,20 @@ void Widen(float range[2], bool* have, float x) {
 // eye too.
 bool InWalk() { return g_eye == 0 && OneWalkActive(); }
 
+// The words of a log line for a bubble or for the name of a villager.
+const char* Tag(const Seen& s) {
+  return s.name ? "name card    " : "bubble card  ";
+}
+const char* Thing(const Seen& s) { return s.name ? "villager" : "sign"; }
+const char* Key(const Seen& s) { return s.name ? "name_card" : "bubble_card"; }
+int KeyValue(const Seen& s) { return (s.name ? g_name_on : g_on) ? 1 : 0; }
+
+// The pixel of the sign or of the villager in the pass of an eye.
+float PixelOf(const Seen& s, int eye) {
+  if (s.name) return s.pixel[eye];
+  return SignPixel(s.box[eye][0], s.box[eye][2], s.used[eye]);
+}
+
 // The pixels from the left eye to the right eye for a thing at the depth of
 // the sign. Negative: the right eye sees a near thing further to the left.
 float SignMove(const Seen& s) {
@@ -261,15 +310,15 @@ float SignMove(const Seen& s) {
 // One line with the numbers of a frame of a bubble in one walk, after the
 // pass of the left eye drew it for both eyes.
 void SayWalk(const Seen& s, const char* why) {
-  const float sign = SignPixel(s.box[0][0], s.box[0][2], s.used[0]);
-  ModLog("bubble card  : %s. One walk: the pass of the left eye draws the "
-         "right eye too. The sign is %.1f units deep, and its pixel is %.1f "
+  const float sign = PixelOf(s, 0);
+  ModLog("%s: %s. One walk: the pass of the left eye draws the "
+         "right eye too. The %s is %.1f units deep, and its pixel is %.1f "
          "in the left picture. The eye difference of that depth is %.1f "
          "pixels. The card %s (one_walk_marks=%d). The box as drawn is %.1f "
          "to %.1f in the left picture and %.1f to %.1f in the right one: "
          "%.1f apart. The flat parts as drawn (the text) are %.1f to %.1f and "
-         "%.1f to %.1f: %.1f apart. bubble_card=%d, frame %llu",
-         why, s.depth, sign, -s.walk_move,
+         "%.1f to %.1f: %.1f apart. %s=%d, frame %llu",
+         Tag(s), why, Thing(s), s.depth, sign, -s.walk_move,
          s.walk_moved ? "goes to the right eye with that difference"
                       : "goes to the right eye as each other batch",
          s.walk_moved ? 1 : 0, s.drawn_box[0][0], s.drawn_box[0][1],
@@ -278,29 +327,46 @@ void SayWalk(const Seen& s, const char* why) {
          s.drawn_flat[0][0], s.drawn_flat[0][1], s.drawn_flat[kWalkRight][0],
          s.drawn_flat[kWalkRight][1],
          Middle(s.drawn_flat[0]) - Middle(s.drawn_flat[kWalkRight]),
-         g_on ? 1 : 0, ControllersFrameCount());
+         Key(s), KeyValue(s), ControllersFrameCount());
 }
 
 // one_walk_check=1: the right eye also got a walk of its own in this frame.
 // One line with the card of that walk beside the card that one walk drew.
 void SayCheck(const Seen& s) {
-  const float sign_left = SignPixel(s.box[0][0], s.box[0][2], s.used[0]);
-  const float sign_own = SignPixel(s.box[1][0], s.box[1][2], s.used[1]);
-  ModLog("bubble card  : test key one_walk_check: the right eye in its own "
-         "walk. The pixel of the sign is %.1f there, and the pixel of the "
-         "left picture with the eye difference of the sign is %.1f. The box "
+  const float sign_left = PixelOf(s, 0);
+  const float sign_own = PixelOf(s, 1);
+  ModLog("%s: test key one_walk_check: the right eye in its own "
+         "walk. The pixel of the %s is %.1f there, and the pixel of the "
+         "left picture with the eye difference of the %s is %.1f. The box "
          "as drawn is %.1f to %.1f in its own walk and %.1f to %.1f in one "
          "walk: %.1f apart. The flat parts as drawn (the text) are %.1f to "
          "%.1f and %.1f to %.1f: %.1f apart. one_walk_marks=%d, "
-         "bubble_card=%d, frame %llu",
-         sign_own, sign_left + s.walk_move, s.drawn_box[1][0],
+         "%s=%d, frame %llu",
+         Tag(s), Thing(s), sign_own, Thing(s), sign_left + s.walk_move,
+         s.drawn_box[1][0],
          s.drawn_box[1][1], s.drawn_box[kWalkRight][0],
          s.drawn_box[kWalkRight][1],
          Middle(s.drawn_box[1]) - Middle(s.drawn_box[kWalkRight]),
          s.drawn_flat[1][0], s.drawn_flat[1][1], s.drawn_flat[kWalkRight][0],
          s.drawn_flat[kWalkRight][1],
          Middle(s.drawn_flat[1]) - Middle(s.drawn_flat[kWalkRight]),
-         s.walk_moved ? 1 : 0, g_on ? 1 : 0, ControllersFrameCount());
+         s.walk_moved ? 1 : 0, Key(s), KeyValue(s), ControllersFrameCount());
+}
+
+// Two walks: one line with the numbers of a frame of the name of a villager,
+// after the second eye pass drew it.
+void SayName(const Seen& s, const char* why) {
+  ModLog("name card    : %s. The villager is %.1f units deep, and its pixel "
+         "is %.1f in the left picture and %.1f in the right one: %.1f apart. "
+         "The box as drawn is %.1f to %.1f and %.1f to %.1f: %.1f apart. The "
+         "flat parts as drawn (the text) are %.1f to %.1f and %.1f to %.1f: "
+         "%.1f apart. name_card=%d, frame %llu",
+         why, s.depth, s.pixel[0], s.pixel[1], s.pixel[0] - s.pixel[1],
+         s.drawn_box[0][0], s.drawn_box[0][1], s.drawn_box[1][0],
+         s.drawn_box[1][1], Middle(s.drawn_box[0]) - Middle(s.drawn_box[1]),
+         s.drawn_flat[0][0], s.drawn_flat[0][1], s.drawn_flat[1][0],
+         s.drawn_flat[1][1], Middle(s.drawn_flat[0]) - Middle(s.drawn_flat[1]),
+         g_name_on ? 1 : 0, ControllersFrameCount());
 }
 
 int __fastcall h_Place(void* self, void* unused, const float* position,
@@ -350,6 +416,54 @@ int __fastcall h_Place(void* self, void* unused, const float* position,
   return placed;
 }
 
+// The log after a draw of a bubble or of a name: one line when it comes into
+// view, and with the test key one line each 30 frames.
+void AfterDraw(Seen* seen, uint64_t frame) {
+  seen->drew[g_eye] = true;
+  const char* comes = seen->name ? "the name of a villager comes into view"
+                                 : "a bubble of the game comes into view";
+  const char* tested = seen->name
+                           ? "test key bubble_card_test: a name in view"
+                           : "test key bubble_card_test: a bubble in view";
+  if (seen->walk_frame == frame) {
+    if (g_eye == 1) {
+      // The pass of the right eye in a frame of one walk: one_walk_check.
+      if (seen->placed[1] && seen->have_box[1] && seen->have_box[kWalkRight]) {
+        SayCheck(*seen);
+      }
+      return;
+    }
+    if (!seen->have_box[0] || !seen->have_box[kWalkRight]) return;
+    if (seen->first_frame != 0 && seen->last_said < seen->first_frame) {
+      seen->last_said = frame;
+      SayWalk(*seen, comes);
+    } else if (g_test && frame - seen->last_said >= 30) {
+      seen->last_said = frame;
+      SayWalk(*seen, tested);
+    }
+    return;
+  }
+  if (g_eye != 1 || !seen->drew[0] || !seen->placed[0] || !seen->placed[1] ||
+      !seen->have_box[0] || !seen->have_box[1]) {
+    return;
+  }
+  if (seen->first_frame != 0 && seen->last_said < seen->first_frame) {
+    seen->last_said = frame;
+    if (seen->name) {
+      SayName(*seen, comes);
+    } else {
+      Say(*seen, comes);
+    }
+  } else if (g_test && frame - seen->last_said >= 30) {
+    seen->last_said = frame;
+    if (seen->name) {
+      SayName(*seen, tested);
+    } else {
+      Say(*seen, tested);
+    }
+  }
+}
+
 void __fastcall h_Draw(void* self, void* unused) {
   if (g_eye < 0 || g_eye > 1 || self == nullptr) {
     o_Draw(self, unused);
@@ -371,38 +485,57 @@ void __fastcall h_Draw(void* self, void* unused) {
   --g_scope;
   Seen* seen = g_drawing;
   g_drawing = outer;
-  seen->drew[g_eye] = true;
-  // The log: one line when a bubble comes into view, and with the test key
-  // one line each 30 frames.
-  if (seen->walk_frame == frame) {
-    if (g_eye == 1) {
-      // The pass of the right eye in a frame of one walk: one_walk_check.
-      if (seen->placed[1] && seen->have_box[1] && seen->have_box[kWalkRight]) {
-        SayCheck(*seen);
-      }
-      return;
-    }
-    if (!seen->have_box[0] || !seen->have_box[kWalkRight]) return;
-    if (seen->first_frame != 0 && seen->last_said < seen->first_frame) {
-      seen->last_said = frame;
-      SayWalk(*seen, "a bubble of the game comes into view");
-    } else if (g_test && frame - seen->last_said >= 30) {
-      seen->last_said = frame;
-      SayWalk(*seen, "test key bubble_card_test: a bubble in view");
-    }
+  AfterDraw(seen, frame);
+}
+
+// THE NAME OF A VILLAGER. The game makes the name in the scene walk of each
+// eye pass (VillagerName::Add) and draws it later in that pass, as an object
+// of the Z sort. The draw is a card by the rule of a bubble, with the depth
+// and the pixel of the villager in the place of those of the sign.
+void __fastcall h_NameDraw(void* self, void* unused) {
+  if (g_eye < 0 || g_eye > 1 || self == nullptr) {
+    o_NameDraw(self, unused);
     return;
   }
-  if (g_eye != 1 || !seen->drew[0] || !seen->placed[0] || !seen->placed[1] ||
-      !seen->have_box[0] || !seen->have_box[1]) {
-    return;
+  Seen* seen = &g_name;
+  const uint64_t frame = ControllersFrameCount();
+  if (!seen->have || seen->frame != frame) {
+    // The first name of this frame.
+    const bool have_last = seen->have && frame - seen->frame <= 3;
+    if (!have_last) seen->first_frame = frame;
+    seen->frame = frame;
+    seen->have = true;
+    for (int e = 0; e < 2; ++e) {
+      seen->placed[e] = seen->drew[e] = false;
+      seen->have_box[e] = seen->have_flat[e] = false;
+    }
+    seen->have_box[kWalkRight] = seen->have_flat[kWalkRight] = false;
+    ++g_name_frames;
   }
-  if (seen->first_frame != 0 && seen->last_said < seen->first_frame) {
+  seen->name = true;
+  if (seen->placed[g_eye]) {
+    seen = &g_name_more;
+    *seen = Seen();
+    seen->name = true;
+    seen->have = true;
+    seen->frame = frame;
     seen->last_said = frame;
-    Say(*seen, "a bubble of the game comes into view");
-  } else if (g_test && frame - seen->last_said >= 30) {
-    seen->last_said = frame;
-    Say(*seen, "test key bubble_card_test: a bubble in view");
   }
+  seen->placed[g_eye] = true;
+  seen->pixel[g_eye] = Field(self, kNamePixel);
+  seen->depth = Field(self, kNameDepth);
+  if (InWalk()) {
+    seen->walk_frame = frame;
+    seen->walk_move = SignMove(*seen);
+    seen->walk_moved = false;
+  }
+  Seen* outer = g_drawing;
+  g_drawing = seen;
+  ++g_scope;
+  o_NameDraw(self, unused);
+  --g_scope;
+  g_drawing = outer;
+  AfterDraw(seen, frame);
 }
 
 bool Hook(uintptr_t address, void* replacement, void** original,
@@ -432,8 +565,9 @@ void Toggle(const char* cause) {
 
 }  // namespace
 
-void BubbleCardSetOptions(int on, int test, int test_frame) {
+void BubbleCardSetOptions(int on, int name_on, int test, int test_frame) {
   g_on = on != 0;
+  g_name_on = name_on != 0;
   g_test = test != 0;
   g_test_frame = test_frame;
 }
@@ -464,6 +598,23 @@ void BubbleCardInstall() {
   }
   g_installed = true;
   ModLog("bubble card  : bubble_card=%d, %s", g_on ? 1 : 0, RuleText(g_on));
+  // VillagerName::Draw starts as the listing has it: "sub esp, 0x10",
+  // "push esi" and "mov esi, ecx".
+  static const uint8_t name_start[6] = {0x83, 0xEC, 0x10, 0x56, 0x8B, 0xF1};
+  const uint8_t* name = reinterpret_cast<const uint8_t*>(kNameDraw);
+  if (IsBadReadPtr(name, sizeof(name_start)) ||
+      memcmp(name, name_start, sizeof(name_start)) != 0) {
+    ModLog("name card    : the code of the name of a villager is not as "
+           "expected, so a name is drawn as before");
+  } else if (Hook(kNameDraw, reinterpret_cast<void*>(&h_NameDraw),
+                  reinterpret_cast<void**>(&o_NameDraw),
+                  "the draw of the name of a villager")) {
+    ModLog("name card    : name_card=%d, %s", g_name_on ? 1 : 0,
+           g_name_on ? "the name of a villager is one flat card at the depth "
+                       "of the villager, by the rule of a speech bubble"
+                     : "the name of a villager is drawn as the game and the "
+                       "interface depth make it in each eye pass");
+  }
   if (g_test) {
     ModLog("bubble card  : test key bubble_card_test=1: one line of the log "
            "each 30 frames while a bubble is in view");
@@ -493,7 +644,7 @@ void BubbleCardPass(int eye) {
 
 bool BubbleCardInBubble() { return g_scope > 0; }
 
-bool BubbleCardOn() { return g_on; }
+bool BubbleCardOn() { return ScopeOn(); }
 
 void BubbleCardFlat(const void* verts, uint32_t fvf, uint32_t count,
                     bool right) {
@@ -509,7 +660,7 @@ void BubbleCardFlat(const void* verts, uint32_t fvf, uint32_t count,
 }
 
 bool BubbleCardWalkMove(float* move) {
-  if (!g_on || g_drawing == nullptr || !InWalk() || !OneWalkMarks()) {
+  if (!ScopeOn() || !InWalk() || !OneWalkMarks()) {
     return false;
   }
   // The place function gave the depth of the sign in this frame.
@@ -542,7 +693,7 @@ bool BubbleCardBoxIn(void* verts, uint32_t count, uintptr_t caller) {
   }
   bool moved = false;
   View view;
-  if (g_on && count <= kMaxCorners && GetView(&view)) {
+  if (ScopeOn() && count <= kMaxCorners && GetView(&view)) {
     float k[3];
     CameraPointInEye(
         reinterpret_cast<const float*>(bw::tech::kWorldToCameraUnscaled),
@@ -560,7 +711,7 @@ bool BubbleCardBoxIn(void* verts, uint32_t count, uintptr_t caller) {
     ++g_boxes;
     moved = true;
     memcpy(g_at_pixels, verts, static_cast<size_t>(count) * kStride);
-  } else if (g_on && count > kMaxCorners) {
+  } else if (ScopeOn() && count > kMaxCorners) {
     ++g_too_large;
   }
   // With no draw of its own for the right eye, one walk moves each corner by
@@ -592,6 +743,11 @@ void BubbleCardBoxOut(void* verts, uint32_t count) {
 }
 
 void BubbleCardReport() {
+  if (g_installed && g_name_frames > 0) {
+    ModLog("name card    : name_card=%d. The name of a villager was in view on "
+           "%llu frames", g_name_on ? 1 : 0, g_name_frames);
+    g_name_frames = 0;
+  }
   if (!g_installed || g_frames_shown == 0) return;
   ModLog("bubble card  : bubble_card=%d. A bubble of the game was in view on "
          "%llu frames. %llu asks got the layout of the frame, and %llu of "

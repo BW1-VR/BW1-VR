@@ -2239,7 +2239,8 @@ void DrawInterfaceEye(DrawAndClipFn original, D3DPRIMITIVETYPE type,
   // arrows, its icon) have the pixels of its box. The box has the depth of
   // its sign, so they get none of the steps below and stay on it. In one walk
   // the copy for the right eye moves with the card, by the eye difference of
-  // the sign (one_walk_marks=1).
+  // the sign (one_walk_marks=1). The name of a villager is such a card at the
+  // depth of the villager (name_card=1).
   if (BubbleCardInBubble() && BubbleCardOn()) {
     PanelRelease();
     float move = 0.0f;

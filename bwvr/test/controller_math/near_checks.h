@@ -529,6 +529,55 @@ inline void OneTargetChecks() {
       Check(BeatsTarget(far_scroll, sign, touch, eps),
             "a scroll of a quest 8 cm away comes before a signpost 3 cm away",
             1, 1);
+      // A LOOSE BODY THAT THE POINT IS NOT IN (far_grab_beside_loose). A
+      // tree 7 cm from the point and a house 3 cm from it do not turn the
+      // grab from a distance off, and they give way to a far target. A tree
+      // that the point is in, a rock 7 cm away and the Creature stay near
+      // objects.
+      {
+        const float in_gap = 10.0f, out_gap = 15.0f;
+        const Target tree_near = {{7.0f, 20.0f}, kTap, 12.0f, false, true};
+        const Target house_near = {{3.0f, 9.0f}, kTap, 7.0f, false, true};
+        const Target tree_in = {{0.5f, 15.0f}, kTap, 12.0f, false, true};
+        const Target rock_near = {{7.0f, 8.0f}, kHold, 0.6f, false, false};
+        const bool tree_out = LooseOut(true, tree_near.loose,
+                                       tree_near.gap.gap, touch);
+        const bool house_out = LooseOut(true, house_near.loose,
+                                        house_near.gap.gap, touch);
+        Check(tree_out && house_out &&
+                  !StopsFar(false, tree_out) && !StopsFar(false, house_out),
+              "a tree 7 cm away and a house 3 cm away do not turn the far "
+              "grab off", tree_out ? 1 : 0, 1);
+        Check(SignGivesWay(house_out, true) && !SignGivesWay(house_out, false),
+              "the house 3 cm away is the target at the Hand only while the "
+              "aim has no far target", 1, 1);
+        Check(TargetRule(house_near, touch) == 4,
+              "its rule in the choice stays 4", TargetRule(house_near, touch),
+              4);
+        const bool tree_in_out =
+            LooseOut(true, tree_in.loose, tree_in.gap.gap, touch);
+        Check(!tree_in_out && StopsFar(false, tree_in_out) &&
+                  NearBlocks(tree_in.gap.gap, false, in_gap, out_gap) &&
+                  !SignGivesWay(tree_in_out, true),
+              "a tree that the point is in turns the far grab off, and it "
+              "stays the target", tree_in_out ? 1 : 0, 0);
+        const bool rock_out =
+            LooseOut(true, rock_near.loose, rock_near.gap.gap, touch);
+        Check(!rock_out && StopsFar(false, rock_out) &&
+                  NearBlocks(rock_near.gap.gap, false, in_gap, out_gap),
+              "a rock 7 cm away turns the far grab off", rock_out ? 1 : 0, 0);
+        Check(!LooseOut(true, false, 7.0f, touch) &&
+                  !LooseOut(true, scroll_away.loose, scroll_away.gap.gap,
+                            touch),
+              "the Creature and a scroll of a quest are no loose bodies", 0,
+              0);
+        Check(!LooseOut(false, true, 7.0f, touch) && StopsFar(false, false),
+              "far_grab_beside_loose=0: a tree 7 cm away turns the far grab "
+              "off, as before", 0, 0);
+        Check(!StopsFar(true, false),
+              "a signpost that the point is not in does not turn it off", 0,
+              0);
+      }
       // The point in the signpost: a body that the point touches (rule 1).
       Target sign_in = {{0.5f, 3.0f}, kTap, 3.0f, true, false};
       sign_in.last = SignOut(true, true, sign_in.gap.gap, touch);

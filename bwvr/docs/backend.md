@@ -45,7 +45,7 @@ Other docs: `software-tnl.md` (the CPU transform and the camera matrix),
 | `src/mod/script_camera.cpp` | The camera of the story |
 | `src/mod/draw_hooks.cpp` | Hints, tooltips, subtitles, interface depth and size |
 | `src/mod/eye_clean.cpp` | The frame before of each eye: the clean of each eye pass, and the keeps of the eye pictures |
-| `src/mod/bubble_card.cpp` | A speech bubble of the game as one card at the depth of its sign |
+| `src/mod/bubble_card.cpp` | A speech bubble of the game as one card at the depth of its sign, and the name of a villager as one card at the depth of the villager |
 | `src/mod/sky_detail.cpp`, `water_mode.cpp` | Clouds, sun glare, detail distance, the sea |
 | `src/mod/spirit_anchor.cpp` | The advisors |
 | `src/mod/near_plane.cpp` | The near plane |
@@ -1385,11 +1385,12 @@ and the interface panel puts back the target it found. The hook on
 ### The cards and the marks of the mod
 
 The rule of a batch is right only when each vertex has the rhw of its place.
-Three things that the mod draws in an eye pass do not have it:
+Four things that the mod draws in an eye pass do not have it:
 
 | Thing | The rhw in its vertices | Its place |
 | --- | --- | --- |
 | A speech bubble as one card (`bubble_card.cpp`, `ui-layer.md`, section 18) | A corner of the box has the depth of the bubble: the depth of the sign less 5 units, and less again while the camera looks down. The text and the other flat batches have no depth | The pixels that the place function of the game makes from the pixel of the sign |
+| The name of a villager as one card (`bubble_card.cpp`, `ui-layer.md`, section 18) | A corner of the box has the depth of the box: the depth of the villager less 5 units, as for a bubble. The text has no depth | The pixels that `VillagerName::Add` makes from the pixel of the villager |
 | The glow at the Hand's point (`hand_glow.cpp`) | The point of the depth test: half a Hand's length nearer to the eye | The Hand's point |
 | A halo (`hand_glow.cpp`) | The point of the depth test: one radius of the body behind its middle | The middle of the body |
 
@@ -1407,7 +1408,9 @@ of the right eye. For a disc the depth is that of its middle. The Z value and
 the rhw of each vertex stay, so the depth test is the same in both eyes.
 `LH3DRender::DrawTriangle` changes the vertices that it gets, so the draw of
 the box for the right eye starts from a copy that the mod made before the
-first draw.
+first draw. The card of the name of a villager goes to the right eye by the
+same rule, with the depth of the villager in the place of the depth of the
+sign.
 
 With `one_walk_marks=0` the right eye gets these batches as each other
 batch. The text of a card is then at the same pixel in both eyes, and its box
@@ -1500,7 +1503,8 @@ The scene time of one walk holds the copies for the right eye, 0.29 to
 `one_walk_check=1`: on a frame that saves pictures, the right eye also gets
 its own walk, and its picture is saved as `walk2` beside the right eye of one
 walk. On such a frame the log has one line for a speech bubble in view
-(`bubble card`) and one for the glow at the Hand's point (`hand glow`). Each
+(`bubble card`), one for the name of a villager in view (`name card`), and
+one for the glow at the Hand's point (`hand glow`). Each
 line has the place of the thing in the right eye of its own walk and in the
 right eye of one walk.
 
@@ -2772,7 +2776,7 @@ in front. The mod reads the keys and never takes them from the game.
 | Ctrl Shift Period | `test_keys=1` | On the hint card, the lines of the walk with the stick and of A show only while they can move the player, or the card has no line for the walk and the line of A shows in each case. A long pulse and a short pulse (`prompt_moves`, `controller-hints.md`, 9.4) |
 | Ctrl Shift Numpad Slash | `test_keys=1` | The mod waits for the GPU after each eye pass, one time a frame, or one time a frame on a second thread that also gives the frame to the runtime. A long pulse, a pulse of middle length and a short pulse (`frame_send`, "One wait a frame, and a second thread"). The slash key with Shift and no Ctrl is a key of the Temple, and with no Shift it is a key of the throw |
 | Menu key | `test_keys=1` | One walk for both eyes on and off (see "One walk for both eyes"). The key beside the right Ctrl key that opens a context menu. Ctrl and Shift must be up |
-| Ctrl Shift Right bracket | `test_keys=1` | In one walk: a speech bubble as a card, the glow at the Hand's point and a halo are drawn for each eye by itself, or the right eye gets them as each other batch. A long pulse and a short pulse (`one_walk_marks`, "The cards and the marks of the mod"). The right square bracket key is two keys right of the P key on a US keyboard |
+| Ctrl Shift Right bracket | `test_keys=1` | In one walk: a speech bubble or the name of a villager as a card, the glow at the Hand's point and a halo are drawn for each eye by itself, or the right eye gets them as each other batch. A long pulse and a short pulse (`one_walk_marks`, "The cards and the marks of the mod"). The right square bracket key is two keys right of the P key on a US keyboard |
 | Ctrl Menu key | `test_keys=1` | The layout of the buttons of the hand that does not point. The menu button of the left controller opens the game menu, Y opens the ring and the stick does not drive the ring, or Y opens the game menu and X and the stick open the ring. A long pulse and a short pulse on that hand (`button_layout`, `controllers.md`, 5.1). Shift must be up |
 | Shift Menu key | `test_keys=1` | The walk with the stick of the hand that does not point steps from 1 to 2 to 0 and back: forward is the direction of the head, forward is the direction of that controller, or the stick does not move the player. A medium pulse, a long pulse and a short pulse (`move_stick`, `god-view.md`, section 5.7). Ctrl must be up |
 
@@ -2871,6 +2875,7 @@ keys that the launcher sets.
 | `eye_clean` | 1 | 1: each eye pass of the scene starts from its own frame before. 0: the two eye passes share the render target. See `stereo-artifacts.md`, "The frame before of each eye" |
 | `eye_clean_test`, `eye_clean_test_frame` | 0, 0 | Test keys of the desktop runs. See the same section |
 | `bubble_card` | 1 | 1: a speech bubble of the game is one flat card at the depth of its sign. 0: it is drawn as the game and the interface depth make it in each eye pass. See `ui-layer.md`, section 18 |
+| `name_card` | 1 | 1: the name of a villager is one flat card at the depth of the villager. 0: it is drawn as the game and the interface depth make it in each eye pass. See `ui-layer.md`, section 18 |
 | `bubble_card_test`, `bubble_card_test_frame` | 0, 0 | Test keys of the desktop runs. See the same section |
 | `one_walk`, `one_walk_check` | 1, 0 | See "One walk for both eyes" |
 | `one_walk_marks`, `one_walk_marks_test_frame` | 1, 0 | See "The cards and the marks of the mod" |
