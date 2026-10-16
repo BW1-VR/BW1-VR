@@ -60,6 +60,10 @@ HANDLE g_target = nullptr;         // the frame thread, or the render thread
 int g_other = 0;
 HANDLE g_thread = nullptr;         // the thread of the samples
 volatile LONG g_in_walk = 0;
+// profile_sample_outside=1: the samples come while the frame thread is NOT
+// in a scene walk (the game turn, the streaming of the land, the loads, the
+// waits for the headset), in place of the scene walks.
+LONG g_outside = 0;
 
 // Written by the thread of the samples, read by the report on the frame
 // thread. The report reads only up to the count it read first.
@@ -96,7 +100,7 @@ DWORD WINAPI SampleThread(LPVOID) {
   LARGE_INTEGER next, now;
   QueryPerformanceCounter(&next);
   for (;;) {
-    if (InterlockedCompareExchange(&g_in_walk, 0, 0) == 0) {
+    if (InterlockedCompareExchange(&g_in_walk, 0, 0) == g_outside) {
       Sleep(1);
       QueryPerformanceCounter(&next);
       continue;
@@ -115,7 +119,7 @@ DWORD WINAPI SampleThread(LPVOID) {
       }
     }
     if (next.QuadPart < now.QuadPart - 10 * step) next = now;
-    if (InterlockedCompareExchange(&g_in_walk, 0, 0) == 0) continue;
+    if (InterlockedCompareExchange(&g_in_walk, 0, 0) == g_outside) continue;
     LARGE_INTEGER a, b;
     QueryPerformanceCounter(&a);
     if (SuspendThread(g_target) == static_cast<DWORD>(-1)) continue;
@@ -309,6 +313,12 @@ void Start() {
   g_read = true;
   g_interval_us = IniKey("profile_sample", 0);
   g_dump = IniKey("profile_sample_dump", 0) != 0;
+  // profile_sample_outside=N (100 to 5000) takes samples each N microseconds
+  // outside the scene walks. It needs no profile_sample, so a save of the
+  // launcher, which removes profile_sample, keeps it.
+  const int outside = IniKey("profile_sample_outside", 0);
+  g_outside = outside > 0 ? 1 : 0;
+  if (g_outside != 0 && g_interval_us <= 0) g_interval_us = outside;
   if (g_interval_us <= 0) {
     g_interval_us = 0;
     return;
@@ -342,11 +352,13 @@ void Start() {
   }
   SetThreadPriority(g_thread, THREAD_PRIORITY_TIME_CRITICAL);
   ModLog("scene sample : profile_sample=%d. A thread stops the %s thread "
-         "for a moment each %d microseconds in each scene walk and reads the "
+         "for a moment each %d microseconds %s and reads the "
          "address of its code. Each 450 frames the log has the share of each "
          "module", g_interval_us,
          g_other == 1 ? "render" : g_other == 2 ? "D3D7" : "frame",
-         g_interval_us);
+         g_interval_us,
+         g_outside != 0 ? "outside the scene walks (profile_sample_outside=1)"
+                        : "in each scene walk");
 }
 
 }  // namespace
@@ -421,11 +433,12 @@ void SceneSampleReport(uint64_t frames, double scene_ms) {
   const double held_ms =
       1000.0 * static_cast<double>(held) /
       static_cast<double>(g_frequency.QuadPart) / static_cast<double>(frames);
-  ModLog("scene sample : %ld samples in the scene walks of %llu frames, %.0f "
+  ModLog("scene sample : %ld samples %s of %llu frames, %.0f "
          "in a frame. The samples held the frame thread %.3f ms in a frame, "
          "and %ld stops gave no address. The scene walks were %.2f ms in a "
          "frame. By module: %s",
-         take, frames, static_cast<double>(take) / frames, held_ms, lost,
+         take, g_outside != 0 ? "outside the scene walks" : "in the scene walks",
+         frames, static_cast<double>(take) / frames, held_ms, lost,
          scene_ms, line);
 
   // The buckets with the most samples.

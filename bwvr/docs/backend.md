@@ -1248,6 +1248,12 @@ its first walk, so the samples start with the walk after it. The ms of a
 module is then the time that the render thread was in it while the frame
 thread was in a scene walk.
 
+`profile_sample_outside=N` (100 to 5000, 0 is off) takes the samples each N
+microseconds while the frame thread is NOT in a scene walk: the game turn,
+the streaming of the land, the loads and the waits for the headset. The
+lines then say "outside the scene walks". It needs no `profile_sample`, so a
+save of the launcher, which removes `profile_sample`, keeps it.
+
 `profile_sample_dump=1` also writes each sample of a report, with the
 modules of the process, to `bwvr-samples.txt` beside `runblack.exe`: a line
 "W frames" starts a report, "M name base size" is a module, and each other
