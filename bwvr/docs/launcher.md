@@ -38,7 +38,7 @@ There is no layout to keep in step and no separate load and save code.
 
 The window sizes itself around the table and starts a new column when one gets
 tall. A heading stays with at least three of its settings. A column has 26
-rows at most. The table of now has 24 rows, so the window has one column. Three
+rows at most. The table of now has 25 rows, so the window has one column. Two
 more rows start a second column.
 
 A field is 160 units wide, which is enough for the longest choice ("Grip of

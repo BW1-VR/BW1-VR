@@ -697,7 +697,8 @@ const char* const kRetiredKeys[] = {
     // settings that are not offered now (the sizes and the depth of the
     // interface, the hint, the zoom step) stay in the ini as they are, so a
     // value that a person wrote by hand is kept.
-    "controller_hand", "script_camera",    "instant_jumps",
+    "controller_hand", "controller_left_handed", "script_camera",
+    "instant_jumps",
     "camera_glide",    "head_units_per_meter_x10",
 };
 
