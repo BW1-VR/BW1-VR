@@ -44,6 +44,8 @@
 #include "throw_physics.h"
 #include "teleport.h"
 #include "ui_panel.h"
+#include "vr_start.h"
+#include "vr_start_math.h"
 
 bool ProxyLoadRealDDraw();
 const char* ProxyBackendNote();
@@ -98,7 +100,7 @@ bool IntroFinishFrame();
 void EyeCleanSetOptions(int key, int test, int test_frame);
 void EyeCleanInstall();
 // bubble_card.cpp: a speech bubble of the game as one card.
-void BubbleCardSetOptions(int on, int test, int test_frame);
+void BubbleCardSetOptions(int on, int name_on, int test, int test_frame);
 void BubbleCardInstall();
 // intro_skip.cpp: a press of a controller button skips the logos at the
 // start of the game. `caller` is the address that called FinishFrame.
@@ -108,7 +110,7 @@ void HangWatchFrame();
 // controllers.cpp
 void ControllerHintsSetOptions(bool on, const char* forced_profile);
 bool ControllerHintsInstall();
-void ControllersSetOptions(bool on, bool left_handed, bool haptics,
+void ControllersSetOptions(bool on, int left_hand, bool haptics,
                            bool swap_buttons);
 void ControllersSetFake(const FakeControllerSettings& fake);
 void ControllersSetScreen(bwvr::XrScreen* screen);
@@ -191,6 +193,8 @@ float UiBarsBegin();
 void UiBarsEnd(float saved);
 // spirit_anchor.cpp
 void SpiritAnchorInstall();
+// fight_marks.cpp: the marks of a fight of Creatures at their depth.
+void FightMarksInstall();
 void AudioSetRoom(bool room, int units_per_meter, bool places);
 void AudioSetRange(bool by_ears, bool keep_loops, int test_tag,
                    int test_tag_bank);
@@ -219,6 +223,8 @@ void EyeCameraSetFixes(bool unscaled, bool copy, bool inverse, bool random);
 void EyeCameraReport();
 void StereoReport();
 
+// cutscene_window.cpp: the draw of the advisors.
+void CutsceneWindowInstall();
 // ui_depth.cpp
 bool UiDepthInstall(bool with_attribution);
 void UiDepthSetAccounting(bool on);
@@ -299,8 +305,8 @@ bool g_freeze_time = true;
 bool g_one_walk = true;
 bool g_one_walk_check = false;
 bool g_one_walk_merge = true;
-// In one walk a speech bubble as a card, the glow at the Hand's point and a
-// halo are drawn for each eye by itself. 0 gives them to the right eye as
+// In one walk a speech bubble or the name of a villager as a card, the glow
+// at the Hand's point and a halo are drawn for each eye by itself. 0 gives them to the right eye as
 // each other batch. The test key one_walk_marks_test_frame changes the value
 // at one frame.
 bool g_one_walk_marks = true;
@@ -441,7 +447,9 @@ float g_fake_roll = 0.0f;
 bool g_fake_sweep = false;
 // The player key "controllers" turns the whole controller path off.
 bool g_controllers = true;
-bool g_controller_left_handed = false;
+// The player key "left_hand": -1 follows the game's own option, 0 makes the
+// right controller the Hand, 1 the left controller.
+int g_left_hand = -1;
 bool g_controller_swap_buttons = false;
 bool g_controller_hints = true;
 bool g_hint_selftest = false;
@@ -593,8 +601,9 @@ int g_gpu_flush = 128;
 char g_ab_test[64] = "";
 int g_profile_gpu = 0;
 // A speech bubble of the game as one card (bubble_card.cpp), and its test
-// keys for desktop runs.
+// keys for desktop runs. The name of a villager as one card (name_card).
 int g_bubble_card = 1;
+int g_name_card = 1;
 int g_bubble_card_test = 0;
 int g_bubble_card_test_frame = 0;
 bool g_intro_text_place = true;
@@ -632,6 +641,28 @@ bool g_vr_gave_up = false;
 bool g_vr_full_screen = false;
 int g_vr_tries = 0;
 DWORD g_next_vr_try = 0;
+// Where the tries to start the headset session run (docs/backend.md, "The
+// start of the headset session"). 0: each try on the frame thread, with a
+// new instance. 1: on a thread of the mod, with one instance for all tries.
+// 2: on that thread, with a new instance for each try.
+int g_vr_start = 1;
+// Test keys: in this try the thread of the tries waits this long, as a call
+// into the runtime that does not come back. 0 is off.
+int g_vr_start_test_hang_try = 0;
+int g_vr_start_test_hang_ms = 0;
+// Test key: the session part of a headset that the thread found fails one
+// time, before StartSession, so the fall back runs. 0 is off.
+int g_vr_start_test_fail_session = 0;
+// The thread of the tries runs, and the frame thread only looks at it.
+bool g_vr_thread = false;
+// The session part failed after the thread found the headset. When the
+// thread has ended its instance, the tries of vr_start=0 go on.
+bool g_vr_fell_back = false;
+// The first try of vr_start=0 after the fall back writes its lines.
+bool g_vr_fallback_try = false;
+// The frame watch runs, and the time of the tries in this frame.
+bool g_vr_watch = false;
+double g_vr_code_ms = 0.0;
 
 // Try for two minutes, which is long enough to put a headset on and
 // connect Virtual Desktop after the game has already started.
@@ -832,6 +863,12 @@ void ReadSettings() {
     // the CPU between two main camera calls (0). docs/god-view.md, "The time
     // of a frame".
     t.god_display_time = number("god_display_time", 1);
+    // While the stick walks, 1: the height of the view follows the land
+    // under the head through a smooth filter, and 0: the view keeps its
+    // height. move_stick_trace=N logs the first N frames of each walk, for
+    // a desktop run.
+    t.move_stick_follow_land = number("move_stick_follow_land", 1);
+    t.move_stick_trace = number("move_stick_trace", 0);
     t.test_keys = number("test_keys", 0) != 0;
     // Tests with no key press, for a desktop run: the game's zoom to the
     // Temple at an update of the camera mode, and the test key of god_spawn.
@@ -989,6 +1026,12 @@ void ReadSettings() {
     const int story =
         static_cast<int>(GetPrivateProfileIntA("bwvr", "script_camera", 2, path));
     g_script_camera = (story >= 0 && story < 3) ? story : 2;
+    // A cut scene around the player (cutscene_immersive=1, the launcher row
+    // "Cut scenes") has the camera of the game with all its motion, and no
+    // cut scene window (cutscene_window.cpp).
+    if (GetPrivateProfileIntA("bwvr", "cutscene_immersive", 0, path) != 0) {
+      g_script_camera = 0;
+    }
   }
   // How far out models keep their detail: the game's own, 2, 3 or 5 times.
   {
@@ -1089,8 +1132,8 @@ void ReadSettings() {
   // through int first, for the same reason as above.
   g_controllers = GetPrivateProfileIntA("bwvr", "controllers", 1, path) != 0;
   // Player keys: which hand points, which trigger is which button, pulses.
-  g_controller_left_handed =
-      GetPrivateProfileIntA("bwvr", "controller_left_handed", 0, path) != 0;
+  g_left_hand = GetPrivateProfileIntA("bwvr", "left_hand", -1, path);
+  if (g_left_hand < -1 || g_left_hand > 1) g_left_hand = -1;
   g_controller_swap_buttons =
       GetPrivateProfileIntA("bwvr", "controller_swap_buttons", 0, path) != 0;
   g_controller_haptics =
@@ -1483,6 +1526,8 @@ void ReadSettings() {
       static_cast<int>(GetPrivateProfileIntA("bwvr", "profile_gpu", 0, path));
   g_bubble_card =
       GetPrivateProfileIntA("bwvr", "bubble_card", 1, path) != 0 ? 1 : 0;
+  g_name_card =
+      GetPrivateProfileIntA("bwvr", "name_card", 1, path) != 0 ? 1 : 0;
   g_bubble_card_test =
       GetPrivateProfileIntA("bwvr", "bubble_card_test", 0, path) != 0 ? 1 : 0;
   g_bubble_card_test_frame = static_cast<int>(
@@ -1521,6 +1566,15 @@ void ReadSettings() {
       GetPrivateProfileIntA("bwvr", "registry_test_guard", 0, path) != 0;
   g_vr_full_screen =
       GetPrivateProfileIntA("bwvr", "vr_full_screen", 0, path) != 0;
+  g_vr_start = static_cast<int>(
+      GetPrivateProfileIntA("bwvr", "vr_start", 1, path));
+  if (g_vr_start < 0 || g_vr_start > 2) g_vr_start = 1;
+  g_vr_start_test_hang_try = static_cast<int>(
+      GetPrivateProfileIntA("bwvr", "vr_start_test_hang_try", 0, path));
+  g_vr_start_test_hang_ms = static_cast<int>(
+      GetPrivateProfileIntA("bwvr", "vr_start_test_hang_ms", 0, path));
+  g_vr_start_test_fail_session = static_cast<int>(
+      GetPrivateProfileIntA("bwvr", "vr_start_test_fail_session", 0, path));
   ModLog("settings     : vr=%d, stereo=%d, screen %.2f m wide at %.2f m",
          g_vr_enabled ? 1 : 0, g_stereo ? 1 : 0, g_width, g_distance);
   ModLog("settings     : eye separation %.3f world units, interface shift "
@@ -1528,6 +1582,9 @@ void ReadSettings() {
 }
 
 void ModLogNowhere(const char* format, ...);
+double MsSince(const LARGE_INTEGER& start);
+void StartVrFromThread();
+void VrSessionRuns(bwvr::XrScreen* screen, uint32_t width, uint32_t height);
 
 // Starting the VR session needs the Direct3D device, which does not exist
 // until the game has opened it. So this runs on a frame, not in DllMain, where
@@ -1537,10 +1594,20 @@ void ModLogNowhere(const char* format, ...);
 // registered as soon as Virtual Desktop is installed, but it reports no head
 // mounted display until the headset actually connects, so a single attempt at
 // startup forces the player to connect first and launch second. Getting that
-// order wrong looks exactly like the mod is broken. Retrying costs one failed
-// call every few seconds and lets the headset arrive whenever it likes.
-void StartVrOnce() {
-  if (g_screen != nullptr || g_vr_gave_up) return;
+// order wrong looks exactly like the mod is broken. Retrying lets the headset
+// arrive whenever it likes.
+//
+// With no headset, a try can only fail or wait for the runtime. So with
+// vr_start=1 and 2 the tries run on a thread of the mod (vr_start.cpp), and
+// the frame thread only looks at that thread once a frame.
+void StartVrStep() {
+  if (g_vr_thread) {
+    LARGE_INTEGER start;
+    QueryPerformanceCounter(&start);
+    StartVrFromThread();
+    g_vr_code_ms += MsSince(start);
+    return;
+  }
 
   const DWORD now = GetTickCount();
   if (g_next_vr_try != 0 && now < g_next_vr_try) return;
@@ -1587,6 +1654,7 @@ void StartVrOnce() {
                              g_spirit_world_size_test,
                              g_spirit_point_world_test);
     SpiritAnchorInstall();
+    FightMarksInstall();
     AudioSetRoom(g_audio_room, g_audio_units_per_meter,
                  g_audio_flat_places);
     AudioSetRange(g_audio_range, g_audio_loops_keep, g_audio_test_tag,
@@ -1604,6 +1672,8 @@ void StartVrOnce() {
     PointerMapSetRenderSize(static_cast<int>(width),
                             static_cast<int>(height));
     UiDepthInstall(g_draw_probe);
+    // The draw of the advisors, for the cut scene window.
+    CutsceneWindowInstall();
     UiDepthSetAccounting(g_ui_accounting);
     UiDepthSetHintMode(g_hint_mode);
     UiDepthSetHintSelfTest(g_hint_selftest);
@@ -1623,7 +1693,7 @@ void StartVrOnce() {
       HeadPoseSetFakeLean(g_fake_lean_cm[0], g_fake_lean_cm[1],
                           g_fake_lean_cm[2]);
     }
-    ControllersSetOptions(g_controllers, g_controller_left_handed,
+    ControllersSetOptions(g_controllers, g_left_hand,
                           g_controller_haptics, g_controller_swap_buttons);
     ControllersSetFake(g_fake_controller);
     ControllersInstall();
@@ -1810,7 +1880,7 @@ void StartVrOnce() {
     if (!g_vulkan_only) {
       RenderThreadSetLateEnd(g_render_thread_late_end != 0);
     }
-    BubbleCardSetOptions(g_bubble_card, g_bubble_card_test,
+    BubbleCardSetOptions(g_bubble_card, g_name_card, g_bubble_card_test,
                          g_bubble_card_test_frame);
     BubbleCardInstall();
   }
@@ -1836,6 +1906,27 @@ void StartVrOnce() {
     return;
   }
 
+  g_vr_watch = true;
+  if (g_vr_start != 0) {
+    VrStartOptions options = {};
+    options.mode = g_vr_start;
+    options.retry_ms = kVrRetryMs;
+    options.max_tries = kMaxVrTries;
+    options.test_hang_try = g_vr_start_test_hang_try;
+    options.test_hang_ms = g_vr_start_test_hang_ms;
+    options.vulkan = g_xr_vulkan != 0;
+    options.d3d11 = !g_vulkan_only;
+    options.eye_gaze = g_foveation != 0 && g_foveation_gaze != 0;
+    if (VrStartBegin(options)) {
+      g_vr_thread = true;
+      return;
+    }
+    // VrStartBegin wrote why. The tries run here, as with vr_start=0.
+    g_vr_start = 0;
+  }
+
+  LARGE_INTEGER try_start;
+  QueryPerformanceCounter(&try_start);
   bwvr::XrScreen* screen = new bwvr::XrScreen();
   screen->UseVulkan(g_xr_vulkan != 0);
   screen->UseD3D11(!g_vulkan_only);
@@ -1846,7 +1937,8 @@ void StartVrOnce() {
   screen->EnablePanel(g_stereo && g_ui_panel.mode == kUiPanelLayer);
   // Only the first failure and every tenth after it reach the log. A message
   // every three seconds for two minutes buries everything else.
-  const bool quiet = (g_vr_tries > 0) && (g_vr_tries % 10 != 0);
+  const bool quiet =
+      !g_vr_fallback_try && (g_vr_tries > 0) && (g_vr_tries % 10 != 0);
   if (!screen->Start(width, height, g_stereo ? 2 : 1,
                      quiet ? &ModLogNowhere : &ModLog)) {
     // A session with Vulkan that the GPU or the runtime cannot have. With
@@ -1871,11 +1963,18 @@ void StartVrOnce() {
              "not start. The next try is a session with Direct3D 11");
     }
     delete screen;
+    g_vr_code_ms += MsSince(try_start);
     ++g_vr_tries;
+    if (g_vr_fallback_try) {
+      g_vr_fallback_try = false;
+      ModLog("vr           : the start on the frame thread failed too, in try "
+             "%d. The tries go on to the end of the 2 minutes (vr_start=0)",
+             g_vr_tries);
+    }
     // backend=vulkan: the window of the game needs the renderer. After three
     // tries (about 9 s) it draws with a device of its own, and a session
     // that starts later gets no image of it (VkSceneEyesWanted).
-    if (g_vr_tries == 3 && VkSceneDirect() && vk::Pending()) {
+    if (g_vr_tries >= 3 && VkSceneDirect() && vk::Pending()) {
       vk::WaitForExternal(false);
       ModLog("vr           : no session after 3 tries, so the Vulkan renderer "
              "draws with a device of its own. A session that starts later "
@@ -1883,7 +1982,9 @@ void StartVrOnce() {
     }
     if (g_vr_tries == 1) {
       ModLog("vr           : waiting for the headset, will keep trying for "
-             "%d seconds", (kMaxVrTries * kVrRetryMs) / 1000);
+             "%d seconds. The tries run on the frame thread, with a new "
+             "instance for each try (vr_start=0)",
+             (kMaxVrTries * kVrRetryMs) / 1000);
     }
     if (g_vr_tries >= kMaxVrTries) {
       g_vr_gave_up = true;
@@ -1893,7 +1994,91 @@ void StartVrOnce() {
     }
     return;
   }
+  g_vr_code_ms += MsSince(try_start);
+  VrSessionRuns(screen, width, height);
+}
 
+// THE TRIES ON THE THREAD OF THE MOD (vr_start=1 and 2). Each frame, with no
+// wait for that thread.
+void StartVrFromThread() {
+  // The same rule as for each try on the frame thread.
+  if (!g_vr_full_screen && GpuBridgeFullScreen()) {
+    VrStartCancel();
+    g_vr_gave_up = true;
+    vk::WaitForExternal(false);
+    ModLog("vr           : vr_full_screen=0. The game is full screen, so the "
+           "mod does not use the headset. Start the game from the launcher");
+    return;
+  }
+  bool over = false;
+  bwvr::XrScreen* screen = VrStartTake(&over);
+  if (over) {
+    if (g_vr_fell_back) {
+      // The thread ended its instance, so the loader allows a new one. The
+      // next try is the try of vr_start=0, and the tries of the thread
+      // count, so the tries keep their 2 minutes.
+      g_vr_thread = false;
+      g_vr_fallback_try = true;
+      g_vr_tries =
+          vr_start_math::TriesAfterFallBack(VrStartTries(), kMaxVrTries);
+      g_next_vr_try = 0;
+      return;
+    }
+    g_vr_gave_up = true;
+    vk::WaitForExternal(false);
+    return;
+  }
+  // backend=vulkan: the window of the game needs the renderer, as with the
+  // tries on the frame thread.
+  if (screen == nullptr && VrStartTries() >= 3 && VkSceneDirect() &&
+      vk::Pending()) {
+    vk::WaitForExternal(false);
+    ModLog("vr           : no session after 3 tries, so the Vulkan renderer "
+           "draws with a device of its own. A session that starts later "
+           "gets no picture of it: start the game with the headset ready");
+  }
+  if (screen == nullptr) return;
+
+  // THE SESSION RUNS ON THE FRAME THREAD. The thread found the headset, so
+  // this part runs one time, as the last part of a try on the frame thread
+  // does. The frame thread uses the session and its swapchains from the
+  // next frame on, and GpuBridgeStart opens the shared textures of the game
+  // on the Direct3D 11 device of the session at once, on this thread.
+  const char* failed = nullptr;
+  uint32_t width = 0, height = 0;
+  if (vr_start_math::TestFailSession(g_vr_start_test_fail_session, true)) {
+    failed = "the test key vr_start_test_fail_session, before StartSession";
+  } else if (!FrameSourceSize(&width, &height)) {
+    failed = "the size of the render target, before StartSession";
+  } else {
+    screen->SetVulkanUpload(g_xr_vulkan_upload != 0);
+    screen->SetHoldMs(g_xr_hold_ms);
+    screen->SetPlacement(g_distance, g_width);
+    screen->EnablePanel(g_stereo && g_ui_panel.mode == kUiPanelLayer);
+    screen->SetLog(&ModLog);
+    if (!screen->StartSession(width, height, g_stereo ? 2 : 1)) {
+      failed = "StartSession (the openxr line before names the call)";
+    }
+  }
+  if (!vr_start_math::FallBack(g_vr_start, failed == nullptr)) {
+    VrStartSessionRuns();
+    VrSessionRuns(screen, width, height);
+    return;
+  }
+  // THE FALL BACK. A session part that the thread of the tries handed over
+  // failed, so the mod uses the tries of vr_start=0 for the rest of the run.
+  // The thread ends this instance and its tries, and VrStartTake then says
+  // that it is over.
+  ModLog("vr           : the start through the thread of the tries failed at "
+         "%s, so the mod starts the session on the frame thread as before "
+         "(vr_start=0)", failed);
+  g_vr_fell_back = true;
+  g_vr_start = vr_start_math::kOnFrameThread;
+  VrStartGiveBack(screen);
+}
+
+// A screen with a session that runs, from either way of the tries.
+void VrSessionRuns(bwvr::XrScreen* screen, uint32_t width, uint32_t height) {
   // The attempt that succeeded may have been a quiet one, and the sink Start
   // was given lasts for the whole session. Put the real log back, or every
   // openxr line after this point goes nowhere: the eye angles, the measured
@@ -1965,6 +2150,22 @@ void StartVrOnce() {
   }
   ModLog("vr           : running, frame reaches the headset %s",
          GpuBridgeReady() ? "without a readback" : "through a readback");
+}
+
+// Each frame until a session runs or the tries are over. The frame watch
+// says how long the frames are while the tries run, and how much of each
+// frame the tries take on the frame thread.
+void StartVrOnce() {
+  if (g_screen != nullptr || g_vr_gave_up) return;
+  g_vr_code_ms = 0.0;
+  StartVrStep();
+  if (!g_vr_watch) return;
+  VrWatchFrame(g_vr_code_ms, g_vr_start);
+  if (g_screen != nullptr) {
+    VrWatchEnd("a session runs", g_vr_start);
+  } else if (g_vr_gave_up) {
+    VrWatchEnd("no session", g_vr_start);
+  }
 }
 
 // A log sink that throws the line away, for the quiet retries.
@@ -2491,6 +2692,14 @@ void Shutdown(const char* path) {
       screen->Stop();
       delete screen;
     });
+  }
+  // After the session: the thread of the tries made its instance, and it
+  // stays while that instance lives. When Windows ends the process, each
+  // other thread is stopped already, maybe with the lock of vr_start.cpp
+  // held, so then the shutdown does not touch that thread.
+  if (g_vr_thread && !g_process_ends) {
+    ShutdownPart("the thread of the tries to start the headset session",
+                 [] { VrStartShutdown(500); });
   }
   if (!g_vulkan_only) {
     ShutdownPart("the GPU bridge", [] { GpuBridgeShutdown(); });

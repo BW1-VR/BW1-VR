@@ -126,13 +126,17 @@ struct CardLayer {
 //           eye at its left side and the right eye at its right side. The
 //           quad is the opening: `width` is the width of what is left. So
 //           the two pictures are `crop` pixels apart on one rectangle.
-//   mask    The frame keeps its projection layer. Four black quads go over
+//   edge    Each eye picture also loses this many columns at each side of
+//           what is left after the crop (cutscene_edge_columns). `width` is
+//           the width of what is left after the crop and the edge.
+//   mask   The frame keeps its projection layer. Four black quads go over
 //           all its layers, as walls around an opening. `alpha` is how black
 //           they are, 0 to 1.
 struct WindowLayer {
   bool screen;
   bool mask;
   int32_t crop;
+  int32_t edge;
   float position[3];     // the center of the screen
   float orientation[4];  // x y z w, of the screen and of the walls
   float width;           // the screen
@@ -197,7 +201,34 @@ class XrScreen {
   // eyes is 1 for a mono screen or 2 for stereo. width and height are the size
   // of the images that will be handed to SetEyeImage. Returns false and logs a
   // reason if anything fails, and the caller can carry on without VR.
+  //
+  // Start does the four parts below in one call, and Stop after a part that
+  // fails. A caller can also call the parts one at a time. The first three
+  // need no device of the game, so they can run on any thread. OpenXR lets
+  // each call come from any thread, when two threads do not use one handle
+  // at one time.
   bool Start(uint32_t width, uint32_t height, int eyes, LogFn log);
+
+  // Makes the instance, and sets the log. With an instance, it only sets
+  // the log. False: no instance, and the log has the reason.
+  bool StartInstance(LogFn log);
+  bool has_instance() const;
+
+  // Asks the runtime for the head mounted display. 1: the system is there.
+  // 0: the runtime has no head mounted display now
+  // (XR_ERROR_FORM_FACTOR_UNAVAILABLE). The instance stays, and a later call
+  // can find it. -1: a different fault, and only Stop is left to do.
+  int StartSystem();
+
+  // Writes the name and the size of the headset that StartSystem found to
+  // the log.
+  void LogSystem();
+
+  // The device of the session on the adapter of the runtime (Direct3D 11,
+  // or Vulkan with UseVulkan), the session, the spaces, the controllers and
+  // the swapchains. After StartSystem gave 1. False: only Stop is left to
+  // do, and VulkanFailed says if the Vulkan part failed.
+  bool StartSession(uint32_t width, uint32_t height, int eyes);
 
   // THE GRAPHICS API OF THE SESSION. Call it before Start. false (the
   // default): a session with Direct3D 11. true: a session with Vulkan
@@ -313,7 +344,8 @@ class XrScreen {
   // False before Start has reached the system.
   bool RecommendedSize(uint32_t* width, uint32_t* height) const;
 
-  // Swap the log sink after Start. The retries log to nowhere so a message
+  // Swap the log sink after Start or between its parts. The retries log to
+  // nowhere so a message
   // every three seconds does not bury the file, and without this the attempt
   // that SUCCEEDS keeps the quiet sink for the whole session and loses every
   // openxr line, including the eye angles and the measured separation.
@@ -380,6 +412,11 @@ class XrScreen {
   // has the frame.
   uint64_t LateWaitTicks() const;
 
+  // The display time of the last frame that BeginFrame started, and the
+  // display period of the runtime, in nanoseconds. False before the first
+  // frame and after a failed wait.
+  bool LastDisplayTime(int64_t* time, int64_t* period) const;
+
   // Mono convenience: one call does a whole frame.
   bool SubmitBgra(const void* pixels, int pitch);
   // The same for a Vulkan image of the session device: layer `layer` of
@@ -398,6 +435,8 @@ class XrScreen {
   // which makes a menu unusable.
   bool SubmitTexture(void* texture);
 
+  // Ends each thing that Start made. For a screen with no session that
+  // started, it can run on any thread.
   void Stop();
 
   bool running() const { return running_; }

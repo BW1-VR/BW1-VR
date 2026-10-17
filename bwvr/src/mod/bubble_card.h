@@ -1,12 +1,12 @@
 // A speech bubble of the game as one card (bubble_card.cpp, docs/ui-layer.md,
-// "A speech bubble as one card").
+// "A speech bubble as one card"), and the name of a villager as one card.
 #pragma once
 
 #include <stdint.h>
 
-// The settings: bubble_card, and the test keys bubble_card_test and
-// bubble_card_test_frame.
-void BubbleCardSetOptions(int on, int test, int test_frame);
+// The settings: bubble_card, name_card, and the test keys bubble_card_test
+// and bubble_card_test_frame.
+void BubbleCardSetOptions(int on, int name_on, int test, int test_frame);
 void BubbleCardInstall();
 // The test key (Shift and Delete in play, test_keys=1).
 void BubbleCardToggle(const char* cause);
@@ -14,9 +14,11 @@ void BubbleCardToggle(const char* cause);
 void BubbleCardPass(int eye);
 void BubbleCardReport();
 
-// For draw_hooks.cpp. True while the game draws a bubble in an eye pass.
+// For draw_hooks.cpp. True while the game draws a bubble or the name of a
+// villager in an eye pass.
 bool BubbleCardInBubble();
-// True when such a bubble is drawn as a card (bubble_card=1).
+// True when such a bubble is drawn as a card (bubble_card=1), or such a name
+// (name_card=1).
 bool BubbleCardOn();
 // A flat batch of the bubble (its text, its arrows, its icon), with the
 // pixels that it has at its draw. `right` is true for the copy of the batch

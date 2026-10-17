@@ -83,6 +83,11 @@ calls it. It keeps these rules, and a new script must keep them too:
   user (`%LOCALAPPDATA%\VirtualStore\Program Files (x86)\...`). The guards
   keep the files of that folder and of the game folder, and the first lines
   of a run say where the writes go (`Get-BwvrPlayerFolders` in `game.ps1`).
+- The mod keeps the counts of the hint cards (`hint_learn=1`) in
+  `bwvr-hint-counts.ini` beside `bwvr.ini`. `desk_test.ps1` gives each run
+  the test key `hint_counts_test_file` with a file in the folder of the run,
+  and deletes that file before the run. So a run starts with no counts, and
+  it does not write the file of the player.
 - The tools never write the registry. A run starts `runblack.exe` directly,
   not the launcher. The game writes its own values there. In its start it
   writes the values of the profile that it read, so each value stays the
@@ -154,8 +159,8 @@ that `-NewGame` uses, and the length of a run in the test save.
 
 | Script | The start: the test save, and the row with `-NewGame` | The kinds and what they do | A run takes |
 | --- | --- | --- | --- |
-| `hand_run.ps1` | `pen`, "Skip straight to the Creature select" (`one`, `fixed`). `temple`, "Keep your old Creature" (`old`) | `one`: the grip in the air, at a scroll and at the crown of a tree, with `near_rule` 1 and 2. With `near_rule` 2 the grip at the scroll takes the rock beside it and sets it down. `old`: the grip on the Creature, strokes and slaps. `fixed`: places from `-Points` and steps from `-Steps` | 44 s for `one`, 142 s for `old` |
-| `throw_queue.ps1 -Runs <names>` | `pen`, "Skip straight to the Creature select" | A far fetch at the pen and a throw (`land`, `base`, `early`, `tree`, `sea`), the same at a different scale (`landout`, and `landin`, `landin2`, `landin3` and `landlife` for 66.7, 44.4, 29.6 and 7.5 units for each meter), a release with a still hand (`fall`, `fallold`), the same with a tree that the hand holds upright or turns by 30 degrees (`treeset`, `treelean`), a new grip on an object that falls, flies or rolls (the names with `drop`, `fly` and `roll`), a grip on a rock in its fall, on a rock that the hand threw up, on a rock on the land that still moves, and a grip of 50 ms on a rock in its fall (`dropnear`, `tossup`, `landgrip`, `dropshort`: with `-More 'catch_at_once=0'` the rock moves on until the game takes it, and with `-More 'catch_at_once=0;grip_press_hold=0'` the game takes each of these presses as a click), a throw after a catch of a rock in its fall (`catchthrow`), eye pictures of the frame of a catch and of 3 frames later (`catchshot`, with no `-Fps`), a fetch from a distance of a tree that still moves on the land (`catchfar`), and a tree that comes to rest while the Hand takes it (`treedropend`, with the test key `catch_rest_test` for the runs in which the tree does not come to rest by itself in the take) | 31 to 63 s each |
+| `hand_run.ps1` | `pen`, "Skip straight to the Creature select" (`one`, `fixed`). `temple`, "Keep your old Creature" (`old`) | `one`: the grip in the air, at a scroll and at the crown of a tree, with `near_rule` 1 and 2. The head looks 25 degrees down. With `near_rule` 1 the grip at the scroll taps the scroll, and the grip at the crown has no target. With `near_rule` 2 the grip at the scroll takes the rock beside it and sets it down, and the grip at the crown takes the tree. `old`: the grip on the Creature, strokes and slaps. `fixed`: places from `-Points` and steps from `-Steps` | 44 s for `one`, 142 s for `old` |
+| `throw_queue.ps1 -Runs <names>` | `pen`, "Skip straight to the Creature select" | A far fetch at the pen and a throw (`land`, `base`, `early`, `tree`, `sea`), the same at a different scale (`landout`, and `landin`, `landin2`, `landin3` and `landlife` for 66.7, 44.4, 29.6 and 7.5 units for each meter), a release with a still hand (`fall`, `fallold`), the same with a tree that the hand holds upright or turns by 30 degrees (`treeset`, `treelean`), the same with a tree that the hand sets down 6 cm to the left or to the right of its place (`treeleft`, `treeright`), a new grip on an object that falls, flies or rolls (the names with `drop`, `fly` and `roll`), a grip on a rock in its fall, on a rock that the hand threw up, on a rock on the land that still moves, and a grip of 50 ms on a rock in its fall (`dropnear`, `tossup`, `landgrip`, `dropshort`: with `-More 'catch_at_once=0'` the rock moves on until the game takes it, and with `-More 'catch_at_once=0;grip_press_hold=0'` the game takes each of these presses as a click), a throw after a catch of a rock in its fall (`catchthrow`), eye pictures of the frame of a catch and of 3 frames later (`catchshot`, with no `-Fps`), a fetch from a distance of a tree that still moves on the land (`catchfar`), and a tree that comes to rest while the Hand takes it (`treedropend`, with the test key `catch_rest_test` for the runs in which the tree does not come to rest by itself in the take). In `catchfar`, `treedropend` and `landgrip` the head looks 25 degrees down, so the object on the land is in the view. `treedropend` has the steps of `catchfar`: the lock comes 65 frames after the opening of the grip, before the tree comes to rest | 31 to 63 s each |
 | `aim_queue.ps1 -Runs <names>` | `pen`, "Skip straight to the Creature select" | The aim presets and the trim (`aim2`), a fetch of a thrown rock over the sea and from the sea (`move2`, `move1b`), a Creature command with the leash counted as on (`cmd1b`), the teleport at three scales (`ring1`, `ring0`), and the aim and the grip at a Creature that is not the Creature of the player (`other`) | 21 to 54 s each |
 | `creature_recipe.ps1` | `temple`, "Keep your old Creature" | `state`: the Creature state, strokes and a slap. `leash`: the leash on and off. `stay`: the stay from a distance. `tie`: the leash tied to an object, and the walk of the Creature to it. `click`: a text of the game that waits for a click, with the leash on and with the Hand off the view (`text_click`). `walk`: a held press of the trigger on an object while the aim goes to the land and comes back, a tap and a press that ends on the object (`creature_command_rule`). `gift`: the leash goes on, the Hand takes an object and opens the grip at the Creature, two times (`creature_gift`). `giftfree`: the same with no leash | 42 to 62 s |
 | `village_run.ps1` | `temple`, "Keep your old Creature" | `miracle`: a miracle from an icon of the Worship Site (`-Icon 3` is Food). `totem`, `charge`. `store`, `tree` and `job`: wood, a tree and a villager at the Village Store. `throw`: a thrown villager. `scaffold`, `build`, `site`, `probe`, `workshop`. `choice`: the aim steps from a villager to the tree nearest to him, past the tree, and back, and the log has each far target with its reason (`far_grab_choice`, `far_grab_stay`). `fartake`: a take at a distance from a pile of the Village Store with the grip closed, which the test key `far_test_take_gone` ends at its game turn 30 as the game ends the take of a pile that it deletes. The log shows who has the bundle then (`far_take_carry`), and with `audio_trace=1` the loop of the take (`audio_take_loop`). The lines `take stream` have the start and the end of the stream of the take (`take_stream`) | 31 to 63 s |
@@ -211,24 +216,25 @@ Known limits of the recipes:
   on the object after its fall. The word `seek` puts the hand 50 cm below
   the head. That place is below the view of the desktop window, and the
   controller code drops a press that starts off view (the log says "the
-  right button press started off view"). The two presses in the air of
-  `hand_run.ps1 -Kind one` start off view too, and the code drops them.
+  right button press started off view").
+- In `hand_run.ps1 -Kind one` the grip in the air with `near_rule` 2 has a
+  target. The body of a forest is 3.5 cm of the room from the Hand's point,
+  so the grip takes a tree of the forest. With `near_rule` 1 the game's
+  search at the palm acts on an object 14 cm from the Hand's point.
 - The word `aimfar` does not choose the same object in the test save `pen`
   and in a new game. The head is 1 cm from its place in a new game, and some
   objects are at the least distance of the word (50 cm for a rock, 17 cm for
-  a tree). In a new game the first `aimfar` of a recipe that fetches a rock
-  (`aim_queue.ps1`, `throw_queue.ps1`) aims at a small rock 0.50 m of the
-  room from the Hand. In the test save it aims at the rock 3.86 m from the
-  Hand. Two proofs need `-NewGame`:
-  - `aim_queue.ps1 -Runs ring1,ring0`. In the test save the hand keeps the
-    aim at the far rock, which is almost level. The third aim, at 337.5 units
-    a meter, is then on the sea, and its release makes no teleport. The run
-    shows the three ring sizes and two teleports. In a new game the hand aims
-    61 degrees down, and each of the three teleports goes.
-  - `throw_queue.ps1 -Runs treeset` and `-Runs treelean`. In the test save
-    the second `aimfar` aims at a different tree, the hand turns to it, the
-    Hand's point is then on a small rock, and the grip takes the rock. In a
-    new game the grip takes the tree at the land.
+  a tree). In the test save the first `aimfar` of a recipe that fetches a
+  rock (`aim_queue.ps1`, `throw_queue.ps1`) aims at the rock 3.86 m of the
+  room from the Hand. In a new game it aims at a small rock 0.50 m from the
+  Hand at the render of 2208 by 2208, and at the rock 3.85 m from the Hand
+  at the render of 3600 by 2880. Four recipes need `-NewGame`:
+  `throw_queue.ps1 -Runs treeset`, `treelean`, `treeleft` and `treeright`
+  (they have the same steps). In the test save the
+  second `aimfar` aims at a different tree, the hand turns to it, the Hand's
+  point is then on a small rock, and the grip takes the rock. In a new game
+  the grip takes the tree at the land. `aim_queue.ps1 -Runs ring1,ring0` sets
+  its aim with the word `aimturn`, so it does not depend on `aimfar`.
 - The speed of a throw is not the same in each run. The scripted hand makes
   its step of 15 cm in one frame, so the top speed that the mod measures
   depends on the time of the frames at the step. Four runs of
@@ -252,6 +258,14 @@ Known limits of the recipes:
   tap that takes them apart. Its last opening of the grip makes no building
   site: the game has no place for a building there, and the hand is 18 cm
   over the land, so the scaffold falls. `-Kind site` shows a building site.
+- The view of a run has a fixed horizontal angle of 110 degrees
+  (`fov_absolute_deg`), so the shape of the render gives its vertical angle.
+  A render of 3600 by 2880 shows 48.8 degrees below the middle of the view,
+  and a render of 2208 by 2208 shows 55 degrees. The draw offers only an
+  object that the render shows, and the controller code drops a press that
+  starts off view. So a recipe with its objects on the land near the hand
+  gives the head a pitch down (`fake_head_pitch=-25`). A view that shows an
+  object at 3600 by 2880 also shows it at 2208 by 2208.
 - A run in which a person uses the PC does not count: the game window can
   lose the front, and the real mouse can take the pointer from the scripted
   controller. `desk_run.ps1` says when a person used the PC in a run.

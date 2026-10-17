@@ -187,6 +187,7 @@ void HandDirectFrame();
 void HandDirectPassBegin(int eye);
 void HandDirectPassDone(int eye);
 void HandDirectReport();
+void FightMarksReport();
 // hand_glow.cpp: the glow at the Hand's point.
 void HandGlowReport();
 // target_glow.cpp: the glow on the mesh of a target of the Hand.
@@ -2052,6 +2053,7 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
     SpiritAnchorReport();
     ControllersReport();
     HandDirectReport();
+    FightMarksReport();
     HandGlowReport();
     TargetGlowReport();
     OverlayReport();
@@ -2228,6 +2230,13 @@ void StereoSetCaptureInterval(int seconds) {
 }
 
 void StereoSetScreen(bwvr::XrScreen* screen) { g_screen = screen; }
+
+// The display time of the last frame of the headset and the display period,
+// in nanoseconds. False with no headset.
+bool StereoDisplayTime(int64_t* time, int64_t* period) {
+  if (g_screen == nullptr || !g_screen->running()) return false;
+  return g_screen->LastDisplayTime(time, period);
+}
 
 // What the intro (intro_vr.cpp) needs from this file. It draws its own frame
 // pair, so it shares the head view setup, the capture timer and the mark that

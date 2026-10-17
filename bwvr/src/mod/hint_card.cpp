@@ -83,6 +83,15 @@
 //                        the player. 0 no line for the walk, and the line of A
 //                        shows in each case. Ctrl, Shift and the period key
 //                        change it, with test_keys=1
+//   hint_learn=1         1 a line of a prompt that teaches an action goes
+//                        away after the player did the action 3 times, and
+//                        comes back after 10 minutes of play with no use of
+//                        it. Each line shows in a lesson of the tutorial
+//                        (hint_learn_math.h). The counts are in the file
+//                        bwvr-hint-counts.ini beside bwvr.ini. 0 each line
+//                        shows always, and the mod writes no counts
+//   hint_counts_test_file  a desktop test puts the file of the counts at
+//                        this full path, in the folder of its run
 //
 // With no headset (the desktop test) the route runs too. A capture frame
 // saves each card as bwvr-hintcard-right-NNNNN.bmp or
@@ -103,6 +112,7 @@
 #include "forest_take.h"
 #include "hint_card.h"
 #include "hint_card_math.h"
+#include "hint_learn_math.h"
 #include "miracle.h"
 #include "radial_menu.h"
 #include "temple.h"
@@ -157,20 +167,110 @@ bool g_test_keys = false;    // test_keys
 int g_timing = 1;            // prompt_timing, and its test key
 int g_words = 3;             // hint_words, and its test key
 int g_moves = 1;             // prompt_moves, and its test key
+int g_learn = 1;             // hint_learn
 // A hint of the game that a prompt owned does not show for this long after
 // the prompt went (hint_words=3, hint_card_math.h, OwnedStale).
 const double kOwnedSeconds = 0.25;
 
-int IniKey(const char* key, int fallback) {
+// A file in the folder of the game, beside runblack.exe and bwvr.ini.
+bool GameFile(const char* name, char* out, size_t size) {
   char path[MAX_PATH];
   const DWORD length = GetModuleFileNameA(nullptr, path, MAX_PATH);
-  if (length == 0 || length >= MAX_PATH) return fallback;
+  if (length == 0 || length >= MAX_PATH) return false;
   char* slash = strrchr(path, '\\');
-  if (slash == nullptr) return fallback;
+  if (slash == nullptr) return false;
   slash[1] = 0;
-  if (strlen(path) + 9 >= MAX_PATH) return fallback;
-  strcat_s(path, "bwvr.ini");
+  if (strlen(path) + strlen(name) >= size) return false;
+  strcpy_s(out, size, path);
+  strcat_s(out, size, name);
+  return true;
+}
+
+int IniKey(const char* key, int fallback) {
+  char path[MAX_PATH];
+  if (!GameFile("bwvr.ini", path, sizeof(path))) return fallback;
   return static_cast<int>(GetPrivateProfileIntA("bwvr", key, fallback, path));
+}
+
+// --- the lines that the player knows (hint_learn=1, hint_learn_math.h) ---------
+
+using hint_learn_math::kNoSkill;
+using hint_learn_math::kSkills;
+
+// The counts, and the play clock. They are in a small file of the mod beside
+// bwvr.ini, never in the profile of the player and never in the registry. To
+// show each line again, the player deletes the file.
+const char kCountsFile[] = "bwvr-hint-counts.ini";
+const char kCountsSection[] = "hint_counts";
+char g_counts_path[MAX_PATH] = "";
+hint_learn_math::Entry g_entries[kSkills];
+double g_play = 0.0;          // seconds of play with a controller
+double g_saved_play = 0.0;    // the play clock in the file
+bool g_counts_dirty = false;  // a count changed since the last write
+double g_last_write = 0.0;
+bool g_write_failed = false;
+// The file is written at most once in this many seconds, and when the play
+// clock went this much past the file.
+const double kWriteGapSeconds = 10.0;
+const double kPlayWriteSeconds = 60.0;
+
+void LoadCounts() {
+  char path[MAX_PATH] = "";
+  char ini[MAX_PATH];
+  if (GameFile("bwvr.ini", ini, sizeof(ini))) {
+    GetPrivateProfileStringA("bwvr", "hint_counts_test_file", "", path,
+                             sizeof(path), ini);
+  }
+  if (path[0] == 0 && !GameFile(kCountsFile, path, sizeof(path))) return;
+  strcpy_s(g_counts_path, path);
+  char text[64];
+  GetPrivateProfileStringA(kCountsSection, "play_seconds", "", text,
+                           sizeof(text), g_counts_path);
+  g_play = hint_learn_math::ParsePlay(text);
+  g_saved_play = g_play;
+  for (int s = 0; s < kSkills; ++s) {
+    GetPrivateProfileStringA(kCountsSection, hint_learn_math::kSkillKey[s], "",
+                             text, sizeof(text), g_counts_path);
+    hint_learn_math::ParseEntry(text, g_play, &g_entries[s]);
+  }
+}
+
+// Writes the whole file again: first to a file beside it, then in its place.
+void SaveCounts() {
+  if (g_counts_path[0] == 0 || g_write_failed) return;
+  char next[MAX_PATH + 8];
+  _snprintf_s(next, _TRUNCATE, "%s.new", g_counts_path);
+  FILE* file = nullptr;
+  bool ok = fopen_s(&file, next, "w") == 0 && file != nullptr;
+  if (ok) {
+    fprintf(file,
+            "; The hint cards of the Black & White VR Mod: how many times you "
+            "did the\n"
+            "; action of each line, and the play time of the last time, in "
+            "seconds.\n"
+            "; Delete this file to show each line of the cards again.\n"
+            "[%s]\nplay_seconds=%.0f\n",
+            kCountsSection, g_play);
+    for (int s = 0; s < kSkills; ++s) {
+      fprintf(file, "%s=%d,%.0f\n", hint_learn_math::kSkillKey[s],
+              g_entries[s].count, g_entries[s].last);
+    }
+    ok = fclose(file) == 0;
+  }
+  if (ok) {
+    ok = MoveFileExA(next, g_counts_path,
+                     MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != 0;
+  }
+  if (!ok) {
+    g_write_failed = true;
+    DeleteFileA(next);
+    ModLog("hint card    : the mod cannot write the counts of the lines to %s "
+           "(error %lu). The counts of this session are not kept",
+           g_counts_path, GetLastError());
+    return;
+  }
+  g_saved_play = g_play;
+  g_counts_dirty = false;
 }
 
 void ReadSettings() {
@@ -184,6 +284,7 @@ void ReadSettings() {
   g_words = IniKey("hint_words", 3);
   if (g_words < 0 || g_words > 3) g_words = 3;
   g_moves = IniKey("prompt_moves", 1) != 0 ? 1 : 0;
+  g_learn = IniKey("hint_learn", 1) != 0 ? 1 : 0;
   g_size_pct = IniKey("hint_card_size_pct", 100);
   if (g_size_pct < 50) g_size_pct = 50;
   if (g_size_pct > 200) g_size_pct = 200;
@@ -226,6 +327,25 @@ void ReadSettings() {
                         "of A shows only while a press of A can move the player"
                       : "the prompt of the land has no line for the walk with "
                         "the stick, and the line of A shows in each case");
+  if (g_learn == 0) {
+    ModLog("hint card    : hint_learn=0, each line of the cards shows always. "
+           "The mod counts no actions and writes no file of the counts");
+    return;
+  }
+  LoadCounts();
+  char counts[320] = "";
+  for (int s = 0; s < kSkills; ++s) {
+    char one[48];
+    _snprintf_s(one, _TRUNCATE, "%s%s %d", s > 0 ? ", " : "",
+                hint_learn_math::kSkillKey[s], g_entries[s].count);
+    strncat_s(counts, one, _TRUNCATE);
+  }
+  ModLog("hint card    : hint_learn=1, a line that teaches an action goes away "
+         "after the player did the action %d times, and comes back after %.0f "
+         "s of play with no use of it. In a lesson of the tutorial each line "
+         "shows. The counts are in %s: %.0f s of play, %s",
+         hint_learn_math::kUses, hint_learn_math::kComebackSeconds,
+         g_counts_path[0] != 0 ? g_counts_path : "no file", g_play, counts);
 }
 
 // --- the words -----------------------------------------------------------------
@@ -245,6 +365,7 @@ struct Line {
   int tone;
   uint32_t code;       // the mouse button code of a hint of the game, or 0
   bool click;          // the prompt of a text that waits for a click
+  int skill;           // the action that a prompt teaches, or kNoSkill
 };
 struct Content {
   int count;
@@ -258,6 +379,7 @@ void SetLine(Line* line, const wchar_t* button, const wchar_t* text, int tone,
   if (text != nullptr) wcsncpy_s(line->text, text, _TRUNCATE);
   line->tone = line->button[0] != 0 ? tone : kToneNone;
   line->code = code;
+  line->skill = kNoSkill;
 }
 
 bool SameContent(const Content& a, const Content& b) {
@@ -526,8 +648,9 @@ int WordHand(int word) {
 
 // The lines of a prompt. The texts are short orders, in Simplified Technical
 // English. A line for a button that the controller does not have is left out.
-void AddPrompt(Content cards[kHands], int word, const wchar_t* text,
-               int tone) {
+// skill: the action that the line teaches, for hint_learn (hint_learn_math.h).
+void AddPrompt(Content cards[kHands], int word, const wchar_t* text, int tone,
+               int skill = kNoSkill) {
   Content* out = &cards[WordHand(word)];
   if (out->count >= kMaxLines) return;
   const wchar_t* button = ControllerHintWord(word);
@@ -536,7 +659,9 @@ void AddPrompt(Content cards[kHands], int word, const wchar_t* text,
   for (int i = 0; i < out->count; ++i) {
     if (wcscmp(out->line[i].button, button) == 0) return;
   }
-  SetLine(&out->line[out->count++], button, text, tone, 0);
+  Line* line = &out->line[out->count++];
+  SetLine(line, button, text, tone, 0);
+  line->skill = skill;
 }
 
 // The line of A on the land: the teleport, or the old jump of the game with
@@ -544,8 +669,9 @@ void AddPrompt(Content cards[kHands], int word, const wchar_t* text,
 // the player (TeleportPossible).
 void AddJumpPrompt(Content cards[kHands]) {
   if (g_moves != 0 && !TeleportPossible()) return;
-  AddPrompt(cards, kWordJump, TeleportOwnsA() ? L"Teleport" : L"Jump",
-            kToneOther);
+  const bool teleport = TeleportOwnsA();
+  AddPrompt(cards, kWordJump, teleport ? L"Teleport" : L"Jump", kToneOther,
+            teleport ? hint_learn_math::kSkillTeleport : kNoSkill);
 }
 
 // A line for two presses of a button, one soon after the other: the word of
@@ -583,7 +709,8 @@ void AddPromptHold(Content cards[kHands], int word, const wchar_t* text,
 // The lines of the trigger on a target of a command: one press sends the
 // Creature, and two presses tie the leash when the leash can go on it.
 void AddCommandPrompts(Content cards[kHands]) {
-  AddPrompt(cards, kWordAction, L"Send the Creature", kToneAction);
+  AddPrompt(cards, kWordAction, L"Send the Creature", kToneAction,
+            hint_learn_math::kSkillSend);
   if (CreatureCommandCanTie()) {
     AddPromptTwice(cards, kWordAction, L"Tie the leash", kToneAction);
   }
@@ -615,13 +742,15 @@ void AddPrompts(Content cards[kHands], int context, bool first_show) {
                 kToneOther);
       break;
     case kCtxTeleport:
-      AddPrompt(cards, kWordJump, L"Release to go", kToneOther);
+      AddPrompt(cards, kWordJump, L"Release to go", kToneOther,
+                hint_learn_math::kSkillTeleport);
       break;
     case kCtxFar: {
       // THE FETCH IN WORK: the far target is gone, and the object comes to
       // the Hand. The line of the fetch stays.
       if (g_fetch_kept) {
-        AddPrompt(cards, kWordGrab, L"Pull to fetch", kToneGrab);
+        AddPrompt(cards, kWordGrab, L"Pull to fetch", kToneGrab,
+                  hint_learn_math::kSkillFetch);
         break;
       }
       // A scroll in the aim takes a closed grip with no pull, and so does a
@@ -642,7 +771,10 @@ void AddPrompts(Content cards[kHands], int context, bool first_show) {
                 : far_draw.touch ? L"Activate"
                 : far_draw.bulk ? L"Hold to collect"
                                 : L"Pull to fetch",
-                kToneGrab);
+                kToneGrab,
+                far_draw.leash != 0 || far_draw.touch ? kNoSkill
+                : far_draw.bulk ? hint_learn_math::kSkillCollect
+                                : hint_learn_math::kSkillFetch);
       // A grip that stays closed on the Creature makes it stay
       // (creature_hold_stay=1).
       if (far_draw.hold) {
@@ -665,17 +797,20 @@ void AddPrompts(Content cards[kHands], int context, bool first_show) {
       break;
     }
     case kCtxCollect:
-      AddPrompt(cards, kWordGrab, L"Hold to collect", kToneGrab);
+      AddPrompt(cards, kWordGrab, L"Hold to collect", kToneGrab,
+                hint_learn_math::kSkillCollect);
       break;
     case kCtxTake:
-      AddPrompt(cards, kWordGrab, L"Take", kToneGrab);
+      AddPrompt(cards, kWordGrab, L"Take", kToneGrab,
+                hint_learn_math::kSkillTake);
       break;
     case kCtxHolding: {
       // A tree in a forest, or the bundle of a take from a forest: the grip
       // collects, and the opening stops the take (forest_take.cpp).
       const wchar_t* forest = ForestTakeHint();
       AddPrompt(cards, kWordGrab, forest != nullptr ? forest : L"Open to drop",
-                kToneGrab);
+                kToneGrab,
+                forest != nullptr ? kNoSkill : hint_learn_math::kSkillDrop);
       break;
     }
     case kCtxCreature:
@@ -690,17 +825,20 @@ void AddPrompts(Content cards[kHands], int context, bool first_show) {
       if (TriggerDragsLand()) {
         AddPrompt(cards, kWordAction, L"Move the land", kToneAction);
       } else {
-        AddPrompt(cards, kWordWorld, L"Move the land", kToneGrab);
+        AddPrompt(cards, kWordWorld, L"Move the land", kToneGrab,
+                  hint_learn_math::kSkillWorld);
       }
       // The walk with the stick of the other hand (move_stick), while a push
       // of the stick moves the player.
       if (g_moves != 0 && ControllersWalkPossible()) {
-        AddPrompt(cards, kWordWalk, L"Move", kToneOther);
+        AddPrompt(cards, kWordWalk, L"Move", kToneOther,
+                  hint_learn_math::kSkillWalk);
       }
       AddJumpPrompt(cards);
       // The two menus of the other hand: the ring (the Temple, the Creature,
       // the leashes and more) and the menu of the game.
-      AddPrompt(cards, kWordRing, L"Ring menu", kToneOther);
+      AddPrompt(cards, kWordRing, L"Ring menu", kToneOther,
+                hint_learn_math::kSkillRing);
       if (first_show) AddPrompt(cards, kWordMenu, L"Game menu", kToneOther);
       break;
     case kCtxCommand:
@@ -713,7 +851,8 @@ void AddPrompts(Content cards[kHands], int context, bool first_show) {
       AddPrompt(cards, kWordAction, L"Take the leash off", kToneAction);
       break;
     case kCtxCommandAim:
-      AddPrompt(cards, kWordAction, L"Release to send", kToneAction);
+      AddPrompt(cards, kWordAction, L"Release to send", kToneAction,
+                hint_learn_math::kSkillSend);
       break;
     case kCtxMiracle:
     case kCtxTempleLand:
@@ -744,7 +883,8 @@ void AddPrompts(Content cards[kHands], int context, bool first_show) {
     }
     case kCtxLeashedLand:
       // A tap sends the Creature to the aim, and a hold shows the arc.
-      AddPrompt(cards, kWordAction, L"Send the Creature", kToneAction);
+      AddPrompt(cards, kWordAction, L"Send the Creature", kToneAction,
+                hint_learn_math::kSkillSend);
       AddJumpPrompt(cards);
       break;
     default:
@@ -1299,6 +1439,171 @@ struct Plan {
   bool show;
 };
 
+// --- the lines that the player knows: the frame ------------------------------------
+
+// CameraHelp::EnabledFeatures: the camera controls of the game that a script
+// lets the player use (docs/god-view.md, "The interface levels").
+const uintptr_t kEnabledFeatures = 0x009CDD6C;
+// The watch of a take ends this long after the close of the grip.
+const double kTakeWatchSeconds = 1.0;
+
+bool g_lesson = false;
+bool g_lesson_said = false;
+hint_learn_math::TakeWatch g_take_watch;
+hint_learn_math::DropWatch g_drop_watch;
+bool g_ring_was_open = false;
+// The log said that the line of this action does not show.
+bool g_known_said[kSkills] = {};
+uint64_t g_known_frames = 0;  // frames with a line that did not show
+int g_learn_logs = 0;
+const int kMaxLearnLogs = 200;
+
+bool LearnLog() {
+  if (g_learn_logs >= kMaxLearnLogs) return false;
+  ++g_learn_logs;
+  return true;
+}
+
+bool KnownNow(int skill) {
+  return hint_learn_math::Known(g_entries[skill], g_play,
+                                hint_learn_math::kUses,
+                                hint_learn_math::kComebackSeconds);
+}
+
+// The player did an action, and it worked. One line of the log for each use.
+void LearnDone(int skill, const char* how) {
+  if (g_learn == 0 || skill < 0 || skill >= kSkills) return;
+  hint_learn_math::Entry& e = g_entries[skill];
+  const bool was_known = KnownNow(skill);
+  const double gap = g_play - e.last;
+  hint_learn_math::Done(&e, g_play);
+  g_counts_dirty = true;
+  if (!LearnLog()) return;
+  char then[160] = "";
+  if (KnownNow(skill) && !was_known) {
+    if (e.count == hint_learn_math::kUses) {
+      _snprintf_s(then, _TRUNCATE,
+                  ", so its line goes away. It comes back after %.0f s of "
+                  "play with no use of it",
+                  hint_learn_math::kComebackSeconds);
+    } else {
+      _snprintf_s(then, _TRUNCATE,
+                  ". Its line goes away again: this use came %.0f s of play "
+                  "after the last one",
+                  gap);
+    }
+  }
+  ModLog("hint card    : frame %llu, the player did the action \"%s\": %s. "
+         "Its count is %d now%s (hint_learn=1)",
+         g_frame, hint_learn_math::kSkillKey[skill], how, e.count, then);
+}
+
+// Once a frame while the hints go to the cards: the play clock, the lesson
+// of the tutorial, the actions that the facts of the Hand show, and the file.
+void LearnFrame(double now, float dt, int context) {
+  if (g_learn == 0) return;
+  g_play = hint_learn_math::PlayStep(g_play, dt);
+  const uint32_t features =
+      *reinterpret_cast<const uint32_t*>(kEnabledFeatures);
+  const bool lesson = hint_learn_math::LessonNow(features);
+  if (!g_lesson_said || lesson != g_lesson) {
+    g_lesson_said = true;
+    if (LearnLog()) {
+      ModLog("hint card    : frame %llu, the camera controls of the game are "
+             "0x%X. %s (hint_learn=1)",
+             g_frame, features,
+             lesson ? "A lesson of the tutorial runs, so each line of the "
+                      "cards shows, whatever its count"
+                    : "No lesson of the tutorial runs, so a line that the "
+                      "player knows does not show");
+    }
+  }
+  g_lesson = lesson;
+  // THE TAKE and THE DROP, from the facts of the Hand of this frame.
+  const bool known = g_have_facts && g_facts_frame == g_frame;
+  const bool holding = known && g_facts_holding;
+  const bool grip = ControllersGripClosed();
+  const int on = context == kCtxTake      ? hint_learn_math::kSkillTake
+                 : context == kCtxCollect ? hint_learn_math::kSkillCollect
+                                          : kNoSkill;
+  const int took = hint_learn_math::TakeStep(&g_take_watch, on, grip, holding,
+                                             now, kTakeWatchSeconds);
+  if (took == hint_learn_math::kSkillTake) {
+    LearnDone(took, "the Hand holds the object that the grip closed on");
+  } else if (took == hint_learn_math::kSkillCollect) {
+    LearnDone(took, "the Hand holds what the grip took from the bulk source");
+  }
+  if (hint_learn_math::DropStep(&g_drop_watch, known, holding,
+                                context == kCtxHolding, grip)) {
+    LearnDone(hint_learn_math::kSkillDrop,
+              "the grip opened, and the object left the Hand");
+  }
+  if (hint_learn_math::Rose(&g_ring_was_open, RadialMenuOpen())) {
+    LearnDone(hint_learn_math::kSkillRing, "the ring opened");
+  }
+  // THE FILE: at most once in kWriteGapSeconds.
+  const bool due =
+      g_counts_dirty || g_play - g_saved_play >= kPlayWriteSeconds;
+  if (due && (g_last_write == 0.0 || now - g_last_write >= kWriteGapSeconds)) {
+    g_last_write = now;
+    SaveCounts();
+  }
+}
+
+// THE LINES THAT THE PLAYER KNOWS do not show (hint_learn_math.h, LineShows).
+// A prompt that the filter takes away still owns its button, so the hint of
+// the game for that button does not take its place. The log has one line
+// when the line of an action goes, and one when it comes back.
+void LearnFilter(Content cards[kHands]) {
+  if (g_learn == 0) return;
+  bool hidden = false;
+  for (int h = 0; h < kHands; ++h) {
+    Content& card = cards[h];
+    int kept = 0;
+    for (int i = 0; i < card.count; ++i) {
+      const Line& line = card.line[i];
+      const int s = line.skill;
+      if (s >= 0 && s < kSkills) {
+        char button[32], text[64];
+        const bool shows = hint_learn_math::LineShows(g_learn, s, g_entries,
+                                                      g_play, g_lesson);
+        if (shows == g_known_said[s]) {
+          Narrow(line.button, button, sizeof(button));
+          Narrow(line.text, text, sizeof(text));
+        }
+        if (!shows) {
+          hidden = true;
+          if (!g_known_said[s]) {
+            g_known_said[s] = true;
+            if (LearnLog()) {
+              ModLog("hint card    : frame %llu, the line \"[%s] %s\" does "
+                     "not show: the player did its action \"%s\" %d times, "
+                     "the last %.0f s of play ago (hint_learn=1)",
+                     g_frame, button, text, hint_learn_math::kSkillKey[s],
+                     g_entries[s].count, g_play - g_entries[s].last);
+            }
+          }
+          continue;
+        }
+        if (g_known_said[s]) {
+          g_known_said[s] = false;
+          if (LearnLog()) {
+            ModLog("hint card    : frame %llu, the line \"[%s] %s\" shows "
+                   "again: %s (hint_learn=1)",
+                   g_frame, button, text,
+                   g_lesson ? "a lesson of the tutorial runs"
+                            : "the player did not use its action for a long "
+                              "time");
+          }
+        }
+      }
+      card.line[kept++] = line;
+    }
+    card.count = kept;
+  }
+  if (hidden) ++g_known_frames;
+}
+
 }  // namespace
 
 void HintCardBeginFrame(bool to_headset, bool projection, uint64_t frame,
@@ -1426,6 +1731,11 @@ void HintCardEndFrame() {
   PollTreeKey();
   PollMovesKey();
 
+  // The context of the Hand in this frame, and the actions that worked
+  // (hint_learn).
+  const int context_now = ContextNow();
+  LearnFrame(now, dt, context_now);
+
   // The prompt of the context.
   int shown = kCtxNone;
   bool first_show = false;
@@ -1434,7 +1744,7 @@ void HintCardEndFrame() {
   OwnedStart();
   g_fetch_kept = false;
   if (g_prompts != 0) {
-    int context = ContextNow();
+    int context = context_now;
     raw_context = context;
     // THE TAKE IN WORK. After the grip closes on an object to take, the Hand
     // is on no target until it holds the object, and the game gives its hint
@@ -1646,6 +1956,8 @@ void HintCardEndFrame() {
       card.count = kept;
     }
   }
+  // The lines that the player knows (hint_learn=1).
+  LearnFilter(content);
   // The ring is open at the other hand, and its picture is there. The card
   // of that hand comes back when the ring closes.
   if (RadialMenuOpen()) content[kOther].count = 0;
@@ -1961,10 +2273,32 @@ void HintCardToggle() {
                        : "the hints show on the cards beside the wrists");
 }
 
+void HintCardLearnDone(int skill, const char* how) {
+  ReadSettings();
+  LearnDone(skill, how);
+}
+
 void HintCardReport() {
   if (g_frames_routed == 0) return;
   const CardState& a = g_cards[kPointing];
   const CardState& b = g_cards[kOther];
+  if (g_learn != 0) {
+    char counts[320] = "";
+    for (int s = 0; s < kSkills; ++s) {
+      char one[48];
+      _snprintf_s(one, _TRUNCATE, "%s%s %d", s > 0 ? ", " : "",
+                  hint_learn_math::kSkillKey[s], g_entries[s].count);
+      strncat_s(counts, one, _TRUNCATE);
+    }
+    ModLog("hint card    : hint_learn=1: on %llu frames a line that the "
+           "player knows did not show. %s. The play clock is %.0f s, and the "
+           "counts are %s",
+           g_known_frames,
+           g_lesson ? "A lesson of the tutorial runs now"
+                    : "No lesson of the tutorial runs now",
+           g_play, counts);
+    g_known_frames = 0;
+  }
   ModLog("hint card    : %llu frames with the hints on the cards. The card of "
          "the pointing hand showed on %llu and the card of the other hand on "
          "%llu. %llu hints of the game went to the cards and none drew in an "

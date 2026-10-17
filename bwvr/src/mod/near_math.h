@@ -269,6 +269,60 @@ inline float HeadViewInvTan(float game) {
   return game > 0.2f && game < 10.0f ? game : kHeadViewInvTan;
 }
 
+// THE CAMERA MOVES THAT A SCRIPT SEES (script_camera_moves). Two script words
+// ask what the player does with the camera, and the God view moves with
+// other controls than the mouse:
+// - GScript::GetHandState gives the interface hand mode. The game gives
+//   kHandMoveHold while the Move Button holds the land: a drag of the land,
+//   or a turn at the rotate arrow. It gives kHandZoomHold while both buttons
+//   hold the land and the camera can zoom.
+// - GScript::WithinRotation gives the bits of the arrows of the camera that
+//   show. kArrowTurn is the rotate arrow: the pointer is at a side of the
+//   screen, or the camera turns.
+// A move of the God view gives the value that the game gives for the same
+// move. A zoom is the hold of both buttons. A turn, and a grip that holds the
+// land, are the hold of the Move Button. A turn shows the rotate arrow.
+// features is CameraHelp::EnabledFeatures: bit 2 lets the camera turn and
+// bit 4 lets it zoom.
+const unsigned kHandMoveHold = 0x14;
+const unsigned kHandZoomHold = 0x16;
+const unsigned kArrowTurn = 0x2;
+const unsigned kCameraTurns = 0x2;
+const unsigned kCameraZooms = 0x4;
+
+struct ViewMoves {
+  bool turned;     // the view turned in the last two game turns
+  bool zoomed;     // the view zoomed in the last two game turns
+  bool land_held;  // a grip holds the land now
+};
+
+// The hand mode that the script gets. A hold of the game stays.
+inline unsigned ScriptHandState(unsigned game, const ViewMoves& moves,
+                                unsigned features) {
+  if (game == kHandMoveHold || game == kHandZoomHold) return game;
+  if (moves.zoomed && (features & kCameraZooms) != 0) return kHandZoomHold;
+  if (moves.turned || moves.land_held) return kHandMoveHold;
+  return game;
+}
+
+// The arrows that the script gets. The arrows of the game stay.
+inline unsigned ScriptArrows(unsigned game, const ViewMoves& moves,
+                             unsigned features) {
+  if (moves.turned && (features & kCameraTurns) != 0) return game | kArrowTurn;
+  return game;
+}
+
+// A camera help event is recent when it came in the last two game turns.
+// at and now are the clock of the help (HelpProfile::AccumulatedTime), which
+// goes up by kHelpClockTurn in each game turn. A clock that went back (a new
+// game, a load) makes no event recent.
+const int kHelpClockTurn = 100;
+inline bool HelpRecent(bool seen, int at, int now) {
+  if (!seen) return false;
+  const int gap = now - at;
+  return gap >= 0 && gap <= 2 * kHelpClockTurn;
+}
+
 // THE POINT OF THE FLAT HAND (docs/creature.md, "The open hand").
 // The Hand acts from one point: the tip of the index finger. The flat hand of
 // a stroke touches with its palm, so its point is the palm: the glow shows
@@ -522,6 +576,25 @@ inline bool SignOut(bool sign_last, bool sign, float gap, float touch) {
 // target while the aim has a target at a distance.
 inline bool SignGivesWay(bool last, bool far_target) {
   return last && far_target;
+}
+
+// A LOOSE BODY THAT THE POINT IS NOT IN GIVES WAY TO THE AIM
+// (far_grab_beside_loose=1). Trees, houses and piles stand all around the
+// things that the player aims at, and the body of a loose body is wider than
+// what the player sees. So a loose body that the Hand's point is not in (the
+// gap is more than the touch) is no near object, as a signpost of rule 6: it
+// does not turn the grab from a distance off. Its rule in the choice stays.
+// It is the target at the Hand only while the aim has no target at a
+// distance (SignGivesWay). A loose body that the point is in, an object to
+// hold, the Creature and a scroll stay near objects.
+inline bool LooseOut(bool rule_on, bool loose, float gap, float touch) {
+  return rule_on && loose && !(gap <= touch);
+}
+
+// Whether a body in the reach turns the grab from a distance off: its gap
+// counts in NearBlocks. sign_out is SignOut, loose_out is LooseOut.
+inline bool StopsFar(bool sign_out, bool loose_out) {
+  return !sign_out && !loose_out;
 }
 
 // The rule that a target comes under, 1 to 6. The lower one wins.

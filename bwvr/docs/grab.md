@@ -406,10 +406,12 @@ game has the rock 50 to 97 ms after the press, and the open Hand lets it go
 then. A tree in its fall is in the Hand in the same way (`-Runs treedrop`).
 
 `-Runs catchfar` fetches a tree from a distance 1.0 s after its release,
-while the physics of the game still has it. With `catch_at_once=1` the glide
+while the physics of the game still has it. The head looks 25 degrees down,
+so the tree on the land is in the view. With `catch_at_once=1` the glide
 draws the tree from the first frame after the press. The largest move of a
-frame is 5.5 cm, which is the first frame of a glide of 0.5 m in 0.32 s, and
-the game takes the tree 42 to 54 ms after the press. With `catch_at_once=0`
+frame is 5.5 to 9.0 cm, in the first frames of a glide of about 0.5 m in
+0.32 s, and the game takes the tree 42 to 127 ms after the press, in game
+turn 1 or 2. With `catch_at_once=0`
 the tree stays at its place for 320 ms. The game takes it then, and the tree
 is 52 to 54 cm nearer in one frame, at the end of the glide.
 
@@ -610,6 +612,11 @@ sees.
 
    With `hand_sign_last=0` a signpost is a scroll of the rules 2 and 5.
 
+A loose body that the point is not in keeps its rule 4, and it gives way to
+the aim as a signpost of rule 6 does (`far_grab_beside_loose=1`,
+`near_math::LooseOut`): while the aim has a far target, it is no target at
+the Hand. A loose body that the point is in (rule 3) does not give way.
+
 In rule 1 and in rule 3 the smaller body wins: a villager in a forest, a rock
 at a house. The size is the larger of the radius and half the height, in steps
 of a factor of 2 (`SizeClass`). In one step the nearer middle wins, so two
@@ -660,16 +667,32 @@ green look. See [hand-model.md](hand-model.md) for the model of the glow.
 
 The grab from a distance is off while an object that a press acts on is near
 the Hand's point. The objects are the four kinds of the table above, and the
-Creature. A signpost that the Hand's point is not in is not such an object
-(`hand_sign_last=1`, rule 6 of the choice): the aim keeps its far target with
-the Hand's point beside a signpost. `Choose` keeps the smallest gap of the
-others (`NearBlocks`):
+Creature. Two kinds of body are not such an object, so the aim keeps its far
+target with the Hand's point beside them:
+
+- A signpost that the Hand's point is not in (`hand_sign_last=1`, rule 6 of
+  the choice).
+- A loose body that the Hand's point is not in: a tree, a forest, a building
+  or a bulk source such as a pile (`far_grab_beside_loose=1`,
+  `near_math::LooseOut`). Trees, houses and piles stand all around the things
+  that the player aims at. Such a body in the reach of the pick is the target
+  at the Hand only while the aim has no far target (see "The rule of the
+  choice"). A loose body that the point is in turns the grab from a distance
+  off.
+
+An object to hold, the Creature and a scroll of a quest stay near objects.
+`Choose` keeps the smallest gap of the near objects (`near_math::StopsFar`,
+`NearBlocks`):
 
 - The far grab goes off when the gap is `far_grab_near_cm` or less (10 cm of
   the room).
 - It comes back when the gap is more than `far_grab_near_out_cm` (15 cm).
 - Between the two, the answer of the last frame stays, so a hand that rests at
   the border does not turn the halo on and off.
+
+The log has one line when a loose body that the point is not in is
+`far_grab_near_cm` or less from the point and the grab from a distance stays
+on ("far grab : stays on").
 
 While it is off, there is no far target, no halo and no claim of the grip. The
 grip goes to the game. The grip of the pointing hand is then no grab of the
@@ -709,7 +732,10 @@ than 35 cm of the room from the Hand's point (`kFarMinHandM`). With the rule
 on, the least distance of a far target is `far_grab_near_out_cm`
 (`FarLeastMeters` in `near_math.h`), and never more than 35 cm. The score takes
 35 cm for a nearer object. So each object is a target of the Hand, or it turns
-the far grab off, or it is a target of the aim.
+the far grab off, or it is a target of the aim. A loose body that the point is
+not in is the exception (`far_grab_beside_loose=1`): past the reach of the
+pick it is no target of the Hand, and the aim goes past it to the things
+behind it.
 
 ### What still acts from the pixel of the Hand's point
 
@@ -793,6 +819,7 @@ put the leash on from a new game.
 | `catch_rest_guard` | 1 | 1 holds the end of the physics of an object back while the Hand takes it, so a tree that comes to rest in that time stays a tree and goes into the Hand (see "An object that comes to rest while the Hand takes it"). 0 lets the game end the physics: the tree is then a dead tree on the land, and the Hand is empty. The test key Ctrl Shift Scroll Lock turns it off and on (`test_keys=1`) |
 | `catch_at_once` | 1 | 1 puts an object that moves in the hand at the press of the grip: the game sends its pick up at once, the body of the object stays where it is, and the mod draws the object in the Hand (see "A catch at once"). 0 is the pick up of the game: it goes out 225 ms after the press, and the object moves on until the game takes it out of its physics. The test key Ctrl Shift Backspace goes between the two (`test_keys=1`) |
 | `far_grab_near_cm` | 10 | The far grab goes off when an object that a press acts on is this near the Hand's point |
+| `far_grab_beside_loose` | 1 | 1: a tree, a forest, a building or a bulk source that the Hand's point is not in does not turn the far grab off, and it is no target at the Hand while the aim has a far target. 0: it turns the far grab off as each other object that a press acts on |
 | `far_grab_near_out_cm` | 15 | The far grab comes back past this distance |
 | `palm_search` | 0 | 1 leaves the game's search at the palm on |
 | `hand_glow_idle` | 0 | 1 draws the glow also with no target and while the Hand holds an object |
@@ -859,9 +886,13 @@ scroll of a quest 8 cm away come before it. A signpost that the point is in
 comes under rule 1. A miracle 6 cm away is the wide target with a signpost 9
 cm away. A signpost of rule 6 does not turn the far grab off, and it gives
 way while the aim has a target. Each order of five bodies gives the same
-target.
+target. A tree 7 cm from the point and a house 3 cm from it do not turn the
+far grab off, the house gives way to a far target, and its rule stays 4. A
+tree that the point is in and a rock 7 cm away turn the far grab off, and
+`far_grab_beside_loose=0` gives the rule of each other object.
 
-Desktop runs (`hand_run.ps1 -Kind fixed -Save temple`) show the two keys:
+Desktop runs show the keys. They use `hand_run.ps1 -Kind fixed -Save temple`
+when the item names no other script:
 
 - A signpost stands at the door of the Temple. The Hand's point is 8 cm from
   it, and the aim is on the Creature 30 cm away. With `hand_sign_last=0` the
@@ -872,6 +903,16 @@ Desktop runs (`hand_run.ps1 -Kind fixed -Save temple`) show the two keys:
 - The Hand's point is 6 cm over a signpost and 2 cm from a house
   (`seek_plan=go,scrolls,up`). With `hand_sign_last=0` the signpost is the
   target, and with the default the house is.
+- `far_grab_beside_loose` (`village_run.ps1 -Kind job -Plan gostore`, the
+  test save `temple`). The Hand's point is 5.9 cm from the Village Store,
+  and the word `aimfar` aims at a villager 0.6 m from the Hand, past the
+  store (`far_test_aim_class=1`). With the default the far
+  grab stays on ("far grab : stays on"), the villager is the far target, and
+  a grip of 20 frames locks on him. With `far_grab_beside_loose=0` the far
+  grab is off, the aim has no target, and the grip presses with no target.
+  With the point 3.9 cm from the store, the store gives way to a tree in the
+  aim ("the StoragePit ... is no target now"). With the point in a tree
+  (`seek_plan=gostore,crown`), the far grab goes off with both values.
 - The Hand's point is 11 cm from the Creature (`seek_plan=creature` and the
   word `slap`). With `hand_wide_creature=0` there is no target, and a grip
   does nothing. With the default the Creature is the target in the wide
@@ -880,8 +921,7 @@ Desktop runs (`hand_run.ps1 -Kind fixed -Save temple`) show the two keys:
 **Not proven on the desktop:** a miracle in the wide reach beside a signpost
 (the test miracle floats at the height of the Hand, so the point is in it), a
 grip that stays closed on the Creature in the wide reach, the body of a tree and the game's height in the
-game, the red halo, the Creature as a choice, the rule of the near objects in a
-village, a scroll that wins over a tree that the point is in, and the hook of
+game, the red halo, the Creature as a choice, a scroll that wins over a tree that the point is in, and the hook of
 the leash past its install. A place at 66 to 100 units a meter, the scale of
 the headset, is not run.
 
@@ -1696,52 +1736,102 @@ Hand takes it".
 Hand. With `tree_plant_hint=1` the card tests the same things in each frame
 (`tree_plant_math.h`, `HandDirectTreeVerdict`): the height rule of
 `release_fall_cm` (throw.md), the lean, dry land (`MapCoords::IsDryLand`) and
-fire. When the release plants the tree, the card keeps the text of the game.
-Else it says what the opening does: "Lower to plant. Open to drop", "Hold
-upright to plant. Open to drop", "Needs dry land. Open to drop" or "On fire.
-Open to drop". The test of a body in the way is not in the card.
+fire. With `tree_plant_bodies=1` it also does the test of a body in the way
+(the next paragraphs). When the release plants the tree, the card keeps the
+text of the game. Else it says what the opening does: "Lower to plant. Open
+to drop", "Hold upright to plant. Open to drop", "Needs dry land. Open to
+drop", "On fire. Open to drop" or "Object in the way. Open to drop".
 
-**The test of a body in the way [V].** The release makes the physics object of
-the tree (`PhysicsObject::AddObject`), puts it on the land
-(`PhysOb::AdjustToGroundLevel` `0x007FCB80`) and calls
-`PhysicsObject::RaiseUntilNotIntersecting` `0x00644800`. When that call moved
-the tree up, the tree falls. The call has two parts:
+**The test of a body in the way [V].** The release makes the physics body of
+the tree (`PhysicsObject::AddObject` `0x006443A0`, `Tree::SetUpPhysOb`
+`0x0074B650`), puts its lowest point on the land
+(`PhysOb::AdjustToGroundLevel` `0x007FCB80`), places its points there
+(`PhysOb::ZeroForces` `0x007FD200`) and calls
+`PhysicsObject::RaiseUntilNotIntersecting` `0x00644800`. When that call moves
+the tree up, the release does not plant it. The call has two parts:
 
-1. It reads each object in the map cells of a square about the tree, as wide
-   as the radius of the physics object (`PhysOb+0x150`). It asks each one
+1. It reads each object in the map cells (10 units wide) of the square of the
+   center of the tree plus and minus the radius of its body. It asks each one
    `Object::ShouldPhysicsRaiseObjectUntilNotIntersectingThis` `0x006377D0`
    (the table slot `+0x7A4`), which gives the answer of
-   `InteractsWithPhysicsObjects` (`+0x79C`). An object that says yes and is not
-   in the physics goes into the physics now (`fn_00644DF0`, with
-   `PhysOb::Initialise` from its mesh).
-2. For each other object in the physics whose center is nearer than the sum
-   of the two radii, `fn_007FDD60` gives how deep the points of the one body
-   are in the other, along up. More than 0.001 units raises the tree by that
-   depth, and the call starts again.
+   `InteractsWithPhysicsObjects` (`+0x79C`). An object that says yes, has a
+   mesh and is not in the physics goes into the physics now (`fn_00644DF0`).
+   It gets the body of its class (slot `+0x78C`) at the place of its mesh, and
+   it is at rest.
+2. For each other body in the physics whose center is nearer than the sum of
+   the two radii, `fn_007FDD60` gives two depths along up: the points of the
+   tree in the other body, and the points of the other body in the tree.
+   Each point casts a line along down (the tree) or up (the other body). The
+   line meets a face that faces it, behind the point and inside the three
+   edges of the face, and the nearest such face gives the depth
+   (`fn_007FC310`). A Creature has ellipsoids in place of faces
+   (`fn_008683C0`). More than 0.001 units raises the tree by that depth, and
+   the call starts again.
 
-`InteractsWithPhysicsObjects` is yes for an object with a mesh
-(`Object`, `0x006377B0`), and for a rock, a scaffold, a Creature and a dead
-tree. A house or other building says yes by two of its own values
-(`MultiMapFixed`, `0x0052F3D0`). It is no for a tree that stands
-(`Tree`, `0x0074B6A0`), a forest, a field, a fish farm, a Worship Site, a
-graveyard and a bonfire. So the trees of a forest are never in the way of a
-planted tree.
+So a body is in the way when it goes up into the low part of the tree, or
+when a point of the tree is under the top of the body. The body of a tree
+(`Object::SetUpPhysObAsATree` `0x0063A230`) has 16 points and 24 faces: a
+foot on the land at 0.1 of the 2D radius from the trunk, three rings at 0.24,
+0.6 and 0.96 of the height over the land with 0.65, 1 and 0.65 of the 2D
+radius, and a top at 1.2 of the height. The low faces go from the foot up to
+the low ring. A low rock under the crown is not in the way. A rock that goes
+up into the low faces is. The bodies of the other classes (slot `+0x78C`):
 
-No call of the game gives this answer before the release with no change of
-state. The first part puts each near object into the physics of the game. The
-second part compares two physics bodies, and the tree has a physics body only
-from the release on. A test with the same answer needs a body of its own for
-the tree and for each near object (`PhysOb::Initialise` on memory of the mod,
-then `AdjustToGroundLevel` and `fn_007FDD60`). That is not built.
+- A dead tree: the shape of a tree, with its middle at half its height.
+- A villager (`Villager::SetUpPhysOb` `0x005EFF40`) and an animal
+  (`Animal::SetUpPhysOb` `0x005F04E0`): a box of 12 points in three levels,
+  from the height and the 2D radius, turned 90 degrees about up.
+- Each class with `Object::SetUpPhysOb` `0x006376B0` or
+  `Abode::SetUpPhysOb` `0x00402DD0`, for example a rock, a scaffold and a
+  building: the hull of the parts of its mesh with the flag bit 13, or with
+  the bit 29 when no part has bit 13 (`fn_007FBAE0`).
+- A Creature (`Creature::SetUpPhysOb` `0x00479B90`): a point at the middle of
+  each bone, an ellipsoid in the frame of each bone, and the sphere of its
+  bones.
+
+`InteractsWithPhysicsObjects` is yes for an object with a mesh (`Object`,
+`0x006377B0`, so for a villager and an animal too), and for a rock, a
+scaffold, a Creature and a dead tree. A house or other building says yes by
+two of its own values (`MultiMapFixed`, `0x0052F3D0`). It is no for a tree
+that stands (`Tree`, `0x0074B6A0`), a forest, a field, a fish farm, a Worship
+Site, a graveyard and a bonfire. So the trees of a forest are never in the
+way of a planted tree.
+
+**The test of the mod.** With `tree_plant_bodies=1` the mod does the same two
+parts in each frame while the Hand holds a tree and the other tests let the
+release plant it (`tree_body.cpp`, `tree_body_math.h`). It makes the body of
+the tree at the frame of its mesh now and puts it on the land. It reads the
+same map cells, asks each object the same slot `+0x7A4`, and makes the body
+of each object that says yes in memory of the mod. It also reads the bodies
+that are in the physics now. It changes nothing in the game: it only reads,
+and it calls only slots that give a value (`GetMapChild`, `+0x7A4`,
+`IsARootedObject`, the height, the 2D radius and the scale). The limits:
+
+- The release gives the tree the speed of the hand, and `ZeroForces` moves
+  its points by 0.06 of that speed. The test takes the tree as still. The
+  game sets a tree down only at 2 units a turn or less, so the difference is
+  0.12 units at most.
+- The mod does not make the body of a class with a different
+  `SetUpPhysOb`: a fragment, a field crop, a chess piece, the heart of a
+  citadel and a shield. The test does not count such an object, and the log
+  names its class.
 
 **The log.** Tag `hand tree`: the settings, each roots pile that the game makes
 (with the place), each change of the answer for the tree in the Hand (the
-height, the lean, dry land, fire), the release with the lean of the last frame
+height, the lean, dry land, fire, a body in the way), the release with the lean of the last frame
 in the Hand, the first frame of the tree in the physics (the height of its
 mesh over the land, its lean, the count of the objects in the physics of the
 game that are nearer to the tree than the sum of the two radii, the nearest
 one, and the flag 8 of the tree), and what the tree is when it leaves the
 physics (its class and its forest).
+
+Tag `tree body`: each change of the answer of the test of a body in the way
+(the body in the way and its depth, the body of the tree, the time of the
+test), with each body whose sphere met the sphere of the tree (its middle,
+its radius, its counts of points, faces and ellipsoids, and its depth). On
+the first frame of the tree in the physics, the body that the game made for
+the tree beside the body of the mod, and each near object in the physics
+beside its body of the mod.
 
 **The lean in a desktop run.** The tree in the Hand turns with the hand
 (`hand_hold_turn`, [hand.md](hand.md)). `throw_queue.ps1 -Runs treelean
@@ -1753,26 +1843,33 @@ an upright tree at that place either (the next paragraph). So the run shows
 the lean that the card and the game read, and it does not show that the lean
 alone stops the planting.
 
-**A tree that the card calls "plant" and the game does not plant.**
-`throw_queue.ps1 -Runs treeset -NewGame` is the same recipe with a hand that
-does not turn. The hand takes a tree at the land and sets it down upright
-where it stood, 1.3 cm of the room over dry land. A rock lies 0.8 units from
-that place. The card says "Plant". The game does not plant the tree: it is in
-the physics with no forest, its mesh is 0.7 units over the land in its first
-frame there, and the flag 8 of its physics object is not set. The physics of
-the game then has 6 other objects with their center nearer to the tree than
-the sum of the two radii, and the nearest one is a rock. After a set down
-with a still hand, with no lean, on dry land and with no fire, the release
-leaves the flag 8 out only when it raised the tree. So a body was in the way.
-[I: which of the 6 objects raised the tree.]
+**A body in the way in a desktop run.** `throw_queue.ps1 -Runs treeset
+-NewGame` is the same recipe with a hand that does not turn. The hand takes a
+tree at the land and sets it down upright where it stood, 1.3 cm of the room
+over dry land. Six small objects of the class `MobileObject` lie 1 to 3 units
+from that place. The test finds the object with a radius of 1 unit in the
+way, 0.06 units deep, and the card says "Object in the way. Open to drop".
+The game does not plant the tree: it is in the physics with no forest, its
+mesh is 0.7 units over the land in its first frame there, and the flag 8 of
+its physics object is not set. The bodies of the mod are the bodies of the
+game: the 16 points of the tree are at most 0.0001 units apart, and the six
+objects that the release puts in the physics have the same middle, radius
+and counts of points and faces. With `-More 'tree_plant_bodies=0'` the card
+says "Plant" for the same tree, and the game does not plant it.
 
-In the test save `pen` the two recipes take a small rock beside the tree and
+`-Runs treeleft` and `-Runs treeright` set the tree down 6 cm of the room to
+the left or to the right, about 5 units from its place. No body is in the
+way there, the card says "Plant", and the game plants the tree: 25 frames
+later it is a `Tree` in a forest. In these runs the test took 0.04 ms at
+most. The pulls of the recipes move the tree in the Hand over a dead tree,
+and the card then says "Object in the way" for the dead tree (3 units deep).
+
+In the test save `pen` these recipes take a small rock beside the tree and
 not the tree, so they need `-NewGame` (`tools/desk/README.md`, "Known limits
 of the recipes").
 
-**Open.** A body in the way is not predicted, and the card says "Plant" for a
-tree that the game then lets fall (the run above). Whether the pile at the
-roots is what the player means by the "pit" needs the headset.
+**Open.** Whether the pile at the roots is what the player means by the "pit"
+needs the headset.
 
 ### The far touch
 
@@ -1944,8 +2041,10 @@ does not hold" the object, with the count of the game turns and of the steps
 that the mod held back.
 
 **Desktop runs.** `throw_queue.ps1 -Runs treedropend` in `bwvr/tools/desk`
-lets a tree fall from the Hand and locks it from a distance 1.3 s later. The
-pull comes 10 frames after the lock, and the press 2 frames after the pull.
+lets a tree fall from the Hand and locks it from a distance 65 frames later
+(1.2 s at 53 frames a second), when the tree is on the land. The head looks
+25 degrees down, so the tree is in the view. The pull comes 10 frames after
+the lock, and the press 2 frames after the pull.
 A tree that falls comes to rest by itself 1.2 to more than 2.3 s after the
 release, so the rest of the game itself comes in the take in some runs only.
 For the other runs the recipe has the test key `catch_rest_test=1`: it makes
@@ -1956,8 +2055,11 @@ so the runs of the table have `-More 'catch_at_once=0'`.
 
 | `catch_rest_guard` | What the runs show |
 | --- | --- |
-| 1 | In 3 of 4 runs the mod holds the rest back (1, 11 and 30 steps), and the tree leaves the Hand when the grip opens, 46 frames after the Hand took it. In one of the three the rest of the game itself came in the lock, before the pull. In the fourth run the tree came to rest before the aim, so there was no take |
-| 0 | In 3 of 3 runs the game ends the physics of the tree in a turn of the take: by the test key in 2 runs, and by itself in 1 run. The Hand holds nothing 1 or 2 frames after it took the tree, and the grip stays closed on an empty Hand for 44 frames more |
+| 1 | In 3 of 3 runs the mod holds the rest back (1, 38 and 59 steps), and the tree leaves the Hand when the grip opens, 45 frames after the Hand took it. In one of the three the rest of the game itself came in game turn 1 of the take, before the test key |
+| 0 | In 3 of 3 runs the test key ends the physics of the tree in game turn 2 or 3 of the take. The Hand holds nothing 1 to 4 frames after it took the tree, and the grip stays closed on an empty Hand for 41 to 44 frames more |
+
+With `catch_at_once=1` (two runs) the press is a catch at once: the game has
+the tree in game turn 2, and the tree is in the Hand until the grip opens.
 
 With `catch_rest_guard=1` the two recipes with no test key keep their
 results. In `throw_queue.ps1 -Runs treedrop` a near grip on a tree in its
@@ -2041,7 +2143,7 @@ not jump.
 | `far_grab_sign` | 1 | 1: a signpost is in the last rank: it takes the halo only when the aim is on it and on no other target, or when no other target is in the cone (`far_grab_choice` 2 and 4). 0: a signpost is a scroll of the first rank |
 | `far_grab_pull` | 80 | The speed of the pull, in cm/s |
 | `far_grab_max_m` | 2.0 | The range: a target is at most this far from the head, in meters of the room along the floor. 0 gives no limit |
-| `far_grab_near_cm`, `far_grab_near_out_cm` | 10, 15 | See "Near objects win" |
+| `far_grab_near_cm`, `far_grab_near_out_cm`, `far_grab_beside_loose` | 10, 15, 1 | See "Near objects win" |
 | `far_touch` | 1 | 1 makes a scroll in the aim a far target that the grip activates |
 | `far_leash` | 1 | The leash click on the player's own Creature at a distance (see [creature.md](creature.md)) |
 | `far_take_carry` | 1 | 1: when the source of a take at a distance goes away while the grip is closed, the grip machine keeps the grip and the grip carries the bundle. 0: the far grab holds the grip back until it opens, and the machine lets the bundle go at once (see "A bulk source at a distance"). Test key: Shift and Backspace |
@@ -2049,6 +2151,7 @@ not jump.
 | `creature_hold_stay`, `creature_hold_stay_ms`, `creature_stay_look` | 1, 350, 1 | A grip that stays closed on the far Creature makes it stay (see [creature.md](creature.md), section 5.3). Test key: Shift and End |
 | `far_roots_at_tree` | 1 | 1 puts the roots pile of a tree that comes from a distance at the roots, on the land where the tree stood. 0 leaves it where the game puts it, on the way of the glide. Test key: Ctrl, Shift and Page Down |
 | `tree_plant_hint` | 1 | 1 makes the card say what the opening of the grip does with a tree in the Hand. 0 shows the text of the game ("Plant") each time. Test key: Ctrl and Page Down |
+| `tree_plant_bodies` | 1 | 1 adds the test of a body in the way to what the card says for a tree in the Hand (see "The test of a body in the way"). 0 leaves it out: the card can say "Plant" when a body is in the way and the tree falls |
 | `throw_law` | 2 | The law of the throw (see [throw.md](throw.md)) |
 
 With `test_keys=1`, Ctrl with the Delete key steps `far_grab_choice` from 2 to
@@ -2699,7 +2802,7 @@ a tree at the Village Store (the card says "Open to give the tree as wood", and 
 store has more wood after the opening), two scaffolds, wood at the Workshop, wood at
 a building site and a scaffold, and a villager at a tree and at the Village Store.
 Desktop runs of `creature_recipe.ps1 -Kind gift` have shown an animal given to a
-Creature (`creature.md`, section 6.2).
+Creature (`creature.md`, section 7.2).
 
 **Not run on the desktop:** food, an animal and a crop at a store (the same
 code with a different class), the altar and a sacrifice, a teleport, a thing outside

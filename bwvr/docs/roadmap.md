@@ -82,30 +82,16 @@ is built, and no test has proven it.
     `throw.md`, "The rest after a landing"). A tree thrown at 3 m/s left
     the physics 2.6 and 4.3 s after the release (`throw_queue.ps1 -Runs
     tree`).
-- **B4. The card does not know a body in the way of a planted tree.** The
-  card says "plant" by the tests of the game that it can read (the height,
-  the lean, dry land, fire, `grab.md`, "A tree in the Hand"). The game also
-  lets a tree fall when it raised the tree over a body at the release, and
-  the card does not see that. A desktop run shows the fault: a tree set down
-  upright on dry land with a rock 0.8 units from its place has the card
-  "Plant", and the game does not plant it. The log has the 6 objects of the
-  game's physics that are near the tree, and the flag of the tree that the
-  release leaves out when it raised the tree (`throw_queue.ps1 -Runs
-  treeset -NewGame` in `bwvr/tools/desk`).
-  The test of the game puts each near object into its physics and compares
-  two physics bodies, and the tree has a physics body only from the release
-  on (`grab.md`, "The test of a body in the way"). So no call of the game
-  gives the answer before the release with no change of state. A tree that
-  stands and a forest are never in the way. A rock, a scaffold, a Creature,
-  a dead tree and a building can be. Not built: the same test with physics
-  bodies that the mod makes for the tree and for each near object.
-  The lean is shown in a desktop run: a hand that turns 30 degrees makes the
-  tree lean 0.26 and -0.46 rad, the card says "Hold upright to plant", and the
-  tree has the same lean in the physics of the game (`-Runs treelean
-  -NewGame`). That
-  run is at the place with the rock, so it does not show that the lean alone
-  stops the planting. Not run: a tree that leans at a place where the game
-  plants an upright tree.
+- **B4. The lean alone at a place where the game plants a tree.** The card
+  says "Hold upright to plant" for a tree that leans more than 0.2 rad in the
+  Hand, and the tree has the same lean in the physics of the game
+  (`throw_queue.ps1 -Runs treelean -NewGame` in `bwvr/tools/desk`). That run
+  is at a place where a body is in the way, so it does not show that the lean
+  alone stops the planting. Not run: the turn of `treelean` at the place of
+  `-Runs treeleft`, where the game plants an upright tree. The card does not
+  count a near object of a class whose body the mod does not make: a
+  fragment, a field crop, a chess piece, the heart of a citadel and a shield
+  (`grab.md`, "The test of the mod").
 - **B1b. The roots pile of a far grab.** `far_roots_at_tree=1` puts the pile
   at the roots, as for a tree that the Hand takes. Only a headset shows
   whether that is what the player means by the "pit" at the roots. Not
@@ -212,16 +198,16 @@ is built, and no test has proven it.
     sky` names the scene of that frame.
   - Not run: the video of a falling spell, the one scene of play that draws
     no sky. The first frame of such a scene is drawn as before.
-- **B17. The name of a villager, and the size of a speech bubble.** The
-  speech bubble of a signpost is one flat card at the depth of the sign
-  (`bubble_card=1`, `ui-layer.md`, section 18), and a headset session read
-  it well. A desktop run shows the card (section 18.5 has the recipe). Still
-  open:
-  - The name of a villager draws its own box, and the mod does not change
-    it (`ui-layer.md`, 18.6). By the code, its text has no eye difference of
-    the villager in one walk. No run has shown that.
+- **B17. The size of a speech bubble, and the name of a villager in a
+  headset.** The speech bubble of a signpost is one flat card at the depth
+  of the sign (`bubble_card=1`, `ui-layer.md`, section 18), and a headset
+  session read it well. The name of a villager is such a card at the depth
+  of the villager (`name_card=1`). Desktop runs show both cards (section
+  18.5 has the recipes). Still open:
   - The size of a bubble comes from the depth of the sign in units, with no
     change for the scale of the God view.
+  - Check in a headset that the name of a villager reads as well as a
+    bubble. The ring item `details` with the Hand on a villager shows it.
 - **B18. A flash of lightning in the left eye only: check it in a
   headset.** In a headset session the white flashes of the lightning at the
   end of the quest of the singing stones showed in the left eye only. A
@@ -256,14 +242,20 @@ is built, and no test has proven it.
   beside the other sounds. Each other sound that the game asks for at the
   Hand with no object keeps the test of the game camera (`audio.md`,
   section 12).
-- **B21. A failed start of the headset session can stop the game.** With no
-  headset, each try to start a session ends in `XrScreen::Stop`. One time,
-  in a full screen game, the frame thread did not come back from the first
-  try: the log stopped after the line "Connect the headset in Virtual
-  Desktop, then start the game.". The cause is not known, and no run has
-  repeated it. A full screen game makes no try (`vr_full_screen=0`), and a
-  game with `vr=0` makes none. A game in a window with no headset makes a
-  try each 3 seconds for 2 minutes.
+- **B21. The start of the headset session on a thread of the mod: check it
+  in a headset.** With no headset, the tries to start a session run on a
+  thread of the mod, with one instance for all tries (`vr_start=1`,
+  `backend.md`, "The start of the headset session"). The frame thread does
+  not wait for a call into the runtime, and the log says when a call does
+  not come back. A desktop run with no headset shows the tries and the
+  frames while they run. When the session part fails after the thread found
+  the headset, the mod falls back to the tries of `vr_start=0`. Still open:
+  - Check in a headset that the session starts when the headset connects in
+    the 2 minutes of the tries, and when it is connected before the start of
+    the game.
+  - Check the fall back in a headset with `vr_start_test_fail_session=1`:
+    the log has the line of the fall back, and the session starts on the
+    frame thread.
 - **B22. The glow at the Hand's point with one walk: check it in a
   headset.** In one walk the mod draws the glow for each eye by itself, and
   the right eye has it at the eye difference of the Hand's point
@@ -284,39 +276,41 @@ is built, and no test has proven it.
     read with one walk. Ctrl, Shift and the right square bracket key
     (`test_keys=1`) give the right eye the card by the rule of each other
     batch for a comparison.
-- **B24. After a cut scene the controllers do nothing until a press.** In a
-  headset session the controllers were not active at the end of a cut
-  scene. A press of a grip or of a trigger made them active again. The
-  cause is not known.
-- **B25. The video after the drowning boy is not one picture for the two
-  eyes.** At the start of a new game the game plays a video (the birth of
-  the god). It looks right while the head looks straight at it. With the
-  head turned, the edges of the video do not lie on each other in the two
-  eyes. Wanted: the video plays on the screen of the cut scene window,
-  about 2 m in front of the player.
-- **B26. The tutorial after its first step.** The aim: a player can play the
-  whole tutorial in VR, also where the words of the game do not fit the
-  controllers. The first step is shown in a desktop run: the walk to the
-  village with the teleport and with the stick (`god-view.md`, section 14.9).
-  No run and no headset session has the later steps: the way to the Temple,
-  the three lessons of the camera, the guide at the mountain. `god-view.md`,
-  section 7, "The interface levels", has the camera controls that the game
-  allows in each step. Wanted: a headset session through the whole tutorial,
-  and a correction for each step that stops the player.
-- **B27. The walk with the stick is not smooth over some parts of the
-  land.** In a headset session the motion was jagged and it jittered over
-  some parts of the map. The cause is not known. A guess: the height of the
-  land under the head changes in steps.
-- **B28. Light shows between a bar and the cut scene window.** The black
-  bars over and under the cut scene window are a little too narrow: a
-  column of light pixels shows between the bar at the left and the window.
-  A guess: the bar and the window have different depths, so their edges do
-  not meet in each eye.
-- **B29. The advisors and the cut scene window.** In a cut scene the mod
-  draws the advisors over the window and outside it at times, and their
-  depth is the depth of the inside of the window. Wanted: the cut scene
-  plays inside the window, and the advisors have a depth between the
-  player and the window.
+- **B24. After a cut scene the controllers do nothing until a press.** The
+  headset turns off a controller that the player holds still in a long cut
+  scene, and a press of a button turns it on again (`controllers.md`,
+  section 6, "A controller that is still turns off"). The mod cannot turn a
+  controller on. Still open: check in a headset whether a still controller
+  stays on when the setting of the headset that switches between the
+  controllers and the hands is off.
+- **B26. The tutorial: the steps that no run and no session has.** Each step
+  of the tutorial waits for an input that a VR player can give with the
+  controls of the mod (`god-view.md`, section 7, "The steps of the
+  tutorial"). A desktop run and the log of a session in the headset show the
+  tutorial of Land 1 from the walk to the village to the texts after the zoom
+  lesson. Still open:
+  - The end of the build of the Temple, the missionaries and the lessons of
+    Land 2 (the gestures, the shield, the fireball) have no run and no
+    session.
+  - The lessons of the Gods' Playground after the step of the turn have no
+    run. A desktop run shows the first walk of the Island Keeper and the step
+    of the turn only with `script_view=0`. With `script_view=1` the Keeper did
+    not start his walk, also when an eye picture showed him in the view
+    (`god-view.md`, section 7). Find out if the view test of the head is
+    too narrow, or if only the fixed head of the run is at fault.
+  - The game tells the player to press F2 for the Gods' Playground, and no
+    page of the ring has the item `playground` by default.
+- **B27. The walk with the stick is not smooth in the headset.** The walk
+  itself is even: each frame moves the view at the speed of the push, and no
+  limit, hill or switch stops it on some frames (`god-view.md`, section 5.7,
+  "An even walk"). The likely cause is the frame rate: about 97 frames each
+  second on a display of 120 Hz with Space Warp off, about one refresh in
+  five has no new frame. The headset then shows the frame before again, so a
+  move of the view stops for a refresh and jumps. Wanted: a headset session with a walk. The line of the end of
+  each walk counts the frames that came more than one refresh late. Compare
+  a walk at 120 Hz with a walk at 90 Hz in Virtual Desktop, or with Space
+  Warp on. If the walk is even at 90 Hz, the fault is the frame rate, and
+  this item goes to the performance work.
 - **B30. The gift of an object to the Creature: check it in a headset.**
   An object in the Hand that the player lets go at the Creature is a gift,
   with the leash on and with no leash. The gift goes on while the hand is at
@@ -349,23 +343,14 @@ is built, and no test has proven it.
   To decide: a halo or a line of the card that shows which objects the
   grip takes, a longer range of the grab while the leash is on, or no
   change.
-- **B32. In a fight of Creatures, the grip on a Creature does not block or
-  attach.** In the Creature tutorial, the words of the game and the hint
-  tell the player to press the action button (the grip) on the other
-  Creature or on the player's own Creature, to block or to attach. In a
-  headset session that did nothing. A grip together with the trigger
-  (perhaps in the other order) did work. Not known: what the game needs for
-  that press in a fight (which button, which click, which place of the
-  Hand), and what the mod sends for a grip on a Creature in a fight. The
-  rules of the mod for a grip on the Creature (the leash click, the stay,
-  `creature.md`, section 5) can take that press.
-- **B33. The marks on the other Creature in a fight have no depth.** In a
-  fight, a click on the other Creature puts glowing stars on it, at the
-  place that the player's Creature must hit. In a headset session they
-  showed over each other thing, and not on the body of the Creature: they
-  looked as if they had no depth. Not known: how the game draws them (a
-  sprite or a flat batch of the interface), and whether one walk or the
-  interface chain of the mod gives them the wrong depth in the eyes.
+- **B32. A fight of Creatures: test the grip and the marks in the
+  headset.** The grip with the Hand at a Creature is the attack or the
+  block of the game, at the place of the body that is nearest to the Hand
+  (`fight_grip=1`). The marks of the fight are at their place on the body
+  (`fight_mark_depth=1`). No desktop run reaches a fight, so only the math
+  checks and the code show it (`creature.md`, section 6). To see in the
+  headset: the attack and the block act at the first grip, and the stars
+  sit on the body in both eyes.
 
 B1b, B2, B4 and B11 are one package: a thing that is held, thrown, or
 that moves while the Hand takes it.
@@ -425,9 +410,15 @@ that moves while the Hand takes it.
   - the grip on the Creature from 4 to 15 cm: the leash click, and the start
     of the Creature state with the hand that far from the body.
 
-  The far grab is still off while the Hand's point is 10 cm or less from a
-  tree or a house (`grab.md`, "Near objects win"). So the aim has no target
-  there, the Creature too.
+  A tree, a building or a pile at the Hand (`far_grab_beside_loose=1`,
+  `grab.md`, "Near objects win"): one that the Hand's point is not in does
+  not turn the far grab off, and it gives way to a far target. The math
+  checks and desktop runs at the Village Store show the rule. Check in a
+  headset:
+  - the aim past a tree, a house or a pile with the hand beside it, at the
+    Creature too,
+  - a tree, a house or a pile is still easy to take or to tap: with the
+    Hand's point in it, or with the aim on no far target.
 - **P2. The stay of the Creature: test it in the headset.** A grip from a
   distance that stays closed on the Creature makes it stop and stay until
   the grip opens. A short grip changes the leash when it opens
@@ -487,6 +478,10 @@ that moves while the Hand takes it.
   - The comfort of the walk, with the head as the direction and with the
     controller as the direction. Shift and the Menu key of the keyboard
     change `move_stick` from 1 to 2, to 0 and back.
+  - The comfort of the follow of the land (`move_stick_follow_land=1`, the
+    launcher row "Walk follows the land"): whether the view goes up and down
+    calmly on the hills, and whether the land stays near enough to the hands
+    on a steep slope. The filter is 50 cm of the walk behind the land.
   - The top speed of 150 cm of the room for each second
     (`move_stick_speed_cm`), near the land and far out, and the dead zone of
     the stick.
@@ -496,9 +491,9 @@ that moves while the Hand takes it.
     keep that button for its own menu (`controllers.md`, section 6), and
     with `button_layout=1` no other button opens the game menu.
 
-  Not run: a small push of the stick, a hill at the new place of the head,
-  the edge of the map, a push with the switch for the drag off, an Index
-  controller, and a controller with no face buttons.
+  Not run: a small push of the stick, the edge of the map, a push with the
+  switch for the drag off, an Index controller, and a controller with no
+  face buttons.
 - **P14. The stream of a take at a distance: check it in a headset.** In a
   take at a distance the pieces of wood or grain go on a curve from the top
   of the source to the Hand (`take_stream`, `grab.md`, "The stream of a take
@@ -551,18 +546,11 @@ that moves while the Hand takes it.
   - The interface in the eye pictures (the Creature panel, a tooltip): with a
     margin it is larger and farther from the middle. Not known: whether that
     needs a correction.
-- **P17. A cut scene with no window.** An option for a player who is at
-  ease with a camera that moves: a cut scene plays around the player, with
-  the camera of the game at its place and with all its motion, and with no
-  cut scene window. The cut scene window stays the default
-  (`cutscene-window.md`).
-- **P18. The left hand option of the game.** The game has an option for a
-  left hand. Wanted: the mod reads that option, and with it the left
-  controller is the Hand: the player points, takes and throws with the left
-  hand, and each job of the right controller and of the left controller
-  changes sides (the sticks, the buttons, the hints). Not known: where the
-  game keeps the option, and what the mod does with it now. The mod has the
-  key `controller_hand` for the hand that points.
+- **P17. A cut scene with no window: check it in a headset.** The launcher
+  row "Cut scenes", "Around you" (`cutscene_immersive=1`) plays a cut scene
+  around the player, with no window and with the camera of the game and all
+  its motion (`script_camera=0`). The window stays the default. No run has
+  shown it: a desktop run has no head to feel the motion.
 - **P5. Hand tracking.** The player plays with the hands and no
   controllers: the Hand follows the real hand and its fingers, one to one,
   as it follows a controller. First find what the headset gives to the
@@ -571,9 +559,6 @@ that moves while the Hand takes it.
   choose a gesture for each control: the grip, the trigger, the stick, and
   A, B, X and Y. The rules of the Hand stay: the real hand, one to one, and
   no motion that the player did not make.
-- **P6. Hints that count successes.** An option behind the hint setting:
-  with all hints on, each hint shows always. With a different setting, a
-  hint goes away after the player did its action a few times.
 - **P7. A view for videos.** A 16:9 view in the game window with the cards
   and the subtitles in it and a smoothed head, for a capture on the PC.
 - **P8. Pictures in the hints.** A flat picture of each button, then a
@@ -674,6 +659,17 @@ that moves while the Hand takes it.
     Not run: a headset session, and the check of the triangles in the Temple,
     in a story, in a fight of Creatures and with the effect of a miracle
     (`draw_merge_test=1` in the ini for one session).
+  - **The cost of the lock of the Direct3D 9 device.** A device for two
+    threads takes a lock on each call. A sampling profile of the frame
+    thread had 3.8 percent of its samples in critical sections (`backend.md`,
+    "The clock of the game and the hooks of dxwrapper"). The device of
+    dxwrapper is a device for two threads in each case: the log has the
+    behavior flags 0x84 with `test_keys` 0 and 1, so the request of the mod
+    (`test_keys=1` or `frame_send=2`) changes nothing, and `bench_run.ps1`
+    gives the same numbers for both values. To do: find whether dxwrapper
+    calls the device from a second thread. If it does not, a test that takes
+    `D3DCREATE_MULTITHREADED` off at the creation of the device when
+    `frame_send` is not 2, and a benchmark of it.
   - **A render thread for the Direct3D calls.** The Direct3D draw calls are
     3.3 to 4.8 ms of a frame in scenes 1 to 5, and the game makes 3200 to 5400
     state calls in a frame. A thread that gets a record of these calls and
@@ -782,7 +778,12 @@ that moves while the Hand takes it.
     0.4 ms at the most. The gain for the GPU is not measured. The game turn
     off the render thread: a game turn is 0.4 ms in one frame of six, which
     is 0.05 to 0.11 ms as a mean. So the mean does not change. It can only
-    take the turns of 4.5 to 9.5 ms out of the frame.
+    take the turns of 4.5 to 9.5 ms out of the frame. A cache that drops a
+    state call for the value that the state has: the game makes no such
+    call, because it keeps the values itself (`backend.md`, "Draw calls with
+    one state"). With one walk, each of its 1580 to 2610 state calls in a
+    frame changes a value. The texture filter of the mod adds about 4 calls
+    in a frame.
 - **N2. The hands that react.** The part for bodies that the hand passes
   is built and off (`hand_feel_bodies`): no picture proves it. Not shown: a
   tree taken with the palm to the side. The idle wave is off
@@ -831,8 +832,6 @@ that moves while the Hand takes it.
   villager lives (`throw.md`).
 - **N15. The interface panel** (`ui_panel=1`). No run, on the desktop or in
   a headset (`ui-layer.md`).
-- **N16. A PC with no DirectX 9 runtime.** No test has run the mod on a PC
-  that never had the DirectX 9 runtime installed.
 - **N17. Only one headset.** No person has run the mod with a headset or a
   runtime other than a Quest 3 through Virtual Desktop.
 
@@ -863,20 +862,14 @@ that moves while the Hand takes it.
 - **R5. A file of names of the project.** When contributors start to name
   functions that the symbol file does not have, put those names in
   `bwvr/ghidra/name-corrections.txt` (the tools read it).
-- **R6. Look at REA again from 2026-10-15.** REA (`github.com/morluto/rea`,
-  the npm package `rea-agents`) is an MCP server that gives an agent the
-  pseudocode, the strings and the references of a binary through Ghidra.
-  At version 6.0.0 it does not fit: on Windows it is experimental and read
-  only, and each session imports the exe into a new temporary project, so
-  it has none of the names that `bwvr/tools/re.ps1` gives. It fits when it
-  can open a project that is there, or take a symbol file, on Windows.
 - **R7. The word `aimfar` chooses a different object in the test save
   `pen`.** The head is 1 cm from its place in a new game, and some objects
-  are at the least distance of the word. So `aim_queue.ps1 -Runs
-  ring1,ring0` and `throw_queue.ps1 -Runs treeset,treelean` show their proof
-  only with `-NewGame` (`bwvr/tools/desk/README.md`, "Known limits of the
-  recipes"). Give these recipes an aim that does not depend on the least
-  distance, or the start of a new game by default.
+  are at the least distance of the word. So `throw_queue.ps1 -Runs
+  treeset,treelean,treeleft,treeright` shows its proof only with `-NewGame`
+  (`bwvr/tools/desk/README.md`, "Known limits of the recipes"). Give these
+  recipes an aim that does not depend on the least distance, as `aim_queue.ps1
+  -Runs ring1,ring0` has with the word `aimturn`, or the start of a new game
+  by default.
 - **R8. The wait for the lock of a run can stop a caller.** `desk_run.ps1`
   reads the age of the lock after a failed open. When the other run removes
   the lock between those two lines, PowerShell gives the error "Cannot find

@@ -33,6 +33,7 @@ Other docs: `software-tnl.md` (the CPU transform and the camera matrix),
 | --- | --- |
 | `src/proxy/ddraw_proxy.cpp` | The `ddraw.dll` stub. Loads the backend named by `backend` |
 | `src/mod/mod_main.cpp` | Settings (`ReadSettings`), hook installation, the log, the shutdown |
+| `src/mod/vr_start.cpp` | The tries to start the headset session on a thread of the mod, and the frame watch of the tries (`vr_start`) |
 | `src/mod/gpu_bridge.cpp` | Shared textures, Direct3D 9 to Direct3D 11 copy, depth format hook |
 | `src/mod/frame_send.cpp` | The way of the eye pictures to the headset: when the mod waits for the GPU, and on which thread (`frame_send`) |
 | `src/mod/draw_merge.cpp` | One draw call for a row of draw calls of the game with one state (`draw_merge`) |
@@ -49,7 +50,7 @@ Other docs: `software-tnl.md` (the CPU transform and the camera matrix),
 | `src/mod/script_camera.cpp` | The camera of the story |
 | `src/mod/draw_hooks.cpp` | Hints, tooltips, subtitles, interface depth and size |
 | `src/mod/eye_clean.cpp` | The frame before of each eye: the clean of each eye pass, and the keeps of the eye pictures |
-| `src/mod/bubble_card.cpp` | A speech bubble of the game as one card at the depth of its sign |
+| `src/mod/bubble_card.cpp` | A speech bubble of the game as one card at the depth of its sign, and the name of a villager as one card at the depth of the villager |
 | `src/mod/sky_detail.cpp`, `water_mode.cpp` | Clouds, sun glare, detail distance, the sea |
 | `src/mod/spirit_anchor.cpp` | The advisors |
 | `src/mod/near_plane.cpp` | The near plane |
@@ -544,6 +545,185 @@ Turn it on with `gpu_bridge=1` and a capture frame in `bwvr-eye-frames.txt`. It
 writes `bwvr-shared-*.bmp` beside `bwvr-eye-*.bmp`. The two routes must give the
 same bytes.
 
+## The start of the headset session
+
+### The tries
+
+The session needs the device of the game, so the mod starts it on a frame
+(`StartVrOnce` in `mod_main.cpp`), not in `DllMain`. The first frame with a
+render target installs the hooks, and then the tries start. A runtime that
+is installed but has no headset gives `XR_ERROR_FORM_FACTOR_UNAVAILABLE` to
+`xrGetSystem`. The Virtual Desktop runtime does this until the headset
+connects. So the mod makes a try each 3 s for 2 minutes (40 tries), and the
+player can connect the headset after the start of the game. A full screen
+game makes no try (`vr_full_screen=0`), and a game with `vr=0` or
+`stereo_headless=1` makes none.
+
+A try has these parts (`XrScreen` in `src/vr/xr_screen.cpp`). The table
+gives the thread of each part with `vr_start=1`, the default:
+
+| Part | What it does | Thread | Why |
+| --- | --- | --- | --- |
+| `StartInstance` | `xrEnumerateInstanceExtensionProperties` and `xrCreateInstance`. The loader loads the DLL of the runtime here | The thread of the tries | It needs no device. It can fail (no runtime, or a broken API layer: `XR_ERROR_FILE_ACCESS_ERROR`) or wait for the runtime |
+| `StartSystem`, `LogSystem` | `xrGetSystem`, and the name and the size of the headset | The thread of the tries | With no headset it can only fail |
+| `StartSession` | The device of the session on the adapter of the runtime (Direct3D 11, or Vulkan with `xr_vulkan=1` and `backend=vulkan`), `xrCreateSession`, the spaces, the controllers and the swapchains | The frame thread | It runs one time, only when the runtime has a headset. The frame thread uses the session from the next frame on, and `GpuBridgeStart` opens the shared textures of the game on its device at once, on the frame thread |
+| `Stop` after a try with no headset | `xrDestroyInstance`. The loader unloads the DLL of the runtime here | The thread of the tries | It can wait for the runtime |
+
+OpenXR lets each call come from any thread, when two threads do not use one
+handle at one time. The thread of the tries gives the screen to the frame
+thread when it finds the headset. After that only the frame thread uses the
+screen.
+
+The instance names the graphics API of the session. So the thread of the
+tries makes its screen with the choices of the frame thread
+(`VrStartOptions`): a session with Vulkan (`xr_vulkan=1`, and each
+`backend=vulkan`), with no Direct3D 11 device (`vulkan_only=1`, "Only
+Vulkan"), and eye tracking for foveated rendering. The frame thread gives
+`xr_vulkan_upload` and `xr_hold_ms` before `StartSession`. With
+`backend=vulkan` and no session after 3 tries, the renderer draws with a
+device of its own, as with the tries on the frame thread.
+
+### One instance for all tries
+
+The spec of `xrGetSystem` lets a runtime give `XR_SUCCESS` to a later call
+on the same instance after `XR_ERROR_FORM_FACTOR_UNAVAILABLE`, for example
+when the headset connects. The Virtual Desktop runtime (`VirtualDesktopXR`)
+tries to open the headset again in each call of `xrGetSystem`. The loader
+gives `xrGetSystem` to the runtime with no change. The loader allows one
+instance at a time (a second one gets `XR_ERROR_LIMIT_REACHED`), and it
+unloads the DLL of the runtime in `xrDestroyInstance`.
+
+So with `vr_start=1` the thread makes one instance, and each try calls
+`xrGetSystem` on it again. The DLL of the runtime loads one time and unloads
+one time, at the end of the tries. A different fault than
+`XR_ERROR_FORM_FACTOR_UNAVAILABLE` ends the instance, and the next try makes
+a new one. `vr_start=2` makes a new instance for each try on the thread, for
+a runtime that finds the headset only on a new instance. `vr_start=0` makes
+each try on the frame thread with a new instance.
+
+### A call that does not come back
+
+With `vr_start=0` the frame thread waits for each call of a try, so a call
+into the runtime that does not come back stops the game. In a try with no
+headset, the calls after the line "Connect the headset in Virtual Desktop,
+then start the game." are those of `XrScreen::Stop`, and for a screen with
+no session that is only `xrDestroyInstance`.
+
+With `vr_start=1` and 2 the frame thread does not wait for the thread of the
+tries. Each frame it reads the state of that thread under a lock, and no
+thread holds the lock in a call into the runtime. When a call has run for
+10 s, the frame thread writes one line, and the game goes on, on the
+monitor. When the call comes back, the thread writes a line with its time.
+A call that holds the thread up uses up the time of the tries: no try starts
+later than 120 s after the first one.
+
+Known limit: a call that does not come back while it holds the loader lock
+of Windows (for example in the unload of the DLL of the runtime) can still
+stop a thread of the game that starts or ends later. No run has shown this.
+
+### The thread and the session
+
+When the thread finds the headset, it writes the name and the size of the
+headset to the log, and it gives the screen to the frame thread. In the next
+frame the frame thread starts the session. When the session runs, the thread
+does nothing more. It stays until the shutdown, because a runtime can keep a
+thing of its own on the thread that made the instance. At the shutdown,
+after the end of the session, the mod stops the thread and waits at most
+500 ms for it.
+
+THE FALL BACK. When the session part on the frame thread fails after the
+thread found the headset, the mod uses the tries of `vr_start=0` for the
+rest of the run (`FallBack` in `vr_start_math.h`):
+
+1. The frame thread writes the line "the start through the thread of the
+   tries failed at ..., so the mod starts the session on the frame thread as
+   before (vr_start=0)". The line names the part that failed: the size of
+   the render target, `StartSession` (the `openxr` line before it names the
+   call), or the test key `vr_start_test_fail_session`.
+2. The frame thread gives the screen back. The thread ends the instance and
+   its tries. The loader allows one instance at a time, so the frame thread
+   does not make a try until the thread has ended.
+3. The next try is the try of `vr_start=0`, and it writes its lines to the
+   log. The tries of the thread count, so the tries keep their 2 minutes,
+   and at least one try of `vr_start=0` comes.
+4. When that try fails too, the log says so ("the start on the frame thread
+   failed too"), and the tries go on to the end of the 2 minutes.
+
+No desktop run can show the fall back: with no headset the thread finds no
+system, and the session part does not run. The math checks prove the rule.
+
+### The frame watch
+
+While the tries run, the frame thread counts its frames and the time that
+it spends in the tries, for each value of `vr_start` (`vr_start.cpp`). It
+writes one line each 30 s (at most 8 lines), and one line at the end of the
+tries. The first window has the load of the land, a frame of about 1 s.
+
+With the Virtual Desktop runtime (version 1.0.10) and no headset, at a
+render of 3600 by 2880 and about 57 frames a second:
+
+| `vr_start` | The frame thread in one try | In 2 minutes of tries | The longest frame after the load |
+| --- | --- | --- | --- |
+| 0 | 55 to 56 ms: a frame of 73 ms each 3 s | 2182 ms | 73 ms |
+| 1 | at most 0.006 ms | 3.4 ms | 22 ms |
+| 2 | at most 0.004 ms | 3.7 ms | 22 ms |
+
+With `vr_start=1` and the test keys `vr_start_test_hang_try=2` and
+`vr_start_test_hang_ms=60000`, the thread holds try 2 for 60 s. In that time
+the game made 1730 frames in 30 s, with a mean frame of 17.35 ms and a
+longest frame of 21.79 ms. After the hold the tries go on until 120 s after
+the first try.
+
+### The keys and the log
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `vr_start` | 1 | 0: each try runs on the frame thread, with a new instance. 1: the tries run on a thread of the mod, with one instance for all tries. 2: the tries run on that thread, with a new instance for each try |
+| `vr_start_test_hang_try`, `vr_start_test_hang_ms` | 0, 0 | Test keys of the desktop runs. In try N the thread waits M ms before `xrGetSystem`, as a call into the runtime that does not come back |
+| `vr_start_test_fail_session` | 0 | A test key. 1: when the thread finds the headset, the session part fails one time before `StartSession`, and the fall back runs. With no headset it does nothing |
+
+The log of a run with no headset, `vr_start=1`:
+
+```
+  openxr: runtime "VirtualDesktopXR" version 1.0.10
+  openxr: no head mounted display (XR_ERROR_FORM_FACTOR_UNAVAILABLE)
+  Connect the headset in Virtual Desktop, then start the game.
+vr           : waiting for the headset, will keep trying for 120 seconds. The tries run on a thread of the mod, with one instance for all tries (vr_start=1)
+vr start     : 30.0 s of tries: 1728 frames, a mean frame of 17.37 ms, the longest frame 20.97 ms. The frame thread spent at most 0.003 ms of one frame in the tries (vr_start=1)
+vr           : no headset arrived, the game stays on the monitor
+vr start     : the tries are over, no session. In 120.1 s of tries: 6788 frames, a mean frame of 17.69 ms, the longest frame 1024.67 ms. The frame thread spent at most 0.006 ms of one frame and 3.4 ms in all in the tries (vr_start=1)
+```
+
+A call that does not come back (here the test wait):
+
+```
+vr start     : try 2: the test wait (vr_start_test_hang_ms) has run for 10.0 s and has not come back. The game goes on, and the frame thread does not wait for it
+vr start     : try 2: the test wait (vr_start_test_hang_ms) came back after 60.0 s
+```
+
+A shutdown while the tries run has the line `shutdown     : the thread of
+the tries to start the headset session, T ms`. The thread ends its instance
+in that time (51 ms in a run that ended by itself 60 s after the first
+try).
+
+When the headset comes in the 2 minutes, the line `vr start     : try N found
+the headset` comes after the lines of the headset, and then the lines of the
+session.
+
+### A desktop run with the tries
+
+The rig of the desktop runs sets `vr=0` and `stereo_headless=1`, so a run
+makes no try. With `-Set "vr=1;stereo_headless=0"` a run makes the tries
+with the runtime of the PC, and with no headset the game plays on the
+monitor:
+
+```powershell
+.\bwvr\tools\desk\spawn_run.ps1 -Name vs1 -Dll <build>\src\mod\Release\ddraw.dll -Save temple -Seconds 150 -Set "vr=1;stereo_headless=0;vr_start=1"
+.\bwvr\tools\desk\spawn_run.ps1 -Name vsh -Dll <build>\src\mod\Release\ddraw.dll -Save temple -Seconds 150 -Set "vr=1;stereo_headless=0;vr_start=1;vr_start_test_hang_try=2;vr_start_test_hang_ms=60000"
+```
+
+A desktop run cannot show a session that starts: only a headset can.
+
 ## The end of the mod
 
 ### How the game ends
@@ -621,9 +801,12 @@ The parts of the shutdown, in their order:
    and the detail distance of the game get their own values back.
 2. With a headset session: the reports, and then `XrScreen::Stop`. Each file
    that holds the screen lets it go first.
-3. `GpuBridgeShutdown`: the shared textures on the two devices, and the
+3. With `vr_start=1` and 2: the stop of the thread of the tries. It ends its
+   instance, and the shutdown waits at most 500 ms for it (see "The start of
+   the headset session").
+4. `GpuBridgeShutdown`: the shared textures on the two devices, and the
    references of the bridge to the device of the backend.
-4. `FrameSourceShutdown`.
+5. `FrameSourceShutdown`.
 
 The hooks stay until the process ends. A thread of the game can be in a hook,
 and `FinishFrame` calls the game's function directly after the shutdown.
@@ -1328,8 +1511,8 @@ dxwrapper" has how the mod uses it.
 The cost of a frame follows the count of the draw calls. The mod can give two
 draw calls that follow each other to Direct3D as one when the device has the
 same state at both. `profile=3` counts such rows of draw calls, the runs
-(`bench_run.ps1 -ProfileLevel 3`). The numbers of the six scenes, for both eye
-passes of a frame:
+(`bench_run.ps1 -ProfileLevel 3`). The numbers of the six scenes with two
+scene walks in a frame (`one_walk=0`), for both eye passes of a frame:
 
 | Scene | Draw calls | Runs | Fewer draw calls | Runs that start at a change of a texture only | Runs that start at a change of a render state or of a stage state | State calls of the game |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -1343,8 +1526,17 @@ passes of a frame:
 - Two runs gave the same counts, within 3 draw calls and 5 state calls.
 - Each draw call is a triangle list, so a merge needs only new index values.
 - Each state call of the game changes a value: the game makes no call that
-  sets a state to the value that it has. So a filter of such calls saves
-  nothing.
+  sets a state to the value that it has. The game keeps the value of each
+  render state and of each stage state, and it calls the device only for a
+  different value (`LH3DRender::SetRenderState` at `0x00412940`,
+  `LH3DRender::SetTextureStageState` at `0x0082B9C0`). With one walk
+  (`one_walk=1`, the default) the game makes 1580 to 2610 state calls in a
+  frame in the six scenes, and each of them changes a value. So a cache of
+  the states in the mod has no call to drop.
+- The texture filter (`texture_filter.cpp`) adds about 4 calls in a frame to
+  the calls of the game: the mip filter beside each min filter, and the
+  anisotropy beside each raised filter. In the six scenes the game sets a min
+  filter about 2 times in a frame.
 - A draw call takes 1.6 to 1.7 microseconds in Direct3D, so the draw calls
   that a merge can save are 1.3 to 1.9 ms of a frame in scenes 1 to 5. The
   merge of the mod gets 0.4 to 0.8 ms of that (see the next section). The
@@ -1633,6 +1825,7 @@ against a true right eye camera at three rolls.
 | A batch with no depth | Every rhw exactly 1 (screen space) or every z 1 (the sky): the copy moves by the eye width only |
 | The interface | `draw_hooks.cpp` runs its chain a second time with the right eye, and the batch goes to the right half only. A tooltip at the Hand has an anchor for each eye. `hand_glow.cpp` gives the right eye its Hand's point by the same rule |
 | A card or a mark of the mod | Its batch goes to the left half only, and then to the right half only, moved by the eye difference of its place. See "The cards and the marks of the mod" |
+| An advisor in the cut scene window (`cutscene_advisors=1`) | Its batch goes to the left half only, and then to the right half only, with the eye difference of its place in front of the screen. See `cutscene-window.md`, section 7 |
 | The pass ends | The game's target is bound again. The two halves go to the shared textures: with `frame_send=0` the first copy has no wait and the second has the wait for the GPU, and with `frame_send` 1 and 2 both are copies alone, and `frame_send.cpp` waits one time as for two eye passes |
 
 Direct3D 9 takes XYZRHW vertices as pixels of the whole target and clips them
@@ -1700,11 +1893,12 @@ frames of one mode.
 ### The cards and the marks of the mod
 
 The rule of a batch is right only when each vertex has the rhw of its place.
-Three things that the mod draws in an eye pass do not have it:
+Four things that the mod draws in an eye pass do not have it:
 
 | Thing | The rhw in its vertices | Its place |
 | --- | --- | --- |
 | A speech bubble as one card (`bubble_card.cpp`, `ui-layer.md`, section 18) | A corner of the box has the depth of the bubble: the depth of the sign less 5 units, and less again while the camera looks down. The text and the other flat batches have no depth | The pixels that the place function of the game makes from the pixel of the sign |
+| The name of a villager as one card (`bubble_card.cpp`, `ui-layer.md`, section 18) | A corner of the box has the depth of the box: the depth of the villager less 5 units, as for a bubble. The text has no depth | The pixels that `VillagerName::Add` makes from the pixel of the villager |
 | The glow at the Hand's point (`hand_glow.cpp`) | The point of the depth test: half a Hand's length nearer to the eye | The Hand's point |
 | A halo (`hand_glow.cpp`) | The point of the depth test: one radius of the body behind its middle | The middle of the body |
 
@@ -1722,7 +1916,9 @@ of the right eye. For a disc the depth is that of its middle. The Z value and
 the rhw of each vertex stay, so the depth test is the same in both eyes.
 `LH3DRender::DrawTriangle` changes the vertices that it gets, so the draw of
 the box for the right eye starts from a copy that the mod made before the
-first draw.
+first draw. The card of the name of a villager goes to the right eye by the
+same rule, with the depth of the villager in the place of the depth of the
+sign.
 
 With `one_walk_marks=0` the right eye gets these batches as each other
 batch. The text of a card is then at the same pixel in both eyes, and its box
@@ -1815,7 +2011,8 @@ The scene time of one walk holds the copies for the right eye, 0.29 to
 `one_walk_check=1`: on a frame that saves pictures, the right eye also gets
 its own walk, and its picture is saved as `walk2` beside the right eye of one
 walk. On such a frame the log has one line for a speech bubble in view
-(`bubble card`) and one for the glow at the Hand's point (`hand glow`). Each
+(`bubble card`), one for the name of a villager in view (`name card`), and
+one for the glow at the Hand's point (`hand glow`). Each
 line has the place of the thing in the right eye of its own walk and in the
 right eye of one walk.
 
@@ -4495,7 +4692,7 @@ in front. The mod reads the keys and never takes them from the game.
 | Ctrl Shift Period | `test_keys=1` | On the hint card, the lines of the walk with the stick and of A show only while they can move the player, or the card has no line for the walk and the line of A shows in each case. A long pulse and a short pulse (`prompt_moves`, `controller-hints.md`, 9.4) |
 | Ctrl Shift Numpad Slash | `test_keys=1` | The mod waits for the GPU after each eye pass, one time a frame, or one time a frame on a second thread that also gives the frame to the runtime. A long pulse, a pulse of middle length and a short pulse (`frame_send`, "One wait a frame, and a second thread"). The slash key with Shift and no Ctrl is a key of the Temple, and with no Shift it is a key of the throw |
 | Menu key | `test_keys=1` | One walk for both eyes on and off (see "One walk for both eyes"). The key beside the right Ctrl key that opens a context menu. Ctrl and Shift must be up |
-| Ctrl Shift Right bracket | `test_keys=1` | In one walk: a speech bubble as a card, the glow at the Hand's point and a halo are drawn for each eye by itself, or the right eye gets them as each other batch. A long pulse and a short pulse (`one_walk_marks`, "The cards and the marks of the mod"). The right square bracket key is two keys right of the P key on a US keyboard |
+| Ctrl Shift Right bracket | `test_keys=1` | In one walk: a speech bubble or the name of a villager as a card, the glow at the Hand's point and a halo are drawn for each eye by itself, or the right eye gets them as each other batch. A long pulse and a short pulse (`one_walk_marks`, "The cards and the marks of the mod"). The right square bracket key is two keys right of the P key on a US keyboard |
 | Ctrl Menu key | `test_keys=1` | The layout of the buttons of the hand that does not point. The menu button of the left controller opens the game menu, Y opens the ring and the stick does not drive the ring, or Y opens the game menu and X and the stick open the ring. A long pulse and a short pulse on that hand (`button_layout`, `controllers.md`, 5.1). Shift must be up |
 | Shift Menu key | `test_keys=1` | The walk with the stick of the hand that does not point steps from 1 to 2 to 0 and back: forward is the direction of the head, forward is the direction of that controller, or the stick does not move the player. A medium pulse, a long pulse and a short pulse (`move_stick`, `god-view.md`, section 5.7). Ctrl must be up |
 
@@ -4559,6 +4756,8 @@ keys that the launcher sets.
 | `vr`, `stereo` | 1, 1 | VR on, two eye passes. With `vr=0` the mod installs no hook but the answer to the check for an internet connection, and the bridge stays out |
 | `fov_margin_pct` | 0 | 0 to 30. The render goes that many percent past the view of the headset on each side. See "A margin around the view" |
 | `vr_full_screen` | 0 | 0: in a full screen game the mod does not start a headset session, and the game stays on the monitor. 1: it starts one |
+| `vr_start` | 1 | Where the tries to start the headset session run. 0: on the frame thread, with a new instance for each try. 1: on a thread of the mod, with one instance for all tries. 2: on that thread, with a new instance for each try. See "The start of the headset session" |
+| `vr_start_test_hang_try`, `vr_start_test_hang_ms`, `vr_start_test_fail_session` | 0, 0, 0 | Test keys. See the same section |
 | `play_mode` | 4 | See "Keys for v1.0" |
 | `screen_distance_cm`, `screen_width_cm` | 200, 260 | The quad in the window modes |
 | `eye_separation_milli` | 0 | 0 asks the headset |
@@ -4578,6 +4777,7 @@ keys that the launcher sets.
 | `turn_help_degrees`, `god_turn_keeps_focus`, `tilt_help_degrees` | 5, 1, 3 | See `god-view.md`, "The turn lesson" |
 | `zoom_step` | 2 | See "Zoom in steps" |
 | `move_stick`, `move_stick_speed_cm` | 1, 150 | The walk with the stick of the hand that does not point, in the God view. See `god-view.md`, section 5.7 |
+| `move_stick_follow_land` | 1 | 1: in the walk with the stick, the height of the view follows the land under the head. 0: the view keeps its height. See `god-view.md`, section 5.7 |
 | `button_layout` | 1 | The layout of the buttons of the hand that does not point. See `controllers.md`, 5.1 |
 | `drag_smoothing_ms` | 35 | See "Smoother drags far out" |
 | `script_camera` and its keys | 2 | See "The story camera" |
@@ -4594,6 +4794,7 @@ keys that the launcher sets.
 | `eye_clean` | 1 | 1: each eye pass of the scene starts from its own frame before. 0: the two eye passes share the render target. See `stereo-artifacts.md`, "The frame before of each eye" |
 | `eye_clean_test`, `eye_clean_test_frame` | 0, 0 | Test keys of the desktop runs. See the same section |
 | `bubble_card` | 1 | 1: a speech bubble of the game is one flat card at the depth of its sign. 0: it is drawn as the game and the interface depth make it in each eye pass. See `ui-layer.md`, section 18 |
+| `name_card` | 1 | 1: the name of a villager is one flat card at the depth of the villager. 0: it is drawn as the game and the interface depth make it in each eye pass. See `ui-layer.md`, section 18 |
 | `bubble_card_test`, `bubble_card_test_frame` | 0, 0 | Test keys of the desktop runs. See the same section |
 | `one_walk`, `one_walk_check` | 1, 0 | See "One walk for both eyes" |
 | `one_walk_merge` | 1 | 1: with the render thread, a batch whose two copies are in their own halves is one draw for both eyes. 0: one draw for each eye. See "One draw for both eyes" |
@@ -4654,6 +4855,7 @@ keys that the launcher sets.
 | `draw_probe`, `capture_every_seconds` | 0 | Reports and eye pictures |
 | `eye_test_luma` | 0 | A test key. 1: the log names each run of frames with one dark eye and each run of black frames. See "Testing without a headset" |
 | `land_light_eyes` | 1 | 1: the white light of a lightning on the land, and each other light on the land that comes one time in a frame, shows in both eyes. 0: it shows in the left eye only. See "The lights on the land in the second eye pass" |
+| `fight_mark_depth` | 1 | 1: the marks of a fight of Creatures are at their place on the body. 0: half way between the camera and their place, as the game puts them. See `creature.md`, "The marks at their depth" |
 | `land_light_test` | 0 | A test key. 1: the step of the atmosphere adds the light of a lightning at the place of the Hand, for 150 frames of each 500 frames |
 | `target_glow` | 1 | What marks a target of the Hand. 1: the glow on its mesh, and a halo only for a target whose mesh does not glow. 0: the halo. 2: the glow and the halo. See `hand-model.md`, "The glow on the mesh of a target" |
 | `target_glow_pct`, `target_glow_anim` | 45, 3 | The strength of that glow, 0 to 200 percent of the halo color. Its animation: 0 steady, 1 the pulse, 2 the band of light that goes up the mesh, 3 both |
@@ -4711,6 +4913,9 @@ section, so the uninstaller can put them back.
 
 - The end of the OpenXR session at the exit of the game (`XrScreen::Stop` on
   the exit path) has run in no headset session. See "The end of the mod".
+- A session that starts after a try on the thread of the tries
+  (`vr_start=1`), and the fall back to `vr_start=0`, have run in no headset
+  session. See "The start of the headset session".
 - A device lost after the bridge has started is not tested.
 - The worst frames of 31 to 52 ms have no explanation.
 - The clouds and the sun bob a little in the headset.

@@ -31,8 +31,16 @@ A VR headset with an OpenXR runtime that registers a 32 bit entry.
   for 64 bit only cannot serve it, and the headset stays dark.
   Virtual Desktop registers a 32 bit entry, and SteamVR does it from
   version 2.17. The launcher names the runtime that it found.
+  An OpenXR API layer for 32 bit programs that is broken (a tool that
+  was removed, or a layer with only a 64 bit file) can stop each
+  runtime. The log then has "xrCreateInstance failed
+  (XR_ERROR_FILE_ACCESS_ERROR". The free tool "OpenXR API Layers GUI"
+  shows such a layer, and you can turn it off there.
 
-Windows. The mod needs nothing else.
+Windows 10 or 11. The mod needs nothing else.
+  You do not need to install the DirectX End-User Runtime or a
+  Visual C++ runtime. Windows has the DirectX files that the game and
+  the mod use.
 
 
 HOW TO INSTALL
@@ -57,6 +65,10 @@ HOW TO START
 The launcher saves your settings, starts the game in the headset,
 and closes. "Play, new game" does the same and starts a new game.
 "Save Config" keeps your settings and does not start the game.
+
+If the headset is not connected when the game starts, the game plays
+on the monitor, and the mod looks for the headset for 2 minutes.
+Connect the headset in that time, and the game goes to the headset.
 
 A new game opens the start dialog of the game. You can play the
 tutorial of the game in VR, but it is made for the mouse and the
@@ -91,14 +103,18 @@ The launcher shows five groups.
                   the view, how sharp the textures are, and how far
                   out models keep their full detail.
 
-  View            The play mode and the intro in stereo. The default
-                  play mode is the God view (see below).
+  View            The play mode, the intro in stereo, and the cut
+                  scenes. The default play mode is the God view (see
+                  below). A cut scene plays on a screen in front of
+                  you. "Around you" plays it all around you, with the
+                  motion of the camera of the game.
 
   Moving around   Turns in steps, the zoom with the stick, the walk
                   with the left stick, and a blink when you jump or
                   turn.
 
-  Controllers     The glow at the Hand, and the grab of the world.
+  Controllers     The glow at the Hand, the grab of the world, and the
+                  lines of the hint cards.
 
   Testing         One box, which turns on keys for tests. The box
                   is off, and a player does not need it.
@@ -122,8 +138,10 @@ The God view is the default play mode. The land is at your waist, so
 your hands can reach it. It works with motion controllers and with
 the mouse.
 
-The view does not go up or down with the hills. Zoom out to see more
-of the island. Zoom in until the world is life size. A cut scene of
+When you move with the left stick, the view goes up and down
+smoothly with the hills, so the land stays below your hands. When you
+do not move, the view stays where it is. Zoom out to see more of the
+island. Zoom in until the world is life size. A cut scene of
 the game plays on a screen in front of you, and the God view comes
 back after it. When you load a saved game, the God view starts again
 at the place of that game.
@@ -200,6 +218,13 @@ the teleport go together. They work from the first step of the
 tutorial, when the villagers ask you to follow them. Set
 teleport_switch=0 in bwvr.ini to keep the teleport off until the
 tutorial turns on the double click jump of the game.
+
+The lessons of the camera count the moves of the God view. A turn
+with the right stick is the turn of the lesson, a look of your head
+up and down is the tilt, and a zoom with the right stick is the zoom.
+The lessons of the Gods' Playground count them the same way. Set
+script_camera_moves=0 in bwvr.ini if a lesson must see only the
+buttons of the mouse.
 
 Ctrl F11 turns the God view off and on. Off gives the immersive
 view, which is for tests only.
@@ -288,6 +313,13 @@ or press last is the one that points.
 The right hand points. The Hand is where your hand is, and it has the
 size of your hand.
 
+To play with the left hand, set the left handed option in the options
+of the game, or set "Hand" in the launcher (key left_hand). Then the
+left controller is the Hand, and the controls below change sides: the
+left trigger, grip, stick, X and Y do the jobs of the right trigger,
+grip, stick, A and B. The right controller does the jobs of the left
+controller. The left menu button opens the game menu with each hand.
+
   Trigger             The left mouse button: drag the land, and click
                       on things.
   Trigger, leash on   Point at an object or at the land and press the
@@ -348,13 +380,20 @@ launcher (key grab_hand). 1 uses the grip of your other hand. 2 also
 uses the grip of the pointing hand when the Hand is empty and not
 over an object. 0 turns the grab off.
 
-To change the walk with the left stick, set "Move with the left
+To change the walk with the left stick, set "Move with the other
 stick" in the launcher (key move_stick). 1 moves you where your head
 faces. 2 moves you where the left controller points. 0 turns the walk
 off. A full push moves you 150 cm of your room each second, at each
 zoom (key move_stick_speed_cm in bwvr.ini). The stick does not move
 you while a grip holds the land, in a menu, in a cut scene and in the
 Temple.
+
+While you move with the left stick, the height of your view follows
+the land under your head. A long hill moves the view up or down, and
+a small bump does not. The height that you set with the left grip
+stays your height above the land. To keep the view at one height, set
+"Walk follows the land" to Off in the launcher (key
+move_stick_follow_land=0).
 
 Set button_layout=0 in bwvr.ini for a different layout of the left
 controller: Y opens the game menu, X opens the ring, and the left
@@ -493,16 +532,29 @@ show while a step of the tutorial holds you in your place. Set
 prompt_moves=0 in bwvr.ini for no line of the stick and a line of A
 in each case.
 
+A prompt that you know goes away. After you did its action 3 times
+(for example, 3 objects that the grip took), its line does not show.
+After 10 minutes of play without that action, the line comes back,
+and your next use takes it away again. In a lesson of the tutorial,
+each line shows. The hints of the game stay: its own help options
+control them. In the launcher, "Hints" is "Until learned" (the
+default) or "Always" (key hint_learn, 0 shows each line always). The
+counts are in the file bwvr-hint-counts.ini in the game folder. To
+show each line again, delete that file.
+
 With a tree in your Hand, the card says "Grip Plant" only when opening
 the grip plants the tree. If your Hand is more than 15 cm over the land,
 or the tree leans, or the land is not dry, it says "Lower to plant. Open
-to drop" (or a line for the other cause), and the tree falls. Set
-tree_plant_hint=0 in bwvr.ini for the text of the game. A tree that comes
-from a distance leaves its roots pile at the roots, on the land. Set
-far_roots_at_tree=0 to leave the pile where the game puts it. A tree that
-you drop or throw turns down fast when it lies on the land, so it comes to
-rest in about 1 s. Set throw_tree_settle=0 in bwvr.ini for the turn of the
-game.
+to drop" (or a line for the other cause), and the tree falls. A rock, a
+building, a villager or your Creature can be in the way of the tree.
+Then the card says "Object in the way. Open to drop". Set
+tree_plant_hint=0 in bwvr.ini for the text of the game, or
+tree_plant_bodies=0 for a card with no test of an object in the way. A
+tree that comes from a distance leaves its roots pile at the roots, on
+the land. Set far_roots_at_tree=0 to leave the pile where the game puts
+it. A tree that you drop or throw turns down fast when it lies on the
+land, so it comes to rest in about 1 s. Set throw_tree_settle=0 in
+bwvr.ini for the turn of the game.
 
 The game shows its hints, the amount that you take and the subtitles
 only when its own help options are on. If you see none of them, open
@@ -699,6 +751,13 @@ far_grab_near_out_cm in bwvr.ini to change the two distances. A signpost
 beside your Hand does not turn the far targets off: you can point past
 it at your Creature or at a different object.
 
+A tree, a building or a pile beside your Hand does not turn the far
+targets off either, when the tip of your index finger is not in it. You
+can point past it, and while you point at a far target, the grip acts
+on the far target. An object to hold, your Creature and a scroll near
+your Hand still turn the far targets off. Set far_grab_beside_loose=0
+in bwvr.ini for a tree, a building or a pile that turns them off too.
+
 
 HOLD, RELEASE AND THROW
 -----------------------
@@ -888,6 +947,15 @@ off when you do not want it to, set leash_shake_mps=1.0 in bwvr.ini.
 The default is 0.6, the speed of each move in meters a second. The
 value 0 turns the shake off.
 
+In a fight of Creatures, put your hand on a Creature and close the
+grip. On the other Creature this is an attack at the place of your
+hand. On your Creature it is a block at that place. Glowing stars show
+that place on the body. In a fight, the grip from a distance does not
+change the leash and does not make your Creature stay. Set
+fight_grip=0 in bwvr.ini to turn this off. Set fight_mark_depth=0 to
+show the stars as the plain game does: half way between your eyes and
+the Creature.
+
 
 HAPTICS
 -------
@@ -927,8 +995,9 @@ does not need them.
   Ctrl 5    The four rules of the aim of the trigger
             (creature_command_rule). One short pulse for each
             unit of the value.
-  Ctrl 7    The two rules for what a quest sees
-            (script_distance and script_view).
+  Ctrl 7    The three rules for what a quest sees
+            (script_distance, script_view and
+            script_camera_moves).
   Ctrl 8    The two ways to cast a miracle (miracle_hand).
   .         The rule "near objects win" and the pick of the Hand
             (far_grab_near_cm).
@@ -958,6 +1027,13 @@ If you do not see it, press F11, and it comes in front of you. The
 left menu button is Esc. The Hand does not follow your hands until
 the view is open again. To see cut scenes in the full view with held
 shots, set cutscene_window=0 in bwvr.ini.
+
+A video of a story, for example the birth of the god after the
+drowning boy, plays flat on the same screen (cutscene_video=1).
+
+The advisors are in front of the screen, between you and the scene
+(cutscene_advisors=1). To see them in the scene, set
+cutscene_advisors=0 in bwvr.ini.
 
 A story camera with no black bars can put a shot in an odd place.
 The game can also move the camera for you with no bars, for example
@@ -993,6 +1069,9 @@ before you start a quest. These faults are known:
     falls and is not planted.
   - The motion controllers are tested with a Quest 3 through
     Virtual Desktop only.
+  - The headset turns off a controller that stays still for some
+    seconds, for example while you watch a cut scene. The Hand then
+    does not move. Press a button on the controller to turn it on.
 
 Send bwvr.log and the bwvr-old files with each report. See SUPPORT.
 

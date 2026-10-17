@@ -7,7 +7,8 @@
 // way, no fire on the tree and a mesh that is at most 0.2 rad from upright
 // about x and z. Else the tree goes into the physics and falls. The mod adds
 // the height rule: a still hand that is higher than release_fall_cm over the
-// land lets the tree fall (throw.md, "The height of a release").
+// land lets the tree fall (throw.md, "The height of a release"). The test of a
+// body in the way is in tree_body_math.h: it gives kInTheWay.
 #pragma once
 
 #include <math.h>
@@ -23,7 +24,8 @@ enum Verdict {
   kLeans = 2,     // the tree leans more than kMaxLean: the game lets it fall
   kNoLand = 3,    // the land under the Hand is not dry land
   kBurning = 4,   // a tree on fire is not planted
-  kVerdictCount = 5
+  kInTheWay = 5,  // the release raises the tree over a body: it falls
+  kVerdictCount = 6
 };
 
 // height_m: the Hand's point over the land, in meters of the room. limit_m:
@@ -46,6 +48,7 @@ inline const wchar_t* VerdictText(int verdict) {
     case kLeans: return L"Hold upright to plant. Open to drop";
     case kNoLand: return L"Needs dry land. Open to drop";
     case kBurning: return L"On fire. Open to drop";
+    case kInTheWay: return L"Object in the way. Open to drop";
     default: return nullptr;
   }
 }

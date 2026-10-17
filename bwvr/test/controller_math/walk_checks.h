@@ -286,6 +286,57 @@ inline void WalkChecks() {
   Near("a hill that would be above the head goes 10 cm below it",
        head_y - (room[1] + (next.center[1] + 40.0f - cleared) / next.scale),
        0.10, 1e-4);
+
+  // THE LAND THAT THE VIEW FOLLOWS (FollowStep). Heights in world units, the
+  // way in meters of the room, 25 cm for each stage.
+  const float length = kFollowLength;
+  LandFollow follow;
+  FollowStart(30.0f, &follow);
+  Near("the start keeps the land where it is: a step over flat land moves "
+       "nothing", FollowStep(&follow, 30.0f, 0.02f, length), 0.0, 1e-6);
+  Near("a frame with no step moves nothing, also over a hill",
+       FollowStep(&follow, 80.0f, 0.0f, length), 0.0, 1e-6);
+  Near("and the hill of that frame is not kept", follow.stage[0], 30.0, 1e-5);
+  // One step of 10 cm onto land 10 units higher: the exact answer of two
+  // stages, 1 - e^-x (1 + x) with x = 0.4.
+  const float one = FollowStep(&follow, 40.0f, 0.10f, length);
+  const double x = 0.4;
+  Near("a step onto higher land starts slowly (two stages)", one,
+       10.0 * (1.0 - exp(-x) * (1.0 + x)), 1e-4);
+  LandFollow split;
+  FollowStart(30.0f, &split);
+  float sum = 0.0f;
+  for (int i = 0; i < 10; ++i) sum += FollowStep(&split, 40.0f, 0.01f, length);
+  Near("ten steps of 1 cm give what one step of 10 cm gives", sum, one, 1e-4);
+  // A long climb: the land rises 20 units for each meter of the room. After
+  // 3 m the view rises with the land, 0.2 units for each step of 1 cm, and
+  // it is 2 * 0.25 m of the climb behind it: 10 units.
+  LandFollow climb;
+  FollowStart(0.0f, &climb);
+  float rise = 0.0f, land = 0.0f;
+  for (int i = 0; i < 300; ++i) {
+    land += 0.2f;
+    rise = FollowStep(&climb, land, 0.01f, length);
+  }
+  Near("on a long hill the view rises with the land", rise, 0.2, 2e-3);
+  Near("and it is the way of two stages behind it", land - climb.stage[1],
+       20.0 * 2.0 * 0.25, 0.3);
+  // A bump: 20 units for 10 cm of the way, then the land of before. The
+  // view rises a little and comes back down: the bump does not shake it.
+  LandFollow bump;
+  FollowStart(0.0f, &bump);
+  float peak = 0.0f, at = 0.0f;
+  for (int i = 0; i < 100; ++i) {
+    const float under = (i >= 10 && i < 20) ? 20.0f : 0.0f;
+    at += FollowStep(&bump, under, 0.01f, length);
+    if (at > peak) peak = at;
+  }
+  Check(peak < 20.0f * 0.15f, "a bump of 10 cm moves the view less than 15 "
+        "percent of its height", peak, 20.0f * 0.15f);
+  Near("and 80 cm after the bump the view is near its height of before", at,
+       0.0, 20.0 * 0.05);
+  Near("a step with a height that is not a number moves nothing",
+       FollowStep(&bump, sqrtf(-1.0f), 0.01f, length), 0.0, 1e-6);
 }
 
 }  // namespace walk_checks

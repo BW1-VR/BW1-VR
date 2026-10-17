@@ -279,7 +279,8 @@ void TextureFilterReport() {
 
   static const char* kMin[] = {"?", "POINT", "LINEAR", "ANISOTROPIC",
                                "FLATCUBIC", "GAUSSIANCUBIC", "?", "?"};
-  static const char* kMip[] = {"NONE", "POINT", "LINEAR", "?",
+  // D3DTEXTUREMIPFILTER of Direct3D 7: NONE is 1, POINT 2 and LINEAR 3.
+  static const char* kMip[] = {"?", "NONE", "POINT", "LINEAR",
                                "?", "?", "?", "?"};
   ModLog("filtering    : what the game asked for");
   for (int i = 0; i < 8; ++i) {

@@ -41,6 +41,9 @@ All addresses are for `runblack.exe` v1.42, image base `0x00400000`.
 - A text of the game can wait for a click of the left button. The prompt of
   the game for that click shows on the card in each view, and the trigger is
   the click (section 10).
+- A line of a prompt that teaches an action goes away after the player did
+  the action 3 times, and comes back after 10 minutes of play with no use of
+  it. In a lesson of the tutorial each line shows (`hint_learn`, 9.10).
 - Not built: glyph pictures of the buttons, a picture of the controller with
   the button lit, and the runtime's 3D model (section 5).
 
@@ -580,6 +583,14 @@ names.
   hint (`HELP_TEXT_NEW_INTERFACE_04`) and the six hints for a look at the sky
   (`HELP_TEXT_INTERFACE_LOOK_AT_SKY_01` to `_06`). The voice of the spirits
   still says the game's own words.
+- The Island Keeper of the Gods' Playground names the mouse at the two steps
+  that wait for a hold of the mouse. The step of the turn
+  (`HELP_TEXT_TUTORIAL_LAND_30`, "Move the Hand to the left of the screen.")
+  gets "Push the stick left or right to turn.", and the step of the zoom
+  (`HELP_TEXT_TUTORIAL_LAND_80`, "Hold down the Action and Move Buttons on the
+  mouse.") gets "Push the stick forward or back to zoom." A snap turn and a
+  zoom of the stick end these steps (`script_camera_moves`, `god-view.md`,
+  section 16.6).
 - The Escape lines (`TUTORIAL_LAND_09`, `_10`, `_40`, `_106`,
   `CITADEL_GUIDE_13`) and "Action Button" stay. The menu button has no job
   there.
@@ -782,6 +793,9 @@ has a dwell, a hold time and a count (`kRules` in `hint_card.cpp`):
    the same card takes the place of the prompt, and that does not count as a
    show.
 
+With `hint_learn=1` a line also goes away when the player knows its action,
+in each context and each session (9.10).
+
 **One text for one action.** The hint of the game for the button of a target
 comes some frames after the target. With `hint_words` 1, 2 or 3 (3 is the
 default) the prompt of a target owns its button for as long as the target is
@@ -923,6 +937,8 @@ the help options of the game, so a player with "No ToolTips" sees them too.
 | `hint_words` | 3 | 1 the prompt of a target owns its button and a hint of the game with no words does not show. 2 is 1, and the prompt of a take also keeps the grip from the close of the grip until the Hand holds the object. 3 is 2, and the prompt of a fetch keeps the grip from the end of the far target until the Hand holds the object, and a hint of the game that a prompt owned does not show for 0.25 s after the prompt went. 0 the hint of the game takes the place of the prompt, as it comes (9.4) |
 | `text_click` | 1 | 1 shows the prompt of a text that waits for a click in each view, and makes the trigger that click. 0 gives that prompt the rule of each other hint of the left button (section 10) |
 | `prompt_moves` | 1 | 1 the prompt of the land has the line of the walk with the stick while a push moves the player, and the line of A shows only while a press of A can move the player. 0 no line for the walk, and the line of A shows in each case (9.4) |
+| `hint_learn` | 1 | 1 a line of a prompt that teaches an action goes away after the player did the action 3 times, and comes back after 10 minutes of play with no use of it. Each line shows in a lesson of the tutorial. 0 each line shows always, and the mod counts nothing (9.10). The launcher row "Hints": "Until learned" is 1, "Always" is 0 |
+| `hint_counts_test_file` | empty | Test key. The full path of the file of the counts. Empty is `bwvr-hint-counts.ini` beside `bwvr.ini` (9.10) |
 
 `hint_card.cpp` reads the keys itself, at the first frame. With `test_keys=1`
 and `ui_panel=0`, Ctrl Shift F11 switches between the card and the hints in the
@@ -933,7 +949,8 @@ The pointing controller gives one short pulse for each unit of the value:
 three pulses for 3, two for 2 and one for 1. It gives one long pulse for 0.
 Ctrl and Shift with the period key switch `prompt_moves` between 1 (a long
 pulse) and 0 (a short pulse). The word `promptkey` of the scripted controller
-does the same in a desktop run.
+does the same in a desktop run. `hint_learn` has no test key: the launcher
+row "Hints" sets it.
 
 ### 9.6 The log
 
@@ -968,6 +985,23 @@ does the same in a desktop run.
 - `hint card : the hint "[Trigger] Move" of the game does not show: the trigger
   does not move the land here. The grip of the other hand moves it`: one time
   for each of the two false hints (9.9).
+- `hint card : hint_learn=1, a line that teaches an action goes away after the
+  player did the action 3 times, and comes back after 600 s of play with no
+  use of it. ... The counts are in <path>: 1234 s of play, take 3, collect 0,
+  ...` once. With `hint_learn=0` one line says that the mod counts nothing.
+- `hint card : frame N, the camera controls of the game are 0x48. A lesson of
+  the tutorial runs, so each line of the cards shows, whatever its count`: at
+  the first frame and at each change (9.10).
+- `hint card : frame N, the player did the action "fetch": the Hand holds the
+  object of the far target. It worked 3 times now, so its line goes away. It
+  comes back after 600 s of play with no use of it`: one line for each use.
+- `hint card : frame N, the line "[Grip] Pull to fetch" does not show: the
+  player did its action "fetch" 3 times, the last 4 s of play ago`, and `...
+  shows again: the player did not use its action for a long time` (or `a
+  lesson of the tutorial runs`): one line when the line of an action goes, and
+  one when it comes back. These lines and the two above are 200 lines at most.
+- `hint card : the mod cannot write the counts of the lines to <path> (error
+  N)`: once, and the mod then writes no more.
 - On a capture frame: the line above, a line with the whole pose (the turn, the
   wrist, the finger tips, the grip, the head and the two extents), and two
   pictures for each card beside the eye pictures:
@@ -982,6 +1016,8 @@ does the same in a desktop run.
   the frames with no target in which the prompt of the take kept the grip. It
   also has the fetches in work, the frames in which the prompt of the fetch
   kept the grip, and the hints that did not show after their prompt went.
+  With `hint_learn=1` a line gives the frames on which a line that the player
+  knows did not show, whether a lesson runs, the play clock and the counts.
   `ui depth : N tooltip calls went to the hint card and
   did not draw in an eye picture`. `XrScreen` counts the quad layers of each
   card.
@@ -1027,6 +1063,9 @@ The desktop runs to make: the card with the hints of the game (`help_test=1`)
 and the card with the prompts only (`prompts=2`). The pictures of the cards are
 sharp at 40 pixels a cm.
 
+The lines that the player knows (9.10) have their own math test
+(`learn_checks.h`) and desktop runs of their own (9.10, "Tests").
+
 **Needs the headset.**
 
 - The quad layers themselves: the swapchain of each card, its alpha over the
@@ -1045,6 +1084,8 @@ sharp at 40 pixels a cm.
 - The lines of the moves (`prompt_moves`): whether the left card with four
   lines is easy to read, and whether "Stick Move" and "A Teleport" teach the
   two ways to move at the start of the tutorial.
+- Whether 3 uses and 10 minutes of play are right for a new player, and
+  whether a player misses a line that went away (`hint_learn`, 9.10).
 
 ### 9.9 Two cards and true hints
 
@@ -1060,7 +1101,7 @@ prompt "Continue" is known by its node in the HelpSystem, not by its words
 | "Focus Creature" over the land with the leash on | Right, code 2 | False. It is the tooltip of the leash (`0xEA2`): a press sends the Creature to that place. `creature_command.cpp` leaves that packet out for the grip, and the trigger sends the Creature. | Does not show over the land (hand mode 3) while the leash is on. The prompt shows "Trigger Send the Creature". |
 | "Continue", while a text waits for a click | Left, code 1 | True in each view: the trigger is the left button, and the game takes that click at each place of the pointer (section 10) | Shows as the first line, "Trigger Continue". No prompt of the mod for the trigger takes its place. With `text_click=0` it has the rule of "Move" |
 | "Pick Up", "Plant", "Catch", "Throw", "Activate", "Reminder" | Right, code 2 | True: the grip does the work of the right button | Shows |
-| "Plant" with a tree in the Hand | Right, code 2 | The text is the same for each release, so it is not always true: a hand higher than `release_fall_cm`, a tree that leans more than 0.2 rad, no dry land or a tree on fire lets the tree fall | The card keeps "Plant" when the opening plants the tree. Else it says "Lower to plant. Open to drop" or a line for the other cause (`tree_plant_hint`, `grab.md`, "A tree in the Hand") |
+| "Plant" with a tree in the Hand | Right, code 2 | The text is the same for each release, so it is not always true: a hand higher than `release_fall_cm`, a tree that leans more than 0.2 rad, no dry land, a tree on fire or a body in the way lets the tree fall | The card keeps "Plant" when the opening plants the tree. Else it says "Lower to plant. Open to drop" or a line for the other cause, for example "Object in the way. Open to drop" (`tree_plant_hint`, `tree_plant_bodies`, `grab.md`, "A tree in the Hand") |
 | "Interact" on the Creature | Right, code 2 | True. The grip is the control that touches the Creature. | Shows. The prompt of the mod says "Grip Stroke or slap". |
 | "Zoom Out" | The wheel, code `0x10` | True: the stick zooms | Shows |
 | "Temple Health: 100%", "Amount: 128" | None | True | Shows |
@@ -1105,6 +1146,118 @@ and with `prompts=2` each one shows always.
 
 The subtitles and the help text have a card of their own, fixed in the room:
 `ui-layer.md`, section 17.
+
+### 9.10 The lines that the player knows
+
+Code: `src/mod/hint_learn_math.h` (the count, the time to come back, the
+lesson, the take and the drop), `LearnFrame` and `LearnFilter` in
+`src/mod/hint_card.cpp`, and the calls of `HintCardLearnDone`.
+
+With `hint_learn=1` (the default, the launcher row "Hints", "Until learned"),
+a line of a prompt that teaches an action goes away when the player knows the
+action:
+
+1. The mod counts each use of the action that worked (the table below).
+2. After 3 uses the line does not show.
+3. When the player does not use the action for 10 minutes of play, the line
+   shows again. The next use takes it away again.
+4. While a lesson of the tutorial runs, each line shows, whatever its count.
+   The counts still go up.
+
+With `hint_learn=0` ("Always") each line shows as the rules of 9.4 give it.
+The mod then counts nothing and writes no file.
+
+| Action, in the file | The lines | A use that worked | Where the mod sees it |
+| --- | --- | --- | --- |
+| `take` | Grip "Take" | The grip closes while the Hand is on an object to take, and the Hand holds an object less than 1 s later, with the grip still closed | `TakeStep`, from the facts of the Hand |
+| `collect` | Grip "Hold to collect", at the Hand and at a distance | At the Hand: as for `take`, on a pile, a field or a fish farm. At a distance: the game takes from the bulk source | `TakeStep`, and the Take state in `far_grab.cpp` |
+| `fetch` | Grip "Pull to fetch" | The Hand holds the object of the far target | `far_grab.cpp` |
+| `drop` | Grip "Open to drop" | The Hand held an object (not a miracle), and then it holds nothing with the grip open | `DropStep` |
+| `world` | Grip "Move the land", in the God view and on the table | From the press to the release, a grab moved the land 5 cm or more in the room, turned it 3 degrees or more, or changed its scale by 3 percent or more | `Release` in `world_grab.cpp` |
+| `walk` | Stick "Move" | A walk with the stick went 10 cm or more in the room | `StopWalk` in `tabletop.cpp` |
+| `teleport` | A "Teleport", A "Release to go" | The teleport moved the player | `Commit` in `teleport.cpp` |
+| `ring` | "Ring menu" | The ring opened | `RadialMenuOpen` |
+| `send` | Trigger "Send the Creature", Trigger "Release to send" | The game sent the Creature to an object or to a place | `creature_command.cpp` |
+
+The other lines always show: the hints of the game (the "Help Options" of the
+game control them), the lines of a miracle, of the Village and of the Temple,
+the lines of the leash and of the stay, "Activate" at a scroll, "Stroke or
+slap", "Select" in a dialog box, "Game menu" (it shows only the first time in
+a session), "Jump" with `teleport=0`, the lines of a forest, and "Trigger Move
+the land" in the old immersive view.
+
+**The button stays owned.** A line that the player knows still owns its
+button for a target (9.4, "One text for one action"). So the hint of the game
+for that button ("Pick Up") does not take its place, and the card has no line
+for the grip at that target. A card with no line does not show.
+
+**The lesson.** `CameraHelp::EnabledFeatures` `0x009CDD6C` holds the camera
+controls that a script lets the player use. A script of the tutorial sets an
+interface level for each step, and level 0 (0x1BF) at its end (`god-view.md`,
+"The interface levels"). The mod reads the value once a frame, and each value
+other than 0x1BF is a lesson: the walk to the village (0x48), the way to the
+Temple (0x18), the lessons of the turn, the tilt and the zoom (0x1A, 0x1B,
+0x3F), and a scene of a quest with no camera controls (0). In the test saves
+`pen` and `temple` the value is 0x1BF [M].
+
+**The play clock** counts the seconds in which the hints go to the cards: a
+controller points in the game. A long frame counts as 0.25 s. The 10 minutes
+are on this clock, so a session of tomorrow does not bring back each line.
+
+**The file** is `bwvr-hint-counts.ini` in the game folder, beside `bwvr.ini`.
+It is never in the profile of the player and never in the registry:
+
+```
+[hint_counts]
+play_seconds=1234
+take=3,1200
+fetch=5,1180
+```
+
+Each value is the count and the play clock at the last use. The mod reads the
+file at the first frame. It writes the whole file again when a count changed
+or the play clock is 60 s past the file, at most once in 10 s: first to
+`bwvr-hint-counts.ini.new`, then in its place. To show each line again, the
+player deletes the file. The uninstaller deletes it. A desktop run sets
+`hint_counts_test_file` to a file in the folder of the run (`desk_test.ps1`)
+and deletes that file before the run. So each run starts with no counts, and
+no run writes the file of the game folder.
+
+**The default.** "Until learned" is the default, because the line that a new
+player needs most, the grip on an object, still shows long enough. It shows
+at each object until the grip took 3 of them, and the walk to the village and
+each camera lesson of the tutorial show each line. When the player does not
+take an object for 10 minutes of play, the line comes back.
+
+**Tests.** The math test (`learn_checks.h`): the count and the time to come
+back, the rule of a line in a lesson and with `hint_learn=0`, the lessons of
+each interface level, the play clock, the take (and the cases that are no
+take), the drop, a start of the ring, the grab, the walk, and the values of
+the file. The desktop runs:
+
+- Six takes at the store of Land 1, in the test save `pen`:
+  `hand_run.ps1 -Kind one -Set "seek_plan=hold,hold,hold,hold,hold,hold;near_test_flips=4610;hint_learn=1"`.
+  Each seek goes to the nearest object that the Hand can hold, and the flip
+  at 4610 gives `near_rule=2` before the first seek. The card has "Grip Take"
+  for the first three takes, and no line for the grip at the next three. The
+  hints of the game and the lines of the Village stay. With `hint_learn=0`
+  the card has the line at each take.
+- A file of the counts with each count at 5 (`hint_counts_test_file`). In the
+  test save `pen` (0x1BF) the far target has no line "Grip Pull to fetch". In
+  the walk to the village of a new game (`spawn_run.ps1 -Choice normal`, 0x48)
+  "Grip Pull to fetch", "A Teleport" and the four lines of the other card
+  show. That run needs a press of the trigger for each text of the story that
+  waits for a click: at 47 frames a second the fourth one comes at frame 10224.
+- `verify_build.ps1`: the fetch, the drop and the teleport of the run `aim2`
+  count, and the file of the counts is in the folder of the run.
+
+A far fetch of the rock at the pen does not repeat in a run: after the first
+fetch the word `aimfar` finds no target inside the influence. So a run cannot
+show three fetches there.
+
+Not shown by a run: the collect, the grab of the land, the walk, the ring,
+the commands of the Creature, and a line that comes back after 10 minutes of
+play. The math test has the rules for them.
 
 ## 10. A text that waits for a click
 

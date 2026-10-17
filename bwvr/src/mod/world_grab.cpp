@@ -46,6 +46,8 @@
 
 #include "controller_math.h"
 #include "controllers.h"
+#include "hint_card.h"
+#include "hint_learn_math.h"
 #include "tabletop.h"
 
 extern void ModLog(const char* format, ...);
@@ -158,6 +160,9 @@ float g_table_high = 40.0f;
 uint64_t g_table_serial = 0;
 table_math::TablePose g_table_written;
 bool g_have_table_written = false;
+// The table at the press of the grab, for the hint cards: a grab that moved
+// the land is a use of the grip that moves the land (hint_learn).
+table_math::TablePose g_table_at_press;
 
 // The watch after a release: 60 camera updates with no input must leave the
 // camera where the grab left it. Then, for a while, the next moves of the
@@ -417,6 +422,22 @@ bool Anchor(const GrabCamera& camera, const GrabInput& in, int mask,
 // The grab has ended. The camera stays where the grab left it, and the rest of
 // the smoothing is dropped.
 void Release(const char* why) {
+  if (g_holding && g_on_table && g_have_table_written &&
+      g_table_at_press.scale > 0.0f) {
+    // In the God view one hand also moves the land up and down (center y).
+    const float moved[3] = {
+        g_table_written.center[0] - g_table_at_press.center[0],
+        g_table_written.center[1] - g_table_at_press.center[1],
+        g_table_written.center[2] - g_table_at_press.center[2]};
+    if (hint_learn_math::GrabMovedLand(
+            controller_math::Length(moved) / g_table_at_press.scale,
+            table_math::Wrap(g_table_written.heading -
+                             g_table_at_press.heading) * 57.29578f,
+            g_table_written.scale / g_table_at_press.scale)) {
+      HintCardLearnDone(hint_learn_math::kSkillWorld,
+                        "the grip moved the land");
+    }
+  }
   if (g_holding && g_on_table && LogRoom()) {
     ModLog("grab         : released the table (%s) after %llu frames, frame "
            "%llu. The table stays: center %.3f %.3f, heading %.3f degrees, "
@@ -858,6 +879,7 @@ bool WorldGrabSolve(const GrabCamera& camera, GrabCamera* out) {
         g_holding = true;
         g_on_table = true;
         g_hold_frames = 0;
+        g_table_at_press = g_table_anchor.pose;
         g_watch = 0;
         g_after = 0;
       }

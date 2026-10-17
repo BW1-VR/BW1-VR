@@ -75,16 +75,19 @@ $defs = @{
     # then two zoom steps in (44.4), then five zoom steps out (337). Each
     # aim logs the radius of the ring. ring1 has the size rule of the world
     # (the default), ring0 has the fixed size of the room. The zoom steps
-    # keep the land under the head in its place (god_zoom_about=0).
+    # keep the land under the head in its place (god_zoom_about=0). After the
+    # fetch, the word aimturn sets the aim 60 degrees down and straight ahead
+    # (fake_controller_turns=0,-60,1), so each A aims at the land near the
+    # Hand. The aim does not depend on the object that aimfar takes.
     ring1 = @{
-        Set = "god_zoom_about=0;fake_controller_front=1;fake_controller_play_frame=2750;aim_test_touch=$from;teleport_ring_mode=1"
-        Steps = 'point@2990+1 aimfar@3000+1 grip@3060+90 pull@3100+3 pull@3170+3 point@3200+1 a@3215+30 shot@3230+1 stick_up@3260+10 stick_up@3290+10 point@3320+1 a@3340+30 shot@3355+1 stick_down@3390+10 stick_down@3420+10 stick_down@3450+10 stick_down@3480+10 stick_down@3510+10 point@3550+1 a@3570+30 shot@3585+1'
+        Set = "god_zoom_about=0;fake_controller_front=1;fake_controller_play_frame=2750;aim_test_touch=$from;teleport_ring_mode=1;fake_controller_turns=0,-60,1"
+        Steps = 'point@2990+1 aimfar@3000+1 grip@3060+90 pull@3100+3 pull@3170+3 point@3200+1 aimturn@3205+1 a@3215+30 shot@3230+1 stick_up@3260+10 stick_up@3290+10 point@3320+1 a@3340+30 shot@3355+1 stick_down@3390+10 stick_down@3420+10 stick_down@3450+10 stick_down@3480+10 stick_down@3510+10 point@3550+1 a@3570+30 shot@3585+1'
         Points = ''
         Seconds = 103
     }
     ring0 = @{
-        Set = "god_zoom_about=0;fake_controller_front=1;fake_controller_play_frame=2750;aim_test_touch=$from;teleport_ring_mode=0"
-        Steps = 'point@2990+1 aimfar@3000+1 grip@3060+90 pull@3100+3 pull@3170+3 point@3200+1 a@3215+30 shot@3230+1 stick_up@3260+10 stick_up@3290+10 point@3320+1 a@3340+30 shot@3355+1 stick_down@3390+10 stick_down@3420+10 stick_down@3450+10 stick_down@3480+10 stick_down@3510+10 point@3550+1 a@3570+30 shot@3585+1'
+        Set = "god_zoom_about=0;fake_controller_front=1;fake_controller_play_frame=2750;aim_test_touch=$from;teleport_ring_mode=0;fake_controller_turns=0,-60,1"
+        Steps = 'point@2990+1 aimfar@3000+1 grip@3060+90 pull@3100+3 pull@3170+3 point@3200+1 aimturn@3205+1 a@3215+30 shot@3230+1 stick_up@3260+10 stick_up@3290+10 point@3320+1 a@3340+30 shot@3355+1 stick_down@3390+10 stick_down@3420+10 stick_down@3450+10 stick_down@3480+10 stick_down@3510+10 point@3550+1 a@3570+30 shot@3585+1'
         Points = ''
         Seconds = 103
     }

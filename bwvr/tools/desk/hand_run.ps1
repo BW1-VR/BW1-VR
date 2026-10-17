@@ -99,6 +99,12 @@ if ($Kind -eq 'one') {
     $extra.fake_controller_points = "$first $s $s $s $s $s $s $s"
     $extra.seek_plan = 'air,air,scroll,scroll,crown,crown'
     $extra.near_test_flips = '5055,5190,5315,5440,5575'
+    # The head looks 25 degrees down. The places of the seeks are on the land
+    # low in a level view, and the view of a render of 3600 by 2880 ends 48.8
+    # degrees below its middle (55 degrees at 2208 by 2208). The controller
+    # code drops a press that starts off view, and the draw does not offer an
+    # object that the render does not show.
+    $extra.fake_head_pitch = -25
     $store = 'stick_right@4600+8 stick_right@4630+8 stick_right@4660+8 stick_right@4690+8 ' +
              'stick_down@4720+10 stick_down@4750+10 stick_down@4780+10 stick_down@4810+10 stick_down@4840+10 stick_down@4870+10'
     $Steps = $store + ' point@4900+1 ' +

@@ -709,7 +709,7 @@ game as it does for the draw button. See `miracles.md`.
 controller sends the Esc key of the game. With `button_layout=1` (the
 default, 5.1) it is the one button of the game menu. A Quest gives a program
 no menu button of the right controller, so a left handed player
-(`controller_left_handed=1`) has the same button, on the controller of the
+(the left controller is the Hand, `left_hand`) has the same button, on the controller of the
 pointing hand. An Index controller has no menu button that a program gets
 (2.3). There the first face button of the hand that does not point (A) sends
 Esc, because it has no other job. With `button_layout=0` the second face
@@ -852,7 +852,7 @@ The script is a list of `input@frame+frames`, separated by spaces. The input
 is a word from the table. `frame` is the frame at which it starts. `frames` is
 how many frames it lasts. The mod counts frames from the first frame of the
 controllers (one for each frame that draws the world). A word that does not
-parse is logged and skipped. The script has 64 words at most and 1023
+parse is logged and skipped. The script has 192 words at most and 4095
 characters at most.
 
 ```ini
@@ -862,6 +862,9 @@ fake_controller_script=trigger@300+60 pose2@330+1 trigger@500+4 trigger@512+4 st
 
 This holds the land and steps the hand while held, makes a double click 12
 frames apart (133 ms at 90 fps), turns once and zooms once.
+
+The words name the hands of a right handed player. When the left controller
+is the Hand, the words of the right hand drive the left controller (5.6).
 
 The words that hold a button (or the stick at full) for `frames` frames:
 
@@ -952,8 +955,9 @@ a test save, N is a frame after the Main Menu closed: the run scripts give
 
 ### 5.1 What each control does
 
-The pointing hand is the right hand. With `controller_left_handed=1` the
-hands change sides. The default mode is the God view (`god-view.md`).
+The pointing hand is the right hand. When the left controller is the Hand
+(5.6) the hands change sides. The default mode is the God view
+(`god-view.md`).
 
 **The pointing hand**
 
@@ -1025,7 +1029,7 @@ default. Each control has one job, and one button opens the game menu.
 | Key | Default | Meaning |
 | --- | --- | --- |
 | `controllers` | 1 | Use tracked controllers when the headset has them |
-| `controller_left_handed` | 0 | 1 points with the left hand |
+| `left_hand` | -1 | Which controller is the Hand (5.6). -1 follows the left handed option of the game, 0 the right controller, 1 the left controller. The launcher row "Hand" |
 | `controller_swap_buttons` | 0 | 1 makes the grip the left button and the trigger the right |
 | `controller_haptics` | 1 | Short pulses on presses and turns |
 | `controller_hand` | 1 | 1 puts the Hand at the controller (the direct hand). 0 keeps the pointer mode of section 3. Not in the launcher, and a save of the launcher removes the key |
@@ -1038,7 +1042,8 @@ default. Each control has one job, and one button opens the game menu.
 | `teleport` | 1 | 1: A makes the teleport. 0: A makes a jump |
 | `teleport_switch` | 1 | The switch of the game that the press of A keeps to. 1: the drag of the land, as the walk with the stick. 0: the double click jump (`god-view.md`, section 14.1). Not in the launcher |
 | `button_layout` | 1 | The layout of the buttons of the hand that does not point (5.1). 1: the menu button of the left controller opens the game menu, the second face button opens the ring, the first face button has no job, and the stick does not drive the ring. 0: the second face button opens the game menu, the first face button opens the ring, and the stick can drive the ring. The test key Ctrl and the Menu key goes between the two (`test_keys=1`). Not in the launcher |
-| `move_stick`, `move_stick_speed_cm` | 1, 150 | The walk with the stick of the hand that does not point, in the God view: 0 off, 1 along the direction of the head, 2 along the direction of the controller, and the speed of a full push in cm of the room for each second (`god-view.md`, section 5.7). The launcher row "Move with the left stick" |
+| `move_stick`, `move_stick_speed_cm` | 1, 150 | The walk with the stick of the hand that does not point, in the God view: 0 off, 1 along the direction of the head, 2 along the direction of the controller, and the speed of a full push in cm of the room for each second (`god-view.md`, section 5.7). The launcher row "Move with the other stick" |
+| `move_stick_follow_land` | 1 | In the walk with the stick, 1: the height of the view follows the land under the head through a smooth filter. 0: the view keeps its height (`god-view.md`, section 5.7). The launcher row "Walk follows the land" |
 | `miracle_cancel_ms` | 400 | The longest press of the second face button that takes a miracle out of the Hand |
 | `controller_hints` | 1 | 1 shows the controller words in the hints and the help text of the game while a controller owns the pointer. 0 leaves every hint as the game draws it (`controller-hints.md`) |
 | `text_click` | 1 | 1: while a text of the game waits for a click, its prompt shows on the hint card in each view, and a press of the trigger goes to the game as the left button: no Creature command, no seed, and with the Hand off the view too. 0: the prompt has the rule of each other hint of the left button, and the trigger keeps its other jobs (`controller-hints.md`, section 10) |
@@ -1079,7 +1084,7 @@ are in `god-view.md`, section 5.6.
 The main functions of `controllers.cpp`:
 
 ```cpp
-void ControllersSetOptions(bool on, bool left_handed, bool haptics,
+void ControllersSetOptions(bool on, int left_hand, bool haptics,
                            bool swap_buttons);
 void ControllersSetFake(const FakeControllerSettings& fake);
 void ControllersSetScreen(bwvr::XrScreen* screen);
@@ -1153,6 +1158,60 @@ live. Open the menu of Virtual Desktop while the trigger is held: the button
 must release. Close the menu with the trigger still down: no press may arrive
 until the trigger goes up and down again.
 
+### 5.6 The left hand
+
+**The option of the game.** The options screen of the game has a left
+handed option. The game keeps it in the profile of the player, as the value
+`HAND_ORIENTATION` (1 is the left hand). `PlayerProfile::GetProfileByName`
+reads it into `PlayerProfile::Profile+0x81C` (`0x00D4C554`, at
+`0x0066BC50`), and the options screen writes it there (`0x00514925`). The
+game uses it only for its Hand: `fn_0046E5F0` (from `GInterface::SetupHand`
+and `GPlayer::InitReal`) and the packet `0x64` call `CHand::ToggleLeftRight`
+(`0x0046C260`) until `CHand+0x484C` is 0 for a left hand and 1 for a right
+hand. The game does not swap the mouse buttons.
+
+**The key.** `left_hand` chooses which controller is the Hand. With -1 (the
+default) the option of the game chooses, so the player sets it in one place.
+0 makes the right controller the Hand, and 1 the left controller. The
+launcher row "Hand" has the three values.
+
+**The change of sides.** `UpdateHandSide` in `controllers.cpp` reads the
+option once a frame, at the start of `ControllersFrame`. When the side
+changes, the change waits until each button of the two controllers is up: the
+trigger and the grip below 35 percent, and no face button, menu button or
+stick click down. So no press and no grab of the world goes to the wrong
+hand. Then `PointingIndex()` gives the new Hand, and each job of the two
+controllers changes sides: the trigger and the grip of the game, the
+teleport, the draw button, the zoom and the turn of the stick, the grab of
+the world, the walk with the stick, the ring and the hint cards (5.1). The
+menu button of the left controller sends Esc with either hand (3.6). The log
+gives one line for each change, for example "the left controller is the
+Hand, and the right controller is the other hand (left_hand=1, the game's
+option 0)".
+
+**The Hand of the game.** The mod makes the game's Hand the hand of the
+controller that is the Hand. When `CHand+0x484C` does not fit, it calls
+`CHand::ToggleLeftRight`, as the game does for its option, and logs "the
+game's Hand is a left hand now". With `hand_hide_game=1` (the default) the
+overlay draws both hands, and the hand model on the left controller is a
+left hand (`hand-model.md`).
+
+**The scripted controller.** The words of the script name the hands of a
+right handed player. When the left controller is the Hand, the words of the
+right hand (`trigger`, `grip`, `a`, `b`, `menu`, the `stick_` words,
+`point`, `seek`, `rot`, the aim words) drive the left controller, and the
+words of the left hand (`ltrigger`, `lgrip`, `x`, `y`, `lmenu`, the
+`lstick_` words, `lpoint`) drive the right controller. The pointing hand
+keeps the turns of the script. On the left controller it also turns by the
+difference of the aim rays of the two hands, so its ray points where the ray
+of the right hand points. The base pose of each hand is on the side of its
+controller. So each recipe runs with the left hand as it runs with the right
+hand.
+
+Only a headset shows: the left hand with a real controller, the hand model
+and the game's Hand on the left controller, and the menu button of the left
+controller as the button of the pointing hand.
+
 ## 6. Risks and known limits
 
 - **Focus.** The game reads the both button mode only when `GetFocus()` is its
@@ -1178,6 +1237,17 @@ until the trigger goes up and down again.
   click for that profile.
 - **Virtual Desktop's own buttons.** It can keep the left menu button for its
   own menu.
+- **A controller that is still turns off.** In a cut scene the player has
+  nothing to do with the controllers and holds them still. After some seconds
+  the headset stops to track a still controller ("the aim pose is not
+  tracked" in the log), and a few seconds after that it turns the controller
+  off: the runtime gives the hand no interaction profile ("right hand profile
+  "none""). A press of a button turns the controller on again. The same
+  occurs in play to a controller that the player puts down. The mod cannot
+  turn a controller on. It gives the pointer and the Hand back to the
+  controller in the frame that the runtime gives a tracked pose again, so in
+  the log "the aim pose is tracked again" and "the controller places the
+  Hand" have the same frame.
 
 ## 7. Open questions
 
@@ -1365,7 +1435,7 @@ Only a headset shows:
    Quest menu, compare the two rays, and go through the presets with Numpad 5.
    If the rays still differ, Numpad 8, 2, 4 and 6 change the trim.
 3. That the same values fit the left hand as the pointing hand
-   (`controller_left_handed=1`).
+   (`left_hand=1`).
 4. That the halo, the arc and the green halo show where the hand points, at a
    far object, at the land with A, and with the leash on at an object.
 
@@ -1566,7 +1636,7 @@ frame) and `radial_menu_math.h` (the items, the pick, the ring step by step).
 ### 10.1 What the player does
 
 The ring belongs to the hand that does not point: the left hand, or the right
-hand with `controller_left_handed=1`. It has two ways, and each one needs only
+hand when the left controller is the Hand (5.6). It has two ways, and each one needs only
 that hand. The layout of the buttons (`button_layout`, 5.1) chooses the
 button, and whether the stick drives the ring.
 
@@ -1805,11 +1875,12 @@ lstick_up@1260+40 y@1330+30` and the left points `-16,-24,42 -20,-30,35`):
 - With `button_layout=0`: X opens the ring, and the release in the middle
   closes it. The stick opens the ring and picks `town`, and the trigger
   chooses it. Y sends Esc, and so does the left menu button. No walk starts.
-- With `controller_left_handed=1` and `button_layout=1` (the words `a`,
-  `stick_up`, `b` with two steps of `point`, and `lmenu`): A of the right
-  hand has no job, the right stick moves the player, B opens the ring at
-  the right hand and the step of that hand picks `creature`, and the left
-  menu button sends Esc.
+- With `left_hand=1` and `button_layout=1`: A of the right hand has no
+  job, the right stick moves the player, B opens the ring at the right
+  hand, and the menu button of the left controller sends Esc. The scripted
+  controller gives the words of the right hand to the left controller (5.6),
+  so the words of this recipe are `x`, `lstick_up`, `y` with two steps of
+  `lpoint`, and `menu`.
 - In the Temple (`temple_run.ps1 -Rooms "room_challenge@3500" -Steps
   "x@3360+20 lstick_up@3400+40 lmenu@5300+6"`): Y with a step of the hand
   chooses `enter` on the land and `room_challenge` in the hall. In the hall X

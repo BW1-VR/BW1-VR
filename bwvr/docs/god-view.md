@@ -52,8 +52,10 @@ sets the flags of each mode.
   release.
 - **The walk with the stick.** The stick of the hand that does not point
   moves the player over the land while it is pushed, along the direction of
-  the head or of the controller (`move_stick`). It stops when the stick comes
-  back (section 5.7).
+  the head or of the controller (`move_stick`). The height of the view
+  follows the land under the head through a smooth filter
+  (`move_stick_follow_land`). It stops when the stick comes back (section
+  5.7).
 - **The Hand** is always the real hand (`hand_real_cm`, 19 cm) at the scale
   now. Zoomed out, it is large against the villagers.
 - **The game camera** stays over the player's place at 400 units, for the
@@ -423,8 +425,8 @@ because the trigger is held back. `controller_swap_buttons` exchanges the
 trigger and the grip of the pointing hand.
 
 `khr/simple_controller` has no squeeze, so there the other hand's select (its
-trigger) grabs. A left handed player (`controller_left_handed=1`) has the
-mirror: the left hand points and the right hand grabs.
+trigger) grabs. A left handed player (`left_hand`, `controllers.md`, 5.6)
+has the mirror: the left hand points and the right hand grabs.
 
 | Profile | Grip source |
 | --- | --- |
@@ -616,10 +618,14 @@ headset this line shows the tracking noise times the gain.
 The stick of the hand that does not point (the left stick, by default) moves
 the player over the land while it is pushed. The move is the pan of a grab of
 the world (5.1): the waist point goes to the land that was one step from it
-in the room, and the height of the ground, the heading and the scale stay.
+in the room, and the heading and the scale stay. With
+`move_stick_follow_land=1` the height of the view follows the land under the
+head (see "The land under the head" below). With 0 the height of the ground
+stays too.
 
 ```
 G' = G + s * Lt * (step.x, 0, step.z)      step = speed * the time of the frame
+G'.y = G.y + (F' - F)                      F = the filtered land under the head
 ```
 
 The plain game has a move of its camera over the land by the keys. Its code
@@ -664,11 +670,43 @@ event.
   moves the view one time (`ApplyGodWalk`). A frame with no request moves
   nothing, so the walk stops in the frame in which the stick comes back.
   There is no glide and no ease.
-- **A hill at the new place.** The view does not rise and fall with the land.
-  When the land at the new place of the head is nearer than 10 cm below the
-  head, all of the land goes down to that limit (`ZoomClearHead`), as in a
-  zoom that moves the head over the land. The land does not come up again by
-  itself.
+- **The land under the head** (`move_stick_follow_land`, 1). While the
+  player walks, the height of the view follows the land under the head, so
+  the land stays at the same height below the hands. The land height under
+  the head at the new place goes through two stages of a first order filter
+  (`FollowStep` in `walk_math.h`), and the view goes up or down by the change
+  of its output. The filter counts the way of the head in the room, not the
+  time:
+  - A frame with no step changes nothing. So the view does not move while the
+    stick is let go, and it does not drift after the walk.
+  - Each stage has a length of 25 cm of the room (0.17 s at a full push), so
+    the view is about 50 cm of the walk behind the land. A swell of the land
+    with a wavelength of 40 cm of the room moves the view by 6 percent of its
+    height, one of 1 m by 29 percent, and a hill of 3 m by 78 percent. So a
+    long hill moves the view, and a small bump does not shake it. The second
+    stage starts from rest, so the view does not start to rise with a jolt.
+  - The stages take the exact answer of the filter for each step, so the
+    heights do not change with the frame rate.
+  - The height that the player set (the ground step, the grab, a zoom) is
+    the height above the land. The filter keeps its state from one walk to
+    the next, so a climb in short pushes follows the land as a long push
+    does. When something else moved the view since the last frame of a walk
+    (a teleport, a grab, a zoom, a ground step, a new build), the filter
+    starts again at the land under the head, and the land keeps the height
+    below the head that it has then.
+  - The teleport puts the land under the head at the same height in the room
+    as before the teleport (section 14.4), with each value of the key. So
+    after a teleport the land is at the height below the hands that the
+    player has.
+  - With `move_stick_follow_land=0` the view keeps its height in the world.
+    The launcher row "Walk follows the land" sets the key.
+- **A hill at the new place.** When the land at the new place of the head is
+  nearer than 10 cm below the head, all of the land goes down to that limit
+  (`ZoomClearHead`), as in a zoom that moves the head over the land. The
+  land does not come up again by itself. With the follow of the land, only a
+  short sharp hill that the filter does not follow comes that near. With
+  `move_stick_follow_land=0` the limit acts on each frame of a hill near the
+  head, so the view then goes up with each bump at once.
 - **The map and the game camera.** The waist point stays on the map, as for a
   grab. The version of the view goes up on each frame that moves, so the game
   camera follows the player (section 7).
@@ -696,9 +734,11 @@ event.
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| `move_stick` | 1 | 0: the stick does not move the player. 1: forward is the direction of the head. 2: forward is the direction in which the controller of the stick points. The launcher row "Move with the left stick" |
+| `move_stick` | 1 | 0: the stick does not move the player. 1: forward is the direction of the head. 2: forward is the direction in which the controller of the stick points. The launcher row "Move with the other stick" |
 | `move_stick_speed_cm` | 150 | The speed of a full push, in cm of the room for each second, 10 to 500 |
 | `god_display_time` | 1 | 1: the walk, the smooth zoom and the smoothing of the grips take the time of a frame from the display times of the headset. 0: from the time of the CPU |
+| `move_stick_follow_land` | 1 | 1: while the player walks, the height of the view follows the land under the head through the filter. 0: the view keeps its height. The launcher row "Walk follows the land" |
+| `move_stick_trace` | 0 | A test for a desktop run: the log has one line for each of the first N frames of each walk (at most 2000 lines in a game) |
 
 With `test_keys=1`, Shift and the Menu key of the keyboard change `move_stick`
 from 1 to 2, to 0 and back to 1 while the game runs. The Menu key is the key
@@ -712,14 +752,43 @@ The log has one line for the start of a walk, one for its end, and one for a
 check 30 frames later:
 
 ```
-god view     : the walk with the stick starts at 100.00 units per meter, with the land under your head at 1858.8 2528.7. Forward is the direction of your head (move_stick=1), and it is 30.0 degrees to the left of straight ahead in the room. A full push moves you 150 cm of the room each second (move_stick_speed_cm), frame 171.
-god view     : the walk with the stick stopped (the stick is back). You went 173.48 units over the land, which is 173.48 cm of the room, 30.0 degrees to the left of straight ahead in the room. The land under your head was at 1858.8 2528.7 and is at 2025.6 2576.6. The stick was pushed for 1.157 s, which gives 150.0 cm of the room each second, and the view moved on 60 of 60 frames (move_stick=1, 100.00 to 100.00 units per meter), frame 231.
-god view     : walk check, 30 frames after the stop the waist point is at 2025.56 2576.62, and it was at 2025.56 2576.62 at the stop: 0.000 units apart. In those frames the drawn head moved 0.00 cm of the room.
+god view     : the walk with the stick starts at 100.00 units per meter, with the land under your head at 1858.8 2528.7, 61.6 cm below your head. Forward is the direction of your head (move_stick=1), and it is 0.0 degrees to the right of straight ahead in the room. A full push moves you 150 cm of the room each second (move_stick_speed_cm). The height of the view follows the land under your head (move_stick_follow_land=1), frame 901.
+god view     : the walk with the stick stopped (the stick is back). You went 789.67 units over the land, which is 789.67 cm of the room, 0.0 degrees to the right of straight ahead in the room. The land under your head was at 1858.8 2528.7 and is at 2625.1 2338.0. The stick was pushed for 5.264 s, which gives 150.0 cm of the room each second, and the view moved on 300 of 300 frames (move_stick=1, 100.00 to 100.00 units per meter), frame 1201. The land under your head was 61.6 cm below your head and is 63.8 cm below it. The view went 118.7 cm up and 130.4 cm down with the land (move_stick_follow_land=1). A frame took 16.2 to 27.4 ms, and a step was 2.43 to 4.11 cm of the room.
+god view     : walk check, 30 frames after the stop the waist point is at 2625.12 2338.04, and it was at 2625.12 2338.04 at the stop: 0.000 units apart. In those frames the drawn head moved 0.00 cm of the room.
 controllers  : the stick of the other hand does not move you: a grip holds the world, frame 1081
 ```
 
 The line of the end also says how far the land went down for a hill, and on
-how many frames the controller had no direction. The report of a window has
+how many frames the controller had no direction. The shortest and the
+longest frame and step show whether the walk was even: at a steady push each
+step is the speed times the time of its frame. In the headset the line also
+counts the frames of the headset that came more than one refresh after the
+frame before (see "An even walk" below):
+
+```
+Of N frames of the headset, M came more than one refresh of 8.3 ms after the frame before, and the headset showed the frame before again for them.
+```
+
+With `move_stick_trace=N` the log also has one line for each of the first N
+frames of each walk:
+
+```
+god view     : walk trace, frame 61 of the walk: 18.05 ms, a step of 2.707 cm of the room, the waist point at 2023.553 42.130 2487.737, the land under your head at 49.517 (filtered 40.547) and 52.61 cm below your head, frame 961
+```
+
+**An even walk.** The step of each frame is the speed times the real time
+of that frame, so the walk is even in the time of the game: each frame
+moves the view at the speed of the push, and no limit, hill or switch of
+the game stops it on some frames (section 12 has the run). In the headset
+the walk can still look uneven. At about 97 frames each second on a display
+of 120 Hz with Space Warp off, about one refresh in five has no new frame.
+The headset then shows the frame before again, and with no Space Warp it
+corrects only the turn of the head. So a move of the view stops for one
+refresh and jumps at the next. A turn of the head hides this, but a walk
+shows it on all of the land, and more where the frame rate is lower. A frame
+rate at the refresh rate of the headset (for example 90 Hz in Virtual
+Desktop), or Space Warp, gives an even walk. The count in the line of the
+end shows how many frames came late. The report of a window has
 the count of the walks, their time and the frames that moved the view.
 
 ## 6. The Hand
@@ -859,13 +928,17 @@ The levels 2 (bit 8), 3 and 6 (bit 2), 5 (0x24) and 7 (0x26) are in the code
 of the game, and no script uses them. Level 9 is an error. The levels 1, 2
 and 10 also call `fn_004473F0` `0x004473F0`, which turns on bit 0x40 and
 writes `CameraHelp::AutoPitchParam1` and `AutoPitchParam2`: the automatic
-pitch of the game camera. So the log has 0x48 for level 1.
+pitch of the game camera. So the log has 0x48 for level 1. The scripts of the
+source file `LandControlT.txt` (`MoveAroundMountain`, `MoveUpAndDownMountain`)
+are the lessons of the Island Keeper in the Gods' Playground, and not a step
+of Land 1 ("The steps of the tutorial", below).
 
 **The walk to the village** [V: `challenge.chl`, the script `FollowUs`, source
 file `followus.txt`]. At the start of a new game the first story ends with
 level 1, and the villagers ask the player to follow them. Each game turn the
 script measures the distance on the map from "camera position" to the end of
-the path (`EndMarker`) and to the father. The step ends when the first
+the path (`EndMarker`) and to the father. `EndMarker` is the focus of camera
+219 of `Data\camera.edt`, at 1633.7 2308.0. The step ends when the first
 distance is less than 50 units. The script counts no event of the help for
 this step. A distance from "camera position" is the distance from the player
 (section 16), so the player comes there with the grab, with the walk with the
@@ -954,6 +1027,123 @@ the event, up to 80 lines, and the report counts each event:
 comfort      : camera help event 0x304, inputs 0x08
 comfort      : camera help events: 0x300 x2, 0x302 x2, 0x304 x3, 0x308 x41, 6 others
 ```
+
+**The zoom lesson** [V: the disassembly and `challenge.chl`]. The script
+`TeachZoom` (source file `HandDemos.txt`) is the step "Now you try." after the
+demo of the zoom. In each game turn it ends the step when one of two tests is
+true:
+
+- The count of zoom events (event 29, which `CameraHelpCallback` makes of
+  0x304) is more than its count at the start of the step plus 15.
+- A marker at "camera position" is more than 100 units over the land. The
+  script reads property 24 of the marker. `GScript::GetProperty` `0x0070DAE0`
+  gives the thing + 0x1C for it, and `GScript::GetPosition` adds the same
+  value to the height of the land, so it is the height over the land.
+
+While the game camera is lower than 100 units over the land, its focus is 50
+units or more from the Temple, and the hand state is not 0x16 (section 16.6),
+the script puts the camera back and says "No, no. Try zooming." The third
+time it also plays the demo again. After 60 s with no end it says the line
+and plays the demo again.
+
+In the God view the step ends at the first zoom. After a move of the view,
+`GodAfter` puts the game camera 400 units from the land under the head, 50
+degrees above it: about 306 units over the land. So the height test is true
+in the next game turn. A walk, a grab and a teleport also end the step. A
+snap turn alone keeps the game camera at the place of the script
+(`god_turn_keeps_focus`), about 25 units over the land.
+
+**The steps of the tutorial.** The table has each step after the first story
+of a new game, the script and its level (the table above), what the script
+waits for, and what a VR player does in the God view. "Shown by" tells what
+showed the step: a desktop run [R], the log of a session in the headset [H],
+or the code only [C].
+
+| Step | Script, level | What the script waits for [V] | What a VR player does | Shown by |
+| --- | --- | --- | --- | --- |
+| Follow the villagers | `FollowUs`, 1 | The player less than 50 units from the end of the path | The walk with the stick, the grab or the teleport | [R], [H] |
+| Go to the Temple | `TunnelOfUltimateDoom`, 4 | The player less than 75 units from the Temple. A player 100 units or more away who does not look at the Temple for 2 s gets the camera at the Temple ("So this is our Temple.") | The same | [R], [H] |
+| Rotate | `TeachRotate`, 13 | More than 60 turn events (event 25). Each second, the player within 100 units of the Temple and the focus of the game camera within 25 units ("The turn lesson", above) | About eight snap turns (`turn_help_degrees`, `god_turn_keeps_focus`) | [R], [H] |
+| Look up and down | `TeachPitch`, 14 | More than 25 tilt events (event 28), and the player within 100 units of the Temple | Look down and up with the head (`tilt_help_degrees`) | [R], [H] |
+| Zoom | `TeachZoom`, 15 | More than 15 zoom events, or the game camera more than 100 units over the land ("The zoom lesson", above) | One zoom step, or the smooth zoom | [R], [H] |
+| The Temple | `FollowUs`, `GiveFood`, `CheckCitadel`, 0 | Texts that wait for a click. `GiveFood` is a demo of the Hand that waits for no input. Then the Temple is built (property 22 of the Temple is 1). A player 100 units or more from the Temple and from two places at the Village Store gets the camera at the Village Store ("Why not help the people finish building the Temple first?") | The trigger is the click (`controller-hints.md`, section 10). The Hand takes food and wood from the Village Store to the builders (`village.md`) | [R] and [H] for the texts and the demo. [H] for the gift of wood. The end of the build: [C] |
+| The missionaries | `TheMissionaries` (Land 1), 8 | Grain (300) and the animals at the ark. Level 8 is on only while the sailors speak after a delivery | The Hand takes them there | [C] |
+| The gestures | `LearnGestures` (Land 2), 8 | A gesture of a miracle (event 15 or 17), or 5 minutes. The step goes on after each of the two | The gesture in the air (`miracles.md`) | [C] |
+| The shield | `PhysicalShieldChallenge` (Land 2), 12 | A throw that hits the shield of the other god, or 20 s. Then a shield cast from a seed over the hut | The Hand throws, takes a seed and casts it. A seed that the head does not see goes back to its place (`script_view`) | [C] |
+| The fireball | `FireBallChallenge` (Land 2), 12 | Fireballs from seeds at the huts | The same | [C] |
+
+At levels 8 and 12 the game turns each camera control off, and the God view
+keeps to it: the player stays at the place of the script and uses the Hand.
+
+**The run on the desktop.** `spawn_run.ps1 -Choice normal` in
+`bwvr/tools/desk` plays a new game through the tutorial of Land 1 to the
+texts after the zoom lesson. At a render of 3600 by 2880 the game runs at
+about 47 frames a second. The recipe has 172 words of the scripted
+controller:
+
+- A press of the trigger each 300 frames from frame 7950. The trigger is the
+  click of a text that waits (`text_click`).
+- The word `seek` with `seek_plan=go` at nine frames from 10600 to 13200. The
+  God view teleports to the end of the path (1633.7 2308.0), then to 1900
+  2519, 18 units from the Temple. A teleport in a story is refused.
+- `stick_right` each 150 frames from frame 13600, `look` each 300 frames from
+  14550, and `stick_up` each 300 frames from 15650. The game refuses each
+  turn and each zoom before the level that allows it.
+
+The log has the levels 0x48 (frame 10662), 0x18 (11628), 0x1A (14384), 0x1B
+(15580, after 69 turn events from eight snap turns), 0x3F (18763) and 0x1BF
+(21954). In the zoom lesson the first zoom step ends the step:
+
+```
+god view     : zoomed in, 100.0 to 66.7 units per meter, about the point at 1872.1 28.5 2536.2, 0.63 m below your head: the land under your head (god_zoom_about=0)
+scripts      : a script asked for the hand state. The game said 0x3, and the script gets 0x16: the view zoomed in the last two game turns, which is the hold of both buttons (script_camera_moves=1, camera controls 0x3F), frame 18952
+audio adv    : line 40 starts, sample 402, [...]
+```
+
+Sample 402 is "That's it. You've done it." The log of a session in the
+headset has the same sample after two zoom steps.
+
+The Gods' Playground (land 6, `Scripts\LandT.txt`, the script
+`LandControlT`) is a land for practice. The key F2 of the game asks "Are you
+sure you want to go to the Gods' Playground?" (`GGame::ProcessKey`
+`0x0063F1CD`), and the answer Yes starts the land and its lessons
+(`0x0054C930`). The tutorial of Land 1 tells the player of F2. In VR the
+ring item `playground` sends F2, and it is on no page of the ring by
+default (`controllers.md`, section 10.2). The Island Keeper teaches six
+lessons:
+
+| Step | Script, level | What the script waits for [V] | What a VR player does | Shown by |
+| --- | --- | --- | --- | --- |
+| Around the mountain | `MoveAroundMountain`, 1, then 10 | The player within 100 units of the Keeper while he walks. While he is out of the view, the script stops until the player looks at him. When he comes to his fourth point, "Move the Hand to the left of the screen." waits for the rotate arrow, and "Now click and hold the Move Button." waits for hand state 0x14 (section 16.6). Then a second walk in 5 minutes, within 50 units of him and behind him: he stops while he can see the head | The walk, the grab or the teleport, and a look at him with the head (`script_view`). A hand near him counts as near (`script_distance`). A snap turn gives the rotate arrow and 0x14 (`script_camera_moves`), and the trigger held on the land gives 0x14 too | [R] with `script_view=0` to the end of the step of the turn |
+| Up and down the mountain | `MoveUpAndDownMountain`, 11 | The Keeper in the view while he walks up the path and down again | Look at him with the head (`script_view`) | [C] |
+| Down the valley | `MoveDownValley`, 0 | The player within 50 units of the Keeper, with him in the view, and behind him | The walk, the grab or the teleport, and the head | [C] |
+| Zoom in and out | `ZoomInAndOut`, 0 | Hand state 0x16, then two stones in the view, then the two stones out of the view | A zoom step gives 0x16 (`script_camera_moves`). Zoom out and look down to see the two stones, then zoom in or look away | [C] |
+| The teddy bears | `PickupTeddyBears`, 0 | Five teddy bears within 30 units of the crater | The Hand takes them there | [C] |
+| The double click | `DoubleClicking`, 0 | The player within 150 units of the island, then of the Keeper again, with a double click jump on each way (event 30 or 31) | The teleport, which sends the jump event 0x305 | [C] |
+
+A desktop run reaches the first lesson. It starts in the test save `temple`
+with `radial_menu_items` beginning with `playground`. The ring sends F2, and
+the trigger on "Yes." of the question of the game starts the land: the log
+has "a new land of 64 blocks", the story of the Keeper, and level 1 (0x48).
+Then the run teleports the head 50 units behind the Keeper (the word `go`),
+and the right hand is 1 m forward, so the player is less than 100 units from
+him on his way to the step of the turn. With `script_view=1` the Keeper did
+not start his walk in three runs, also when an eye picture showed him in the
+view, about 30 degrees below the middle of the view of a level head. With
+`script_view=0` he walks, and after his fourth point a snap turn ends the
+step of the turn (the run starts `stick_right` each 150 frames):
+
+```
+comfort      : the camera controls of the game are 0x4A (1 tilt, 2 turn, 4 zoom, 8 drag, 0x10 jump). [...]
+scripts      : a script asked if the rotate arrow shows. The game said 0x0, and the script gets 0x2: the view turned in the last two game turns (script_camera_moves=1, camera controls 0x4A), frame 8072
+scripts      : a script asked for the hand state. The game said 0x3, and the script gets 0x14: the view turned in the last two game turns, which is the hold of the Move Button at the rotate arrow (script_camera_moves=1, [...])
+cut scene    : frame 8550: the cinema bars are up, and a story camera owns the view
+```
+
+The story after "That's it. Now pull the mouse back." starts at frame 8550.
+With `script_camera_moves=0` the same recipe comes to level 0x4A at frame
+7939, and 61 snap turns in the next 300 s do not end the step: the Keeper
+waits for the rotate arrow of the mouse.
 
 ## 8. Fog, detail and the near plane
 
@@ -1066,7 +1256,8 @@ about 9 degrees (`tabletop.md`, "A spirit at a place of the world"). With
 | Ctrl F11 | The God view off and on. Off is the immersive view |
 | F11 | Recenter: the waist point goes under your head again |
 
-For a left handed player (`controller_left_handed=1`) the hands change sides:
+For a left handed player (the left controller is the Hand, `controllers.md`,
+5.6) the hands change sides:
 the pointing hand's stick zooms and turns, the other hand's grip moves the
 land, across and up and down, and the other hand's stick moves the player.
 The right hand then has the ring on B, and the draw button of the left hand
@@ -1118,6 +1309,7 @@ the walk with the stick are in section 5.7.
 | `turn_help_degrees` | 5 | A snap turn counts as one turn event of the help for each so many degrees, one in each game turn, so the turn lesson of the tutorial ends with one full turn (section 7, "The turn lesson"). 0: one event for a snap turn |
 | `script_distance` | 1 | 1: a script that measures the distance from the camera gets the distance from the player (section 16). 0: the game's camera |
 | `script_view` | 1 | 1: a script that asks if the camera sees a thing gets the view of the head (section 16). 0: the game's camera |
+| `script_camera_moves` | 1 | 1: a script that asks how the player holds the land, or if the rotate arrow shows, gets the moves of the God view: a zoom is the hold of both buttons, a turn is the hold at the rotate arrow (section 16.6). 0: the game's answers |
 | `cutscene_window` | 1 | 1 plays a cut scene on a screen in the room (`cutscene-window.md`). 0 plays it in the full view with held shots |
 | `depth24` | 1 | 1 asks for a 24 bit Z buffer (section 8) |
 | `near_plane_cm` | 5 | The near plane at most this far in the room, with a 24 bit Z buffer. 0 keeps the game's |
@@ -1156,7 +1348,7 @@ The launcher removes these keys from `bwvr.ini` when it saves.
 | --- | --- |
 | `src/mod/table_math.h` | `GodRoom`, `PoseWorld`, `PoseRoom`, `GroundInRoom`, `ScaleAbout`, `GodZoomAbout`, `GodZoom`, `GodRaise`, `GodTurn`, `GameCameraOver`, `RayLevel`, `RayLand`, `GodSpawn`, `CameraLookPoint` and `HeadYaw`, as pure functions |
 | `src/mod/zoom_math.h` | The smooth zoom: the share of the top rate for a push (`StickShare`), the time of a frame (`FrameSeconds`) and the ratio of a frame (`FrameRatio`). The point of a zoom: its place across the room for each value of `god_zoom_about` (`PointAcross`), the level (`ZoomLevel`), the point in the world (`PivotAt`) and the rule for a hill at the new place of the head (`ClearHead`). All are pure functions |
-| `src/mod/walk_math.h` | The walk with the stick: the push (`Push`), the forward direction of the head and of the controller (`HeadForward`, `AimForward`), the speed in the room (`Speed`), the step of a frame (`Step`) and the view after a step (`Walk`). All are pure functions |
+| `src/mod/walk_math.h` | The walk with the stick: the push (`Push`), the forward direction of the head and of the controller (`HeadForward`, `AimForward`), the speed in the room (`Speed`), the step of a frame (`Step`), the view after a step (`Walk`) and the filter of the land that the view follows (`FollowStart`, `FollowStep`). All are pure functions |
 | `src/mod/tabletop.cpp`, `tabletop.h` | The God view in the table state: the place at a game camera (`PlaceGod`, `ApplyGodSpawn`), the steps (`ApplyGodSteps`), the point of a zoom (`GodZoomPoint`, `ZoomClearHead`), the smooth zoom (`TabletopGodZoomHold`, `ApplyGodZoomHold`), the walk with the stick (`TabletopGodWalk`, `ApplyGodWalk`), the mouse pan (`MousePan`), the camera switches and events, the hook on `GGame::ClearMap`, the values that follow the scale, the Hand's size, the ears and the game camera it wants |
 | `src/mod/near_plane.cpp` | The near plane hook, for the God view, the table and the immersive view |
 | `src/mod/teleport.cpp`, `teleport.h`, `aim_smooth.h` | The teleport: the states, the arc and the hit on the CPU, the refusals, the mouse double click, the aim filter, the log (section 14) |
@@ -1165,7 +1357,7 @@ The launcher removes these keys from `bwvr.ini` when it saves.
 | `src/mod/world_grab.cpp` | The grab: the state machine, the table solve with its ground limits (`TableSolve`, `TabletopGodLimitHeight`), the camera switches for a turn and a zoom of the grab, and the solve on the game camera |
 | `src/mod/controllers.cpp` | The sticks (`PumpStick`, and `PumpWalk` for the walk), the layout of the buttons (`ButtonLayout`), the menu button (`PumpEsc`), the pointer mode while a dialog box is up (`DirectHandNow`, `ControllersMenuRay`), the grip points and the fake left hand |
 | `src/mod/script_camera.cpp` | `ScriptCameraStoryOwns`, and `ScriptCameraOwnerNow` for the scripts |
-| `src/mod/hand_direct.cpp`, `near_math.h` | The player that a script sees: the hooks on the four script words, the latch of the player and the test of section 16.4 (`ScriptPlayerNow`, `PlayerDistance`, `PlayerIsCamera`, `HeadSees`) |
+| `src/mod/hand_direct.cpp`, `near_math.h` | The player that a script sees: the hooks on the six script words, the latch of the player and the test of section 16.4 (`ScriptPlayerNow`, `PlayerDistance`, `PlayerIsCamera`, `HeadSees`), and the camera moves of section 16.6 (`ScriptMoveAnswer`, `ScriptHandState`, `ScriptArrows`, `HelpRecent`) |
 | `src/mod/cutscene_window.cpp`, `cutscene_window_math.h` | The cut scene window: the signal, the state of each frame, the screen and the walls (`cutscene-window.md`) |
 | `src/mod/mod_main.cpp`, `src/launcher/launcher.cpp` | The play modes, the default, and the keys |
 
@@ -1245,9 +1437,14 @@ checks the pure functions at 7.5, 100 and 2000 units per meter:
   was ahead under the head, keeps the height, the heading and the scale, is
   the pan of a grab with one hand, and is 400 units at 4000 units for each
   meter and 0.75 units at life size. A hill at the new place goes 10 cm below
-  the head.
+  the head. The follow of the land (`FollowStep`): a step over flat land and
+  a frame with no step move nothing, also over a hill. A step of 10 cm onto
+  higher land gives the exact answer of two stages, and ten steps of 1 cm
+  give the same. On a long hill the view rises with the land, 50 cm of the
+  walk behind it. A bump of 10 cm moves the view by less than 15 percent of
+  its height, and 80 cm later the view is back within 5 percent.
 - The teleport (14.8), the place at a game camera (15.9) and the player that a
-  script sees (16.8) have their own checks.
+  script sees (16.9) have their own checks.
 
 **Desktop runs** use the rig of `backend.md` with `play_mode=4`,
 `fake_controller=2`, `controller_hand=1`, `-NEWGAME` on Land 1, a level fake
@@ -1335,6 +1532,29 @@ render size, because the recipes depend on it.
   The push during the grab is refused with one log line. After the word
   `layoutkey` the stick opens the ring and moves nothing. The scripted stick
   has full pushes only, so the speed of a small push has only the math test.
+- The follow of the land [R]: `spawn_run.ps1 -Save temple` with
+  `move_stick_trace=320` and the steps `lstick_up@900+300
+  lstick_right@1300+300 lstick_down@1700+200`, once with
+  `move_stick_follow_land=1` and once with 0. The first walk goes 7.9 m of
+  the room over the hills at the Temple, where the land under the head goes
+  from 0 to 112 units (at 100 units for each meter), and the third walk is
+  over the sea. In each walk of both runs each frame moves the view at
+  149.93 to 150.07 cm of the room each second, with frames of 14.8 to 46.2
+  ms.
+  - With 1: the land under the head is 61.6 cm below the head at the start
+    of each walk, and 63.8, 61.6 and 61.6 cm at their ends. In the hills it
+    is 19 to 115 cm below the head (the filter is behind the land on the
+    steep slopes), and the land never comes nearer than 10 cm. The height of
+    the view changes by at most 2.5 cm in a frame, and its speed up or down
+    changes by at most 14 cm each second from one frame to the next. Over
+    the sea the height does not change. After each stop the waist point
+    keeps its height in the report of each window.
+  - With 0: the view keeps its height. The land comes to 10 cm below the
+    head, and the limit puts it 32.8 cm down in the room. While the limit
+    acts, the view goes up with each bump of the land at once: up to 5.5 cm
+    in a frame, and its speed up or down changes by up to 181 cm each second
+    from one frame to the next. After the hills the land is 108.2 cm below
+    the head, and 122.3 cm after the second walk.
 
 **The mouse pan and the tutorial events** need a run with the test mouse. Use
 `play_mode=0` (it must log the God view), `-NEWGAME` on Land 1,
@@ -1401,21 +1621,24 @@ and the camera events (0x304 for a wheel click and 0x308 for a land drag).
   the controller as the direction (Shift and the Menu key change the rule),
   whether 150 cm of the room for each second is a good top speed near the
   land and far out, and whether the dead zone of 30 percent fits a real
-  stick. No run has shown a small push, a hill at the new place of the head,
-  the edge of the map, a push with the switch for the drag off, a controller
-  that points straight up or down, or the test key with a real key. These
-  have the math test or no test.
-- **The tutorial** (section 7, "The interface levels"). A desktop run shows
-  the first step: the walk to the village with the teleport and with the
-  stick (section 14.9). On that walk and on the way to the Temple the game
-  has the turn and the zoom off, so the snap turn and the zoom do nothing
-  there, and the player turns the head or the body. No run has the later
-  steps: the way to the Temple (level 4), the three lessons of the camera
-  (levels 13 to 15), the walk around the mountain (levels 1 and 10), the look
-  up and down at the mountain (level 11: the game has each move off, and a
-  look of the head gives the tilt events), and the lessons in which the game
-  has each camera control off (levels 8 and 12). A headset session must show
-  that a player comes through each step.
+  stick. It must also show whether the follow of the land is calm on the
+  hills and keeps the land near enough to the hands on a steep slope, and
+  whether the walk is even (the count of the late frames in the line of the
+  end of a walk, "An even walk" in section 5.7). No run has shown a small
+  push, the edge of the map, a push with the switch for the drag off, a
+  controller that points straight up or down, or the test key with a real
+  key. These have the math test or no test.
+- **The tutorial** (section 7, "The steps of the tutorial"). A desktop run
+  and the log of a session in the headset show the tutorial of Land 1 from
+  the walk to the village to the texts after the zoom lesson. On the walk to
+  the village and on the way to the Temple the game has the turn and the zoom
+  off, so the snap turn and the zoom do nothing there, and the player turns
+  the head or the body. No run and no session has the end of the build of
+  the Temple, the missionaries, the lessons of Land 2 (levels 8 and 12) and
+  the lessons of the Gods' Playground after the step of the turn. With
+  `script_view=1` the Island Keeper did not start his first walk in the
+  desktop runs (section 7). A headset session must show that a player comes
+  through each of them.
 - **Needs the headset:** the ground height of 60 cm, the zoom step of 1.5
   times, the start scale of 100, the Hand at the life size scale near the
   eyes with the near plane of 5 cm, the look of the land and the clouds at
@@ -1693,16 +1916,15 @@ Use the rig of section 12, with `fake_head_pitch=0`. The Creature select story
 holds the view until the pen. A press of A in a story is refused, and the log
 says so.
 
-`aim_queue.ps1 -Runs ring1,ring0 -NewGame` in `bwvr/tools/desk` makes three
-teleports at the pen: at 100 units a meter, after two zoom steps in (44.4) and
-after five zoom steps out (337.5). The runs show for each teleport that the
+`aim_queue.ps1 -Runs ring1,ring0` in `bwvr/tools/desk` makes three teleports
+at the pen: at 100 units a meter, after two zoom steps in (44.4) and after five
+zoom steps out (337.5). The aim is 60 degrees down, straight ahead, in the
+test save `pen` and in a new game. The runs show for each teleport that the
 head is over the target (0.000 units off), that the land under the head keeps
 its room height, and that the scale and the heading stay. With
 `teleport_ring_mode=1` the ring has a radius of 11.0 cm, 24.7 cm and 4.0 cm of
 the room at the three scales. With `teleport_ring_mode=0` it has 11.0 cm at
-each scale. In the test save `pen` the runs show the same ring sizes and two
-teleports: the third aim is on the sea (`tools/desk/README.md`, "Known limits
-of the recipes").
+each scale.
 
 1. The switch of the game, at the start of the tutorial. `spawn_run.ps1
    -Choice normal` starts a new game with the row "Start the game normally":
@@ -2043,8 +2265,8 @@ The scripts use these words at many places:
   point). 78 of them are beside a distance test: "the player is near and
   looks at it". 42 have NOT after them: for example, a script deletes or
   moves a thing only while the player does not look.
-- "thing can view the camera" is at 4 places: the guide of Land 1 and the
-  monk.
+- "thing can view the camera" is at 4 places: the Island Keeper of the Gods'
+  Playground and the monk.
 
 Some of the tests:
 
@@ -2052,9 +2274,9 @@ Some of the tests:
 | --- | --- | --- |
 | `PointOutScroll` | Less than 100 units from a place | The advisor points at the scroll of the missionaries |
 | `ThrowingStonesChallengeHighlightNotify` | Less than 150, and in the view | The two advisors speak of the scroll |
-| `LookAfterGuideWalkingAroundMountain` | Less than 10 and 25 | The guide of Land 1 walks faster |
+| `LookAfterGuideWalkingAroundMountain` | Less than 10 and 25 | The Island Keeper of the Gods' Playground walks faster |
 | `MeetTheGuide` | Less than 90, and in the view | The cut scene of the guide |
-| `ZoomInAndOut` | Two stones in the view, then the two not in the view | The steps of the zoom lesson |
+| `ZoomInAndOut` | Two stones in the view, then the two not in the view | The steps of the zoom lesson of the Gods' Playground |
 | `LostBrotherDead` | Less than 20 | The dialogue at the body |
 | `FollowUs`, `LostTheMother` | 50 to 100, with NOT | The mother waits, or the player lost her |
 | `CreatureGuardian` | NOT less than 100, and NOT in the view | The script deletes the guardian |
@@ -2076,8 +2298,9 @@ value is 0, so the test is always false, in the plain game too.]
   frames. So the view tests would use the camera 400 units behind the player,
   along the heading of the room. That camera sees almost all that is near
   the player, also behind the head. It does not turn with the head, and it
-  does not change with the zoom. The zoom lesson asks if two stones are in
-  the view, so a zoom of the God view would not end that step.
+  does not change with the zoom. The zoom lesson of the Gods' Playground
+  asks if two stones are in the view, so a zoom of the God view would not
+  end that step.
 
 ### 16.3 Which point is the player
 
@@ -2157,22 +2380,58 @@ hand that stays at a thing keeps the player there.
   the player is near with the head turned away. That is what the script
   asks for.
 
-### 16.6 The keys
+### 16.6 The camera moves that a script sees
+
+Two script words ask what the player does with the camera, and not where the
+camera is [V: the disassembly and `challenge.chl`]:
+
+| Script word | Function | What it gives [V] | The scripts |
+| --- | --- | --- | --- |
+| "get hand state" | `GScript::GetHandState` `0x006FF730` | The interface hand mode (`GInterface + 0x3AC`). The interface state `LANDSCAPE_LOCK` (`0x005D8090`) gives 0x14 while the Move Button (the left button) holds the land: a drag, or a turn at the rotate arrow. It gives 0x16 while both buttons hold the land and the game lets the camera zoom (bit 4) | `TeachRotate` and `TeachZoom` (a guard: not 0x15, not 0x16), `MoveAroundMountain` (it waits for 0x14), `ZoomInAndOut` (it waits for 0x16) |
+| "within rotation" | `GScript::WithinRotation` `0x0070B9D0` | The arrows of the camera that show (`0x00C5B0F4`, which `CameraModeNew3::UpdateTricons` `0x00459230` sets in each frame). Bit 2 is the rotate arrow: the pointer is at a side of the screen, or the camera turns. The game clears each arrow that its switches do not allow | `MoveAroundMountain` (it waits for the arrow) |
+
+In the God view the stick turns and zooms the view, so the game never sees
+these holds of the mouse. With `script_camera_moves=1` a move of the God view
+gives the value that the game gives for the same move with the mouse
+(`near_math::ScriptHandState`, `near_math::ScriptArrows`):
+
+- A zoom of the view in the last two game turns is the hold of both buttons:
+  hand state 0x16, while the game lets the camera zoom. A zoom is each event
+  0x304: a zoom step, the smooth zoom, the zoom of a grab with two hands.
+- A turn of the view in the last two game turns is the hold of the Move
+  Button: hand state 0x14. A turn is each event 0x300: a snap turn, the turn
+  events that it owes (`turn_help_degrees`), the turn of a grab with two
+  hands. A grip that holds the land now is the hold of the Move Button too.
+- A turn of the view in the last two game turns shows the rotate arrow (bit
+  2), while the game lets the camera turn.
+
+The game's word runs first. Then the mod takes its answer off the stack of
+the script machine and pushes the new answer with the same type. A hold that
+the game gives stays: the trigger held on the land gives 0x14 in the game's
+own way. The two game turns are measured with the clock of the help
+(`HelpProfile::AccumulatedTime` `0x00C5AFD8`, 100 for each game turn). The
+hook on `CameraHelpCallback` keeps the clock of the last event of each number
+(`h_Help`, `ComfortCameraHelpClock`, `near_math::HelpRecent`). A script gets
+the moves only while the player stands for the camera (16.4). With 0, each
+script gets the game's answer.
+
+### 16.7 The keys
 
 | Key | Default | Meaning |
 | --- | --- | --- |
 | `script_distance` | 1 | 1: a distance from the camera is the distance from the player. 0: the game's camera |
 | `script_view` | 1 | 1: a view test uses the view of the head. 0: the game's camera |
+| `script_camera_moves` | 1 | 1: a script that asks how the player holds the land, or if the rotate arrow shows, gets the moves of the God view (16.6). 0: the game's answers |
 
 With `test_keys=1`, Ctrl and the 7 key of the number pad change between the
-player (the two keys as the ini has them) and the game's camera for all
+player (the three keys as the ini has them) and the game's camera for all
 tests. The pointing controller gives a long pulse for the player and a short
 pulse for the game's camera.
 
 When a function does not have the bytes of the disassembly, the mod does
 not hook it, the key is 0, and a line with the tag `hooks` says so.
 
-### 16.7 The log
+### 16.8 The log
 
 ```
 scripts      : script_distance=1, script_view=1. In the God view a script of the game that asks about the camera gets the player. [...] Ctrl and the 7 key of the number pad change both
@@ -2184,14 +2443,38 @@ The log has no line for a test. The count in the report line of the God
 view is the number of answers from the player in that report window. A
 window with a story has no such line.
 
-### 16.8 Tests
+The camera moves (16.6) have one line for each new pair of the game's answer
+and the answer of the mod, 24 lines at most, and a count in each report
+window:
+
+```
+scripts      : script_camera_moves=1. In the God view a script that asks how you hold the land, or if the rotate arrow shows, gets the moves of the view: [...]
+scripts      : a script asked for the hand state. The game said 0x3, and the script gets 0x14: the view turned in the last two game turns, which is the hold of the Move Button at the rotate arrow (script_camera_moves=1, camera controls 0x1A), frame 14551
+scripts      : 3 answers to a script that asked how you hold the land or if the rotate arrow shows came from the moves of the God view (script_camera_moves=1)
+```
+
+### 16.9 Tests
 
 The math test covers `MapDistance` and `PlayerDistance` (the guide with the
 head 20 units away and a hand 5 units away, a thing 300 units away, no point
 of the player, a place that is not a number), the tests with NOT and the
 limits of 1 and 250, each case of `PlayerIsCamera`, and `HeadSees` (ahead,
 behind, 49 and 51 degrees to the side, the land at the feet, a head that
-turned 90 degrees, 110 degrees).
+turned 90 degrees, 110 degrees). For the camera moves it covers
+`ScriptHandState` (no move, a zoom with the zoom on and off, a turn, a grip
+on the land, a grab of two hands, a hold that the game gives),
+`ScriptArrows` (a turn with the turn on and off, a zoom, the arrows of the
+game) and `HelpRecent` (this game turn and two before, three before, a clock
+that went back).
+
+The desktop run of the tutorial of Land 1 (section 7, "The steps of the
+tutorial") shows the camera moves in the turn lesson (0x14 after a snap
+turn) and in the zoom lesson (0x16 after a zoom step). With
+`script_camera_moves=0` the same recipe has no such line, and the tutorial
+of Land 1 ends the same way: the zoom lesson ends by the height of the game
+camera. The run of the Gods' Playground (section 7) shows the rotate arrow
+and 0x14 after snap turns, and the end of the step of the turn. With
+`script_camera_moves=0` that step does not end.
 
 **Desktop runs** use the start "Keep your old Creature", a render of 2880 by
 2880, the fake head with the word `look`, and the test word `go` of
@@ -2214,7 +2497,7 @@ shows in the log as "audio adv : line N starts, sample S". The runs to make:
 Check each log for input that was not from the test: no "the cursor moved"
 line, and one "the mouse owns the pointer" line, at the start dialog.
 
-### 16.9 Not changed, not tested, and what needs the headset
+### 16.10 Not changed, not tested, and what needs the headset
 
 - **The first game turn of a story.** No run has a test in the game turn
   that starts a story, after the instruction that starts it. The two cases
@@ -2234,7 +2517,11 @@ line, and one "the mouse owns the pointer" line, at the start dialog.
   instructions read `LH3DTech::g_camera`): the villagers, the Creature and
   the sounds. The sound has its own work (`audio.md`).
 - **The Temple key, a load and a bookmark** have no run with a script test.
+- **The camera moves** (16.6). No run has the step of the zoom of the Gods'
+  Playground, which waits for the hold of both buttons. The pointer at a
+  side of the screen also shows the rotate arrow of the game: no run has
+  that in the God view.
 - **Only the headset can show** if the quests of a real session go on:
-  the guide of Land 1, the mother of `FollowUs`, the zoom lesson. It can
+  the Island Keeper of the Gods' Playground, the mother of `FollowUs`. It can
   also show if the nearest hand is the right point for a real player, and if
   a script that deletes a thing behind the head is good in VR.

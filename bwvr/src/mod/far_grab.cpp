@@ -84,6 +84,8 @@
 #include "far_choice_math.h"
 #include "far_grab.h"
 #include "haptics.h"
+#include "hint_card.h"
+#include "hint_learn_math.h"
 #include "near_math.h"
 
 extern void ModLog(const char* format, ...);
@@ -584,6 +586,9 @@ void FarGrabFrame(const FarFrame& f) {
         if (f.take == g_pick.object) {
           ++g_far_takes;
           g_state = kTake;
+          HintCardLearnDone(hint_learn_math::kSkillCollect,
+                            "the game takes from the bulk source at a "
+                            "distance");
           if (LogRoom()) {
             ModLog("far grab    : the game takes from %p at a distance, %llu "
                    "frames after the press. The take runs while the grip is "
@@ -596,6 +601,8 @@ void FarGrabFrame(const FarFrame& f) {
       } else if (f.held == g_pick.object ||
                  (g_pick.forest && f.held != nullptr)) {
         ++g_fetches;
+        HintCardLearnDone(hint_learn_math::kSkillFetch,
+                          "the Hand holds the object of the far target");
         if (g_pick.forest && f.held != g_pick.object) {
           // A FOREST gave a new tree. The glide draws that tree from the
           // forest's point, where the game made it.

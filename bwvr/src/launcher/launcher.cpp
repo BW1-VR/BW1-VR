@@ -194,8 +194,10 @@ const Setting kSettings[] = {
      "God view=4|Stereoscopic window=1|Tabletop (test)=3", 4,
      "God view: the land is at your waist, so your hands can reach it. It "
      "works with motion controllers and with the mouse. Controllers: push "
-     "the right stick forward or back to zoom one step. Hold the left grip "
-     "and pull to move the land, across and up and down. Mouse: drag the "
+     "the stick of your Hand forward or back to zoom. Hold the grip of your "
+     "other hand and pull to move the land, across and up and down. Your "
+     "Hand is the right controller, or the left one with a left hand (see "
+     "Hand). Mouse: drag the "
      "land to move it. Turn the "
      "wheel to zoom one step. Press a tilt key to move the ground up or "
      "down. Stereoscopic window: the game is on a 3D screen in front of "
@@ -214,6 +216,13 @@ const Setting kSettings[] = {
      "view moves through the orbs on the path of the game, and it does not "
      "turn: you look where your head looks. The menu button skips it. This "
      "setting is a test. Off shows the intro flat."},
+    {kValues, "cutscene_immersive", "Cut scenes",
+     "In a window=0|Around you=1", 0,
+     "In a window: a cut scene of the game plays on a screen in front of "
+     "you, and the land around you stays still. Around you: a cut scene "
+     "plays all around you, and the camera of the game moves you with all "
+     "its motion. Choose it only if a camera that moves is no problem for "
+     "you."},
 
     // Not offered: the sizes and the depth of the interface in the eye
     // pictures have settled defaults. With controllers the hints and the
@@ -241,18 +250,18 @@ const Setting kSettings[] = {
     {kGroup, nullptr, "Moving around", nullptr, 0, nullptr},
     {kChoice, "snap_turn", "Turn in steps", "Off|30 degrees|45 degrees|90 degrees",
      2,
-     "Push the right stick left or right, drag sideways with the middle "
+     "Push the stick of your Hand left or right, drag sideways with the middle "
      "mouse button, or press a turn key, to turn in one step. You stay "
      "where you are. The middle mouse button does not tilt the camera. Off "
      "gives the smooth turn and tilt of the game."},
     {kValues, "god_zoom_smooth", "Zoom with the stick", "In steps=0|Smooth=1",
      0,
-     "In steps: one push of the right stick forward or back is one zoom "
+     "In steps: one push of the stick of your Hand forward or back is one zoom "
      "step. Smooth: the zoom changes while you hold the stick. It stops when "
      "you let the stick go."},
     {kValues, "god_zoom_forward_in", "Stick forward",
      "Zooms out=0|Zooms in=1", 0,
-     "The direction of the zoom on the right stick. Zooms out: push the "
+     "The direction of the zoom on the stick of your Hand. Zooms out: push the "
      "stick forward and the world gets smaller, pull it back and the world "
      "gets larger. Zooms in is the other way."},
     {kValues, "god_zoom_about", "Center of the zoom",
@@ -261,14 +270,22 @@ const Setting kSettings[] = {
      "land you look at: the thing in the middle of your view keeps its place "
      "and changes its size. The land under you: you keep your place on the "
      "land. Your Hand: the land at your Hand keeps its place."},
-    {kValues, "move_stick", "Move with the left stick",
+    {kValues, "move_stick", "Move with the other stick",
      "Head direction=1|Controller direction=2|Off=0", 1,
-     "Push the stick of your other hand (the left stick) to move over the "
+     "Push the stick of your other hand (the left stick, or the right stick "
+     "with a left hand) to move over the "
      "land in the God view. You stop when you let the stick go. Head "
      "direction: forward is where your head faces. Controller direction: "
      "forward is where that controller points. Off: the stick does not move "
      "you. Some people feel ill when a stick moves them: use Off then, and "
      "move with the grip and with the teleport."},
+    {kValues, "move_stick_follow_land", "Walk follows the land", "On=1|Off=0",
+     1,
+     "When you move with the stick, the height of your view follows "
+     "the hills, so the land stays at the same height below your hands. The "
+     "view goes up and down smoothly, and it does not follow each small "
+     "bump. It moves only while you push the stick. Off: the view keeps its "
+     "height, and a hill comes nearer or goes farther away."},
     // Not offered. These four keys act on the camera of the game. In the
     // God view the mod moves the view in cuts and in its own zoom steps,
     // and a story shows in a window in the room, so the defaults are the
@@ -302,6 +319,11 @@ const Setting kSettings[] = {
     //  "Direct hand: the Hand is where your controller is. Stretch your arm to "
     //  "reach far into the world. Pointer: the controller points a ray, and the "
     //  "Hand goes where the ray points."},
+    {kValues, "left_hand", "Hand", "Follow the game=-1|Right=0|Left=1", -1,
+     "Which controller is the Hand. Follow the game: the left handed option "
+     "in the options of the game chooses it. Right or Left: the controller "
+     "of that hand is the Hand. The other controller grabs the world, moves "
+     "you with its stick and opens the ring."},
     {kBool, "hand_glow", "Glow at the Hand's point", nullptr, 0,
      "A small glow at the tip of the index finger shows the point of the "
      "Hand that picks up and clicks. It shows while a press of the grip "
@@ -312,6 +334,12 @@ const Setting kSettings[] = {
      "Hold both grips to turn the world and to zoom. Either grip: the grip "
      "of your pointing hand also grabs the world when the Hand is empty and "
      "not over an object. Off: the grips do not move the world."},
+    {kValues, "hint_learn", "Hints", "Until learned=1|Always=0", 1,
+     "The cards beside your wrists show what each button does. Until "
+     "learned: a line goes away after you do its action 3 times. It comes "
+     "back after 10 minutes of play without that action. In a lesson of the "
+     "tutorial, each line shows. Always: each line always shows. To show all "
+     "lines again, delete bwvr-hint-counts.ini in the game folder."},
 
     {kGroup, nullptr, "Testing", nullptr, 0, nullptr},
     {kBool, "test_keys", "Test keys", nullptr, 0,
@@ -350,7 +378,7 @@ char g_ini_path[MAX_PATH];
 int g_dpi = 96;
 // The most rows of a column. A test sets a smaller number with "-rows" to get
 // a picture of a table that has more columns.
-int g_max_rows = 22;
+int g_max_rows = 26;
 
 int Scaled(int at96) { return MulDiv(at96, g_dpi, 96); }
 
@@ -868,7 +896,8 @@ const char* const kRetiredKeys[] = {
     "frame_time_test_readers_frames", "god_zoom_about_test",
     "god_zoom_test_toggle",
     "hand_feel_test_toggle", "hand_model_test_look", "hand_model_test_swap",
-    "help_test", "land_light_test", "near_test_flips", "spawn_test_flag",
+    "help_test", "hint_counts_test_file", "land_light_test",
+    "near_test_flips", "spawn_test_flag",
     "spawn_test_temple",
     "spawn_test_toggle", "spawn_test_x", "spawn_test_z",
     "spirit_point_world_test", "spirit_world_size_test",
@@ -893,7 +922,8 @@ const char* const kRetiredKeys[] = {
     // settings that are not offered now (the sizes and the depth of the
     // interface, the hint, the zoom step) stay in the ini as they are, so a
     // value that a person wrote by hand is kept.
-    "controller_hand", "script_camera",    "instant_jumps",
+    "controller_hand", "controller_left_handed", "script_camera",
+    "instant_jumps",
     "camera_glide",    "head_units_per_meter_x10",
 };
 

@@ -118,6 +118,58 @@ inline void Walk(const table_math::TablePose& pose, const float step[2],
   out->center[1] = pose.center[1];
 }
 
+// THE LAND THAT THE VIEW FOLLOWS (move_stick_follow_land=1). While the player
+// walks, the height of the view follows the land under the head, so the land
+// stays at the same height below the hands. The land height goes through two
+// stages of a first order filter. The filter counts the way that the head
+// went in the room, not the time: a frame with no step changes nothing, so
+// the view cannot move while the stick is let go. The land height of the new
+// place is the input for the whole step, and the stages take the exact
+// answer of the filter for that input:
+//
+//     x = way / length, e = exp(-x)
+//     stage0' = land + (stage0 - land) * e
+//     stage1' = land + (stage1 - land) * e + (stage0 - land) * x * e
+//
+// So one long step and many short steps over the same land give the same
+// result, and a low frame rate gives the same heights as a high one.
+//
+// The length of a stage is 25 cm of the room. At a full push of 150 cm each
+// second that is 0.17 s for each stage. A swell of the land with a
+// wavelength of 40 cm of the room comes through at 6 percent of its height,
+// one of 1 m at 29 percent, and a hill of 3 m at 78 percent. The second
+// stage starts from rest, so the view does not start to rise with a jolt
+// when the land under the head changes in a step.
+const float kFollowLength = 0.25f;  // meters of the room, for each stage
+
+struct LandFollow {
+  float stage[2] = {0.0f, 0.0f};  // land heights in world units
+};
+
+// The start of a follow: both stages at the land height now, so the land
+// keeps the height below the head that it has now.
+inline void FollowStart(float land, LandFollow* follow) {
+  follow->stage[0] = follow->stage[1] = land;
+}
+
+// One step of the walk. land is the land height under the head at the new
+// place, in world units, way is the length of the step in meters of the
+// room, and length is the length of a stage. Returns how far the filtered
+// land went up, in world units (down is less than 0). The view goes up by
+// the same height, so the filtered land keeps its height in the room.
+inline float FollowStep(LandFollow* follow, float land, float way,
+                        float length) {
+  if (!(way > 0.0f) || !(length > 0.0f) || !(land == land)) return 0.0f;
+  const float x = way / length;
+  const float e = expf(-x);
+  const float before = follow->stage[1];
+  const float gap0 = follow->stage[0] - land;
+  const float gap1 = follow->stage[1] - land;
+  follow->stage[0] = land + gap0 * e;
+  follow->stage[1] = land + gap1 * e + gap0 * x * e;
+  return follow->stage[1] - before;
+}
+
 // A direction on the land in degrees, for the log: 0 is straight ahead in the
 // room, and a direction to the right is more than 0.
 inline float DegreesRight(const float direction[2]) {

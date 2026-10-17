@@ -186,11 +186,16 @@ bool ControllersFarAllowed(const char** why);
 bool CutsceneWindowFlat();
 // intro_vr.cpp: true while the Lionhead intro draws in stereo.
 bool IntroBlocksButtons();
+// hand_direct.cpp: the CHand of this frame.
+void* HandDirectHand(bool* active);
 
 namespace {
 
 bool g_on = true;
+// The left controller is the Hand. UpdateHandSide sets it once a frame from
+// the key left_hand and the game's own option.
 bool g_left_handed = false;
+int g_left_hand_key = -1;  // -1 follows the game, 0 right, 1 left
 bool g_haptics = true;
 bool g_swap_buttons = false;
 bwvr::XrScreen* g_screen = nullptr;
@@ -201,7 +206,7 @@ bool g_pointer_owned = false;
 
 // --- the fake controller -----------------------------------------------------
 
-const int kMaxScript = 64;
+const int kMaxScript = 192;
 
 enum FakeInput {
   kTrigger,
@@ -566,13 +571,16 @@ void LoadTraces(const char* list) {
 }
 
 // The values the runtime would report for one fake hand. The grip pose is the
-// aim pose. The script drives the right hand, and the left hand's grip and
+// aim pose. The script drives the pointing hand (the right hand, or the left
+// hand when the left controller is the Hand), and the other hand's grip and
 // points.
-// Where the fake right hand is, in cm from the head center (right, up,
+// Where the fake pointing hand is, in cm from the head center (right, up,
 // forward): the base pose or the point of a word, then the sideways step and
-// the step of the word "pull".
+// the step of the word "pull". The base pose is on the side of the
+// controller: on the left of the head for the left controller. The point of a
+// word is a place in the room, so it is not mirrored.
 void RightHandCm(float cm[3]) {
-  cm[0] = static_cast<float>(g_fake.right_cm);
+  cm[0] = static_cast<float>(g_fake.right_cm) * (g_left_handed ? -1.0f : 1.0f);
   cm[1] = static_cast<float>(g_fake.up_cm);
   cm[2] = static_cast<float>(g_fake.forward_cm);
   if (g_point_index >= 0 && g_point_index < g_point_count) {
@@ -589,57 +597,71 @@ void RightHandCm(float cm[3]) {
   for (int i = 0; i < 3; ++i) cm[i] += g_pull_cm[i];
 }
 
+// The yaw to the left that the pose of the left controller needs, so that its
+// aim ray points as the ray of the right hand with the same pose (the aim
+// block below).
+float FakeLeftAimFix();
+
 void FakeHand(int index, bwvr::HandInput* out) {
   const bool both = g_fake.mode >= 2;
+  // The job of this controller in the script: 1 the words of the right hand
+  // ("trigger", "point", "seek"), 0 the words of the left hand ("lgrip",
+  // "lpoint"). When the left controller is the Hand, the words of the right
+  // hand drive it, so each recipe runs with either hand.
+  const int role = g_left_handed ? 1 - index : index;
   memset(out, 0, sizeof(*out));
   out->aim_orientation[3] = 1.0f;
   out->grip_orientation[3] = 1.0f;
-  if (g_fake.mode == 0 || (index == 0 && !both)) return;
+  if (g_fake.mode == 0 || (role == 0 && !both)) return;
   // The word "nofocus": the headset session has no focus of the runtime, as
   // with the menu of the headset open. XrScreen then gives hands that are
   // not active, and so does the fake controller.
   if (g_held[kNoFocus]) return;
 
-  // The left hand of a pair is the mirror image: the sideways offset, the yaw
-  // and the roll change sign.
+  // The other hand of a pair is the mirror image of the base pose: the
+  // sideways offset, the yaw and the roll change sign on the left
+  // controller. The pointing hand keeps the turns of the script, and on the
+  // left controller it also turns by the difference of the aim ray of the two
+  // hands. So its ray points where the ray of the right hand points, and a
+  // recipe clicks the same menu items with either hand.
   const float mirror = (index == 0) ? -1.0f : 1.0f;
+  const float turn = role == 1 ? 1.0f : mirror;
+  const float fix = role == 1 && index == 0 ? FakeLeftAimFix() : 0.0f;
   const bool second = g_sweep_turned || g_pose2_latched;
-  const float yaw = (second ? g_fake.sweep_yaw : g_fake.yaw) * mirror;
+  const float yaw = (second ? g_fake.sweep_yaw : g_fake.yaw) * turn + fix;
   const float pitch = static_cast<float>(second ? g_fake.sweep_pitch
                                                 : g_fake.pitch);
-  const float roll = g_fake.roll * mirror;
+  const float roll = g_fake.roll * turn;
   float q[4];
-  if (index == 1 && g_aim_set) {
+  if (role == 1 && g_aim_set) {
     controller_math::FakeOrientation(g_aim_yaw, g_aim_pitch, roll, q);
-  } else if (index == 1 && g_rot_index >= 0 && g_rot_index < g_rot_count) {
-    controller_math::FakeOrientation(static_cast<float>(g_rots[g_rot_index][0]),
-                                     static_cast<float>(g_rots[g_rot_index][1]),
-                                     static_cast<float>(g_rots[g_rot_index][2]),
-                                     q);
+  } else if (role == 1 && g_rot_index >= 0 && g_rot_index < g_rot_count) {
+    controller_math::FakeOrientation(
+        static_cast<float>(g_rots[g_rot_index][0]) + fix,
+        static_cast<float>(g_rots[g_rot_index][1]),
+        static_cast<float>(g_rots[g_rot_index][2]), q);
   } else {
     controller_math::FakeOrientation(yaw, pitch, roll, q);
   }
 
   // LOCAL space: right is +X, up is +Y, forward is -Z. The word "point"
-  // steps the right hand, and "lpoint" the left hand.
+  // steps the pointing hand, and "lpoint" the other hand.
   float cm[3];
-  if (index == 1) {
+  if (role == 1) {
     RightHandCm(cm);
   } else {
-    cm[0] = static_cast<float>(g_fake.right_cm);
+    // The other hand: the mirror of the base pose, on its own side.
+    cm[0] = static_cast<float>(g_fake.right_cm) * mirror;
     cm[1] = static_cast<float>(g_fake.up_cm);
     cm[2] = static_cast<float>(g_fake.forward_cm);
   }
   // A left point is given as it is, not mirrored.
-  float side = mirror;
-  if (index == 0 && g_lpoint_index >= 0 && g_lpoint_index < g_lpoint_count) {
+  if (role == 0 && g_lpoint_index >= 0 && g_lpoint_index < g_lpoint_count) {
     for (int i = 0; i < 3; ++i) {
       cm[i] = static_cast<float>(g_lpoints[g_lpoint_index][i]);
     }
-    side = 1.0f;
   }
-  const float position[3] = {cm[0] * 0.01f * side, cm[1] * 0.01f,
-                             -cm[2] * 0.01f};
+  const float position[3] = {cm[0] * 0.01f, cm[1] * 0.01f, -cm[2] * 0.01f};
   for (int i = 0; i < 3; ++i) {
     out->aim_position[i] = position[i];
     out->grip_position[i] = position[i];
@@ -654,7 +676,7 @@ void FakeHand(int index, bwvr::HandInput* out) {
   out->aim_tracked = true;
   out->grip_tracked = true;
 
-  if (index == 1) {
+  if (role == 1) {
     out->trigger = g_held[kTrigger] ? 1.0f : 0.0f;
     out->squeeze = g_held[kGrip] ? (g_held[kGripDip] ? 0.59f : 1.0f) : 0.0f;
     out->stick[0] = (g_held[kStickRight] ? 1.0f : 0.0f) -
@@ -781,10 +803,10 @@ void LogTracked(const char* pose, const char* held, bool tracked,
   }
 }
 
-// The turn of the aim ray of the right hand now, to the left and up (the aim
-// block below). The word "aimfar" takes it off the pose of the fake hand, so
-// its ray goes to the object with each preset and each trim.
-void AimTurnOfRightHand(float* yaw_left_deg, float* pitch_up_deg);
+// The turn of the aim ray of the pointing hand now, to the left and up (the
+// aim block below). The word "aimfar" takes it off the pose of the fake hand,
+// so its ray goes to the object with each preset and each trim.
+void AimTurnOfPointingHand(float* yaw_left_deg, float* pitch_up_deg);
 
 // The fake hand pose in cm that puts the direct hand on a point in the world:
 // the reach curve backward from the anchor, then the room.
@@ -825,7 +847,7 @@ void Seek(int kind) {
     // For small angles the two turns add, so the pose gets the angles less
     // the turn.
     float turn_yaw = 0.0f, turn_pitch = 0.0f;
-    AimTurnOfRightHand(&turn_yaw, &turn_pitch);
+    AimTurnOfPointingHand(&turn_yaw, &turn_pitch);
     g_aim_yaw -= turn_yaw;
     g_aim_pitch -= turn_pitch;
     g_aim_set = true;
@@ -924,7 +946,7 @@ void AimTemple() {
   controller_math::Apply(g_last_room, true, offset, d);
   if (!controller_math::FakeAimAngles(d, &g_aim_yaw, &g_aim_pitch)) return;
   float turn_yaw = 0.0f, turn_pitch = 0.0f;
-  AimTurnOfRightHand(&turn_yaw, &turn_pitch);
+  AimTurnOfPointingHand(&turn_yaw, &turn_pitch);
   g_aim_yaw -= turn_yaw;
   g_aim_pitch -= turn_pitch;
   g_aim_set = true;
@@ -3466,12 +3488,25 @@ void LogGripToAim(int index) {
          now.offset_m[2] * 100.0f, g_frame);
 }
 
-void AimTurnOfRightHand(float* yaw_left_deg, float* pitch_up_deg) {
+float FakeLeftAimFix() {
   if (!g_aim.read) ReadAimSettings();
-  const aim_math::Turn t = aim_math::TotalTurn(g_aim.preset, AimTouch(1),
+  const aim_math::Turn t = aim_math::TotalTurn(g_aim.preset, AimTouch(0),
                                                g_aim.trim_yaw,
                                                g_aim.trim_pitch);
-  *yaw_left_deg = t.yaw_in_deg;
+  // The right hand turns yaw_in to the left, the left hand yaw_in to the
+  // right.
+  return 2.0f * t.yaw_in_deg;
+}
+
+void AimTurnOfPointingHand(float* yaw_left_deg, float* pitch_up_deg) {
+  if (!g_aim.read) ReadAimSettings();
+  const int index = PointingIndex();
+  const aim_math::Turn t = aim_math::TotalTurn(g_aim.preset, AimTouch(index),
+                                               g_aim.trim_yaw,
+                                               g_aim.trim_pitch);
+  // The turn in goes to the left on the right hand and to the right on the
+  // left hand.
+  *yaw_left_deg = index == 0 ? -t.yaw_in_deg : t.yaw_in_deg;
   *pitch_up_deg = t.pitch_up_deg;
 }
 
@@ -3519,13 +3554,16 @@ void UpdateAim() {
 }  // namespace
 
 // Player keys. Off turns the whole controller path off.
-void ControllersSetOptions(bool on, bool left_handed, bool haptics,
+void ControllersSetOptions(bool on, int left_hand, bool haptics,
                            bool swap_buttons) {
   g_on = on;
-  g_left_handed = left_handed;
+  g_left_hand_key = left_hand;
   g_haptics = haptics;
   g_swap_buttons = swap_buttons;
-  ModLog("controllers  : %s", on ? "on" : "off");
+  ModLog("controllers  : %s, left_hand=%d (%s)", on ? "on" : "off", left_hand,
+         left_hand < 0    ? "the left hand option of the game chooses the Hand"
+         : left_hand == 0 ? "the right controller is the Hand"
+                          : "the left controller is the Hand");
 }
 
 void ControllersSetFake(const FakeControllerSettings& fake) {
@@ -3698,10 +3736,96 @@ void LogBothButtons() {
 }
 }  // namespace
 
+namespace {
+
+// THE HAND SIDE. The game keeps its left hand option in the profile
+// (HAND_ORIENTATION, bw_addresses.h). With left_hand=-1 that option chooses
+// which controller is the Hand, so the player sets it in one place. Then each
+// job of the two controllers changes sides: PointingIndex() gives the Hand,
+// and OtherIndex() the other hand.
+//
+// The option can change in the options screen of the game while the player
+// plays. A button that is down belongs to the hand that pressed it, so the
+// change waits until each button of the two controllers is up. Then no press
+// and no grab of the world goes to the wrong hand, and the pump sees no
+// button go up that it did not see go down.
+bool HandAnyDown(const bwvr::HandInput& h) {
+  if (!h.active) return false;
+  return h.trigger > 0.35f || h.squeeze > 0.35f || h.primary || h.secondary ||
+         h.menu || h.stick_click;
+}
+
+// The game draws its Hand as a left hand or as a right hand. The mod makes it
+// the hand of the controller that is the Hand, with the game's own
+// CHand::ToggleLeftRight, as the game does for its option (packet 0x64). The
+// game's own test (fn_0046E5F0) does nothing when the Hand already fits.
+void MatchGameHand() {
+  static int logs = 0;
+  bool active = false;
+  uint8_t* hand = static_cast<uint8_t*>(HandDirectHand(&active));
+  if (hand == nullptr) return;
+  const bool right =
+      *reinterpret_cast<const int32_t*>(hand + bw::hand::kMirrorOffset) != 0;
+  if (right != g_left_handed) return;
+  // ToggleLeftRight turns the triangles of the mesh at CHand+0xB4. Not
+  // before the game loaded the mesh.
+  const uint8_t* mesh = *reinterpret_cast<uint8_t* const*>(hand + 0xB4);
+  if (mesh == nullptr) return;
+  const uint8_t* const* parts =
+      *reinterpret_cast<const uint8_t* const* const*>(mesh + 0x10);
+  if (parts == nullptr || *parts == nullptr) return;
+  using Toggle = void(__thiscall*)(void*);
+  reinterpret_cast<Toggle>(bw::hand::kToggleLeftRight)(hand);
+  if (logs < 8) {
+    ++logs;
+    ModLog("controllers  : the game's Hand is a %s hand now, as the "
+           "controller that is the Hand, frame %llu",
+           g_left_handed ? "left" : "right", g_frame);
+  }
+}
+
+void UpdateHandSide() {
+  static int32_t game_before = -2;
+  static bool said_wait = false;
+  static bool decided = false;
+  const int32_t game =
+      *reinterpret_cast<const int32_t*>(bw::game::kHandOrientation);
+  if (game != game_before) {
+    game_before = game;
+    ModLog("controllers  : the left hand option of the game "
+           "(HAND_ORIENTATION) is %d, frame %llu", game, g_frame);
+  }
+  const bool want = g_left_hand_key >= 0 ? g_left_hand_key != 0 : game != 0;
+  if (!decided || want != g_left_handed) {
+    if (decided && (HandAnyDown(g_hands[0]) || HandAnyDown(g_hands[1]))) {
+      if (!said_wait) {
+        said_wait = true;
+        ModLog("controllers  : the Hand goes to the %s controller when each "
+               "button is up, frame %llu", want ? "left" : "right", g_frame);
+      }
+    } else {
+      said_wait = false;
+      decided = true;
+      g_left_handed = want;
+      // The hand that points now: a button that is down on it must go up
+      // before it presses.
+      g_hand_back = true;
+      ModLog("controllers  : the %s controller is the Hand, and the %s "
+             "controller is the other hand (left_hand=%d, the game's option "
+             "%d), frame %llu", want ? "left" : "right",
+             want ? "right" : "left", g_left_hand_key, game, g_frame);
+    }
+  }
+  MatchGameHand();
+}
+
+}  // namespace
+
 // Once for each frame the scene is drawn, after the head pose of the frame is
 // known. The first call is frame 0 for the script.
 void ControllersFrame() {
   if (!g_on) return;
+  UpdateHandSide();
   if (g_fake.mode != 0) {
     UpdateScript();
     FakeHand(0, &g_hands[0]);
