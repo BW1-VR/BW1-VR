@@ -164,6 +164,9 @@ struct Built {
   float mirror = 1.0f;       // the sign of the map from the mesh to the world
 };
 Built g_built[2];
+// The opacity of each hand (HandModelSetOpacity). 1 is the opacity of the
+// texture alone.
+float g_opacity[2] = {1.0f, 1.0f};
 float* g_camera = nullptr;   // 3 floats a vertex, for the eye pass
 Vertex* g_vertices = nullptr;
 int g_vertex_room = 0;
@@ -1142,12 +1145,16 @@ struct Corner {
   float uv[2];
 };
 
+// The opacity of the hand that FillHand fills now (HandModelSetOpacity).
+float g_fill_opacity = 1.0f;
+
 void CornerOf(const Built& built, int v, Corner* out) {
   memcpy(out->c, g_camera + v * 3, sizeof(out->c));
   const uint32_t color = built.color[v];
   for (int k = 0; k < 4; ++k) {
     out->color[k] = static_cast<float>((color >> (8 * k)) & 0xFFu);
   }
+  out->color[3] *= g_fill_opacity;
   out->uv[0] = g_mesh.uv[v * 2 + 0];
   out->uv[1] = g_mesh.uv[v * 2 + 1];
 }
@@ -1355,6 +1362,11 @@ bool HandModelIndexTip(int hand, float out[3]) {
 
 bool HandModelBuilt() { return g_built[0].valid || g_built[1].valid; }
 
+void HandModelSetOpacity(int hand, float opacity) {
+  if (hand < 0 || hand > 1) return;
+  g_opacity[hand] = opacity < 0.0f ? 0.0f : opacity > 1.0f ? 1.0f : opacity;
+}
+
 int HandModelDraw(IDirect3DDevice7* device, const float camera[12],
                   float near_plane, float half_x, float half_y) {
   if (!HandModelBuilt() || device == nullptr) return 0;
@@ -1367,7 +1379,9 @@ int HandModelDraw(IDirect3DDevice7* device, const float camera[12],
   int n = 0;
   for (int h = 0; h < 2; ++h) {
     if (!g_built[h].valid) continue;
+    g_fill_opacity = g_opacity[h];
     n = FillHand(g_built[h], camera, near_plane, half_x, half_y, n);
+    g_fill_opacity = 1.0f;
   }
   if (n == 0) {
     g_draw_ticks += Now() - start;

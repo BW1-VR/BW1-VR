@@ -301,4 +301,127 @@ inline void HandPushStep(HandPush* s, bool has_pixel, float x, float y,
   s->last_y = y;
 }
 
+// THE PUSH IN 3D (intro_push_3d). Each hand takes the orbs near it with its
+// own motion, one to one, in place and in turn. A hand pose is the grip point
+// and the grip axes in the world: world = position + rotation * local, with
+// the rotation stored row by row (as overlay_math.h, PlacePoint). An orb at
+// `point` near the pose of the frame before keeps its place in the hand
+// frame, so it goes where the hand takes that place now. The weight is 1 to
+// half the radius, and falls to 0 at the radius, so the edge of the push is
+// soft.
+struct HandPose {
+  float position[3];
+  float rotation[9];
+};
+
+// The inverse of a 3 by 3 matrix, row by row. False when it has none.
+inline bool Invert3(const float m[9], float out[9]) {
+  const float c00 = m[4] * m[8] - m[5] * m[7];
+  const float c01 = m[5] * m[6] - m[3] * m[8];
+  const float c02 = m[3] * m[7] - m[4] * m[6];
+  const float det = m[0] * c00 + m[1] * c01 + m[2] * c02;
+  if (!(det > 1e-12f || det < -1e-12f)) return false;
+  const float k = 1.0f / det;
+  out[0] = c00 * k;
+  out[1] = (m[2] * m[7] - m[1] * m[8]) * k;
+  out[2] = (m[1] * m[5] - m[2] * m[4]) * k;
+  out[3] = c01 * k;
+  out[4] = (m[0] * m[8] - m[2] * m[6]) * k;
+  out[5] = (m[2] * m[3] - m[0] * m[5]) * k;
+  out[6] = c02 * k;
+  out[7] = (m[1] * m[6] - m[0] * m[7]) * k;
+  out[8] = (m[0] * m[4] - m[1] * m[3]) * k;
+  return true;
+}
+
+inline float DragWeight(float distance, float radius) {
+  if (!(radius > 0.0f) || !(distance < radius)) return 0.0f;
+  const float inner = 0.5f * radius;
+  if (distance <= inner) return 1.0f;
+  return (radius - distance) / (radius - inner);
+}
+
+// The move of one orb by a hand from `before` to `now`. False when the orb is
+// not in the reach of the hand of the frame before.
+inline bool DragPoint(const HandPose& before, const HandPose& now,
+                      float radius, const float point[3], float out[3]) {
+  const float d[3] = {point[0] - before.position[0],
+                      point[1] - before.position[1],
+                      point[2] - before.position[2]};
+  const float distance = sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+  const float weight = DragWeight(distance, radius);
+  if (!(weight > 0.0f)) return false;
+  float inverse[9];
+  if (!Invert3(before.rotation, inverse)) return false;
+  float local[3];
+  for (int r = 0; r < 3; ++r) {
+    local[r] = inverse[r * 3 + 0] * d[0] + inverse[r * 3 + 1] * d[1] +
+               inverse[r * 3 + 2] * d[2];
+  }
+  for (int r = 0; r < 3; ++r) {
+    const float there = now.position[r] + now.rotation[r * 3 + 0] * local[0] +
+                        now.rotation[r * 3 + 1] * local[1] +
+                        now.rotation[r * 3 + 2] * local[2];
+    out[r] = (there - point[r]) * weight;
+  }
+  return true;
+}
+
+// THE SHOW OF THE HANDS (intro_hand_show=1). A hand shows while it moves,
+// and it fades when it rests. The speed is the motion of the grip point in
+// the room, smoothed over a short time, so the shake of the tracking of a
+// hand at rest does not show it. The hand comes in a short time and goes in
+// a longer time, after a short wait.
+const float kShowMetersPerSecond = 0.12f;
+const float kShowSmoothSeconds = 0.08f;
+const float kShowWaitSeconds = 0.4f;
+const float kShowInSeconds = 0.15f;
+const float kShowOutSeconds = 0.5f;
+
+struct HandShow {
+  bool have;
+  float last[3];   // the grip point in the room, meters
+  float speed;     // smoothed, meters a second
+  float still;     // seconds below the speed of a motion
+  float opacity;   // 0 to 1
+};
+
+// One frame of a hand. `valid` is false when the hand is not tracked: then
+// the hand fades and its speed starts again. Returns the opacity.
+inline float HandShowStep(HandShow* s, bool valid, const float room_m[3],
+                          float dt) {
+  if (!(dt > 0.0f)) dt = 0.0f;
+  if (dt > 0.1f) dt = 0.1f;
+  bool moving = false;
+  if (valid) {
+    if (s->have && dt > 0.0f) {
+      const float dx = room_m[0] - s->last[0];
+      const float dy = room_m[1] - s->last[1];
+      const float dz = room_m[2] - s->last[2];
+      const float now = sqrtf(dx * dx + dy * dy + dz * dz) / dt;
+      float share = dt / kShowSmoothSeconds;
+      if (share > 1.0f) share = 1.0f;
+      s->speed += (now - s->speed) * share;
+    }
+    s->have = true;
+    for (int k = 0; k < 3; ++k) s->last[k] = room_m[k];
+    moving = s->speed > kShowMetersPerSecond;
+  } else {
+    s->have = false;
+    s->speed = 0.0f;
+  }
+  if (moving) {
+    s->still = 0.0f;
+    s->opacity += dt / kShowInSeconds;
+  } else {
+    s->still += dt;
+    if (s->still > kShowWaitSeconds || !valid) {
+      s->opacity -= dt / kShowOutSeconds;
+    }
+  }
+  if (s->opacity < 0.0f) s->opacity = 0.0f;
+  if (s->opacity > 1.0f) s->opacity = 1.0f;
+  return s->opacity;
+}
+
 }  // namespace intro_motion

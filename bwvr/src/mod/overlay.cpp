@@ -97,6 +97,12 @@
 // THE FINGERS FROM OUTSIDE. OverlaySetFinger gives one finger of one hand a
 // curl and a spread for the frame, in place of the curl that the poses give.
 // No file of the mod calls it.
+//
+// THE INTRO (docs/intro.md, "The hand models in the intro"). The Lionhead
+// logo in stereo has no scene walk, so intro_vr.cpp calls OverlayIntroFrame
+// in place of OverlayFrame, and OverlayPassEye around its eye passes. That
+// frame builds the hands only, with no context of the game and no fingers
+// that feel the world, and each hand has an opacity (HandModelSetOpacity).
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -145,6 +151,13 @@ using overlay_math::Triangle;
 bool g_on = false;
 
 const int kHands = 2;
+// THE INTRO (intro_vr.cpp, OverlayIntroFrame): the hands of the Lionhead
+// logo in stereo. There is no world and no Hand of the game yet, so the
+// build has no context of the game and no fingers that feel the world, and
+// each hand has an opacity.
+bool g_intro = false;
+bool g_intro_built = false;
+float g_intro_opacity[kHands] = {1.0f, 1.0f};
 // The tether of a far grab is a tube of one segment. The room of a ring
 // under a far target stays as spare room.
 const int kFarMaxTriangles = overlay_math::kRingMaxTriangles +
@@ -523,9 +536,11 @@ bool BuildFrame() {
   if (!(g_length > 0.0f)) return false;
   // With the exact Hand and overlay=0, only the other hand. With the mesh of
   // the game's Hand hidden, both hands.
-  const bool other_only = !g_on && HandExactOn() && !HandExactHidesGame();
+  const bool other_only =
+      !g_intro && !g_on && HandExactOn() && !HandExactHidesGame();
   HandExactContext context;
-  const bool have_context = HandExactGetContext(&context);
+  memset(&context, 0, sizeof(context));
+  const bool have_context = !g_intro && HandExactGetContext(&context);
   // The color of the skin: the player's alignment, or the plain skin.
   float skin[3] = {kSkin[0], kSkin[1], kSkin[2]};
   if (have_context && context.have_alignment && HandExactTint()) {
@@ -558,6 +573,9 @@ bool BuildFrame() {
     const OverlayHand& hand = hands.hand[h];
     if (!hand.valid) continue;
     if (other_only && h == hands.pointing) continue;
+    // A hand of the intro that does not show is not built. The low poly hand
+    // has no alpha, so it shows only from half the opacity.
+    if (g_intro && g_intro_opacity[h] < (mesh ? 0.01f : 0.5f)) continue;
     const bool pointing = h == hands.pointing;
     const int pose =
         ChoosePose(h, pointing, hand.squeeze, have_context, context);
@@ -584,7 +602,7 @@ bool BuildFrame() {
     // THE TICKLE: while the pointing hand strokes the Creature, the fingers
     // move a little with the path of the real hand. A hand that is still has
     // still fingers.
-    if (pointing && overlay_math::kFingers == 5) {
+    if (pointing && !g_intro && overlay_math::kFingers == 5) {
       float tickle[5];
       if (HandDirectStrokeHand(tickle) != 0) {
         for (int f = 0; f < 5; ++f) {
@@ -603,7 +621,7 @@ bool BuildFrame() {
     for (int f = 0; f < overlay_math::kFingers; ++f) place.curls[f] = curls[f];
     // THE FINGERS AND THE WORLD: the land, a target of the grip and the
     // bodies near the hand change the curls of the pose (hand_feel.cpp).
-    {
+    if (!g_intro) {
       HandFeelHand feel;
       feel.hand = h;
       feel.pointing = pointing;
@@ -643,6 +661,7 @@ bool BuildFrame() {
     overlay_math::FingerTip(1, index_curl, tip);
     overlay_math::PlacePoint(hand.position, hand.rotation, g_length, left, tip,
                              g_index_tip[h]);
+    HandModelSetOpacity(h, g_intro ? g_intro_opacity[h] : 1.0f);
     if (mesh && HandModelBuild(h, hand.position, hand.rotation, g_length, left,
                                fingers)) {
       // The mesh of the hand model stands for the low poly hand. Its own
@@ -1021,6 +1040,7 @@ void OverlaySetEnabled(bool on) {
 // stereo.cpp, once a frame, after the hands of the frame are known and
 // before the eye passes.
 void OverlayFrame() {
+  g_intro_built = false;
   ++g_frame;
   g_count = 0;
   g_eye_triangles[0] = g_eye_triangles[1] = 0;
@@ -1038,6 +1058,29 @@ void OverlayFrame() {
   BuildCommand();
   BuildMenuRay();
   BuildFar();
+  g_build_ticks = Now() - start;
+}
+
+// intro_vr.cpp, once a frame of the Lionhead logo in stereo, before the eye
+// passes: only the hands, each with its opacity (0 to 1). See g_intro.
+void OverlayIntroFrame(const float opacity[2]) {
+  ++g_frame;
+  g_count = 0;
+  g_eye_triangles[0] = g_eye_triangles[1] = 0;
+  g_eye_ticks[0] = g_eye_ticks[1] = 0;
+  g_teleport_triangles = 0;
+  g_mesh_hands = false;
+  for (int h = 0; h < kHands; ++h) {
+    g_hand_valid[h] = false;
+    g_intro_opacity[h] = opacity[h];
+  }
+  if (g_frequency.QuadPart == 0) QueryPerformanceFrequency(&g_frequency);
+  const int64_t start = Now();
+  g_intro = true;
+  BuildFrame();
+  g_intro = false;
+  g_intro_built = true;
+  g_pointing_drawn = g_hand_valid[g_pointing];
   g_build_ticks = Now() - start;
 }
 
@@ -1145,7 +1188,7 @@ void OverlayDraw() {
   const int64_t start = Now();
   // The world of this eye pass is drawn, so the objects of the frame are
   // known: the bodies near each hand, for the fingers of the next frame.
-  if (eye == 0) HandFeelSnapshot();
+  if (eye == 0 && !g_intro_built) HandFeelSnapshot();
 
   IDirect3DDevice7* device =
       *reinterpret_cast<IDirect3DDevice7* const*>(

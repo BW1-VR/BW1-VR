@@ -50,11 +50,19 @@
 // then does not run, and the motion that the mouse made in that time stays
 // in the device for the next frame (intro_push_once).
 //
-// THE PUSH OF THE HAND. The push needs a motion of the mouse device: the
-// effect reads the two motion sums of LHMouse after LHMouse::UpdateDeltaPos.
-// With the pointer owned by the controller, the first eye pass adds the
-// motion of the pixel of the hand to those sums (intro_hand_push_pct). So the
-// hand pushes the orbs as a mouse does, through the code of the game.
+// THE PUSH IN 3D. In the first eye pass, after the sky and before the effect
+// moves and draws the orbs, each hand takes the orbs in its reach with its
+// own motion, one to one (Push3d, intro_push_3d). Then the spring of the
+// effect pulls them back to their homes. The overlay draws the hand models of
+// the game in each eye pass, and a hand shows while it moves (HandsFrame,
+// intro_hand_show).
+//
+// THE PUSH OF THE HAND, with intro_push_3d=0. The push of the effect needs a
+// motion of the mouse device: the effect reads the two motion sums of LHMouse
+// after LHMouse::UpdateDeltaPos. With the pointer owned by the controller,
+// the first eye pass adds the motion of the pixel of the pointing hand to
+// those sums (intro_hand_push_pct). So the hand pushes the orbs as a mouse
+// does, through the code of the game.
 //
 // Three more values change on each call and are not scaled by time: the
 // smoothed mouse motion, the speed of the effect clock at 0x00D34A8C (the
@@ -98,6 +106,7 @@
 #include "../common/bw_addresses.h"
 #include "../vr/xr_screen.h"
 #include "vk_scene.h"
+#include "controllers.h"
 #include "intro_motion_math.h"
 
 extern void ModLog(const char* format, ...);
@@ -152,6 +161,12 @@ void ControllersGesturePulse(float amplitude, float seconds);
 bool ControllersOwnPointer();
 bool ControllerRenderPixel(float* x, float* y, bool* off_view);
 bool ControllerHandPixel(float* x, float* y, bool* off_view);
+// head_camera.cpp: the camera that the hands of controllers.cpp are placed
+// from.
+bool HeadCameraGameCamera(float position[3], float focus[3]);
+// overlay.cpp: the hands of the intro, and the eye pass for their draw.
+void OverlayIntroFrame(const float opacity[2]);
+void OverlayPassEye(int eye);
 
 namespace {
 
@@ -209,6 +224,9 @@ bool g_controller = true;      // intro_controller: the aim moves the pointer
 int g_hand_push_pct = 100;     // intro_hand_push_pct: the hand pushes the orbs
 int g_hand_push_set_pct = 100; // the value of the ini, for the test key
 bool g_hand_point = true;      // intro_hand_point: the pointer is at the hand
+bool g_push_3d = true;         // intro_push_3d: each hand pushes in 3D
+float g_push_radius_m = 0.10f; // intro_push_radius_cm
+int g_hand_show = 1;           // intro_hand_show: 0 off, 1 while moving, 2 on
 bool g_probe = false;          // intro_probe: log the cameras each second
 bool g_test_keys = false;      // test_keys
 int g_motion_test_ms = 0;      // intro_motion_test_seconds, a test
@@ -281,6 +299,23 @@ uint64_t g_hand_pair = 0;        // the pair of the last step
 int32_t g_hand_point_x = 0;      // the last pixel of the Hand's point
 int32_t g_hand_point_y = 0;
 bool g_have_hand_point = false;
+
+// The hands in 3D: the pose of each hand against the camera that placed it,
+// for this pair and the pair before, and its show.
+intro_motion::HandPose g_hand_now[2];
+intro_motion::HandPose g_hand_before[2];
+bool g_hand_now_valid[2] = {false, false};
+bool g_hand_before_valid[2] = {false, false};
+uint64_t g_hand_pose_pair = 0;
+float g_hand_units = 0.0f;       // world units in a meter of the room
+intro_motion::HandShow g_show[2];
+float g_show_opacity[2] = {0.0f, 0.0f};
+bool g_overlay_on = false;       // the overlay built the hands of this pair
+uint64_t g_push_3d_frames = 0;   // frames in which a hand moved an orb
+uint64_t g_push_3d_orbs = 0;     // orbs moved, summed over the frames
+int g_push_3d_most = 0;          // the most orbs that one frame moved
+bool g_push_3d_said = false;
+uint64_t g_show_frames = 0;      // frames with a hand that shows
 int32_t g_push_pointer_x = 0;    // the pointer that the push of the effect read
 int32_t g_push_pointer_y = 0;
 uint64_t g_hand_push_frames = 0; // frames in which the hand gave a motion
@@ -526,14 +561,19 @@ void SwitchTrails(const char* who) {
 // steps intro_motion. Shift with Page Down switches intro_eye_trails, and
 // Shift with Delete switches intro_text_place: a long pulse for 1 and a
 // short pulse for 0. Shift with Home switches the push of the hand between
-// off and on, and Shift with End switches intro_hand_point: a long pulse
-// for on and a short pulse for off. Ctrl must be up for each of them.
+// off and on, Shift with End switches intro_hand_point, and Shift with
+// Insert switches intro_push_3d: a long pulse for on and a short pulse for
+// off. Shift with Backspace steps intro_hand_show: 1, 2, 0 and 1 again, one
+// short pulse for each unit of the new value and one long pulse for 0. Ctrl
+// must be up for each of them.
 void PollKeys() {
   static bool was_motion = false;
   static bool was_trails = false;
   static bool was_text = false;
   static bool was_hand = false;
   static bool was_point = false;
+  static bool was_push3d = false;
+  static bool was_show = false;
   if (g_key_pulses > 0 && GetTickCount() >= g_key_pulse_tick) {
     --g_key_pulses;
     g_key_pulse_tick = GetTickCount() + 250;
@@ -552,13 +592,20 @@ void PollKeys() {
   const bool point = lone_shift && (GetAsyncKeyState(VK_END) & 0x8000) != 0;
   const bool hand_pressed = hand && !was_hand;
   const bool point_pressed = point && !was_point;
+  const bool push3d =
+      lone_shift && (GetAsyncKeyState(VK_INSERT) & 0x8000) != 0;
+  const bool show = lone_shift && (GetAsyncKeyState(VK_BACK) & 0x8000) != 0;
+  const bool push3d_pressed = push3d && !was_push3d;
+  const bool show_pressed = show && !was_show;
   was_motion = motion;
   was_trails = trails;
   was_text = text;
   was_hand = hand;
   was_point = point;
+  was_push3d = push3d;
+  was_show = show;
   if (!motion_pressed && !trails_pressed && !text_pressed && !hand_pressed &&
-      !point_pressed) {
+      !point_pressed && !push3d_pressed && !show_pressed) {
     return;
   }
   DWORD process = 0;
@@ -602,6 +649,28 @@ void PollKeys() {
                         : "the pointer is where the aim ray points",
            *Clock());
   }
+  if (push3d_pressed) {
+    g_push_3d = !g_push_3d;
+    ControllersGesturePulse(0.5f, g_push_3d ? 0.24f : 0.08f);
+    ModLog("test key     : Shift and Insert: intro_push_3d is %d now (%s), "
+           "clock %.2f", g_push_3d ? 1 : 0,
+           g_push_3d ? "each hand takes the orbs in its reach in 3D"
+                     : "the pointing hand pushes the orbs in the disc of the "
+                       "game around the pointer",
+           *Clock());
+  }
+  if (show_pressed) {
+    g_hand_show = (g_hand_show + 1) % 3;
+    g_key_pulses = g_hand_show;
+    g_key_pulse_tick = GetTickCount();
+    if (g_hand_show == 0) ControllersGesturePulse(0.5f, 0.40f);
+    ModLog("test key     : Shift and Backspace: intro_hand_show is %d now "
+           "(%s), clock %.2f", g_hand_show,
+           g_hand_show == 1   ? "a hand shows while it moves"
+           : g_hand_show == 2 ? "a hand shows while it is tracked"
+                              : "no hand shows",
+           *Clock());
+  }
 }
 
 // A key that goes down ends the logo: DoLogo tests the last key after each
@@ -614,7 +683,9 @@ void KeepLogoForTestKey() {
       (GetAsyncKeyState(VK_NEXT) & 0x8000) == 0 &&
       (GetAsyncKeyState(VK_DELETE) & 0x8000) == 0 &&
       (GetAsyncKeyState(VK_HOME) & 0x8000) == 0 &&
-      (GetAsyncKeyState(VK_END) & 0x8000) == 0) {
+      (GetAsyncKeyState(VK_END) & 0x8000) == 0 &&
+      (GetAsyncKeyState(VK_INSERT) & 0x8000) == 0 &&
+      (GetAsyncKeyState(VK_BACK) & 0x8000) == 0) {
     return;
   }
   *reinterpret_cast<uint32_t*>(kLastKey) = 0;
@@ -706,7 +777,10 @@ void RunEye(int eye, uint32_t delta, uint32_t game_time_inc) {
   *GameTimeInc() = game_time_inc;
   g_pass_delta = delta;
   g_pass_delta_valid = true;
+  // The hand models draw in the FinishFrame of this pass (overlay.cpp).
+  if (g_overlay_on) OverlayPassEye(eye);
   o_RunAlexFx(1);
+  if (g_overlay_on) OverlayPassEye(-1);
   g_pass_delta_valid = false;
   g_eye = -1;
   EyeCameraRestore();
@@ -799,6 +873,11 @@ void LogPair() {
 // at a different place, and the smoothed motion of the frames before still
 // pushes there.
 void HandPush() {
+  // With the push in 3D the hands move the orbs themselves (Push3d).
+  if (g_push_3d) {
+    g_hand.have = false;
+    return;
+  }
   float x = 0.0f, y = 0.0f;
   bool off_view = true;
   bool has_pixel = false;
@@ -836,6 +915,103 @@ void HandPush() {
     ModLog("intro        : the hand moved the pointer to %.1f %.1f and gives "
            "the mouse a motion of %d %d. The effect pushes the orbs near the "
            "pointer, clock %.2f", x, y, dx, dy, *Clock());
+  }
+}
+
+// THE HANDS OF THE PAIR, after ControllersFrame and before the eye passes.
+// controllers.cpp places each hand in the world from the camera of the last
+// eye pass. Each pose here is against that camera: the camera moves along
+// the path of the game between two pairs, and that motion is not a motion of
+// the hand. With intro_hand_show the overlay builds the hand models, each
+// with the opacity of its show (intro_motion::HandShowStep).
+void HandsFrame(float dt) {
+  OverlayHands hands;
+  float camera[3], focus[3];
+  const bool have = ControllersOverlayHands(&hands) &&
+                    HeadCameraGameCamera(camera, focus) &&
+                    hands.units_per_meter > 0.0f;
+  const bool next = g_hand_pose_pair + 1 == g_pairs;
+  g_hand_pose_pair = g_pairs;
+  if (have) g_hand_units = hands.units_per_meter;
+  bool any_shows = false;
+  for (int h = 0; h < 2; ++h) {
+    g_hand_before[h] = g_hand_now[h];
+    g_hand_before_valid[h] = next && g_hand_now_valid[h];
+    const bool valid = have && hands.hand[h].valid;
+    g_hand_now_valid[h] = valid;
+    float room_m[3] = {0.0f, 0.0f, 0.0f};
+    if (valid) {
+      for (int k = 0; k < 3; ++k) {
+        g_hand_now[h].position[k] = hands.hand[h].position[k] - camera[k];
+        room_m[k] = g_hand_now[h].position[k] / hands.units_per_meter;
+      }
+      memcpy(g_hand_now[h].rotation, hands.hand[h].rotation,
+             sizeof(g_hand_now[h].rotation));
+    }
+    const float shown = intro_motion::HandShowStep(&g_show[h], valid, room_m,
+                                                   dt);
+    g_show_opacity[h] = g_hand_show == 2 ? (valid ? 1.0f : 0.0f) : shown;
+    if (g_show_opacity[h] > 0.0f) any_shows = true;
+  }
+  if (g_probe && (g_pairs % 100) == 0 && g_hand_now_valid[1]) {
+    const float* p = g_hand_now[1].position;
+    const float* r = g_hand_now[1].rotation;
+    ModLog("intro        : pair %llu, the right hand is at %.3f %.3f %.3f "
+           "from the camera at %.3f %.3f %.3f, its first axis %.4f %.4f %.4f, "
+           "speed %.3f m/s, opacity %.2f", g_pairs, p[0], p[1], p[2],
+           camera[0], camera[1], camera[2], r[0], r[3], r[6],
+           g_show[1].speed, g_show_opacity[1]);
+  }
+  g_overlay_on = g_hand_show != 0;
+  if (!g_overlay_on) return;
+  if (any_shows) ++g_show_frames;
+  OverlayIntroFrame(g_show_opacity);
+}
+
+// THE PUSH IN 3D, in the first eye pass, after the sky and before the effect
+// moves and draws the orbs (IntroMouseCall). Each hand takes the orbs in its
+// reach with its own motion since the pair before, one to one, in place and
+// in turn (intro_motion::DragPoint). The poses are against the camera, and
+// here they go on the camera of the orbs of this pair. Then the spring of the
+// effect pulls each orb back to its home.
+void Push3d() {
+  if (!g_push_3d || !g_have_cameras || !(g_hand_units > 0.0f)) return;
+  uint8_t* records = *reinterpret_cast<uint8_t* const*>(kParticles);
+  if (records == nullptr || IsBadWritePtr(records, 0x34 * kOrbs)) return;
+  const float radius = g_push_radius_m * g_hand_units;
+  int moved = 0;
+  for (int h = 0; h < 2; ++h) {
+    if (!g_hand_now_valid[h] || !g_hand_before_valid[h]) continue;
+    // A hand that did not move moves no orb. The turn there and back would
+    // give each orb a small move of the rounding.
+    if (memcmp(&g_hand_before[h], &g_hand_now[h], sizeof(g_hand_now[h])) ==
+        0) {
+      continue;
+    }
+    intro_motion::HandPose before = g_hand_before[h];
+    intro_motion::HandPose now = g_hand_now[h];
+    for (int k = 0; k < 3; ++k) {
+      before.position[k] += g_orb_position[k];
+      now.position[k] += g_orb_position[k];
+    }
+    for (int orb = 0; orb < kOrbs; ++orb) {
+      float* p = reinterpret_cast<float*>(records + 0x34 * orb);
+      float delta[3];
+      if (!intro_motion::DragPoint(before, now, radius, p, delta)) continue;
+      if (delta[0] == 0.0f && delta[1] == 0.0f && delta[2] == 0.0f) continue;
+      for (int k = 0; k < 3; ++k) p[k] += delta[k];
+      ++moved;
+    }
+  }
+  if (moved == 0) return;
+  ++g_push_3d_frames;
+  g_push_3d_orbs += static_cast<uint64_t>(moved);
+  if (moved > g_push_3d_most) g_push_3d_most = moved;
+  if (!g_push_3d_said) {
+    g_push_3d_said = true;
+    ModLog("intro        : a hand moves %d orbs in 3D, clock %.2f. The reach "
+           "of a hand is %.0f cm of the room, %.1f units", moved, *Clock(),
+           g_push_radius_m * 100.0f, radius);
   }
 }
 
@@ -903,6 +1079,7 @@ void RunPair() {
   if (delta < 1) delta = 1;
   if (delta > 100) delta = 100;
   g_last_pair_tick = now;
+  if (g_controller) HandsFrame(static_cast<float>(delta) * 0.001f);
 
   uint32_t* seed = Seed();
   const uint32_t seed_before = seed != nullptr ? *seed : 0;
@@ -1012,9 +1189,17 @@ void __cdecl h_RunAlexFx(int mode) {
       ModLog("intro        : the hand gave the mouse a motion in %llu frames, "
              "%llu counts in all (intro_hand_push_pct=%d)", g_hand_push_frames,
              g_hand_push_counts, g_hand_push_pct);
+      ModLog("intro        : the hands moved orbs in 3D in %llu frames, %llu "
+             "orbs in all, at the most %d in one frame (intro_push_3d=%d). A "
+             "hand showed in %llu frames (intro_hand_show=%d)",
+             g_push_3d_frames, g_push_3d_orbs, g_push_3d_most,
+             g_push_3d ? 1 : 0, g_show_frames, g_hand_show);
     }
     g_hand.have = false;
     g_have_hand_point = false;
+    g_hand_now_valid[0] = g_hand_now_valid[1] = false;
+    g_hand_before_valid[0] = g_hand_before_valid[1] = false;
+    g_overlay_on = false;
     return;
   }
   const bool ready = mode == 1 && g_on && !g_gave_up && g_installed &&
@@ -1078,6 +1263,7 @@ bool IntroMouseCall(uintptr_t caller) {
     HeadCameraIntroPlace(g_orb_position, g_orb_focus);
     IntroCameraBuilt();
   }
+  if (g_eye == 0) Push3d();
   return g_eye == 1 && g_push_once;
 }
 
@@ -1287,6 +1473,17 @@ void IntroSetHandPush(int percent, bool hand_point) {
   g_hand_point = hand_point;
 }
 
+// intro_push_3d: each hand takes the orbs in its reach in 3D, and the hands
+// give the mouse no motion. intro_push_radius_cm: the reach of a hand in the
+// room, 2 to 50. intro_hand_show: 0 no hand models, 1 a hand shows while it
+// moves, 2 a hand shows while it is tracked.
+void IntroSetHands(bool push_3d, int radius_cm, int hand_show) {
+  g_push_3d = push_3d;
+  const int cm = radius_cm < 2 ? 2 : radius_cm > 50 ? 50 : radius_cm;
+  g_push_radius_m = static_cast<float>(cm) * 0.01f;
+  g_hand_show = hand_show < 0 || hand_show > 2 ? 1 : hand_show;
+}
+
 void IntroInstall() {
   if (!g_on || g_installed) return;
   if (!CodeIsWhatWeExpect()) return;
@@ -1313,17 +1510,21 @@ void IntroInstall() {
          "%.2f m from the head at the rest pose (%.2f m for the model of "
          "intro_motion=2), the clock of the effect runs at %d percent, "
          "intro_eye_trails=%d, intro_text_place=%d, intro_push_once=%d, "
-         "controller %s, intro_hand_push_pct=%d, intro_hand_point=%d",
+         "controller %s, intro_hand_push_pct=%d, intro_hand_point=%d, "
+         "intro_push_3d=%d with a reach of %.0f cm, intro_hand_show=%d",
          g_motion, MotionText(g_motion), g_distance_m, g_model_distance_m,
          g_speed_pct, g_eye_trails ? 1 : 0, g_text_place ? 1 : 0,
          g_push_once ? 1 : 0, g_controller ? "on" : "off", g_hand_push_pct,
-         g_hand_point ? 1 : 0);
+         g_hand_point ? 1 : 0, g_push_3d ? 1 : 0, g_push_radius_m * 100.0f,
+         g_hand_show);
   if (g_test_keys) {
     ModLog("intro        : test_keys=1: while the logo plays in stereo, Shift "
            "and Page Up step intro_motion, Shift and Page Down switch "
            "intro_eye_trails, Shift and Delete switch intro_text_place, Shift "
-           "and Home switch the push of the hand, and Shift and End switch "
-           "intro_hand_point. These keys do not end the logo");
+           "and Home switch the push of the hand, Shift and End switch "
+           "intro_hand_point, Shift and Insert switch intro_push_3d, and "
+           "Shift and Backspace step intro_hand_show. These keys do not end "
+           "the logo");
   }
   if (g_motion_test_ms > 0) {
     ModLog("intro        : test key intro_motion_test_seconds: each %d s of "

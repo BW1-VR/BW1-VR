@@ -495,6 +495,15 @@ the curls of the pose in the same frame, so `overlay.cpp` gives them to
 `HandFeelCurls` and takes the new curls back. A request of
 `OverlaySetFinger` then acts on the curls that hand feel made.
 
+### The hands in the intro
+
+The Lionhead logo in stereo draws the hands too (`intro.md`, "The hand
+models in the intro"). `OverlayIntroFrame` builds only the hands, with no
+context of the game and no hand feel, because the world and the Hand of the
+game are not there yet. `HandModelSetOpacity` gives each hand an opacity
+that multiplies the alpha of the texture, so a hand can fade. In play each
+hand has the opacity 1.
+
 ### Keys
 
 | Key | Default | What it does |

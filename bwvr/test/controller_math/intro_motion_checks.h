@@ -300,6 +300,69 @@ inline void IntroMotionChecks() {
   HandPushStep(&hand, true, 280.0f, 900.0f, 100, &dx, &dy);
   Check(dx == 0 && dy == 0,
         "after 0 percent the next pixel starts again with no motion", dx, dy);
+
+  // THE PUSH IN 3D: an orb in the reach of a hand goes with the hand.
+  const HandPose rest = {{10.0f, 0.0f, 0.0f},
+                         {1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f}};
+  HandPose hand_moved = rest;
+  hand_moved.position[0] = 12.0f;
+  float delta[3];
+  const float at_hand[3] = {10.5f, 0.0f, 0.0f};
+  Check(DragPoint(rest, hand_moved, 3.0f, at_hand, delta),
+        "an orb near the hand is in its reach", 1, 1);
+  Near("it goes with the hand, one to one: 2 units across", delta[0], 2.0,
+       1e-5);
+  Near("and not up", delta[1], 0.0, 1e-5);
+  const float edge[3] = {12.25f, 0.0f, 0.0f};
+  DragPoint(rest, hand_moved, 3.0f, edge, delta);
+  Near("an orb at 3/4 of the radius goes half as far", delta[0], 1.0, 1e-5);
+  const float far_orb[3] = {14.0f, 0.0f, 0.0f};
+  Check(!DragPoint(rest, hand_moved, 3.0f, far_orb, delta),
+        "an orb past the radius stays", 0, 0);
+  // A turn of the hand of 90 degrees about z, in place: an orb 1 unit along
+  // x of the hand goes to 1 unit along y.
+  HandPose hand_turned = rest;
+  const float quarter[9] = {0.0f, -1.0f, 0.0f, 1.0f, 0.0f, 0.0f,
+                            0.0f, 0.0f, 1.0f};
+  for (int i = 0; i < 9; ++i) hand_turned.rotation[i] = quarter[i];
+  const float beside[3] = {11.0f, 0.0f, 0.0f};
+  DragPoint(rest, hand_turned, 3.0f, beside, delta);
+  Near("a turn of the hand turns the orb with it, across", delta[0], -1.0,
+       1e-5);
+  Near("and up", delta[1], 1.0, 1e-5);
+  const float still_orb[3] = {10.5f, 0.5f, 0.0f};
+  DragPoint(rest, rest, 3.0f, still_orb, delta);
+  Near("a hand that does not move moves no orb", delta[0] + delta[1] + delta[2],
+       0.0, 1e-6);
+  float inv[9];
+  const float flat[9] = {1, 0, 0, 0, 0, 0, 0, 0, 1};
+  Check(!Invert3(flat, inv), "a flat matrix has no inverse", 0, 0);
+
+  // THE SHOW OF THE HANDS: a hand shows while it moves and fades at rest.
+  HandShow show = {false, {0, 0, 0}, 0.0f, 0.0f, 0.0f};
+  const float dt = 1.0f / 90.0f;
+  float place[3] = {0.0f, 0.0f, 0.0f};
+  float opacity = 0.0f;
+  for (int i = 0; i < 90; ++i) {
+    place[1] = 0.0002f * ((i % 2) * 2 - 1);  // the shake of the tracking
+    opacity = HandShowStep(&show, true, place, dt);
+  }
+  Check(opacity == 0.0f, "a hand at rest with the shake of the tracking does "
+        "not show", opacity, 0.0);
+  for (int i = 0; i < 30; ++i) {
+    place[0] += 0.5f * dt;  // 0.5 m a second
+    opacity = HandShowStep(&show, true, place, dt);
+  }
+  Near("a hand that moves 0.5 m a second shows in full after 1/3 s", opacity,
+       1.0, 1e-6);
+  for (int i = 0; i < 27; ++i) opacity = HandShowStep(&show, true, place, dt);
+  Near("for 0.3 s after it stops it still shows", opacity, 1.0, 1e-6);
+  for (int i = 0; i < 90; ++i) opacity = HandShowStep(&show, true, place, dt);
+  Check(opacity == 0.0f, "1 s after it stops it does not show", opacity, 0.0);
+  show.opacity = 1.0f;
+  for (int i = 0; i < 46; ++i) opacity = HandShowStep(&show, false, place, dt);
+  Check(opacity == 0.0f, "a hand that is not tracked fades in 0.5 s",
+        opacity, 0.0);
 }
 
 }  // namespace intro_motion_checks
