@@ -1783,16 +1783,15 @@ Use the rig of section 12, with `fake_head_pitch=0`. The Creature select story
 holds the view until the pen. A press of A in a story is refused, and the log
 says so.
 
-`aim_queue.ps1 -Runs ring1,ring0 -NewGame` in `bwvr/tools/desk` makes three
-teleports at the pen: at 100 units a meter, after two zoom steps in (44.4) and
-after five zoom steps out (337.5). The runs show for each teleport that the
+`aim_queue.ps1 -Runs ring1,ring0` in `bwvr/tools/desk` makes three teleports
+at the pen: at 100 units a meter, after two zoom steps in (44.4) and after five
+zoom steps out (337.5). The aim is 60 degrees down, straight ahead, in the
+test save `pen` and in a new game. The runs show for each teleport that the
 head is over the target (0.000 units off), that the land under the head keeps
 its room height, and that the scale and the heading stay. With
 `teleport_ring_mode=1` the ring has a radius of 11.0 cm, 24.7 cm and 4.0 cm of
 the room at the three scales. With `teleport_ring_mode=0` it has 11.0 cm at
-each scale. In the test save `pen` the runs show the same ring sizes and two
-teleports: the third aim is on the sea (`tools/desk/README.md`, "Known limits
-of the recipes").
+each scale.
 
 1. The switch of the game, at the start of the tutorial. `spawn_run.ps1
    -Choice normal` starts a new game with the row "Start the game normally":

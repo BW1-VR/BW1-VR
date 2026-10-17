@@ -188,19 +188,16 @@ Known limits of the recipes:
 - The word `aimfar` does not choose the same object in the test save `pen`
   and in a new game. The head is 1 cm from its place in a new game, and some
   objects are at the least distance of the word (50 cm for a rock, 17 cm for
-  a tree). In a new game the first `aimfar` of a recipe that fetches a rock
-  (`aim_queue.ps1`, `throw_queue.ps1`) aims at a small rock 0.50 m of the
-  room from the Hand. In the test save it aims at the rock 3.86 m from the
-  Hand. Two proofs need `-NewGame`:
-  - `aim_queue.ps1 -Runs ring1,ring0`. In the test save the hand keeps the
-    aim at the far rock, which is almost level. The third aim, at 337.5 units
-    a meter, is then on the sea, and its release makes no teleport. The run
-    shows the three ring sizes and two teleports. In a new game the hand aims
-    61 degrees down, and each of the three teleports goes.
-  - `throw_queue.ps1 -Runs treeset` and `-Runs treelean`. In the test save
-    the second `aimfar` aims at a different tree, the hand turns to it, the
-    Hand's point is then on a small rock, and the grip takes the rock. In a
-    new game the grip takes the tree at the land.
+  a tree). In the test save the first `aimfar` of a recipe that fetches a
+  rock (`aim_queue.ps1`, `throw_queue.ps1`) aims at the rock 3.86 m of the
+  room from the Hand. In a new game it aims at a small rock 0.50 m from the
+  Hand at the render of 2208 by 2208, and at the rock 3.85 m from the Hand
+  at the render of 3600 by 2880. One proof needs `-NewGame`:
+  `throw_queue.ps1 -Runs treeset` and `-Runs treelean`. In the test save the
+  second `aimfar` aims at a different tree, the hand turns to it, the Hand's
+  point is then on a small rock, and the grip takes the rock. In a new game
+  the grip takes the tree at the land. `aim_queue.ps1 -Runs ring1,ring0` sets
+  its aim with the word `aimturn`, so it does not depend on `aimfar`.
 - The speed of a throw is not the same in each run. The scripted hand makes
   its step of 15 cm in one frame, so the top speed that the mod measures
   depends on the time of the frames at the step. Four runs of
@@ -224,6 +221,11 @@ Known limits of the recipes:
   tap that takes them apart. Its last opening of the grip makes no building
   site: the game has no place for a building there, and the hand is 18 cm
   over the land, so the scaffold falls. `-Kind site` shows a building site.
+- At the render of 3600 by 2880, `throw_queue.ps1 -Runs catchfar` and
+  `-Runs treedropend` take a tree that stands beside the thrown tree. In
+  `hand_run.ps1 -Kind one` the grip with `near_rule` 2 taps the scroll and
+  does not take the rock, and the presses at the crown start off view. See
+  R11 in `bwvr/docs/roadmap.md`.
 - A run in which a person uses the PC does not count: the game window can
   lose the front, and the real mouse can take the pointer from the scripted
   controller. `desk_run.ps1` says when a person used the PC in a run.

@@ -798,11 +798,12 @@ that moves while the Hand takes it.
   can open a project that is there, or take a symbol file, on Windows.
 - **R7. The word `aimfar` chooses a different object in the test save
   `pen`.** The head is 1 cm from its place in a new game, and some objects
-  are at the least distance of the word. So `aim_queue.ps1 -Runs
-  ring1,ring0` and `throw_queue.ps1 -Runs treeset,treelean` show their proof
-  only with `-NewGame` (`bwvr/tools/desk/README.md`, "Known limits of the
-  recipes"). Give these recipes an aim that does not depend on the least
-  distance, or the start of a new game by default.
+  are at the least distance of the word. So `throw_queue.ps1 -Runs
+  treeset,treelean` shows its proof only with `-NewGame`
+  (`bwvr/tools/desk/README.md`, "Known limits of the recipes"). Give these
+  recipes an aim that does not depend on the least distance, as `aim_queue.ps1
+  -Runs ring1,ring0` has with the word `aimturn`, or the start of a new game
+  by default.
 - **R8. The wait for the lock of a run can stop a caller.** `desk_run.ps1`
   reads the age of the lock after a failed open. When the other run removes
   the lock between those two lines, PowerShell gives the error "Cannot find
@@ -818,3 +819,22 @@ that moves while the Hand takes it.
   from a forest (`forest_take.cpp`). The keys of the keyboard that no code
   of the game or of the mod reads are few: a new test key needs a search
   first (`backend.md`, the hotkey table).
+- **R11. Three recipes do not show their proof at the render of 3600 by
+  2880.** The objects of these steps are low in the view, and a render of
+  3600 by 2880 gives the view a different shape than 2208 by 2208. Not
+  proven: the render size is the cause.
+  - `throw_queue.ps1 -Runs catchfar` and `-Runs treedropend`. The second
+    `aimfar` aims at the thrown tree 0.43 m of the room from the Hand, but
+    the draw does not offer that tree ("aimfar: the draw did not offer the
+    thrown object ... among 105 candidates"). The far grab takes a tree that
+    stands 0.48 m from the Hand ("target ... (Tree) at 0.0 degrees from the
+    ray ... Why: the lowest score"). So no run takes a tree that still
+    moves, and `catch_rest_test` acts on the standing tree. `one_walk=0`
+    gives the same result.
+  - `hand_run.ps1 -Kind one`. With `near_rule` 2 the grip at the scroll taps
+    the scroll ("the grip taps it ... rule 2"), and it does not take the
+    rock beside it. The two presses at the crown of the tree start off view,
+    and the controller code drops them ("the right button press started off
+    view, so it is dropped").
+  Give these steps a head that looks down (`fake_head_pitch`) or hand places
+  higher in the view, and compare a run at each render size.
