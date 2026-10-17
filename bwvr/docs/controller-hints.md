@@ -580,6 +580,14 @@ names.
   hint (`HELP_TEXT_NEW_INTERFACE_04`) and the six hints for a look at the sky
   (`HELP_TEXT_INTERFACE_LOOK_AT_SKY_01` to `_06`). The voice of the spirits
   still says the game's own words.
+- The Island Keeper of the Gods' Playground names the mouse at the two steps
+  that wait for a hold of the mouse. The step of the turn
+  (`HELP_TEXT_TUTORIAL_LAND_30`, "Move the Hand to the left of the screen.")
+  gets "Push the stick left or right to turn.", and the step of the zoom
+  (`HELP_TEXT_TUTORIAL_LAND_80`, "Hold down the Action and Move Buttons on the
+  mouse.") gets "Push the stick forward or back to zoom." A snap turn and a
+  zoom of the stick end these steps (`script_camera_moves`, `god-view.md`,
+  section 16.6).
 - The Escape lines (`TUTORIAL_LAND_09`, `_10`, `_40`, `_106`,
   `CITADEL_GUIDE_13`) and "Action Button" stay. The menu button has no job
   there.

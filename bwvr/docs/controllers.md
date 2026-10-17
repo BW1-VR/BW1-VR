@@ -852,7 +852,7 @@ The script is a list of `input@frame+frames`, separated by spaces. The input
 is a word from the table. `frame` is the frame at which it starts. `frames` is
 how many frames it lasts. The mod counts frames from the first frame of the
 controllers (one for each frame that draws the world). A word that does not
-parse is logged and skipped. The script has 64 words at most and 1023
+parse is logged and skipped. The script has 192 words at most and 4095
 characters at most.
 
 ```ini

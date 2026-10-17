@@ -883,6 +883,60 @@ inline void StrokeChecks() {
           "game's camera", 0, 0);
   }
 
+  // THE CAMERA MOVES THAT A SCRIPT SEES. The interface level 10 of the
+  // Gods' Playground (the turn and the drag) is 0xA, the zoom lesson of the
+  // tutorial (level 15) is 0x3F, and level 11 (the tilt) is 1.
+  {
+    const ViewMoves none = {false, false, false};
+    const ViewMoves turned = {true, false, false};
+    const ViewMoves zoomed = {false, true, false};
+    const ViewMoves held = {false, false, true};
+    const ViewMoves grab_both = {true, true, true};
+    const unsigned land = 3;  // the hand over the land, no button
+    auto mode = [](unsigned want, unsigned got, const char* what) {
+      Check(got == want, what, got, want);
+    };
+    mode(land, ScriptHandState(land, none, 0x3F),
+         "no move of the view: the game's hand mode");
+    mode(kHandZoomHold, ScriptHandState(land, zoomed, 0x3F),
+         "a zoom of the view is the hold of both buttons (0x16)");
+    mode(land, ScriptHandState(land, zoomed, 0xA),
+         "a zoom while the camera cannot zoom stays the game's mode, as the "
+         "game gives 0x16 only with the zoom on");
+    mode(kHandMoveHold, ScriptHandState(land, turned, 0xA),
+         "a turn of the view is the hold of the Move Button (0x14)");
+    mode(kHandMoveHold, ScriptHandState(land, held, 0xA),
+         "a grip that holds the land is the hold of the Move Button");
+    mode(kHandZoomHold, ScriptHandState(land, grab_both, 0x3F),
+         "a grab of two hands that zooms and turns is the hold of both "
+         "buttons");
+    mode(kHandMoveHold, ScriptHandState(kHandMoveHold, zoomed, 0x3F),
+         "a drag of the trigger on the land stays the game's 0x14");
+    mode(kHandZoomHold, ScriptHandState(kHandZoomHold, turned, 0x3F),
+         "a hold of both buttons of the game stays 0x16");
+    mode(kArrowTurn, ScriptArrows(0, turned, 0xA),
+         "a turn of the view shows the rotate arrow");
+    mode(0, ScriptArrows(0, turned, 0x1),
+         "a turn while the camera cannot turn shows no arrow, as the game "
+         "masks its arrows with the switches");
+    mode(0, ScriptArrows(0, zoomed, 0x3F) | ScriptArrows(0, held, 0xA),
+         "a zoom and a grip on the land show no rotate arrow");
+    mode(0x103, ScriptArrows(0x101, turned, 0x3F),
+         "the arrows of the game stay, and the rotate arrow is added");
+    mode(0x201, ScriptArrows(0x201, none, 0x3F),
+         "no move of the view: the game's arrows");
+    Check(HelpRecent(true, 5000, 5000) && HelpRecent(true, 5000, 5100) &&
+              HelpRecent(true, 5000, 5200),
+          "an event of this game turn and of the two game turns before is "
+          "recent", 1, 1);
+    Check(!HelpRecent(true, 5000, 5300),
+          "an event of three game turns before is not recent", 5300 - 5000,
+          2 * kHelpClockTurn);
+    Check(!HelpRecent(true, 5000, 100),
+          "a clock that went back (a load) makes no event recent", 100, 5000);
+    Check(!HelpRecent(false, 0, 0), "no event is not recent", 0, 0);
+  }
+
   // THE VIEW OF THE HEAD, for a script that asks if the camera sees a point.
   {
     // The head looks along +z, level. The columns are right, up, forward.

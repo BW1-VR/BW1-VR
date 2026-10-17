@@ -203,7 +203,7 @@ bool g_pointer_owned = false;
 
 // --- the fake controller -----------------------------------------------------
 
-const int kMaxScript = 64;
+const int kMaxScript = 192;
 
 enum FakeInput {
   kTrigger,

@@ -283,15 +283,23 @@ is built, and no test has proven it.
   controller on. Still open: check in a headset whether a still controller
   stays on when the setting of the headset that switches between the
   controllers and the hands is off.
-- **B26. The tutorial after its first step.** The aim: a player can play the
-  whole tutorial in VR, also where the words of the game do not fit the
-  controllers. The first step is shown in a desktop run: the walk to the
-  village with the teleport and with the stick (`god-view.md`, section 14.9).
-  No run and no headset session has the later steps: the way to the Temple,
-  the three lessons of the camera, the guide at the mountain. `god-view.md`,
-  section 7, "The interface levels", has the camera controls that the game
-  allows in each step. Wanted: a headset session through the whole tutorial,
-  and a correction for each step that stops the player.
+- **B26. The tutorial: the steps that no run and no session has.** Each step
+  of the tutorial waits for an input that a VR player can give with the
+  controls of the mod (`god-view.md`, section 7, "The steps of the
+  tutorial"). A desktop run and the log of a session in the headset show the
+  tutorial of Land 1 from the walk to the village to the texts after the zoom
+  lesson. Still open:
+  - The end of the build of the Temple, the missionaries and the lessons of
+    Land 2 (the gestures, the shield, the fireball) have no run and no
+    session.
+  - The lessons of the Gods' Playground after the step of the turn have no
+    run. A desktop run shows the first walk of the Island Keeper and the step
+    of the turn only with `script_view=0`. With `script_view=1` the Keeper did
+    not start his walk, also when an eye picture showed him in the view
+    (`god-view.md`, section 7). Find out if the view test of the head is
+    too narrow, or if only the fixed head of the run is at fault.
+  - The game tells the player to press F2 for the Gods' Playground, and no
+    page of the ring has the item `playground` by default.
 - **B27. The walk with the stick is not smooth in the headset.** The walk
   itself is even: each frame moves the view at the speed of the push, and no
   limit, hill or switch stops it on some frames (`god-view.md`, section 5.7,

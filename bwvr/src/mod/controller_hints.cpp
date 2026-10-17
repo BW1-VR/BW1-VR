@@ -354,6 +354,12 @@ const KeyRow kKeys[] = {
     // looks up and down (tilt_help_degrees, comfort_camera.cpp).
     {L"HELP_TEXT_FINAL_BEGINNING_44", kTurnLesson},
     {L"HELP_TEXT_NEW_INTERFACE_03", kTurnHint},
+    // The lessons of the Island Keeper in the Gods' Playground. The step of
+    // the turn (MoveAroundMountain) waits for the rotate arrow, and the step
+    // of the zoom (ZoomInAndOut) for the hold of both buttons. A snap turn
+    // and a zoom of the stick give them (script_camera_moves, hand_direct.cpp).
+    {L"HELP_TEXT_TUTORIAL_LAND_30", kTurnLesson},
+    {L"HELP_TEXT_TUTORIAL_LAND_80", kZoomShort},
     {L"HELP_TEXT_FINAL_BEGINNING_50", kHead,
      L"Look up and down with your head."},
     {L"HELP_TEXT_NEW_INTERFACE_04", kHead,

@@ -184,6 +184,10 @@ bool TabletopRoom(float origin[3], float basis[9], float center[3],
 int ScriptCameraOwnerNow();
 bool CutsceneWindowBarsUp();
 bool ComfortCameraGameMoves();
+// comfort_camera.cpp: the clock of the help at the last camera help event
+// 0x300 + low, and now. controllers.cpp: a grip holds the land.
+bool ComfortCameraHelpClock(int low, int32_t* at, int32_t* now);
+bool ControllersGrabHeld();
 // tabletop.cpp: the teleport of the God view, for the test word "go".
 bool TabletopGodTeleport(const float target[3]);
 // temple.cpp: the door of the Temple (0) or the next leash post (1), for the
@@ -1165,6 +1169,10 @@ double g_stroke_wait_said = -1.0;
 bool g_script_hooked = false;
 int g_script_distance = 1;
 int g_script_view = 1;
+// script_camera_moves: a script that asks how the player holds the land, or
+// if the rotate arrow shows, gets the moves of the God view (h_ScriptHandState
+// and h_ScriptArrows).
+int g_script_moves = 1;
 bool g_script_on = true;
 bool g_script_key_down = false;
 void ScriptPlayerInstall();
@@ -3564,12 +3572,12 @@ void PollNearKey() {
     if (g_script_on) {
       ModLog("scripts      : Ctrl and the 7 key: a script that asks about the "
              "camera gets the player again (script_distance=%d, "
-             "script_view=%d), frame %llu", g_script_distance, g_script_view,
-             g_frame);
+             "script_view=%d, script_camera_moves=%d), frame %llu",
+             g_script_distance, g_script_view, g_script_moves, g_frame);
     } else {
       ModLog("scripts      : Ctrl and the 7 key: a script that asks about the "
-             "camera gets the game's camera, as with script_distance=0 and "
-             "script_view=0, frame %llu", g_frame);
+             "camera gets the game's camera, as with script_distance=0, "
+             "script_view=0 and script_camera_moves=0, frame %llu", g_frame);
     }
   }
   if (palm_pressed) {
@@ -7466,6 +7474,35 @@ ScriptWordFn o_ScriptDistance = nullptr;
 ScriptWordFn o_ScriptPosView = nullptr;
 ScriptWordFn o_ScriptThingView = nullptr;
 ScriptWordFn o_ScriptThingSees = nullptr;
+// THE CAMERA MOVES THAT A SCRIPT SEES (script_camera_moves). Two words of the
+// scripts ask what the player does with the camera [V: the disassembly and
+// challenge.chl]:
+// - GScript::GetHandState pushes the interface hand mode (GInterface +
+//   0x3AC) as an int. The interface state LANDSCAPE_LOCK (0x005D8090) gives
+//   0x14 while the Move Button holds the land, and 0x16 while both buttons
+//   hold it and the camera can zoom. TeachRotate, TeachZoom,
+//   MoveAroundMountain and ZoomInAndOut read it.
+// - GScript::WithinRotation pushes the arrows of the camera that show
+//   (0x00C5B0F4, which CameraModeNew3::UpdateTricons sets in each frame).
+//   Bit 2 is the rotate arrow. MoveAroundMountain of the Gods' Playground
+//   waits for it.
+// In the God view a zoom, a turn and a grip on the land give the value that
+// the game gives for the same move with the mouse (near_math::ScriptHandState
+// and ScriptArrows). The game's word runs first, and the mod changes its
+// answer on the stack.
+const uintptr_t kScriptHandState = 0x006FF730;
+const uintptr_t kScriptArrows = 0x0070B9D0;
+const uintptr_t kCameraFeatures = 0x009CDD6C;  // CameraHelp::EnabledFeatures
+const int kHelpTurnLow = 0x0;  // camera help event 0x300: the camera turned
+const int kHelpZoomLow = 0x4;  // 0x304: the camera zoomed
+ScriptWordFn o_ScriptHandState = nullptr;
+ScriptWordFn o_ScriptArrows = nullptr;
+// The changed answers of this report window, and the last pair of the game's
+// answer and the mod's answer that the log named, for each word.
+uint64_t g_moves_answers = 0;
+unsigned g_moves_said[2][2] = {{~0u, ~0u}, {~0u, ~0u}};
+int g_moves_logs = 0;
+const int kMaxMovesLogs = 24;
 // The player of the last frame: the head and the hands in the world, the
 // axes of the head (right, up and forward), and the view angle of the frame.
 struct ScriptPlayer {
@@ -7651,6 +7688,77 @@ void __cdecl h_ScriptThingSees() {
   ++g_script_answers;
 }
 
+// The moves of the God view, at the moment of the word.
+near_math::ViewMoves ScriptViewMoves() {
+  near_math::ViewMoves moves = {false, false, false};
+  int32_t at = 0, now = 0;
+  if (ComfortCameraHelpClock(kHelpTurnLow, &at, &now)) {
+    moves.turned = near_math::HelpRecent(true, at, now);
+  }
+  if (ComfortCameraHelpClock(kHelpZoomLow, &at, &now)) {
+    moves.zoomed = near_math::HelpRecent(true, at, now);
+  }
+  moves.land_held = ControllersGrabHeld();
+  return moves;
+}
+
+const char* ScriptMoveWhy(const near_math::ViewMoves& moves, int word,
+                          unsigned answer) {
+  if (word == 0 && answer == near_math::kHandZoomHold) {
+    return "the view zoomed in the last two game turns, which is the hold of "
+           "both buttons";
+  }
+  if (moves.turned) {
+    return word == 0 ? "the view turned in the last two game turns, which is "
+                       "the hold of the Move Button at the rotate arrow"
+                     : "the view turned in the last two game turns";
+  }
+  return "a grip holds the land, which is the hold of the Move Button";
+}
+
+// The game's word pushed its answer. The mod takes it off the stack and
+// pushes the answer of the moves of the God view, with the same type.
+void ScriptMoveAnswer(int word) {
+  uint8_t* machine = *reinterpret_cast<uint8_t* const*>(kScriptMachine);
+  if (machine == nullptr || g_script_moves == 0 || !ScriptPlayerNow()) return;
+  const ScriptPopFn pop = reinterpret_cast<ScriptPopFn>(kScriptPop);
+  const ScriptPushFn push = reinterpret_cast<ScriptPushFn>(kScriptPush);
+  int type = 0;
+  const uint32_t game = pop(machine, nullptr, &type);
+  const near_math::ViewMoves moves = ScriptViewMoves();
+  const unsigned features =
+      *reinterpret_cast<const uint32_t*>(kCameraFeatures);
+  const unsigned answer =
+      word == 0 ? near_math::ScriptHandState(game, moves, features)
+                : near_math::ScriptArrows(game, moves, features);
+  push(machine, nullptr, answer, type);
+  if (answer == game) return;
+  ++g_moves_answers;
+  if (g_moves_said[word][0] == game && g_moves_said[word][1] == answer) {
+    return;
+  }
+  g_moves_said[word][0] = game;
+  g_moves_said[word][1] = answer;
+  if (g_moves_logs >= kMaxMovesLogs) return;
+  ++g_moves_logs;
+  ModLog("scripts      : a script asked %s. The game said 0x%X, and the "
+         "script gets 0x%X: %s (script_camera_moves=1, camera controls 0x%X), "
+         "frame %llu",
+         word == 0 ? "for the hand state" : "if the rotate arrow shows",
+         static_cast<unsigned>(game), answer,
+         ScriptMoveWhy(moves, word, answer), features, g_frame);
+}
+
+void __cdecl h_ScriptHandState() {
+  o_ScriptHandState();
+  ScriptMoveAnswer(0);
+}
+
+void __cdecl h_ScriptArrows() {
+  o_ScriptArrows();
+  ScriptMoveAnswer(1);
+}
+
 bool ScriptBytes(uintptr_t address, const uint8_t* bytes, size_t count) {
   const void* at = reinterpret_cast<const void*>(address);
   return !IsBadReadPtr(at, count) && memcmp(at, bytes, count) == 0;
@@ -7717,7 +7825,43 @@ void ScriptPlayerInstall() {
   }
   if (!distance) g_script_distance = 0;
   if (!view) g_script_view = 0;
-  g_script_hooked = distance || view;
+  // The two words that ask how the player moves the camera.
+  static const uint8_t kHandStateBytes[17] = {
+      0x8B, 0x0D, 0x5C, 0x19, 0xD0, 0x00, 0xE8, 0x15, 0x61,
+      0xE5, 0xFF, 0x8B, 0x80, 0xAC, 0x03, 0x00, 0x00};
+  static const uint8_t kArrowsBytes[13] = {0xA1, 0xF4, 0xB0, 0xC5, 0x00,
+                                           0x8B, 0x0D, 0x10, 0x5C, 0xD9,
+                                           0x00, 0x6A, 0x06};
+  bool moves = false;
+  g_script_moves = IniKey("script_camera_moves", 1) != 0 ? 1 : 0;
+  if (g_script_moves != 0) {
+    if (!ScriptBytes(kScriptHandState, kHandStateBytes,
+                     sizeof(kHandStateBytes)) ||
+        !ScriptBytes(kScriptArrows, kArrowsBytes, sizeof(kArrowsBytes))) {
+      ModLog("hooks        : GScript::GetHandState or GScript::WithinRotation "
+             "does not have the bytes of the disassembly, so a script that "
+             "asks how you move the camera gets the game's answer");
+    } else {
+      moves = Hook(kScriptHandState,
+                   reinterpret_cast<void*>(&h_ScriptHandState),
+                   reinterpret_cast<void**>(&o_ScriptHandState),
+                   "GScript::GetHandState (the moves of the God view)") &&
+              Hook(kScriptArrows, reinterpret_cast<void*>(&h_ScriptArrows),
+                   reinterpret_cast<void**>(&o_ScriptArrows),
+                   "GScript::WithinRotation (the turns of the God view)");
+    }
+  }
+  if (!moves) g_script_moves = 0;
+  ModLog("scripts      : script_camera_moves=%d. %s", g_script_moves,
+         g_script_moves != 0
+             ? "In the God view a script that asks how you hold the land, or "
+               "if the rotate arrow shows, gets the moves of the view: a zoom "
+               "is the hold of both buttons (hand state 0x16), a turn and a "
+               "grip on the land are the hold of the Move Button (0x14), and "
+               "a turn shows the rotate arrow. 0 gives the game's answers"
+             : "A script that asks how you hold the land, or if the rotate "
+               "arrow shows, gets the game's answer");
+  g_script_hooked = distance || view || moves;
   if (!g_script_hooked) return;
   ModLog("scripts      : script_distance=%d, script_view=%d. In the God view "
          "a script of the game that asks about the camera gets the player. "
@@ -10027,6 +10171,12 @@ uint64_t HandDirectTakeScriptAnswers() {
 // Once a report window.
 void HandDirectReport() {
   ForestTakeReport();
+  if (g_moves_answers != 0) {
+    ModLog("scripts      : %llu answers to a script that asked how you hold "
+           "the land or if the rotate arrow shows came from the moves of the "
+           "God view (script_camera_moves=1)", g_moves_answers);
+    g_moves_answers = 0;
+  }
   if (!g_installed || g_active_frames == 0) return;
   ModLog("hand         : the controller placed the Hand on %llu frames: %llu "
          "depths, %llu poses, %llu rays, %llu picks put in, %llu far picks "

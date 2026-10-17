@@ -218,6 +218,13 @@ tutorial, when the villagers ask you to follow them. Set
 teleport_switch=0 in bwvr.ini to keep the teleport off until the
 tutorial turns on the double click jump of the game.
 
+The lessons of the camera count the moves of the God view. A turn
+with the right stick is the turn of the lesson, a look of your head
+up and down is the tilt, and a zoom with the right stick is the zoom.
+The lessons of the Gods' Playground count them the same way. Set
+script_camera_moves=0 in bwvr.ini if a lesson must see only the
+buttons of the mouse.
+
 Ctrl F11 turns the God view off and on. Off gives the immersive
 view, which is for tests only.
 
@@ -977,8 +984,9 @@ does not need them.
   Ctrl 5    The four rules of the aim of the trigger
             (creature_command_rule). One short pulse for each
             unit of the value.
-  Ctrl 7    The two rules for what a quest sees
-            (script_distance and script_view).
+  Ctrl 7    The three rules for what a quest sees
+            (script_distance, script_view and
+            script_camera_moves).
   Ctrl 8    The two ways to cast a miracle (miracle_hand).
   .         The rule "near objects win" and the pick of the Hand
             (far_grab_near_cm).

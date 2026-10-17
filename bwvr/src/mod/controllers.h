@@ -20,7 +20,7 @@ struct FakeControllerSettings {
   bool sweep = false;      // alternate with the second pose, once a report window
   int sweep_yaw = 20;      // the second pose
   int sweep_pitch = -30;
-  char script[1024] = {0};  // input@frame+frames, separated by spaces
+  char script[4096] = {0};  // input@frame+frames, separated by spaces
   // Hand positions for the script word "point": right,up,forward in cm,
   // separated by spaces. Each point@frame+frames steps to the next one.
   char points[512] = {0};

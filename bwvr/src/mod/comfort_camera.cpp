@@ -367,6 +367,11 @@ int g_help_last = -1;
 unsigned g_help_last_inputs = 0;
 int g_help_logs = 0;
 const int kMaxHelpLogs = 80;
+// The clock of the help (kHelpClock) at the last 0x300 event of each number,
+// for the script words that ask how the player moves the camera
+// (ComfortCameraHelpClock, hand_direct.cpp).
+int32_t g_help_clock_at[16] = {0};
+bool g_help_seen[16] = {false};
 
 bool Snapping() { return g_snap_degrees > 0.0f; }
 
@@ -1224,6 +1229,9 @@ void WatchEnd(uint8_t* mode) {
 void __cdecl h_Help(int event, const void* point, unsigned inputs) {
   if ((event & 0xF00) == 0x300 && (event & 0xFF) < 16) {
     ++g_help_counts[event & 0xF];
+    g_help_clock_at[event & 0xF] =
+        *reinterpret_cast<const int32_t*>(kHelpClock);
+    g_help_seen[event & 0xF] = true;
     // For the watch of the game camera: the events of the game's own update.
     if (g_in_mode_update) g_update_events |= 1u << (event & 0xF);
   } else {
@@ -1834,6 +1842,20 @@ bool ComfortCameraDestinations(float position[3], float focus[3]) {
 // (docs/god-view.md, "15.3 The watch" and "16. The player that a script
 // sees").
 bool ComfortCameraGameMoves() { return g_watch.live && g_watch.moving; }
+
+// The clock of the help at the last camera help event 0x300 + low, and the
+// clock now. False when no such event came since the start, or when the hook
+// on CameraHelpCallback is not there. hand_direct.cpp reads it for the script
+// words that ask how the player moves the camera (near_math::HelpRecent).
+bool ComfortCameraHelpClock(int low, int32_t* at, int32_t* now) {
+  if (!g_installed || o_Help == nullptr || low < 0 || low >= 16 ||
+      !g_help_seen[low]) {
+    return false;
+  }
+  *at = g_help_clock_at[low];
+  *now = *reinterpret_cast<const int32_t*>(kHelpClock);
+  return true;
+}
 
 // True for a moment after a snap or a jump, while the eyes are drawn black.
 // A cut made somewhere else, for example by script_camera.cpp, blinks too.
