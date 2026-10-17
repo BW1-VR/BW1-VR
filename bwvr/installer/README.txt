@@ -37,7 +37,10 @@ A VR headset with an OpenXR runtime that registers a 32 bit entry.
   (XR_ERROR_FILE_ACCESS_ERROR". The free tool "OpenXR API Layers GUI"
   shows such a layer, and you can turn it off there.
 
-Windows. The mod needs nothing else.
+Windows 10 or 11. The mod needs nothing else.
+  You do not need to install the DirectX End-User Runtime or a
+  Visual C++ runtime. Windows has the DirectX files that the game and
+  the mod use.
 
 
 HOW TO INSTALL

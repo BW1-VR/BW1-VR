@@ -62,6 +62,57 @@ The game folder already holds a `readme.txt` from the game. Windows ignores the
 case of a file name, so the readme of the mod installs under a name of its own.
 A plain `README.txt` would replace a game file and remove it at uninstall.
 
+## What a PC needs
+
+The mod needs no runtime that the player installs. A fresh Windows 10 or 11
+has each file that the game, dxwrapper, the mod and the OpenXR loader use.
+So Setup and the launcher check for no runtime.
+
+The DirectX End-User Runtime of Microsoft (June 2010) adds only libraries
+that are not part of Windows: `D3DX*.dll`, `D3DCompiler_*.dll` up to number
+43, XInput 1.1 to 1.3, XAudio2 up to 2.7, `X3DAudio*.dll`, `XACTEngine*.dll`
+and Managed DirectX 1.1. It does not install `d3d9.dll`, `ddraw.dll`,
+`dinput.dll` or `dsound.dll`. These are parts of Windows. No file that ships
+and no file of the game imports or loads a library of the runtime.
+
+| File | Its import table | What it loads by name |
+| --- | --- | --- |
+| `runblack.exe` | `DDRAW.dll` (the mod), `DINPUT.dll`, `DSETUP.dll` and the other DLLs of the game folder, Windows DLLs | no DirectX DLL |
+| The DLLs of the game folder and of `Plug Ins` | Windows DLLs and DLLs of the game | `dsound.dll` (`binkw32.dll`), `dinput.dll` (`IFC22.dll`) |
+| `ddraw.dll` (the mod) | `d3d11.dll`, `dxgi.dll`, `openxr_loader.dll`, Windows DLLs | `d3d9.dll`, `dxwrapper\ddraw.dll`, and the system `ddraw.dll` as a fallback |
+| `openxr_loader.dll` | `advapi32.dll`, `kernel32.dll` | the OpenXR runtime that the registry names |
+| `dxwrapper\ddraw.dll` | `kernel32.dll`, `user32.dll` | `dxwrapper.dll` in the same folder |
+| `dxwrapper\dxwrapper.dll` | Windows DLLs | `d3d9.dll` of the system folder and other Windows DLLs, but no D3DX file (see below) |
+| The launcher | Windows DLLs | no DirectX DLL |
+
+The game calls `DirectXSetupGetVersion` of its own `DSETUP.dll` at
+`0x00641CD8` (`pc_main`). Below version 4.07 (DirectX 7) it shows a message
+and stops. The plain game makes the same check, so a PC that starts the
+plain game passes it. The game holds the class IDs of DirectPlay, but no
+code of the game uses them. Its multiplayer DLL uses Winsock. So the game
+does not need the DirectPlay feature of Windows.
+
+**D3DX is inside dxwrapper.** `dxwrapper.dll` holds two DLLs of Microsoft in
+its own file: `d3dx9_43.dll` 9.29.952.3111 (the June 2010 file without its
+signature) and `d3dcompiler_47.dll` 10.0.18362.1. At start, `LoadD3dx9` in
+`Libraries/d3dx9.cpp` of the dxwrapper source loads both from memory with
+MemoryModule. dxwrapper never looks for a D3DX file on the disk. So each PC
+runs the same D3DX code, also for `D3DXLoadSurfaceFromSurface` (a copy
+between two textures, `backend.md`). The two images import only
+`msvcrt.dll`, `gdi32.dll`, `kernel32.dll`, `advapi32.dll`, `rpcrt4.dll` and
+the API sets of the Universal C Runtime. Windows 10 and 11 have all of them.
+If the load from memory fails, dxwrapper writes "failed to load d3dx9
+module" in its log, and its first D3DX call goes to a null pointer.
+
+**No Visual C++ runtime.** The mod and the launcher link the C runtime
+statically (`CMAKE_MSVC_RUNTIME_LIBRARY` in the top `CMakeLists.txt` of
+`bwvr`). The import tables of `openxr_loader.dll` and of dxwrapper name no
+C runtime DLL. The game has its own MFC and C runtime DLLs in its folder.
+
+A new version of dxwrapper or of the OpenXR loader can change this. For
+each file in `out/stage`, `dumpbin /dependents` shows the import table. For
+a new dxwrapper, also look in its source for a load of a D3DX file by name.
+
 ## What it refuses
 
 The wizard hashes `runblack.exe` in the chosen folder and compares it with the

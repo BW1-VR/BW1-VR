@@ -730,8 +730,6 @@ that moves while the Hand takes it.
   villager lives (`throw.md`).
 - **N15. The interface panel** (`ui_panel=1`). No run, on the desktop or in
   a headset (`ui-layer.md`).
-- **N16. A PC with no DirectX 9 runtime.** No test has run the mod on a PC
-  that never had the DirectX 9 runtime installed.
 - **N17. Only one headset.** No person has run the mod with a headset or a
   runtime other than a Quest 3 through Virtual Desktop.
 
