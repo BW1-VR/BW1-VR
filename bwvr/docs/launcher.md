@@ -191,6 +191,7 @@ move the camera in steps.
 | --- | --- | --- |
 | Glow at the Hand's point | off | Key `hand_glow`. A small glow at the tip of the index finger shows the point of the Hand that picks up and clicks. It shows while a press of the grip acts on something (`hand-model.md`). |
 | Grab the world | Grip of the other hand | Key `grab_hand`, a value. 1 Hold the grip of your other hand and move that hand to pull the world. Hold both grips to turn the world and to zoom. 2 Either grip: the grip of the pointing hand also grabs the world when the Hand is empty and not over an object. 0 Off. |
+| Hand | Follow the game | Key `left_hand`, a value. -1 Follow the game: the left hand option of the game (`HAND_ORIENTATION` of the profile) chooses the controller of the Hand. 0 Right: the right controller is the Hand. 1 Left: the left controller is the Hand, and the two controllers swap each job (`controllers.md`, section 5.6). |
 | Hints | Until learned | Key `hint_learn`, a value. 1 Until learned: a line of a hint card that teaches an action goes away after you did the action 3 times, and comes back after 10 minutes of play with no use of it. In a lesson of the tutorial each line shows. 0 Always: each line always shows. The counts are in `bwvr-hint-counts.ini` beside `bwvr.ini`. Delete that file to show each line again (`controller-hints.md`, 9.10). |
 
 See `controllers.md` for the full controls.
