@@ -559,9 +559,6 @@ that moves while the Hand takes it.
   choose a gesture for each control: the grip, the trigger, the stick, and
   A, B, X and Y. The rules of the Hand stay: the real hand, one to one, and
   no motion that the player did not make.
-- **P6. Hints that count successes.** An option behind the hint setting:
-  with all hints on, each hint shows always. With a different setting, a
-  hint goes away after the player did its action a few times.
 - **P7. A view for videos.** A 16:9 view in the game window with the cards
   and the subtitles in it and a smoothed head, for a capture on the PC.
 - **P8. Pictures in the hints.** A flat picture of each button, then a

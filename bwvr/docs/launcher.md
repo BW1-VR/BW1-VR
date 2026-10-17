@@ -38,8 +38,8 @@ There is no layout to keep in step and no separate load and save code.
 
 The window sizes itself around the table and starts a new column when one gets
 tall. A heading stays with at least three of its settings. A column has 26
-rows at most. The table of now has 25 rows, so the window has one column. Two
-more rows start a second column.
+rows at most. The table of now has 26 rows, so the window has one column. One
+more row starts a second column.
 
 A field is 160 units wide, which is enough for the longest choice ("Grip of
 the other hand"). The block of the buttons is below the last column and as
@@ -191,6 +191,7 @@ move the camera in steps.
 | --- | --- | --- |
 | Glow at the Hand's point | off | Key `hand_glow`. A small glow at the tip of the index finger shows the point of the Hand that picks up and clicks. It shows while a press of the grip acts on something (`hand-model.md`). |
 | Grab the world | Grip of the other hand | Key `grab_hand`, a value. 1 Hold the grip of your other hand and move that hand to pull the world. Hold both grips to turn the world and to zoom. 2 Either grip: the grip of the pointing hand also grabs the world when the Hand is empty and not over an object. 0 Off. |
+| Hints | Until learned | Key `hint_learn`, a value. 1 Until learned: a line of a hint card that teaches an action goes away after you did the action 3 times, and comes back after 10 minutes of play with no use of it. In a lesson of the tutorial each line shows. 0 Always: each line always shows. The counts are in `bwvr-hint-counts.ini` beside `bwvr.ini`. Delete that file to show each line again (`controller-hints.md`, 9.10). |
 
 See `controllers.md` for the full controls.
 

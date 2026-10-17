@@ -739,6 +739,8 @@ begin
   DeleteFile(Dir + '\bwvr.log');
   DeleteFile(Dir + '\bwvr-draw-probe.txt');
   DeleteFile(Dir + '\bwvr-eye-frames.txt');
+  DeleteFile(Dir + '\bwvr-hint-counts.ini');
+  DeleteFile(Dir + '\bwvr-hint-counts.ini.new');
   DeleteMatching(Dir, 'bwvr-old-*.log');
   DeleteMatching(Dir, 'bwvr-*.bmp');
 end;

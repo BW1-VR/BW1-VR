@@ -76,6 +76,8 @@
 
 #include "MinHook.h"
 #include "../common/bw_addresses.h"
+#include "hint_card.h"
+#include "hint_learn_math.h"
 #include "table_math.h"
 #include "tabletop.h"
 #include "walk_math.h"
@@ -1946,6 +1948,11 @@ void StopWalk(const char* cause, bool view_stays) {
   g_walk.active = false;
   ++g_walks;
   g_walk_seconds += g_walk.seconds;
+  if (hint_learn_math::WalkMoved(sqrtf(g_walk.went[0] * g_walk.went[0] +
+                                       g_walk.went[1] * g_walk.went[1]))) {
+    HintCardLearnDone(hint_learn_math::kSkillWalk,
+                      "the stick moved the player");
+  }
   g_walk_check.frames_left = 0;
   if (view_stays) {
     g_walk_check.frames_left = kWalkCheckFrames;

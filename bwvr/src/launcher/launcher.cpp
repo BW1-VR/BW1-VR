@@ -257,6 +257,12 @@ const Setting kSettings[] = {
      "Hold both grips to turn the world and to zoom. Either grip: the grip "
      "of your pointing hand also grabs the world when the Hand is empty and "
      "not over an object. Off: the grips do not move the world."},
+    {kValues, "hint_learn", "Hints", "Until learned=1|Always=0", 1,
+     "The cards beside your wrists show what each button does. Until "
+     "learned: a line goes away after you do its action 3 times. It comes "
+     "back after 10 minutes of play without that action. In a lesson of the "
+     "tutorial, each line shows. Always: each line always shows. To show all "
+     "lines again, delete bwvr-hint-counts.ini in the game folder."},
 
     {kGroup, nullptr, "Testing", nullptr, 0, nullptr},
     {kBool, "test_keys", "Test keys", nullptr, 0,
@@ -681,7 +687,8 @@ const char* const kRetiredKeys[] = {
     "frame_time_test_readers_frames", "god_zoom_about_test",
     "god_zoom_test_toggle",
     "hand_feel_test_toggle", "hand_model_test_look", "hand_model_test_swap",
-    "help_test", "land_light_test", "near_test_flips", "spawn_test_flag",
+    "help_test", "hint_counts_test_file", "land_light_test",
+    "near_test_flips", "spawn_test_flag",
     "spawn_test_temple",
     "spawn_test_toggle", "spawn_test_x", "spawn_test_z",
     "spirit_point_world_test", "spirit_world_size_test",

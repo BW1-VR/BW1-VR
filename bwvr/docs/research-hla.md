@@ -877,8 +877,11 @@ something." [G] `closecaption_english.dat`.
 
 One card beside each wrist shows the hints of that hand (`hint_card=1`), with
 the tooltips of the game and the prompts of the mod. A prompt shows after a
-dwell, for 4 to 6 s, and 2 to 4 times in a session (`prompts=1`). The mod has
-no picture of the controller and no lit button. [M] `controller-hints.md`.
+dwell, for 4 to 6 s, and 2 to 4 times in a session (`prompts=1`). A line that
+teaches an action goes away after the player did the action 3 times, and
+comes back after 10 minutes of play with no use of it. The counts are in a
+file beside the ini (`hint_learn=1`). The mod has no picture of the
+controller and no lit button. [M] `controller-hints.md`.
 
 ### 7.3 Guide and open plans
 
@@ -886,16 +889,12 @@ no picture of the controller and no lit button. [M] `controller-hints.md`.
    from the lock to the pull and then go away at once. "Release to go" must
    show while A is down. A prompt that stays for 4 to 6 s after its action is
    done reads as noise. Cost: small. The states exist in the mod.
-2. **Count the successes.** Stop a prompt after the player did the action 1
-   to 3 times, not after the prompt showed 2 to 4 times. Keep the counts in
-   a file beside the ini, so that a prompt does not come back in the next
-   session. Cost: small to medium.
-3. **Wait before a general prompt.** Show "Teleport" or "Move the land" only
+2. **Wait before a general prompt.** Show "Teleport" or "Move the land" only
    when the player has not done the action for some time in a place where it
    helps. HLA waits 5 s for the teleport. Cost: small.
-4. **One quiet sound when a new prompt opens**, with at least 4 s between two
+3. **One quiet sound when a new prompt opens**, with at least 4 s between two
    sounds. Use a sound of the game. Cost: small.
-5. **Light the button on a picture of the controller.** This is the last step
+4. **Light the button on a picture of the controller.** This is the last step
    of `controller-hints.md`. HLA shows that it is the right goal: the hint
    names the action and the picture follows the bindings. Cost: large.
 

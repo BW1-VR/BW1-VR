@@ -113,7 +113,8 @@ The launcher shows five groups.
                   with the left stick, and a blink when you jump or
                   turn.
 
-  Controllers     The glow at the Hand, and the grab of the world.
+  Controllers     The glow at the Hand, the grab of the world, and the
+                  lines of the hint cards.
 
   Testing         One box, which turns on keys for tests. The box
                   is off, and a player does not need it.
@@ -530,6 +531,16 @@ Teleport" shows only while the A button can. For example, they do not
 show while a step of the tutorial holds you in your place. Set
 prompt_moves=0 in bwvr.ini for no line of the stick and a line of A
 in each case.
+
+A prompt that you know goes away. After you did its action 3 times
+(for example, 3 objects that the grip took), its line does not show.
+After 10 minutes of play without that action, the line comes back,
+and your next use takes it away again. In a lesson of the tutorial,
+each line shows. The hints of the game stay: its own help options
+control them. In the launcher, "Hints" is "Until learned" (the
+default) or "Always" (key hint_learn, 0 shows each line always). The
+counts are in the file bwvr-hint-counts.ini in the game folder. To
+show each line again, delete that file.
 
 With a tree in your Hand, the card says "Grip Plant" only when opening
 the grip plants the tree. If your Hand is more than 15 cm over the land,

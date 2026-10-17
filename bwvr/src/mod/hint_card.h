@@ -39,5 +39,11 @@ void HintCardToggle();
 // changes between 1 and 0. `by` names the cause in the log.
 void HintCardMovesToggle(const char* by);
 
+// The player did the action that a line of a card teaches, and it worked
+// (hint_learn=1). skill is a hint_learn_math::Skill, and `how` says what
+// worked, for the log. The callers: teleport.cpp, tabletop.cpp (the walk),
+// world_grab.cpp, far_grab.cpp and creature_command.cpp. This file sees the
+// take, the drop and the ring itself.
+void HintCardLearnDone(int skill, const char* how);
 // Once a report window.
 void HintCardReport();

@@ -63,6 +63,8 @@
 #include "controller_math.h"
 #include "controllers.h"
 #include "haptics.h"
+#include "hint_card.h"
+#include "hint_learn_math.h"
 #include "overlay_math.h"
 #include "table_math.h"
 #include "teleport_math.h"
@@ -599,6 +601,8 @@ void Commit(const TeleportInput& in, Mode mode) {
   }
   ++g_moves;
   HapticsPulse(haptics_math::kTeleport);
+  HintCardLearnDone(hint_learn_math::kSkillTeleport,
+                    "A went up, and the teleport moved the player");
   ModLog("teleport     : A is up, so go to %.1f %.1f %.1f (%s), frame %llu. "
          "The eye is at %.1f %.1f %.1f, %.1f units from the target on the "
          "ground", t[0], t[1], t[2], kModeName[mode], g_frame, in.eye[0],

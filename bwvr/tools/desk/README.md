@@ -66,6 +66,11 @@ calls it. It keeps these rules, and a new script must keep them too:
   with the Creature of the profile, the game also writes it by itself in
   play, with `creature.lhp` of the profile. That write comes 65 s to 118 s
   after the start of the game, so a run of a minute or more can have it.
+- The mod keeps the counts of the hint cards (`hint_learn=1`) in
+  `bwvr-hint-counts.ini` beside `bwvr.ini`. `desk_test.ps1` gives each run
+  the test key `hint_counts_test_file` with a file in the folder of the run,
+  and deletes that file before the run. So a run starts with no counts, and
+  it does not write the file of the player.
 - The tools never write the registry. A run starts `runblack.exe` directly,
   not the launcher. The game writes its own values there. In its start it
   writes the values of the profile that it read, so each value stays the

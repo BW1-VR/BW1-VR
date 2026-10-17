@@ -113,6 +113,8 @@
 #include "creature_command_math.h"
 #include "far_grab.h"
 #include "haptics.h"
+#include "hint_card.h"
+#include "hint_learn_math.h"
 #include "overlay_math.h"
 #include "table_math.h"
 #include "tabletop.h"
@@ -986,6 +988,8 @@ void Release() {
       if (sent) {
         ++g_sent_object;
         Tick();
+        HintCardLearnDone(hint_learn_math::kSkillSend,
+                          "the trigger sent the Creature to an object");
       } else {
         ++g_nothing;
       }
@@ -1027,6 +1031,8 @@ void Release() {
         ++g_sent_land;
         if (from_press) ++g_sent_taps;
         Tick();
+        HintCardLearnDone(hint_learn_math::kSkillSend,
+                          "the trigger sent the Creature to a place");
         // The ring stays on the place for a moment.
         g_sent_draw = g_draw;
         g_sent_draw.active = true;

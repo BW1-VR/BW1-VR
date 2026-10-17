@@ -158,7 +158,9 @@ unrelated code.
   `Scripts\`.
 - **The uninstaller** is in `%APPDATA%\Black & White VR Mod`, not in the game
   folder, where an `unins000.exe` would look like a file of the game. At
-  uninstall, `bwvr.log` and the probe files are deleted. `bwvr.ini` is kept
+  uninstall, `bwvr.log`, the probe files and `bwvr-hint-counts.ini` (the
+  counts of the hint cards, `controller-hints.md`, 9.10) are deleted.
+  `bwvr.ini` is kept
   unless the player agrees to delete it, after a question.
 
 ## Tests
