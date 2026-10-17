@@ -3,6 +3,7 @@
 #pragma once
 
 #include "../../src/mod/cutscene_window_math.h"
+#include "../../src/mod/one_walk_math.h"
 
 namespace window_checks {
 
@@ -741,6 +742,118 @@ inline void WindowChecks() {
          q2.position[0], s.position[0], 1e-5);
     Near("and a rect at the left of the render goes toward +z",
          q2.position[2], (1440.0 - 360.0) * 1.4 / 2880.0, 1e-4);
+  }
+
+  // THE ADVISORS: a render of 2880 columns on a screen 2.6 m wide and 2 m
+  // away, eyes 66.8 mm apart, and the plane at 15 units.
+  {
+    const int res = 2880;
+    const float ipd = 0.0668f, screen = 2.0f, width = 2.6f;
+    const int crop = Crop(ipd, width, res);
+    const float pixels = res / width;  // for each meter on the screen
+    Near("an advisor at the screen distance has the difference of the screen",
+         AdvisorDifference(ipd, screen, screen, width, res, crop), -crop,
+         1e-3);
+    const float seen = 2.0f * screen / 3.0f;
+    const float diff = AdvisorDifference(ipd, screen, seen, width, res, crop);
+    // Back from the pixels: the pictures are diff + crop pixels apart.
+    const float apart = (diff + crop) / pixels;
+    Near("eyes see an advisor with that difference 1.33 m away",
+         SeenBehind(screen, ipd, apart), seen, 1e-3);
+    Check(diff < -crop, "the advisor is in front of the screen", diff, -crop);
+    Near("a point far away has parallel eyes",
+         AdvisorDifference(ipd, screen, 1e9f, width, res, crop) + crop,
+         ipd * pixels, 1e-2);
+
+    // The edge of the opening. The right eye shows from column 1, and the
+    // left eye to column 2879. First an advisor with a natural difference
+    // of 0.
+    const EyeColumns left_eye = Columns(0, crop, 1, res);
+    const EyeColumns right_eye = Columns(1, crop, 1, res);
+    const float first = static_cast<float>(right_eye.offset);
+    const float last = static_cast<float>(left_eye.offset + left_eye.width);
+    Near("an advisor with room to each edge keeps its difference",
+         AdvisorEdge(diff, crop, first, last, 400.0f, 900.0f, 0.0f), diff,
+         1e-4);
+    const float near_edge =
+        AdvisorEdge(diff, crop, first, last, first + 40.0f, 900.0f, 0.0f);
+    Near("an advisor 40 columns from the edge of the right eye gets 80",
+         near_edge, -80.0, 1e-4);
+    Near("and the right eye sees it at the edge, not past it",
+         first + 40.0f + 0.5f * near_edge, first, 1e-4);
+    // The right eye has the advisor 60 columns left of the left eye, and 20
+    // columns from the edge.
+    const float walk_edge =
+        AdvisorEdge(diff, crop, first, last, first + 20.0f, 900.0f, -60.0f);
+    Near("with a natural difference the right eye also ends at the edge",
+         first + 20.0f + 0.5f * (walk_edge + 60.0f), first, 1e-4);
+    Near("an advisor at the right edge goes to the screen",
+         AdvisorEdge(diff, crop, first, last, 2000.0f, last - 2.0f, 0.0f),
+         -crop, 1e-4);
+    Near("an advisor past the edge goes to the screen",
+         AdvisorEdge(diff, crop, first, last, -100.0f, 300.0f, 0.0f), -crop,
+         1e-4);
+    Near("a difference behind the screen goes to the screen",
+         AdvisorEdge(-10.0f, crop, first, last, 400.0f, 900.0f, 0.0f), -crop,
+         1e-4);
+
+    // The move. The eye cameras put the plane at 15 units: a vertex at Z
+    // units has the difference -crop * 15 / Z.
+    const float near_plane = 1.5f, plane = 15.0f;
+    const float per_rhw = -crop * plane / near_plane;
+    const float rhw_ref = near_plane / 9.0f;
+    const float natural = one_walk_math::ShiftAtDepth(per_rhw, near_plane, 9.0f);
+    Near("the natural difference of the middle is per_rhw * rhw", natural,
+         per_rhw * rhw_ref, 1e-3);
+    const AdvisorShift s = {diff, per_rhw, natural, false};
+    const float depths[3] = {8.0f, 9.0f, 10.5f};
+    for (int i = 0; i < 3; ++i) {
+      const float rhw = near_plane / depths[i];
+      const float x = 2300.0f + 50.0f * i;
+      // One walk: the left eye has x, and the right eye x + per_rhw * rhw.
+      const float l1 = AdvisorX(s, 0, x, rhw, true);
+      const float r1 = AdvisorX(s, 1, x, rhw, true);
+      Near("one walk: the vertex keeps its depth from the middle",
+           r1 - l1, diff + per_rhw * (rhw - rhw_ref), 1e-3);
+      Near("one walk: the vertex keeps its column between the eyes",
+           0.5f * (l1 + r1), x + 0.5f * per_rhw * rhw, 1e-3);
+      // Two walks: each eye camera sees the same point of the world.
+      const float xr = x + per_rhw * rhw;
+      const float l2 = AdvisorX(s, 0, x, rhw, false);
+      const float r2 = AdvisorX(s, 1, xr, rhw, false);
+      Near("two walks and one walk give the left eye one place", l2, l1,
+           1e-3);
+      Near("two walks and one walk give the right eye one place", r2, r1,
+           1e-3);
+    }
+    Near("the middle of the advisor has the difference",
+         AdvisorX(s, 1, 2350.0f, rhw_ref, true) -
+             AdvisorX(s, 0, 2350.0f, rhw_ref, true),
+         diff, 1e-3);
+    const AdvisorShift keep = {diff, per_rhw, natural, true};
+    Near("keep: the left eye does not move",
+         AdvisorX(keep, 0, 2300.0f, rhw_ref, true), 2300.0, 1e-4);
+    Near("keep: the right eye of one walk is the copy of one walk",
+         AdvisorX(keep, 1, 2300.0f, rhw_ref, true),
+         2300.0f + per_rhw * rhw_ref, 1e-3);
+
+    // The extent: only a vertex that a triangle uses counts.
+    float v[4][8] = {};
+    const float vx[4] = {100.0f, 300.0f, 200.0f, 5.0f};
+    const float vz[4] = {8.0f, 10.0f, 9.0f, 0.5f};
+    for (int i = 0; i < 4; ++i) {
+      v[i][0] = vx[i];
+      v[i][3] = i < 3 ? near_plane / vz[i] : vz[i];
+    }
+    const unsigned short tri[3] = {0, 1, 2};
+    AdvisorExtent e = {};
+    AdvisorTrack(&e, v, 4, tri, 3, 32, near_plane);
+    Check(e.have, "a batch of an advisor gives an extent", e.have, 1);
+    Near("its first column", e.low, 100.0, 1e-4);
+    Near("its last column: the vertex that no triangle uses is out", e.high,
+         300.0, 1e-4);
+    Near("its nearest depth", e.nearest, 8.0, 1e-4);
+    Near("its farthest depth", e.farthest, 10.0, 1e-4);
   }
 }
 

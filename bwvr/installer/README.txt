@@ -1002,6 +1002,10 @@ shots, set cutscene_window=0 in bwvr.ini.
 A video of a story, for example the birth of the god after the
 drowning boy, plays flat on the same screen (cutscene_video=1).
 
+The advisors are in front of the screen, between you and the scene
+(cutscene_advisors=1). To see them in the scene, set
+cutscene_advisors=0 in bwvr.ini.
+
 A story camera with no black bars can put a shot in an odd place.
 The game can also move the camera for you with no bars, for example
 to follow the Creature. There the mod cuts to each shot instead of

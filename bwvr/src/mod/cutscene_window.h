@@ -44,6 +44,24 @@ void CutsceneWindowProbeBatch(const void* verts, uint32_t count,
 // the log that a video plays in this frame.
 bool CutsceneWindowVideoBatch(int eye, float* move);
 
+// THE ADVISORS (cutscene_advisors). mod_main.cpp calls Install once with the
+// other hooks. It hooks the draw of the advisors, so that the mod knows the
+// batches of an advisor.
+//
+// draw_hooks.cpp calls AdvisorBatch for each batch of DrawTriangle and of
+// DrawAndClip in an eye pass, with the eye of the pass (0 is the left eye).
+// True for a batch of an advisor that gets its place in front of the screen
+// (cutscene_advisors=1 in a flat frame with the depth limit). Then the batch
+// is not in the measure of the nearest thing, and `shift` gives the move of
+// each vertex (window_math::AdvisorX).
+namespace window_math {
+struct AdvisorShift;
+}
+void CutsceneWindowInstall();
+bool CutsceneWindowAdvisorBatch(int eye, const void* verts, uint32_t count,
+                                const uint16_t* idx, uint32_t n,
+                                window_math::AdvisorShift* shift);
+
 // THE SUBTITLES. True in a flat frame whose subtitles go to the subtitle card
 // (ui_panel.cpp). SubtitleQuad gives the place of the card for the part of
 // the render that the game drew its text in: `rect` is x, y, width and height

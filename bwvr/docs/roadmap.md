@@ -311,33 +311,6 @@ is built, and no test has proven it.
   a walk at 120 Hz with a walk at 90 Hz in Virtual Desktop, or with Space
   Warp on. If the walk is even at 90 Hz, the fault is the frame rate, and
   this item goes to the performance work.
-- **B29. The advisors and the cut scene window.** In a cut scene the mod
-  draws the advisors over the window and outside it at times, and their
-  depth is the depth of the inside of the window. Wanted: the cut scene
-  plays inside the window, and the advisors have a depth between the
-  player and the window. What is known (`cutscene-window.md`, section 11):
-  - The advisors are meshes of the scene. `HelpDude::Draw` `0x005C0700`
-    draws them from `HelpSystem::Draw3D` `0x005C59A0` (called by
-    `GGame::Process3dEngine` at `0x0054E2ED`), at the screen points x =
-    +0.66 and -0.66, 7.5 to 11 units from the camera. They are in the
-    measure of the nearest thing, so with the advisors in view the screen
-    plane is at about 6 to 9 units, and they show a little behind the
-    screen.
-  - Out of the measure, the plane goes back to the scene. With the plane at
-    15 units an advisor 7.5 to 11 units away is seen 1 to 1.5 m away, in
-    front of the screen. In a close shot the plane is nearer than the
-    advisors, and they go behind the screen again.
-  - So a fixed place in front of the screen needs a fixed difference
-    between the eyes for the advisor batches, in the two walks and in one
-    walk (there the copy for the right eye moves each vertex by its rhw).
-  - The work needs a mark of each advisor batch at the draw. The draw calls
-    of `HelpDude::Draw` can go through the sort list of the engine, so a
-    flag for the time of that call is not proven to mark them.
-  - The edge of the opening must not cut an advisor that is in front of
-    the screen. At x = 0.66 the middle of an advisor is 17 percent of the
-    width from the edge.
-  - A desktop run does not show it: the first story of a new game has no
-    advisor in it.
 - **B30. The gift of an object to the Creature: check it in a headset.**
   An object in the Hand that the player lets go at the Creature is a gift,
   with the leash on and with no leash. The gift goes on while the hand is at

@@ -79,8 +79,10 @@
 
 #include "../common/bw_addresses.h"
 #include "../vr/xr_screen.h"
+#include "MinHook.h"
 #include "cutscene_window.h"
 #include "cutscene_window_math.h"
+#include "one_walk_math.h"
 
 extern void ModLog(const char* format, ...);
 // script_camera.cpp: the last main camera call was a story or a follow mode.
@@ -142,11 +144,16 @@ struct Settings {
   int text_place;     // cutscene_subtitle_place
   int edge;           // cutscene_edge_columns
   bool video;         // cutscene_video
+  bool advisors;      // cutscene_advisors
+  float advisor_distance;  // cutscene_advisor_distance_cm, in meters
+  // A test: from this frame on the mod reads the cinema bars as up. 0 is no
+  // change.
+  uint64_t test_bars;  // cutscene_window_test_bars
 };
 Settings g_set = {false, true, true, 2.0f, 2.6f,          0.5f, 3.0f,
                   false, 0,    0,    true, kDepthNearest, 0.0f, 0,
                   0,     true, 1.4f, 0,    1,
-                  true};
+                  true,  true, 1.33f, 0};
 
 window_math::State g_state = {false, 1.0f};
 bool g_wanted = false;
@@ -203,7 +210,8 @@ bool g_said_story = false;
 bool g_was_flat = false;
 
 // The frames to save the eye pictures of, with cutscene_window_capture=1.
-uint64_t g_capture_at[3] = {0, 0, 0};
+// The fourth is the 30th frame with an advisor in the window.
+uint64_t g_capture_at[4] = {0, 0, 0, 0};
 
 // For the report and the log.
 uint64_t g_flat_frames = 0;
@@ -214,6 +222,60 @@ bool g_video_moved = false;  // and it went on the screen plane
 bool g_video_was = false;    // the frame before had a batch of the video
 uint64_t g_video_start = 0;  // the first frame of the video, for the log
 uint64_t g_video_frames = 0;  // frames with the video on the screen plane
+
+// THE ADVISORS (cutscene_advisors). The game draws an advisor as a mesh of
+// the scene. HelpDude::Draw 0x005C0700 (thiscall, one char argument, ret 4)
+// draws the mesh of one advisor, its glow and its sparks.
+// HelpSystem::Draw3D 0x005C59A0 calls it with 1, and a FinishFrame callback
+// of the game (0x005C3920) calls it with 0. The mesh is the object at
+// HelpDude + 0x20 (LH3DObject::Create(3) at 0x005C0FDA). Its draw goes
+// through LH3DObject::AddForDrawing 0x00815A70, which draws it at once (the
+// virtual function +0x108) or puts it into the sorted list
+// (LH3DZSorter::NewZObject at 0x00815F53). The sorted list draws it later
+// through 0x007FA980, which jumps to +0x108 of the object. The glow and the
+// sparks are sprites, and LH3DSprite::Draw draws each one at once through
+// DrawTriangle (0x00840C57). So a batch of an advisor is a batch in a call
+// of HelpDude::Draw, or in a call of 0x007FA980 for the mesh of an advisor.
+const uintptr_t kHelpDudeDraw = 0x005C0700;
+const uintptr_t kSortedDraw = 0x007FA980;
+const int kDudeMesh = 0x20;
+const int kMeshDrawSlot = 0x108;
+typedef void(__fastcall* HelpDudeDrawFn)(void* dude, void* unused, char late);
+typedef void(__fastcall* SortedDrawFn)(void* object, void* unused);
+HelpDudeDrawFn o_HelpDudeDraw = nullptr;
+SortedDrawFn o_SortedDraw = nullptr;
+
+struct Advisor {
+  const void* dude;
+  const void* mesh;
+  uint64_t used;  // the last frame with a draw of it
+  // The batches of the left eye pass of this frame and of the frame before.
+  window_math::AdvisorExtent next;
+  window_math::AdvisorExtent last;
+  uint64_t next_frame;
+  // The rule of this frame: the eye difference of the middle of the advisor,
+  // the depth of that middle in units, and the eye difference that the eye
+  // cameras give the middle.
+  bool have;
+  float difference;
+  float middle;
+  float natural;
+  bool edge;        // the edge of the opening limits it in this frame
+  uint64_t frames;  // frames in a row with it in the window
+};
+Advisor g_advisors[2] = {};
+int g_advisor_now = -1;        // the advisor that draws now, or -1
+uint64_t g_advisor_frame = 0;  // the frame of the last latch
+// For the report.
+uint64_t g_advisor_frames = 0;
+uint64_t g_advisor_edge_frames = 0;
+uint64_t g_advisor_moved = 0;  // batches with the place in front
+int g_advisor_captures = 0;
+const int kMaxAdvisorCaptures = 3;
+// For the log: the first draw of an advisor, and the first draw of its mesh
+// from the sorted list.
+bool g_said_advisor_draw = false;
+bool g_said_sorted_draw = false;
 uint64_t g_change_frames = 0;
 uint64_t g_scenes = 0;
 int g_logs = 0;
@@ -291,6 +353,14 @@ void ReadSettings() {
   g_set.text_place = limit(number("cutscene_subtitle_place", 0), 0, 1);
   g_set.edge = limit(number("cutscene_edge_columns", 1), 0, 16);
   g_set.video = number("cutscene_video", 1) != 0;
+  g_set.advisors = number("cutscene_advisors", 1) != 0;
+  g_set.advisor_distance =
+      limit(number("cutscene_advisor_distance_cm", 133), 30,
+            static_cast<int>(g_set.distance * 100.0f + 0.5f)) /
+      100.0f;
+  g_set.test_bars =
+      static_cast<uint64_t>(limit(number("cutscene_window_test_bars", 0), 0,
+                                  100000000));
   if (!g_set.god) return;
   ModLog("cut scene    : cutscene_window=%d. %s", g_set.on ? 1 : 0,
          g_set.on ? "In the God view a cut scene plays on a screen in the room"
@@ -326,6 +396,16 @@ void ReadSettings() {
                "picture for both eyes"
              : "A video of the game in the window goes to the eye pictures as "
                "the game draws it, with no rule of the window");
+  if (g_set.advisors) {
+    ModLog("cut scene    : cutscene_advisors=1. In the window an advisor is "
+           "%.2f m from the eyes (cutscene_advisor_distance_cm), in front of "
+           "the screen, and it is not in the measure of the nearest thing",
+           g_set.advisor_distance);
+  } else {
+    ModLog("cut scene    : cutscene_advisors=0. In the window the advisors "
+           "draw as the scene draws them, and they are in the measure of the "
+           "nearest thing");
+  }
 }
 
 // 1 while the cinema bars are up, 0 while they are not, -1 with no game.
@@ -452,6 +532,194 @@ void OpeningNow(int crop, window_math::Screen* opening) {
 }
 
 // One line for a change of the depth of the picture.
+// THE ADVISORS. The slot of an advisor: two advisors, each with its own
+// HelpDude. A HelpDude that is new takes the slot that was used the longest
+// time ago.
+int AdvisorSlot(const void* dude) {
+  int slot = -1;
+  for (int i = 0; i < 2; ++i) {
+    if (g_advisors[i].dude == dude) return i;
+    if (slot < 0 && g_advisors[i].dude == nullptr) slot = i;
+  }
+  if (slot < 0) slot = g_advisors[0].used <= g_advisors[1].used ? 0 : 1;
+  Advisor& a = g_advisors[slot];
+  a = Advisor();
+  a.dude = dude;
+  a.next_frame = g_advisor_frame;
+  return slot;
+}
+
+// The batches in the call are of this advisor. The calls can nest, so each
+// one puts back the advisor of the call around it.
+void __fastcall h_HelpDudeDraw(void* dude, void* unused, char late) {
+  const int slot = AdvisorSlot(dude);
+  Advisor& a = g_advisors[slot];
+  const uint8_t* at = static_cast<const uint8_t*>(dude) + kDudeMesh;
+  if (!IsBadReadPtr(at, sizeof(void*))) {
+    a.mesh = *reinterpret_cast<void* const*>(at);
+  }
+  a.used = g_advisor_frame;
+  if (!g_said_advisor_draw) {
+    g_said_advisor_draw = true;
+    ModLog("cut scene    : the game draws advisor %d (HelpDude 0x%p, its mesh "
+           "0x%p, argument %d) %s",
+           slot + 1, dude, a.mesh, static_cast<int>(late),
+           g_state.flat ? "in a frame of the window" : "in the full view");
+  }
+  const int outer = g_advisor_now;
+  g_advisor_now = slot;
+  o_HelpDudeDraw(dude, unused, late);
+  g_advisor_now = outer;
+}
+
+// A draw of the sorted list. Only the mesh of an advisor gets a mark.
+void __fastcall h_SortedDraw(void* object, void* unused) {
+  int slot = -1;
+  for (int i = 0; i < 2 && object != nullptr; ++i) {
+    if (g_advisors[i].mesh == object) slot = i;
+  }
+  if (slot < 0) {
+    o_SortedDraw(object, unused);
+    return;
+  }
+  if (!g_said_sorted_draw) {
+    g_said_sorted_draw = true;
+    ModLog("cut scene    : the sorted list draws the mesh of advisor %d %s",
+           slot + 1,
+           g_state.flat ? "in a frame of the window" : "in the full view");
+  }
+  const int outer = g_advisor_now;
+  g_advisor_now = slot;
+  o_SortedDraw(object, unused);
+  g_advisor_now = outer;
+}
+
+bool SameBytes(uintptr_t address, const uint8_t* want, int count) {
+  const void* at = reinterpret_cast<const void*>(address);
+  return !IsBadReadPtr(at, count) && memcmp(at, want, count) == 0;
+}
+
+bool Hook(uintptr_t address, void* replacement, void** original,
+          const char* name) {
+  void* target = reinterpret_cast<void*>(address);
+  MH_STATUS status = MH_CreateHook(target, replacement, original);
+  if (status == MH_OK) status = MH_EnableHook(target);
+  ModLog("hooks        : %s at 0x%08X %s", name, address,
+         status == MH_OK ? "ok" : "FAILED");
+  return status == MH_OK;
+}
+
+// Where eyes `ipd` meters apart see a point with the eye difference
+// `difference` in pixels of a render `res_x` wide, in meters.
+float SeenAt(float difference, float ipd, int res_x) {
+  const float apart = (difference + static_cast<float>(g_crop)) * g_set.width /
+                      static_cast<float>(res_x);
+  return window_math::SeenBehind(g_set.distance, ipd, apart);
+}
+
+// The function at +0x108 of the vtable of a mesh, for the log.
+uintptr_t MeshDraw(const void* mesh) {
+  if (mesh == nullptr || IsBadReadPtr(mesh, sizeof(void*))) return 0;
+  const uint8_t* table = *reinterpret_cast<const uint8_t* const*>(mesh);
+  if (table == nullptr || IsBadReadPtr(table + kMeshDrawSlot, sizeof(void*))) {
+    return 0;
+  }
+  return *reinterpret_cast<const uintptr_t*>(table + kMeshDrawSlot);
+}
+
+// The rule of the advisors for this frame, from their batches in the frame
+// before. Once a frame, in CutsceneWindowBeginFlat. An advisor with no batch
+// in the frame before draws as the game draws it in its first frame, because
+// the mod does not know its place yet.
+void LatchAdvisors(uint64_t frame, float ipd,
+                   const bw::tech::InfoTransform& info) {
+  g_advisor_frame = frame;
+  const float target = window_math::AdvisorDifference(
+      ipd, g_set.distance, g_set.advisor_distance, g_set.width, info.res_x,
+      g_crop);
+  const window_math::EyeColumns left =
+      window_math::Columns(0, g_crop, g_set.edge, info.res_x);
+  const window_math::EyeColumns right =
+      window_math::Columns(1, g_crop, g_set.edge, info.res_x);
+  const float first = static_cast<float>(right.offset);
+  const float last = static_cast<float>(left.offset + left.width);
+  bool any = false, edge = false;
+  const float* near_at = reinterpret_cast<const float*>(bw::tech::kNearPlane);
+  const float near_plane = *near_at;
+  const float per_rhw = one_walk_math::ShiftPerRhw(
+      info.inv_half_tan_fov_x, g_separation, info.half_res_x, near_plane);
+  for (int i = 0; i < 2; ++i) {
+    Advisor& a = g_advisors[i];
+    const bool fresh = a.next_frame + 1 == frame && a.next.have;
+    a.last = fresh ? a.next : window_math::AdvisorExtent();
+    a.next = window_math::AdvisorExtent();
+    a.next_frame = frame;
+    a.have = a.last.have;
+    if (!a.have) {
+      if (a.frames > 0 && Say()) {
+        ModLog("cut scene    : frame %llu: advisor %d is not in the window "
+               "now, after %llu frames", frame, i + 1, a.frames);
+      }
+      a.frames = 0;
+      a.edge = false;
+      continue;
+    }
+    any = true;
+    const window_math::AdvisorExtent& l = a.last;
+    a.middle = 0.5f * (l.nearest + l.farthest);
+    a.natural = one_walk_math::ShiftAtDepth(per_rhw, near_plane, a.middle);
+    // The right eye sees the advisor `natural` columns to the left.
+    a.difference = window_math::AdvisorEdge(target, g_crop, first, last,
+                                            l.low + a.natural, l.high,
+                                            a.natural);
+    const bool at_edge = a.difference > target + 0.5f;
+    if (at_edge) edge = true;
+    ++a.frames;
+    if (a.frames == 1 && Say()) {
+      ModLog("cut scene    : frame %llu: advisor %d is in the window "
+             "(HelpDude 0x%p, its mesh 0x%p draws with 0x%08X). It is %.1f to "
+             "%.1f units away, at the columns %.0f to %.0f of %d in the left "
+             "eye. The screen plane is at %.1f units",
+             frame, i + 1, a.dude, a.mesh,
+             static_cast<unsigned>(MeshDraw(a.mesh)), l.nearest, l.farthest,
+             l.low, l.high, info.res_x, g_plane);
+    }
+    if ((a.frames == 1 || at_edge != a.edge) && Say()) {
+      if (g_set.advisors) {
+        ModLog("cut scene    : frame %llu: advisor %d %s: its middle has an "
+               "eye difference of %.1f px and is seen %.2f m away. The "
+               "screen plane has %d px, and the eye cameras give the advisor "
+               "%.1f px (seen %.2f m away)",
+               frame, i + 1,
+               at_edge ? "is at the edge of the opening"
+                       : "has room to the edges",
+               a.difference, SeenAt(a.difference, ipd, info.res_x), -g_crop,
+               a.natural, SeenAt(a.natural, ipd, info.res_x));
+      } else {
+        ModLog("cut scene    : frame %llu: advisor %d draws as the scene "
+               "draws it: the eye cameras give its middle an eye difference "
+               "of %.1f px, and it is seen %.2f m away. The screen plane has "
+               "%d px",
+               frame, i + 1, a.natural, SeenAt(a.natural, ipd, info.res_x),
+               -g_crop);
+      }
+    }
+    a.edge = at_edge;
+    if (a.frames == 30 && g_set.capture &&
+        g_advisor_captures < kMaxAdvisorCaptures) {
+      ++g_advisor_captures;
+      g_capture_at[3] = frame + 1;
+      if (Say()) {
+        ModLog("cut scene    : frame %llu: the eye pictures of frame %llu "
+               "show advisor %d (cutscene_window_capture=1)",
+               frame, frame + 1, i + 1);
+      }
+    }
+  }
+  if (any) ++g_advisor_frames;
+  if (edge) ++g_advisor_edge_frames;
+}
+
 void SayDepth(uint64_t frame, const char* why, float nearest, float strict,
               float rule_units) {
   g_said_plane = g_plane;
@@ -635,6 +903,7 @@ bool CutsceneWindowBeginFlat(float ipd, uint64_t frame, float* separation,
   // The flat interface is on the screen: each eye moves it half of the
   // distance between the two pictures.
   *ui_shift = 0.5f * static_cast<float>(crop);
+  LatchAdvisors(frame, ipd, *info);
 
   if (g_report_plane[0] == 0.0f || g_plane < g_report_plane[0]) {
     g_report_plane[0] = g_plane;
@@ -706,6 +975,57 @@ bool CutsceneWindowVideoBatch(int eye, float* move) {
   g_video_moved = true;
   const float half = 0.5f * static_cast<float>(g_crop);
   *move = eye == 0 ? half : -half;
+  return true;
+}
+
+void CutsceneWindowInstall() {
+  ReadSettings();
+  if (!g_set.god || !g_set.on) return;
+  // sub esp, 0x4C, and mov eax, [0x00EA9E90]
+  const uint8_t dude_draw[] = {0x83, 0xEC, 0x4C, 0xA1, 0x90, 0x9E, 0xEA, 0x00};
+  // mov eax, [ecx], and jmp [eax + 0x108]
+  const uint8_t sorted_draw[] = {0x8B, 0x01, 0xFF, 0xA0, 0x08, 0x01, 0x00, 0x00};
+  if (!SameBytes(kHelpDudeDraw, dude_draw, sizeof(dude_draw)) ||
+      !SameBytes(kSortedDraw, sorted_draw, sizeof(sorted_draw))) {
+    ModLog("cut scene    : the draw of the advisors is not as the mod knows "
+           "it, so in the window the advisors draw as the scene draws them");
+    return;
+  }
+  Hook(kHelpDudeDraw, reinterpret_cast<void*>(&h_HelpDudeDraw),
+       reinterpret_cast<void**>(&o_HelpDudeDraw),
+       "HelpDude::Draw (the advisors in the cut scene window)");
+  Hook(kSortedDraw, reinterpret_cast<void*>(&h_SortedDraw),
+       reinterpret_cast<void**>(&o_SortedDraw),
+       "the draw of a sorted object (the mesh of an advisor)");
+}
+
+bool CutsceneWindowAdvisorBatch(int eye, const void* verts, uint32_t count,
+                                const uint16_t* idx, uint32_t n,
+                                window_math::AdvisorShift* shift) {
+  if (g_advisor_now < 0 || !g_state.flat || g_crop <= 0 || eye < 0 ||
+      eye > 1) {
+    return false;
+  }
+  Advisor& a = g_advisors[g_advisor_now];
+  if (a.next_frame != g_advisor_frame) return false;
+  const bw::tech::InfoTransform* info = Info();
+  const float* near_at = reinterpret_cast<const float*>(bw::tech::kNearPlane);
+  if (info == nullptr || IsBadReadPtr(near_at, sizeof(float)) ||
+      !(*near_at > 0.0f)) {
+    return false;
+  }
+  shift->per_rhw = one_walk_math::ShiftPerRhw(
+      info->inv_half_tan_fov_x, g_separation, info->half_res_x, *near_at);
+  if (eye == 0) {
+    window_math::AdvisorTrack(&a.next, verts, count, idx, n, 32, *near_at);
+  }
+  if (!g_set.advisors) return false;
+  // The first frame of an advisor has no measure: it draws as the game
+  // draws it, but it is not in the measure of the nearest thing.
+  shift->keep = !a.have;
+  shift->difference = a.difference;
+  shift->natural = a.natural;
+  ++g_advisor_moved;
   return true;
 }
 
@@ -854,7 +1174,14 @@ uint64_t CutsceneWindowEndFrame(uint64_t frame) {
   // with one: the game loads its script and its sounds then.
   const float step = dt > kLongestStep ? kLongestStep : dt;
 
-  const int bars = ReadBars();
+  int bars = ReadBars();
+  if (g_set.test_bars != 0 && frame >= g_set.test_bars) {
+    if (frame == g_set.test_bars) {
+      ModLog("cut scene    : frame %llu: a test reads the cinema bars as up "
+             "from now on (cutscene_window_test_bars)", frame);
+    }
+    bars = 1;
+  }
   const bool story = ScriptCameraStoryOwns();
   if (bars == 1) {
     g_since_bars = 0.0f;
@@ -992,6 +1319,16 @@ void CutsceneWindowReport() {
            g_report_plane[1] / g_set.distance, g_report_measures,
            g_report_shots, g_report_nearest[0], g_report_nearest[1]);
   }
+  if (g_advisor_frames != 0) {
+    ModLog("cut scene    : cutscene_advisors=%d. An advisor was in the window "
+           "in %llu frames this report, and at the edge of the opening in "
+           "%llu of them. %llu batches of an advisor had the place in front "
+           "of the screen.", g_set.advisors ? 1 : 0, g_advisor_frames,
+           g_advisor_edge_frames, g_advisor_moved);
+  }
+  g_advisor_frames = 0;
+  g_advisor_edge_frames = 0;
+  g_advisor_moved = 0;
   g_report_plane[0] = g_report_plane[1] = 0.0f;
   g_report_nearest[0] = g_report_nearest[1] = 0.0f;
   g_report_measures = 0;

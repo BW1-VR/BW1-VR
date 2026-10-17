@@ -1382,6 +1382,7 @@ against a true right eye camera at three rolls.
 | A batch with no depth | Every rhw exactly 1 (screen space) or every z 1 (the sky): the copy moves by the eye width only |
 | The interface | `draw_hooks.cpp` runs its chain a second time with the right eye, and the batch goes to the right half only. A tooltip at the Hand has an anchor for each eye. `hand_glow.cpp` gives the right eye its Hand's point by the same rule |
 | A card or a mark of the mod | Its batch goes to the left half only, and then to the right half only, moved by the eye difference of its place. See "The cards and the marks of the mod" |
+| An advisor in the cut scene window (`cutscene_advisors=1`) | Its batch goes to the left half only, and then to the right half only, with the eye difference of its place in front of the screen. See `cutscene-window.md`, section 7 |
 | The pass ends | The game's target is bound again. The two halves go to the shared textures: with `frame_send=0` the first copy has no wait and the second has the wait for the GPU, and with `frame_send` 1 and 2 both are copies alone, and `frame_send.cpp` waits one time as for two eye passes |
 
 Direct3D 9 takes XYZRHW vertices as pixels of the whole target and clips them

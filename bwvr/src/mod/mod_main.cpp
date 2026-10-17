@@ -203,6 +203,8 @@ void EyeCameraSetFixes(bool unscaled, bool copy, bool inverse, bool random);
 void EyeCameraReport();
 void StereoReport();
 
+// cutscene_window.cpp: the draw of the advisors.
+void CutsceneWindowInstall();
 // ui_depth.cpp
 bool UiDepthInstall(bool with_attribution);
 void UiDepthSetAccounting(bool on);
@@ -1419,6 +1421,8 @@ void StartVrOnce() {
     PointerMapSetRenderSize(static_cast<int>(width),
                             static_cast<int>(height));
     UiDepthInstall(g_draw_probe);
+    // The draw of the advisors, for the cut scene window.
+    CutsceneWindowInstall();
     UiDepthSetAccounting(g_ui_accounting);
     UiDepthSetHintMode(g_hint_mode);
     UiDepthSetHintSelfTest(g_hint_selftest);

@@ -650,4 +650,116 @@ inline void SubtitleQuad(const Screen& screen, float top, float text_width,
   for (int i = 0; i < 4; ++i) out->orientation[i] = screen.orientation[i];
 }
 
+// THE ADVISORS (cutscene_advisors). The game draws its two advisors as meshes
+// of the scene at the side of the picture, 7.5 to 11 units from the camera.
+// In the window each advisor gets a place of its own between the player and
+// the screen: one eye difference for the advisor, the same in each of its
+// batches.
+//
+// The eye difference is x(right) - x(left) of a point, in pixels of an eye
+// picture. The two pictures are `crop` columns apart on the screen, so a
+// point on the screen has the difference -crop. Eyes `ipd` meters apart see
+// a point `seen` meters away, with the screen `screen_distance` meters away,
+// when its two pictures are ipd * (1 - screen_distance / seen) meters apart
+// on the screen. Less than 0 is in front of the screen.
+inline float AdvisorDifference(float ipd, float screen_distance, float seen,
+                               float picture_width, int res_x, int crop) {
+  if (!(ipd > 0.0f) || !(screen_distance > 0.0f) || !(seen > 0.0f) ||
+      !(picture_width > 0.0f) || res_x <= 0) {
+    return -static_cast<float>(crop);
+  }
+  const float apart = ipd * (1.0f - screen_distance / seen);
+  return apart * static_cast<float>(res_x) / picture_width -
+         static_cast<float>(crop);
+}
+
+// THE EYE DIFFERENCE THAT THE GAME GIVES AN ADVISOR. HelpDudeControl::Update
+// puts the advisor at a point of the world, and the eye cameras see it as
+// each other thing of the world: a vertex has the difference per_rhw * rhw
+// (one_walk_math). In one walk the right eye gets each vertex moved by that.
+// `natural` is the difference of the middle of the advisor
+// (one_walk_math::ShiftAtDepth with the depth of the middle).
+
+// THE EDGE OF THE OPENING. A real window cannot cut a thing that is in front
+// of it. The right eye shows from its column `first`, and the left eye to
+// the column before `last` (Columns). `low_right` is the first column of the
+// advisor in the right eye and `high_left` its last column in the left eye,
+// as the game draws them, with the eye difference `natural`. A move to the
+// difference d moves the right eye by (d - natural) / 2 to the right and the
+// left eye by as much to the left. So the advisor stays in the opening while
+// d is not less than natural - 2 * room, with `room` the room of the nearer
+// edge. The difference is never less than in front of the screen plane: at
+// the edge the advisor is on the screen, where the edge of a window can cut
+// a thing.
+inline float AdvisorEdge(float difference, int crop, float first, float last,
+                         float low_right, float high_left, float natural) {
+  const float plane = -static_cast<float>(crop);
+  if (!(difference < plane)) return plane;
+  const float room = fminf(low_right - first, last - high_left);
+  const float most = natural - 2.0f * room;
+  const float out = difference > most ? difference : most;
+  return out < plane ? out : plane;
+}
+
+// What the batches of an advisor gave in the left eye pass of one frame: its
+// columns as the game drew them, and its depth in units. Only a vertex that
+// a triangle uses counts (GridBatch).
+struct AdvisorExtent {
+  bool have;
+  float low, high;          // columns
+  float nearest, farthest;  // units
+};
+
+// One batch of an advisor: `count` vertices of `stride` bytes with x, y, z
+// and rhw first, and `n` indices of a triangle list.
+inline void AdvisorTrack(AdvisorExtent* e, const void* verts, unsigned count,
+                         const unsigned short* idx, unsigned n,
+                         unsigned stride, float near_plane) {
+  if (verts == nullptr || idx == nullptr || !(near_plane > 0.0f)) return;
+  const unsigned char* base = static_cast<const unsigned char*>(verts);
+  for (unsigned j = 0; j + 2 < n; j += 3) {
+    for (int k = 0; k < 3; ++k) {
+      const unsigned index = idx[j + k];
+      if (index >= count) continue;
+      const float* v = reinterpret_cast<const float*>(base + index * stride);
+      if (!(v[3] > 0.0f)) continue;
+      const float depth = near_plane / v[3];
+      if (!e->have) {
+        e->have = true;
+        e->low = e->high = v[0];
+        e->nearest = e->farthest = depth;
+        continue;
+      }
+      if (v[0] < e->low) e->low = v[0];
+      if (v[0] > e->high) e->high = v[0];
+      if (depth < e->nearest) e->nearest = depth;
+      if (depth > e->farthest) e->farthest = depth;
+    }
+  }
+}
+
+// THE MOVE of a vertex of an advisor. The middle of the advisor gets the eye
+// difference `difference`: the change is difference - natural, the same for
+// each vertex of each batch of the advisor. Each eye moves half of the
+// change, so the advisor keeps the column between its two pictures. Each
+// vertex keeps its depth from the middle, as the eye cameras give it.
+// `keep`: no move. The first frame of an advisor has no measure yet.
+struct AdvisorShift {
+  float difference;
+  float per_rhw;
+  float natural;
+  bool keep;
+};
+
+// The x of a vertex in the picture of `eye` (0 is the left eye). In one walk
+// (`one_walk`) the right eye comes from the x of the left eye: the vertex
+// moves by per_rhw * rhw, as one walk moves each vertex of the world.
+inline float AdvisorX(const AdvisorShift& s, int eye, float x, float rhw,
+                      bool one_walk) {
+  const float own = one_walk && eye == 1 ? x + s.per_rhw * rhw : x;
+  if (s.keep) return own;
+  const float half = 0.5f * (s.difference - s.natural);
+  return eye == 0 ? own - half : own + half;
+}
+
 }  // namespace window_math

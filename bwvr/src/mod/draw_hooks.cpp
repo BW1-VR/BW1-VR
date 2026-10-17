@@ -95,6 +95,7 @@
 #include "bubble_card.h"
 #include "controller_hints.h"
 #include "controller_math.h"
+#include "cutscene_window_math.h"
 #include "hint_card.h"
 #include "subtitle_card_math.h"
 #include "ui_panel.h"
@@ -113,6 +114,12 @@ bool CutsceneWindowProbeStart(int eye);
 void CutsceneWindowProbeBatch(const void* verts, uint32_t count,
                               const uint16_t* idx, uint32_t n,
                               uint32_t caller);
+// The advisors in the window (cutscene_advisors). True for a batch of an
+// advisor that gets its place in front of the screen. Then the batch is not
+// in the measure, and `shift` gives the move of each vertex.
+bool CutsceneWindowAdvisorBatch(int eye, const void* verts, uint32_t count,
+                                const uint16_t* idx, uint32_t n,
+                                window_math::AdvisorShift* shift);
 
 // hand_glow.cpp: the Hand's point in this eye pass, in pixels of the render,
 // and its depth in meters of the room. False while the controller does not
@@ -2360,6 +2367,56 @@ void DrawInterface(DrawAndClipFn original, D3DPRIMITIVETYPE type,
   }
 }
 
+// THE ADVISORS IN THE CUT SCENE WINDOW (cutscene_advisors=1). A batch of an
+// advisor gets the eye difference of its place in front of the screen
+// (window_math::AdvisorX). In two walks each eye pass moves its own batch.
+// In one walk the batch goes to the left half only, and then to the right
+// half only, made from the vertices of the left eye. The engine changes the
+// vertices that it gets, so the draw for the right eye starts from a copy,
+// and the x of each vertex goes back after the last draw.
+const uint32_t kAdvisorStride = 32;
+const uint32_t kAdvisorMost = 65536;
+uint8_t g_advisor_copy[kAdvisorMost * kAdvisorStride];
+
+void MoveAdvisor(void* verts, uint32_t count,
+                 const window_math::AdvisorShift& shift, int eye,
+                 bool one_walk) {
+  uint8_t* vertex = static_cast<uint8_t*>(verts);
+  for (uint32_t i = 0; i < count; ++i, vertex += kAdvisorStride) {
+    float* p = reinterpret_cast<float*>(vertex);
+    if (p[3] > 0.0f) {
+      p[0] = window_math::AdvisorX(shift, eye, p[0], p[3], one_walk);
+    }
+  }
+}
+
+template <typename Draw>
+void DrawAdvisor(void* verts, uint32_t count,
+                 const window_math::AdvisorShift& shift, Draw draw) {
+  if (verts == nullptr || count == 0 || count > kAdvisorMost) {
+    draw();
+    return;
+  }
+  const size_t bytes = static_cast<size_t>(count) * kAdvisorStride;
+  memcpy(g_advisor_copy, verts, bytes);
+  const bool walk = OneWalkActive() && g_eye == 0;
+  MoveAdvisor(verts, count, shift, g_eye == 1 ? 1 : 0, walk);
+  if (walk) OneWalkSetMode(kOneWalkLeftOnly);
+  draw();
+  if (walk) {
+    memcpy(verts, g_advisor_copy, bytes);
+    MoveAdvisor(verts, count, shift, 1, true);
+    OneWalkSetMode(kOneWalkRightOnly);
+    draw();
+    OneWalkSetMode(kOneWalkBoth);
+  }
+  uint8_t* vertex = static_cast<uint8_t*>(verts);
+  for (uint32_t i = 0; i < count; ++i, vertex += kAdvisorStride) {
+    reinterpret_cast<float*>(vertex)[0] = reinterpret_cast<const float*>(
+        g_advisor_copy + static_cast<size_t>(i) * kAdvisorStride)[0];
+  }
+}
+
 void __cdecl h_DrawAndClip(D3DPRIMITIVETYPE type, uint32_t fvf, void* verts,
                            uint32_t count, uint16_t* idx, uint32_t n) {
   const uint32_t outer = g_caller;
@@ -2370,7 +2427,17 @@ void __cdecl h_DrawAndClip(D3DPRIMITIVETYPE type, uint32_t fvf, void* verts,
       !IsUiCaller(g_caller)) {
     TargetGlowBatch(verts, count, idx, n, true, g_caller);
   }
-  DrawInterface(o_DrawAndClip, type, fvf, verts, count, idx, n);
+  // A mesh of an advisor that the engine clips.
+  window_math::AdvisorShift advisor = {};
+  if (fvf == kExpectedFvf && type == D3DPT_TRIANGLELIST && g_eye >= 0 &&
+      !IsUiCaller(g_caller) &&
+      CutsceneWindowAdvisorBatch(g_eye, verts, count, idx, n, &advisor)) {
+    DrawAdvisor(verts, count, advisor, [&]() {
+      DrawInterface(o_DrawAndClip, type, fvf, verts, count, idx, n);
+    });
+  } else {
+    DrawInterface(o_DrawAndClip, type, fvf, verts, count, idx, n);
+  }
   g_caller = outer;
 }
 
@@ -2396,7 +2463,13 @@ void __fastcall h_DrawTriangle(void* verts, uint32_t count, uint16_t* idx,
   // The mesh of a target of the Hand gets its glow (target_glow.cpp).
   TargetGlowBatch(verts, count, idx, n, false,
                   reinterpret_cast<uint32_t>(_ReturnAddress()));
-  if (g_window_probe) {
+  // A batch of an advisor with its place in front of the screen is not in
+  // the measure of the nearest thing.
+  window_math::AdvisorShift advisor_shift = {};
+  const bool advisor =
+      g_eye >= 0 &&
+      CutsceneWindowAdvisorBatch(g_eye, verts, count, idx, n, &advisor_shift);
+  if (g_window_probe && !advisor) {
     CutsceneWindowProbeBatch(verts, count, idx, n,
                              reinterpret_cast<uint32_t>(_ReturnAddress()));
   }
@@ -2426,7 +2499,10 @@ void __fastcall h_DrawTriangle(void* verts, uint32_t count, uint16_t* idx,
   float box_move = 0.0f;
   const bool box_eyes = box && BubbleCardWalkMove(&box_move);
   if (box_eyes) OneWalkSetMode(kOneWalkLeftOnly);
-  if (g_time_submit) {
+  if (advisor && !box_eyes) {
+    DrawAdvisor(verts, count, advisor_shift,
+                [&]() { o_DrawTriangle(verts, count, idx, n); });
+  } else if (g_time_submit) {
     LARGE_INTEGER a, b;
     QueryPerformanceCounter(&a);
     o_DrawTriangle(verts, count, idx, n);

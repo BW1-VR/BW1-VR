@@ -32,6 +32,8 @@ The code is in `src/mod/cutscene_window.cpp` and `cutscene_window_math.h`.
   pictures, which the cinema bars and a fade do not cover.
 - **The subtitles** are on a card in the plane of the screen, under the scene.
   None draws in the picture.
+- **The advisors** are in front of the screen, 1.33 m from the eyes, between
+  the player and the scene. They are not in the measure of the depth.
 - **A video of the game** (the birth of the god after the drowning boy) is on
   the screen plane, the same picture for both eyes.
 - **The leave.** The next frame is a full view frame, with the God view built
@@ -39,7 +41,7 @@ The code is in `src/mod/cutscene_window.cpp` and `cutscene_window_math.h`.
   moves while they open.
 - **The keys.** `cutscene_window` (1) is the window. `cutscene_face_head`,
   `cutscene_depth`, `cutscene_subtitles`, `cutscene_edge_columns` and
-  `cutscene_video` (all 1) are its parts, and 0 turns each part off. With `test_keys=1`, numpad 0
+  `cutscene_video` and `cutscene_advisors` (all 1) are its parts, and 0 turns each part off. With `test_keys=1`, numpad 0
   changes the window live and numpad 1 the depth limit.
 - **A mouse player** with no headset gets no change.
 
@@ -369,6 +371,8 @@ batch to `CutsceneWindowProbeBatch` (`window_math::GridBatch`):
   triangle that is in view does. Without this, a large triangle of the land
   under the camera gives a depth that is too near or no depth at all.
 - A vertex nearer than the near plane counts as the near plane.
+- A batch of an advisor is left out with `cutscene_advisors=1` (section 7,
+  "The advisors").
 - A batch with an `rhw` of exactly 1 in each vertex is left out. It is a draw in
   screen space with no depth, as the scanline sea of `LH3DWater::Draw`
   `0x00879930` is (`water_mode.cpp`). A mesh cannot have all of its vertices on
@@ -503,11 +507,80 @@ in the window.
 - **Not in the window.** A frame of the full view (the 0.5 s of the enter, or
   `cutscene_window=0`) gets the video as the game draws it, in each eye.
 
-**The interface, the advisors and the help text** draw as in play mode 1. The
-interface is on the screen plane (section 6.6). The advisors are not fixed in the
-room, and their sound comes from the game camera. They are in the measure of the
-nearest thing: the game puts them 7.5 to 11 units from the camera [I], so with the
-advisors in view the plane is at about 6 to 9 units.
+**The interface and the help text** draw as in play mode 1. The interface is
+on the screen plane (section 6.6).
+
+**The advisors** (`cutscene_advisors=1`) are in front of the screen, between
+the player and the scene.
+
+- **How the game draws an advisor [V].** `HelpDude::Draw` `0x005C0700`
+  (thiscall, one char argument, `ret 4`) draws the mesh of one advisor, its
+  glow and its sparks. `HelpSystem::Draw3D` `0x005C59A0` calls it with 1, and
+  a FinishFrame callback of the game (`0x005C3920`) calls it with 0. Before
+  the draw, `HelpDudeControl::Update` `0x005C3A30` puts each advisor at a
+  point of the world, from a screen point and a depth. The mesh is the
+  object at `HelpDude + 0x20`
+  (`LH3DObject::Create(3)` at `0x005C0FDA`). `LH3DObject::AddForDrawing`
+  `0x00815A70` draws it at once (the virtual function `+0x108`) or puts it
+  into the sorted list (`LH3DZSorter::NewZObject` at `0x00815F53`), which
+  draws it later through `0x007FA980`, a jump to `+0x108` of the object. The
+  glow and the sparks are sprites: `LH3DSprite::Draw` draws each one at once
+  through `DrawTriangle` (`0x00840C57`).
+- **Where the advisors are [M].** In a desktop run of play, each advisor
+  came in at a side of the picture with a part of it past the edge, 7.5 to
+  9.7 units from the camera. Later a script moved both to the middle of the
+  picture. The first draw came from the FinishFrame callback (argument 0).
+  The mesh of each advisor draws with `fn_00813BA0`, the function at `+0x108`
+  of the vtable `0x009A3068`, as the mesh of the Hand.
+- **The mark.** `cutscene_window.cpp` hooks `HelpDude::Draw` and
+  `0x007FA980`. A batch in a call of `HelpDude::Draw`, or in a call of
+  `0x007FA980` for the mesh of an advisor, is a batch of that advisor.
+  `draw_hooks.cpp` gives each batch of `DrawTriangle` and of `DrawAndClip` in
+  an eye pass to `CutsceneWindowAdvisorBatch`.
+- **Not in the measure.** A batch of an advisor is not in the measure of the
+  nearest thing (section 6.4). So the screen plane comes from the scene.
+- **The place.** The middle of the advisor (the middle of its depth) is
+  `cutscene_advisor_distance_cm` (133) from the eyes: a third of the way from
+  the screen to the player. The two pictures of a point there are crossed by
+  half of the distance between the eyes. That is clearly in front of the
+  screen, and the eyes change their focus by 0.25 diopter from the screen.
+  At half of the way the pictures are crossed by all of the distance between
+  the eyes, and the change is 0.5 diopter. `window_math::AdvisorDifference`
+  gives the eye difference of the place in pixels.
+- **One eye difference for an advisor.** The advisor is a point of the
+  world, so the eye cameras give each vertex the eye difference of its
+  depth, as for each other thing of the world. The rule of a frame comes
+  from the batches of the advisor in the left eye pass of the frame before,
+  once, in `CutsceneWindowBeginFlat`: the middle of its depth, and the eye
+  difference that the eye cameras give that middle
+  (`one_walk_math::ShiftAtDepth`). Each vertex of each batch of the advisor
+  gets the same change, to the difference of the place. Each eye moves half
+  of it, so the advisor keeps the column between its two pictures, and each
+  vertex keeps its depth from the middle (`window_math::AdvisorX`).
+  - In one walk the batch goes to the left half only, and then to the right
+    half only, made from the left eye (as a card of the mod, `backend.md`,
+    "The cards and the marks of the mod").
+  - In two walks each eye pass moves its own batch.
+- **The first frame** of an advisor draws as the game draws it, because the
+  mod does not know its place yet. It is not in the measure.
+- **The edge of the opening** does not cut an advisor that is in front of
+  the screen (`window_math::AdvisorEdge`). The right eye sees a thing in front
+  of the screen more to the left, and the left eye more to the right. Near an
+  edge the eye difference becomes smaller, so that the eye that is nearer to
+  the edge sees the advisor at the edge and not past it. At the edge the
+  advisor is on the screen plane, where the edge of a window can cut a
+  thing.
+- **Not in the window:** a frame of the full view, or `cutscene_depth=0`, gets
+  the advisors as the game draws them. The God view places them with its own
+  rule (`spirit_anchor.cpp`).
+- **`cutscene_advisors=0`** draws the advisors as the scene draws them, and
+  they are in the measure of the nearest thing. An advisor that is the
+  nearest thing in view is a little behind the screen (the plane is at 85
+  percent of its depth). With a nearer thing in the scene it is farther
+  behind: 3.3 to 3.7 m away in a desktop run.
+
+The advisors are not fixed in the room, and their sound comes from the game
+camera.
 
 **The hands.** The mod places no Hand, draws no glow and no ray, and shows no hint
 card. The teleport, the grab of the land, the zoom steps and the far grab do not
@@ -541,9 +614,12 @@ All in `[bwvr]`. None is in the launcher.
 | `cutscene_subtitle_place` | 0 | 0 hangs the card under the scene. 1 hangs it under the whole opening |
 | `cutscene_edge_columns` | 1 | The columns that each eye picture also loses at each side of the opening, 0 to 16 (section 6.2). 0 shows each picture to its edges, with a column of light at the left edge of the opening |
 | `cutscene_video` | 1 | 1 puts a video of the game in the window on the screen plane, the same picture for both eyes (section 7). 0 gives the video no rule of the window: in one walk the two eyes see it at two places on the screen |
-| `cutscene_window_capture` | 0 | A test: 1 saves the eye pictures of the second and the 90th frame in the window, and of the second frame after it |
+| `cutscene_advisors` | 1 | 1 puts each advisor in front of the screen, `cutscene_advisor_distance_cm` from the eyes, and leaves it out of the measure of the nearest thing (section 7). 0 draws the advisors as the scene draws them, in the measure |
+| `cutscene_advisor_distance_cm` | 133 | The distance of an advisor from the eyes, 30 to `screen_distance_cm` |
+| `cutscene_window_capture` | 0 | A test: 1 saves the eye pictures of the second and the 90th frame in the window, of the second frame after it, and of the 31st frame with an advisor in the window (three times at most) |
 | `cutscene_window_test_off`, `cutscene_window_test_on` | 0, 0 | A test with no key press: at the first frame number the window goes off, and at the second it goes on, as numpad 0 does |
 | `cutscene_depth_test_off`, `cutscene_depth_test_on` | 0, 0 | The same for the depth limit, as numpad 1 does |
+| `cutscene_window_test_bars` | 0 | A test: from this frame on, the mod reads the cinema bars as up. The window then comes and stays with the camera of the player. A desktop run uses it to put an advisor of play in the window |
 
 With `test_keys=1` and Num Lock on:
 
@@ -557,7 +633,8 @@ With `test_keys=1` and Num Lock on:
 The tags are `cut scene` and `subtitles`. At the start, one line for each part
 says its key and its value (`cutscene_window`, the size of the screen,
 `cutscene_depth`, `cutscene_subtitles`, `cutscene_edge_columns`,
-`cutscene_video`). Then the log has these lines:
+`cutscene_video`, `cutscene_advisors`). The `hooks` tag gives the two hooks
+of the advisors. Then the log has these lines:
 
 - The frame that the bars go up, and the frame that a cut scene starts. With
   `cutscene_face_head=1`, a line gives the head (position and yaw) and the place
@@ -572,6 +649,12 @@ says its key and its value (`cutscene_window`, the size of the screen,
 - The frame that a video of the game starts, with its move in pixels for each
   eye picture, and the frame that it is over. The report has the frames with
   the video on the screen plane.
+- The first frame of an advisor in the window: its `HelpDude`, its mesh and
+  the function at `+0x108` of the mesh, its depth and its columns, and the
+  eye difference of its middle with the eye difference of the screen plane.
+  A line says when an advisor comes to the edge of the opening, when it has
+  room again, and when it is not in the window. The report has the frames
+  with an advisor and the batches that got the place in front.
 - The frame that the bars go down, the frame that the cut scene is over, the
   frame that the window ends, and the frame that the full view is open again. At
   the end, the `god view` tag has a line with the game camera, the waist point
@@ -623,6 +706,12 @@ the frames of a change, and 400 lines for the depth.
   that two triangles share, and the columns of each eye.
 - The subtitles: the card under a square scene and under a wide one, its width,
   its top, a rect at the left, and a screen that is turned.
+- The advisors: the eye difference of the place in front of the screen (eyes
+  see it 1.33 m away), the edge of the opening for two walks and for one
+  walk, the move of a vertex in one walk and in two walks (the middle has
+  the difference, each vertex keeps its column between the eyes, and in one
+  walk its depth from the middle), the first frame with no move, and the
+  extent of a batch.
 - The edge columns: the right eye does not show its first column and the left
   eye does not show its last one, both eyes show the same number of columns,
   the two parts stay the crop apart, and an edge that leaves less than half of
@@ -649,6 +738,17 @@ pictures (`cutscene_window_capture=1`) are the proof. The checks are:
   eye in a fade (80 of 255).
 - The start dialog needs its clicks at the right pixels for the render size, so
   the points of the fake hand depend on the render size.
+- The advisors: a run with "Skip straight to the Creature select",
+  `cutscene_window_test_bars=8000` and `cutscene_window_capture=1` puts the
+  advisors of play in the window. The log gives the first frame of each
+  advisor in the window, and the eye pictures of its 31st frame. A block
+  match in those pictures gives the eye difference of an advisor, of the
+  subtitle text (the screen plane) and of the scene. In a render of 3600
+  columns with a crop of 92: with `cutscene_advisors=1` an advisor with room
+  to the edges has -139 to -145 px (the place is -138.6 px), an advisor at
+  the edge has -94 px, the text has -92 px, and the scene behind has -43 to
+  -47 px. With `cutscene_advisors=0` an advisor has -58 px, behind the
+  screen.
 
 ## 11. Not built, not tested, and what needs the headset
 
@@ -676,9 +776,21 @@ pictures (`cutscene_window_capture=1`) are the proof. The checks are:
 - **A draw that does not go through `DrawTriangle`** is not in the measure. Which
   draws of the scene those are is not measured. The log names the caller of the
   nearest vertex, so a log of a shot shows what set its depth.
-- **The advisors** are in the measure. While they are in view the scene behind
-  them has about half of its life size depth. A place of their own for the
-  advisors, in front of the screen, is not built (`roadmap.md`, B29).
+- **The advisors, for the headset:** whether 1.33 m is a good place, and how
+  the change of the depth looks when an advisor comes in from a side of the
+  picture. At the edge it is on the screen plane, and it comes to its place
+  in front after about 23 px of motion in a render 3600 columns wide.
+- **The advisors in two walks** (`one_walk=0`): the two eye pictures of an
+  advisor do not show one pose. A block match of an advisor finds no clear
+  match (a mean difference of 23 to 25 of 255, against 5 to 6 in one walk).
+  Each eye pass runs `HelpSystem::Draw3D`, so the game seems to update the
+  advisor two times in a frame [I]. The eye difference of the place applies
+  (-125 to -141 px in a desktop run).
+- **The advisors, not tested on the desktop:** an advisor in a cut scene of a
+  story (no desktop run reaches one in a few minutes, so a test reads the
+  bars as up while the advisors of play show), the mesh of an advisor from
+  the sorted list (`0x007FA980`, the log says when it comes), and a batch of
+  an advisor through `DrawAndClip`.
 - **A controller that the player holds still** in a long cut scene can turn
   off. The pointer and the Hand then wait for a press of a button on it after
   the window ends (`controllers.md`, section 6).
