@@ -855,7 +855,18 @@ bool XrScreen::StartInstance(LogFn log) {
   if (XR_FAILED(result)) {
     s.log("  openxr: xrCreateInstance failed (%s)",
           ResultName(XR_NULL_HANDLE, result));
-    if (result == XR_ERROR_FILE_ACCESS_ERROR ||
+    if (result == XR_ERROR_RUNTIME_UNAVAILABLE) {
+      s.log("  The OpenXR loader cannot find or load a runtime for this process.");
+      s.log("  The game is 32 bit. It needs a runtime that supports 32 bit");
+      s.log("  Windows OpenXR applications. A 64 bit runtime alone is not enough.");
+      s.log("  On Windows, check the active 32 bit OpenXR runtime.");
+      s.log("  On Wine or Proton, check support for 32 bit Windows OpenXR");
+      s.log("  applications in that build. A running SteamVR alone does not");
+      s.log("  confirm this support. Check the loader log for the cause.");
+    } else if (result == XR_ERROR_EXTENSION_NOT_PRESENT) {
+      s.log("  The runtime does not provide the required XR_KHR_D3D11_enable");
+      s.log("  extension. The mod needs OpenXR support for Direct3D 11.");
+    } else if (result == XR_ERROR_FILE_ACCESS_ERROR ||
         result == XR_ERROR_FILE_CONTENTS_INVALID) {
       // The runtime gave its extensions, so the loader found it. At the
       // instance the loader also loads each implicit API layer, and a layer
