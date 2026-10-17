@@ -99,6 +99,14 @@ $stillPoints = '0,0,100 0,0,100 -10,-10,60 -10,-50,60'
 # after the word "aimfar". The lines "hand tree" of the log have the answer
 # of the card and what the tree is after the release.
 $stillLean = 'point@2990+1 aimfar@3000+1 grip@3100+101 pull@3140+3 pull@3260+3 point@4500+1 aimfar@4510+1 grip@4600+101 pull@4640+3 pull@4670+3 aimturn@4682+1 shot@5900+1'
+# The same with a tree, and with a step of the hand to a fifth point before
+# the second release: the hand sets the tree down 6 cm to the left or to the
+# right of its place, about 5 units of the land. One of the two places is away
+# from the rocks beside the place of the tree. The lines "tree body" of
+# the log have the bodies that the release compares with the tree.
+$stillAway = 'point@2990+1 aimfar@3000+1 grip@3100+101 pull@3140+3 pull@3260+3 point@4500+1 aimfar@4510+1 grip@4600+101 pull@4640+3 pull@4670+3 point@4685+1 shot@4695+1 shot@5900+1'
+$leftPoints = '0,0,100 0,0,100 -10,-10,60 -10,-50,60 -16,-50,60'
+$rightPoints = '0,0,100 0,0,100 -10,-10,60 -10,-50,60 -4,-50,60'
 # A catch of the thrown rock while it moves. The first pull of the recipe steps
 # the hand back, the second one forward. A far fetch, a release, then at once
 # the aim at the thrown object (far_test_thrown=1), a new grip and a pull.
@@ -203,6 +211,10 @@ $defs = @{
     # plants neither of the two trees (docs/grab.md, "A tree in the Hand").
     treeset = @{ Set = 'throw_land=1;release_fall_cm=15;far_test_no_trees=0;far_test_tree=1'; Steps = $still; Seconds = 112; Points = $stillPoints }
     treelean = @{ Set = 'throw_land=1;release_fall_cm=15;far_test_no_trees=0;far_test_tree=1;fake_controller_turns=0,30,0'; Steps = $stillLean; Seconds = 112; Points = $stillPoints }
+    # A tree that the hand sets down upright 6 cm to the left or to the right
+    # of its place (docs/grab.md, "The test of a body in the way").
+    treeleft = @{ Set = 'throw_land=1;release_fall_cm=15;far_test_no_trees=0;far_test_tree=1'; Steps = $stillAway; Seconds = 112; Points = $leftPoints }
+    treeright = @{ Set = 'throw_land=1;release_fall_cm=15;far_test_no_trees=0;far_test_tree=1'; Steps = $stillAway; Seconds = 112; Points = $rightPoints }
     # A tree: the far fetch takes only a tree (far_test_tree=1), and the hand
     # throws it.
     tree = @{ Set = 'throw_land=1;far_test_no_trees=0;far_test_tree=1'; Steps = $two; Seconds = 112 }

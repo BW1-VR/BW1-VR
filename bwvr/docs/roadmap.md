@@ -82,30 +82,16 @@ is built, and no test has proven it.
     `throw.md`, "The rest after a landing"). A tree thrown at 3 m/s left
     the physics 2.6 and 4.3 s after the release (`throw_queue.ps1 -Runs
     tree`).
-- **B4. The card does not know a body in the way of a planted tree.** The
-  card says "plant" by the tests of the game that it can read (the height,
-  the lean, dry land, fire, `grab.md`, "A tree in the Hand"). The game also
-  lets a tree fall when it raised the tree over a body at the release, and
-  the card does not see that. A desktop run shows the fault: a tree set down
-  upright on dry land with a rock 0.8 units from its place has the card
-  "Plant", and the game does not plant it. The log has the 6 objects of the
-  game's physics that are near the tree, and the flag of the tree that the
-  release leaves out when it raised the tree (`throw_queue.ps1 -Runs
-  treeset -NewGame` in `bwvr/tools/desk`).
-  The test of the game puts each near object into its physics and compares
-  two physics bodies, and the tree has a physics body only from the release
-  on (`grab.md`, "The test of a body in the way"). So no call of the game
-  gives the answer before the release with no change of state. A tree that
-  stands and a forest are never in the way. A rock, a scaffold, a Creature,
-  a dead tree and a building can be. Not built: the same test with physics
-  bodies that the mod makes for the tree and for each near object.
-  The lean is shown in a desktop run: a hand that turns 30 degrees makes the
-  tree lean 0.26 and -0.46 rad, the card says "Hold upright to plant", and the
-  tree has the same lean in the physics of the game (`-Runs treelean
-  -NewGame`). That
-  run is at the place with the rock, so it does not show that the lean alone
-  stops the planting. Not run: a tree that leans at a place where the game
-  plants an upright tree.
+- **B4. The lean alone at a place where the game plants a tree.** The card
+  says "Hold upright to plant" for a tree that leans more than 0.2 rad in the
+  Hand, and the tree has the same lean in the physics of the game
+  (`throw_queue.ps1 -Runs treelean -NewGame` in `bwvr/tools/desk`). That run
+  is at a place where a body is in the way, so it does not show that the lean
+  alone stops the planting. Not run: the turn of `treelean` at the place of
+  `-Runs treeleft`, where the game plants an upright tree. The card does not
+  count a near object of a class whose body the mod does not make: a
+  fragment, a field crop, a chess piece, the heart of a citadel and a shield
+  (`grab.md`, "The test of the mod").
 - **B1b. The roots pile of a far grab.** `far_roots_at_tree=1` puts the pile
   at the roots, as for a tree that the Hand takes. Only a headset shows
   whether that is what the player means by the "pit" at the roots. Not
@@ -769,7 +755,7 @@ that moves while the Hand takes it.
 - **R7. The word `aimfar` chooses a different object in the test save
   `pen`.** The head is 1 cm from its place in a new game, and some objects
   are at the least distance of the word. So `throw_queue.ps1 -Runs
-  treeset,treelean` shows its proof only with `-NewGame`
+  treeset,treelean,treeleft,treeright` shows its proof only with `-NewGame`
   (`bwvr/tools/desk/README.md`, "Known limits of the recipes"). Give these
   recipes an aim that does not depend on the least distance, as `aim_queue.ps1
   -Runs ring1,ring0` has with the word `aimturn`, or the start of a new game

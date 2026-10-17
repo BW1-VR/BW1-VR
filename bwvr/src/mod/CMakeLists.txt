@@ -61,6 +61,7 @@ add_library(bwvr_mod SHARED
     far_grab.cpp
     take_stream.cpp
     forest_take.cpp
+    tree_body.cpp
     creature_command.cpp
     creature_stay.cpp
     miracle.cpp

@@ -140,6 +140,7 @@
 #include "near_math.h"
 #include "table_math.h"
 #include "throw_physics.h"
+#include "tree_body.h"
 #include "tree_plant_math.h"
 
 extern void ModLog(const char* format, ...);
@@ -6309,7 +6310,8 @@ void LogCheck() {
 // tree did. It also logs each change of the roots piles of the game, the
 // pieces of mesh that the Tug of a tree puts in the land.
 // tree_plant_hint=0 keeps the text of the game. Ctrl and Page Down
-// (test_keys=1) switch it.
+// (test_keys=1) switch it. tree_plant_bodies=1 adds the test of a body in the
+// way (tree_body.cpp) to the tests of the answer. 0 leaves it out.
 typedef void(__fastcall* GetYXZFn)(const void* matrix, void*, float* y,
                                    float* x, float* z);
 typedef int(__fastcall* CoordsTestFn)(const int32_t* coords, void*);
@@ -6321,6 +6323,7 @@ const int kTreeFlags = 0x24;                  // Object: bit 0x40 is "in physics
 const int kTreeForest = 0x68;                 // Tree: its Forest
 
 int g_tree_hint = 1;
+int g_tree_bodies = 1;  // tree_plant_bodies
 bool g_tree_hint_read = false;
 int g_tree_verdict = -1;  // -1: no tree in the Hand now
 uint64_t g_tree_frame = 0;
@@ -6355,6 +6358,13 @@ void ReadTreeHintKey() {
              ? "The card says what the opening of the grip does with a tree "
                "in the Hand, by the tests of the game and the height rule"
              : "The card shows the text of the game for a tree in the Hand");
+  g_tree_bodies = IniKey("tree_plant_bodies", 1) != 0 ? 1 : 0;
+  ModLog("hand tree    : tree_plant_bodies=%d. %s", g_tree_bodies,
+         g_tree_bodies != 0
+             ? "The answer for a tree in the Hand has the test of the game for "
+               "a body in the way of the tree"
+             : "The answer for a tree in the Hand has no test of a body in the "
+               "way of the tree");
 }
 
 // The roots piles of the game: a list of entries (next, LH3DObject, life).
@@ -6510,6 +6520,16 @@ void TreeReleaseFrame() {
         *reinterpret_cast<const int32_t*>(object + kTreeBurning) != 0;
     g_tree_verdict = tree_plant_math::ReleaseVerdict(
         height_m, ThrowPhysicsFallLimitM(), lean_x, lean_z, dry, burning);
+    // The release raises the tree over a body in its way, and then it does
+    // not plant the tree (docs/grab.md, "The test of a body in the way").
+    bool in_way = false;
+    if (g_tree_verdict == tree_plant_math::kPlants && g_tree_bodies != 0) {
+      TreeBodyAnswer answer;
+      if (TreeBodyTest(held, &answer) && answer.in_way) {
+        in_way = true;
+        g_tree_verdict = tree_plant_math::kInTheWay;
+      }
+    }
     g_tree_height_cm = height_m * 100.0f;
     g_tree_lean[0] = lean_x;
     g_tree_lean[1] = lean_z;
@@ -6520,13 +6540,13 @@ void TreeReleaseFrame() {
         ModLog("hand tree    : the tree %p in the Hand: an opening of the grip "
                "now %s (the hand is %.1f cm over the land and the limit is "
                "%.0f cm, the tree leans %.2f and %.2f rad, dry land %d, fire "
-               "%d), frame %llu",
+               "%d, a body in the way %d), frame %llu",
                held,
                g_tree_verdict == tree_plant_math::kPlants
                    ? "plants it"
                    : "does not plant it, and the tree falls",
                g_tree_height_cm, ThrowPhysicsFallLimitM() * 100.0f, lean_x,
-               lean_z, dry ? 1 : 0, burning ? 1 : 0, g_frame);
+               lean_z, dry ? 1 : 0, burning ? 1 : 0, in_way ? 1 : 0, g_frame);
       }
     }
     g_tree_held = held;
@@ -6589,6 +6609,12 @@ void TreeReleaseFrame() {
              g_tree_watch, g_frame, over, lean_x, lean_z,
              g_tree_watch_height_cm);
       LogTreeBodies(g_tree_watch);
+      // The bodies of the last test, beside the bodies that the game made.
+      if (g_tree_bodies != 0 &&
+          (g_tree_watch_verdict == tree_plant_math::kPlants ||
+           g_tree_watch_verdict == tree_plant_math::kInTheWay)) {
+        TreeBodyLogAfterRelease(g_tree_watch);
+      }
     }
     if (physics) g_tree_watch_physics = true;
     static void* said = nullptr;

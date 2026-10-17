@@ -1736,52 +1736,102 @@ Hand takes it".
 Hand. With `tree_plant_hint=1` the card tests the same things in each frame
 (`tree_plant_math.h`, `HandDirectTreeVerdict`): the height rule of
 `release_fall_cm` (throw.md), the lean, dry land (`MapCoords::IsDryLand`) and
-fire. When the release plants the tree, the card keeps the text of the game.
-Else it says what the opening does: "Lower to plant. Open to drop", "Hold
-upright to plant. Open to drop", "Needs dry land. Open to drop" or "On fire.
-Open to drop". The test of a body in the way is not in the card.
+fire. With `tree_plant_bodies=1` it also does the test of a body in the way
+(the next paragraphs). When the release plants the tree, the card keeps the
+text of the game. Else it says what the opening does: "Lower to plant. Open
+to drop", "Hold upright to plant. Open to drop", "Needs dry land. Open to
+drop", "On fire. Open to drop" or "Object in the way. Open to drop".
 
-**The test of a body in the way [V].** The release makes the physics object of
-the tree (`PhysicsObject::AddObject`), puts it on the land
-(`PhysOb::AdjustToGroundLevel` `0x007FCB80`) and calls
-`PhysicsObject::RaiseUntilNotIntersecting` `0x00644800`. When that call moved
-the tree up, the tree falls. The call has two parts:
+**The test of a body in the way [V].** The release makes the physics body of
+the tree (`PhysicsObject::AddObject` `0x006443A0`, `Tree::SetUpPhysOb`
+`0x0074B650`), puts its lowest point on the land
+(`PhysOb::AdjustToGroundLevel` `0x007FCB80`), places its points there
+(`PhysOb::ZeroForces` `0x007FD200`) and calls
+`PhysicsObject::RaiseUntilNotIntersecting` `0x00644800`. When that call moves
+the tree up, the release does not plant it. The call has two parts:
 
-1. It reads each object in the map cells of a square about the tree, as wide
-   as the radius of the physics object (`PhysOb+0x150`). It asks each one
+1. It reads each object in the map cells (10 units wide) of the square of the
+   center of the tree plus and minus the radius of its body. It asks each one
    `Object::ShouldPhysicsRaiseObjectUntilNotIntersectingThis` `0x006377D0`
    (the table slot `+0x7A4`), which gives the answer of
-   `InteractsWithPhysicsObjects` (`+0x79C`). An object that says yes and is not
-   in the physics goes into the physics now (`fn_00644DF0`, with
-   `PhysOb::Initialise` from its mesh).
-2. For each other object in the physics whose center is nearer than the sum
-   of the two radii, `fn_007FDD60` gives how deep the points of the one body
-   are in the other, along up. More than 0.001 units raises the tree by that
-   depth, and the call starts again.
+   `InteractsWithPhysicsObjects` (`+0x79C`). An object that says yes, has a
+   mesh and is not in the physics goes into the physics now (`fn_00644DF0`).
+   It gets the body of its class (slot `+0x78C`) at the place of its mesh, and
+   it is at rest.
+2. For each other body in the physics whose center is nearer than the sum of
+   the two radii, `fn_007FDD60` gives two depths along up: the points of the
+   tree in the other body, and the points of the other body in the tree.
+   Each point casts a line along down (the tree) or up (the other body). The
+   line meets a face that faces it, behind the point and inside the three
+   edges of the face, and the nearest such face gives the depth
+   (`fn_007FC310`). A Creature has ellipsoids in place of faces
+   (`fn_008683C0`). More than 0.001 units raises the tree by that depth, and
+   the call starts again.
 
-`InteractsWithPhysicsObjects` is yes for an object with a mesh
-(`Object`, `0x006377B0`), and for a rock, a scaffold, a Creature and a dead
-tree. A house or other building says yes by two of its own values
-(`MultiMapFixed`, `0x0052F3D0`). It is no for a tree that stands
-(`Tree`, `0x0074B6A0`), a forest, a field, a fish farm, a Worship Site, a
-graveyard and a bonfire. So the trees of a forest are never in the way of a
-planted tree.
+So a body is in the way when it goes up into the low part of the tree, or
+when a point of the tree is under the top of the body. The body of a tree
+(`Object::SetUpPhysObAsATree` `0x0063A230`) has 16 points and 24 faces: a
+foot on the land at 0.1 of the 2D radius from the trunk, three rings at 0.24,
+0.6 and 0.96 of the height over the land with 0.65, 1 and 0.65 of the 2D
+radius, and a top at 1.2 of the height. The low faces go from the foot up to
+the low ring. A low rock under the crown is not in the way. A rock that goes
+up into the low faces is. The bodies of the other classes (slot `+0x78C`):
 
-No call of the game gives this answer before the release with no change of
-state. The first part puts each near object into the physics of the game. The
-second part compares two physics bodies, and the tree has a physics body only
-from the release on. A test with the same answer needs a body of its own for
-the tree and for each near object (`PhysOb::Initialise` on memory of the mod,
-then `AdjustToGroundLevel` and `fn_007FDD60`). That is not built.
+- A dead tree: the shape of a tree, with its middle at half its height.
+- A villager (`Villager::SetUpPhysOb` `0x005EFF40`) and an animal
+  (`Animal::SetUpPhysOb` `0x005F04E0`): a box of 12 points in three levels,
+  from the height and the 2D radius, turned 90 degrees about up.
+- Each class with `Object::SetUpPhysOb` `0x006376B0` or
+  `Abode::SetUpPhysOb` `0x00402DD0`, for example a rock, a scaffold and a
+  building: the hull of the parts of its mesh with the flag bit 13, or with
+  the bit 29 when no part has bit 13 (`fn_007FBAE0`).
+- A Creature (`Creature::SetUpPhysOb` `0x00479B90`): a point at the middle of
+  each bone, an ellipsoid in the frame of each bone, and the sphere of its
+  bones.
+
+`InteractsWithPhysicsObjects` is yes for an object with a mesh (`Object`,
+`0x006377B0`, so for a villager and an animal too), and for a rock, a
+scaffold, a Creature and a dead tree. A house or other building says yes by
+two of its own values (`MultiMapFixed`, `0x0052F3D0`). It is no for a tree
+that stands (`Tree`, `0x0074B6A0`), a forest, a field, a fish farm, a Worship
+Site, a graveyard and a bonfire. So the trees of a forest are never in the
+way of a planted tree.
+
+**The test of the mod.** With `tree_plant_bodies=1` the mod does the same two
+parts in each frame while the Hand holds a tree and the other tests let the
+release plant it (`tree_body.cpp`, `tree_body_math.h`). It makes the body of
+the tree at the frame of its mesh now and puts it on the land. It reads the
+same map cells, asks each object the same slot `+0x7A4`, and makes the body
+of each object that says yes in memory of the mod. It also reads the bodies
+that are in the physics now. It changes nothing in the game: it only reads,
+and it calls only slots that give a value (`GetMapChild`, `+0x7A4`,
+`IsARootedObject`, the height, the 2D radius and the scale). The limits:
+
+- The release gives the tree the speed of the hand, and `ZeroForces` moves
+  its points by 0.06 of that speed. The test takes the tree as still. The
+  game sets a tree down only at 2 units a turn or less, so the difference is
+  0.12 units at most.
+- The mod does not make the body of a class with a different
+  `SetUpPhysOb`: a fragment, a field crop, a chess piece, the heart of a
+  citadel and a shield. The test does not count such an object, and the log
+  names its class.
 
 **The log.** Tag `hand tree`: the settings, each roots pile that the game makes
 (with the place), each change of the answer for the tree in the Hand (the
-height, the lean, dry land, fire), the release with the lean of the last frame
+height, the lean, dry land, fire, a body in the way), the release with the lean of the last frame
 in the Hand, the first frame of the tree in the physics (the height of its
 mesh over the land, its lean, the count of the objects in the physics of the
 game that are nearer to the tree than the sum of the two radii, the nearest
 one, and the flag 8 of the tree), and what the tree is when it leaves the
 physics (its class and its forest).
+
+Tag `tree body`: each change of the answer of the test of a body in the way
+(the body in the way and its depth, the body of the tree, the time of the
+test), with each body whose sphere met the sphere of the tree (its middle,
+its radius, its counts of points, faces and ellipsoids, and its depth). On
+the first frame of the tree in the physics, the body that the game made for
+the tree beside the body of the mod, and each near object in the physics
+beside its body of the mod.
 
 **The lean in a desktop run.** The tree in the Hand turns with the hand
 (`hand_hold_turn`, [hand.md](hand.md)). `throw_queue.ps1 -Runs treelean
@@ -1793,26 +1843,33 @@ an upright tree at that place either (the next paragraph). So the run shows
 the lean that the card and the game read, and it does not show that the lean
 alone stops the planting.
 
-**A tree that the card calls "plant" and the game does not plant.**
-`throw_queue.ps1 -Runs treeset -NewGame` is the same recipe with a hand that
-does not turn. The hand takes a tree at the land and sets it down upright
-where it stood, 1.3 cm of the room over dry land. A rock lies 0.8 units from
-that place. The card says "Plant". The game does not plant the tree: it is in
-the physics with no forest, its mesh is 0.7 units over the land in its first
-frame there, and the flag 8 of its physics object is not set. The physics of
-the game then has 6 other objects with their center nearer to the tree than
-the sum of the two radii, and the nearest one is a rock. After a set down
-with a still hand, with no lean, on dry land and with no fire, the release
-leaves the flag 8 out only when it raised the tree. So a body was in the way.
-[I: which of the 6 objects raised the tree.]
+**A body in the way in a desktop run.** `throw_queue.ps1 -Runs treeset
+-NewGame` is the same recipe with a hand that does not turn. The hand takes a
+tree at the land and sets it down upright where it stood, 1.3 cm of the room
+over dry land. Six small objects of the class `MobileObject` lie 1 to 3 units
+from that place. The test finds the object with a radius of 1 unit in the
+way, 0.06 units deep, and the card says "Object in the way. Open to drop".
+The game does not plant the tree: it is in the physics with no forest, its
+mesh is 0.7 units over the land in its first frame there, and the flag 8 of
+its physics object is not set. The bodies of the mod are the bodies of the
+game: the 16 points of the tree are at most 0.0001 units apart, and the six
+objects that the release puts in the physics have the same middle, radius
+and counts of points and faces. With `-More 'tree_plant_bodies=0'` the card
+says "Plant" for the same tree, and the game does not plant it.
 
-In the test save `pen` the two recipes take a small rock beside the tree and
+`-Runs treeleft` and `-Runs treeright` set the tree down 6 cm of the room to
+the left or to the right, about 5 units from its place. No body is in the
+way there, the card says "Plant", and the game plants the tree: 25 frames
+later it is a `Tree` in a forest. In these runs the test took 0.04 ms at
+most. The pulls of the recipes move the tree in the Hand over a dead tree,
+and the card then says "Object in the way" for the dead tree (3 units deep).
+
+In the test save `pen` these recipes take a small rock beside the tree and
 not the tree, so they need `-NewGame` (`tools/desk/README.md`, "Known limits
 of the recipes").
 
-**Open.** A body in the way is not predicted, and the card says "Plant" for a
-tree that the game then lets fall (the run above). Whether the pile at the
-roots is what the player means by the "pit" needs the headset.
+**Open.** Whether the pile at the roots is what the player means by the "pit"
+needs the headset.
 
 ### The far touch
 
@@ -2094,6 +2151,7 @@ not jump.
 | `creature_hold_stay`, `creature_hold_stay_ms`, `creature_stay_look` | 1, 350, 1 | A grip that stays closed on the far Creature makes it stay (see [creature.md](creature.md), section 5.3). Test key: Shift and End |
 | `far_roots_at_tree` | 1 | 1 puts the roots pile of a tree that comes from a distance at the roots, on the land where the tree stood. 0 leaves it where the game puts it, on the way of the glide. Test key: Ctrl, Shift and Page Down |
 | `tree_plant_hint` | 1 | 1 makes the card say what the opening of the grip does with a tree in the Hand. 0 shows the text of the game ("Plant") each time. Test key: Ctrl and Page Down |
+| `tree_plant_bodies` | 1 | 1 adds the test of a body in the way to what the card says for a tree in the Hand (see "The test of a body in the way"). 0 leaves it out: the card can say "Plant" when a body is in the way and the tree falls |
 | `throw_law` | 2 | The law of the throw (see [throw.md](throw.md)) |
 
 With `test_keys=1`, Ctrl with the Delete key steps `far_grab_choice` from 2 to

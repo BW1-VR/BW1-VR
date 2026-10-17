@@ -3547,6 +3547,7 @@ void CreatureChecks() {
 #include "eye_luma_checks.h"
 #include "land_light_checks.h"
 #include "tree_plant_checks.h"
+#include "tree_body_checks.h"
 #include "text_click_checks.h"
 #include "script_frame_checks.h"
 #include "frame_stats_checks.h"
@@ -3948,6 +3949,7 @@ int main() {
   eye_luma_checks::EyeLumaChecks();
   land_light_checks::LandLightChecks();
   tree_plant_checks::TreePlantChecks();
+  tree_body_checks::TreeBodyChecks();
   zoom_checks::ZoomChecks();
   stay_checks::StayChecks();
   text_click_checks::TextClickChecks();
