@@ -490,6 +490,14 @@ same bytes.
 
 ### The tries
 
+If `xrCreateInstance` returns `XR_ERROR_RUNTIME_UNAVAILABLE`, the log says
+that the loader cannot find or load a runtime for the process. The game
+needs support for 32 bit Windows OpenXR applications, also on Wine or
+Proton. A running SteamVR alone does not confirm that support. The loader
+log gives the cause. This error does not prove that the headset is absent.
+If the call returns `XR_ERROR_EXTENSION_NOT_PRESENT`, the log names the
+required extension, `XR_KHR_D3D11_enable`.
+
 The session needs the device of the game, so the mod starts it on a frame
 (`StartVrOnce` in `mod_main.cpp`), not in `DllMain`. The first frame with a
 render target installs the hooks, and then the tries start. A runtime that
