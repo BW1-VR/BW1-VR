@@ -146,6 +146,15 @@ $catchShot = "$dropBase seek@3217+1 shot@3220+1 grip@3221+60 shot@3223+1 shot@33
 # A fetch from a distance of a tree 1.0 s after its release, while it still
 # moves on the land: the press of the fetch is a catch.
 $catchFar = "$dropBase pull@3207+3 aimfar@3262+1 grip@3266+60 pull@3276+3 shot@3360+1 shot@3500+1"
+# THE HEAD THAT LOOKS DOWN. The draw offers an object to the pick only when
+# the render shows it, and the far grab and the word aimfar take only an
+# object that the draw offers. The view has a fixed horizontal angle of 110
+# degrees (fov_absolute_deg), so a render of 3600 by 2880 shows 48.8 degrees
+# below its middle, and a render of 2208 by 2208 shows 55 degrees. After the
+# fall the tree lies on the land about 50 degrees below a level view. With
+# the head 25 degrees down, the tree on the land and the Hand are in the view
+# at each of the two sizes.
+$lookDown = 'fake_head_pitch=-25'
 $defs = @{
     dropshort = @{ Set = 'throw_land=1;release_fall_cm=15;seek_thrown=1'; Steps = $dropShort; Seconds = 80; Points = $stillPoints }
     landgrip = @{ Set = 'throw_land=1;release_fall_cm=15;seek_thrown=1;fake_head_pitch=-25'; Steps = $landGrip; Seconds = 80; Points = $stillPoints }
@@ -159,12 +168,17 @@ $defs = @{
     # the tree stays in the Hand. With -More 'catch_rest_guard=0' the game
     # makes a dead tree, and the Hand is empty (docs/grab.md, "An object that
     # comes to rest while the Hand takes it"). The step of the tree runs
-    # after the press only with -More 'catch_at_once=0'.
-    treedropend = @{ Set = 'throw_land=1;release_fall_cm=15;far_test_thrown=1;far_test_no_trees=0;far_test_tree=1;catch_rest_test=1'; Steps = $dropFarRoll; Seconds = 80; Points = $stillPoints }
+    # after the press only with -More 'catch_at_once=0'. The steps are the
+    # steps of catchfar: the lock comes 65 frames after the opening of the
+    # grip, when the tree is on the land and the physics of the game still
+    # has it. The tree of the first aimfar falls straight down and comes to
+    # rest about 1.6 s after the opening, so the lock must come before that.
+    # At 53 frames a second, 65 frames are 1.2 s.
+    treedropend = @{ Set = "throw_land=1;release_fall_cm=15;far_test_thrown=1;far_test_no_trees=0;far_test_tree=1;catch_rest_test=1;$lookDown"; Steps = $catchFar; Seconds = 80; Points = $stillPoints }
     treenear = @{ Set = 'throw_land=1;release_fall_cm=15;seek_thrown=1;far_test_no_trees=0;far_test_tree=1'; Steps = $dropRoll; Seconds = 100; Points = $stillPoints }
     dropnear = @{ Set = 'throw_land=1;release_fall_cm=15;seek_thrown=1'; Steps = $dropNear; Seconds = 80; Points = $stillPoints }
     catchthrow = @{ Set = 'throw_land=1;release_fall_cm=15;seek_thrown=1'; Steps = $catchThrow; Seconds = 80; Points = $stillPoints }
-    catchfar = @{ Set = 'throw_land=1;release_fall_cm=15;far_test_thrown=1;far_test_no_trees=0;far_test_tree=1'; Steps = $catchFar; Seconds = 80; Points = $stillPoints }
+    catchfar = @{ Set = "throw_land=1;release_fall_cm=15;far_test_thrown=1;far_test_no_trees=0;far_test_tree=1;$lookDown"; Steps = $catchFar; Seconds = 80; Points = $stillPoints }
     catchshot = @{ Set = 'throw_land=1;release_fall_cm=15;seek_thrown=1'; Steps = $catchShot; Seconds = 80; Points = $stillPoints }
     droproll = @{ Set = 'throw_land=1;release_fall_cm=15;seek_thrown=1'; Steps = $dropRoll; Seconds = 80; Points = $stillPoints }
     dropfar = @{ Set = 'throw_land=1;release_fall_cm=15;far_test_thrown=1'; Steps = $dropFar; Seconds = 80; Points = $stillPoints }

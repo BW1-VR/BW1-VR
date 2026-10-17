@@ -406,10 +406,12 @@ game has the rock 50 to 97 ms after the press, and the open Hand lets it go
 then. A tree in its fall is in the Hand in the same way (`-Runs treedrop`).
 
 `-Runs catchfar` fetches a tree from a distance 1.0 s after its release,
-while the physics of the game still has it. With `catch_at_once=1` the glide
+while the physics of the game still has it. The head looks 25 degrees down,
+so the tree on the land is in the view. With `catch_at_once=1` the glide
 draws the tree from the first frame after the press. The largest move of a
-frame is 5.5 cm, which is the first frame of a glide of 0.5 m in 0.32 s, and
-the game takes the tree 42 to 54 ms after the press. With `catch_at_once=0`
+frame is 5.5 to 9.0 cm, in the first frames of a glide of about 0.5 m in
+0.32 s, and the game takes the tree 42 to 127 ms after the press, in game
+turn 1 or 2. With `catch_at_once=0`
 the tree stays at its place for 320 ms. The game takes it then, and the tree
 is 52 to 54 cm nearer in one frame, at the end of the glide.
 
@@ -1982,8 +1984,10 @@ does not hold" the object, with the count of the game turns and of the steps
 that the mod held back.
 
 **Desktop runs.** `throw_queue.ps1 -Runs treedropend` in `bwvr/tools/desk`
-lets a tree fall from the Hand and locks it from a distance 1.3 s later. The
-pull comes 10 frames after the lock, and the press 2 frames after the pull.
+lets a tree fall from the Hand and locks it from a distance 65 frames later
+(1.2 s at 53 frames a second), when the tree is on the land. The head looks
+25 degrees down, so the tree is in the view. The pull comes 10 frames after
+the lock, and the press 2 frames after the pull.
 A tree that falls comes to rest by itself 1.2 to more than 2.3 s after the
 release, so the rest of the game itself comes in the take in some runs only.
 For the other runs the recipe has the test key `catch_rest_test=1`: it makes
@@ -1994,8 +1998,11 @@ so the runs of the table have `-More 'catch_at_once=0'`.
 
 | `catch_rest_guard` | What the runs show |
 | --- | --- |
-| 1 | In 3 of 4 runs the mod holds the rest back (1, 11 and 30 steps), and the tree leaves the Hand when the grip opens, 46 frames after the Hand took it. In one of the three the rest of the game itself came in the lock, before the pull. In the fourth run the tree came to rest before the aim, so there was no take |
-| 0 | In 3 of 3 runs the game ends the physics of the tree in a turn of the take: by the test key in 2 runs, and by itself in 1 run. The Hand holds nothing 1 or 2 frames after it took the tree, and the grip stays closed on an empty Hand for 44 frames more |
+| 1 | In 3 of 3 runs the mod holds the rest back (1, 38 and 59 steps), and the tree leaves the Hand when the grip opens, 45 frames after the Hand took it. In one of the three the rest of the game itself came in game turn 1 of the take, before the test key |
+| 0 | In 3 of 3 runs the test key ends the physics of the tree in game turn 2 or 3 of the take. The Hand holds nothing 1 to 4 frames after it took the tree, and the grip stays closed on an empty Hand for 41 to 44 frames more |
+
+With `catch_at_once=1` (two runs) the press is a catch at once: the game has
+the tree in game turn 2, and the tree is in the Hand until the grip opens.
 
 With `catch_rest_guard=1` the two recipes with no test key keep their
 results. In `throw_queue.ps1 -Runs treedrop` a near grip on a tree in its

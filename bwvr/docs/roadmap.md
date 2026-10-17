@@ -789,22 +789,3 @@ that moves while the Hand takes it.
   from a forest (`forest_take.cpp`). The keys of the keyboard that no code
   of the game or of the mod reads are few: a new test key needs a search
   first (`backend.md`, the hotkey table).
-- **R11. Three recipes do not show their proof at the render of 3600 by
-  2880.** The objects of these steps are low in the view, and a render of
-  3600 by 2880 gives the view a different shape than 2208 by 2208. Not
-  proven: the render size is the cause.
-  - `throw_queue.ps1 -Runs catchfar` and `-Runs treedropend`. The second
-    `aimfar` aims at the thrown tree 0.43 m of the room from the Hand, but
-    the draw does not offer that tree ("aimfar: the draw did not offer the
-    thrown object ... among 105 candidates"). The far grab takes a tree that
-    stands 0.48 m from the Hand ("target ... (Tree) at 0.0 degrees from the
-    ray ... Why: the lowest score"). So no run takes a tree that still
-    moves, and `catch_rest_test` acts on the standing tree. `one_walk=0`
-    gives the same result.
-  - `hand_run.ps1 -Kind one`. With `near_rule` 2 the grip at the scroll taps
-    the scroll ("the grip taps it ... rule 2"), and it does not take the
-    rock beside it. The two presses at the crown of the tree start off view,
-    and the controller code drops them ("the right button press started off
-    view, so it is dropped").
-  Give these steps a head that looks down (`fake_head_pitch`) or hand places
-  higher in the view, and compare a run at each render size.
