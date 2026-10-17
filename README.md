@@ -24,6 +24,13 @@ To build the mod or to change its code, see
   know.
 - Your own copy of Black & White (the first game, not Black & White 2).
 
+### Steam Frame (experimental)
+
+Steam Frame can run the mod through Proton 11 ARM64 with a separate x64
+OpenXR host. Use the normal installer and the Steam Frame add-on from the
+same build. See the [Steam Frame instructions](bwvr/src/vr/bridge/README.md)
+for the tested runtime, installation, launcher settings and limits.
+
 ## 1. Set up a clean copy of the game
 
 The mod does not contain the game. No store sells Black & White today, so you
