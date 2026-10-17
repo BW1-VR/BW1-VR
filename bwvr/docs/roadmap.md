@@ -762,13 +762,6 @@ that moves while the Hand takes it.
 - **R5. A file of names of the project.** When contributors start to name
   functions that the symbol file does not have, put those names in
   `bwvr/ghidra/name-corrections.txt` (the tools read it).
-- **R6. Look at REA again from 2026-10-15.** REA (`github.com/morluto/rea`,
-  the npm package `rea-agents`) is an MCP server that gives an agent the
-  pseudocode, the strings and the references of a binary through Ghidra.
-  At version 6.0.0 it does not fit: on Windows it is experimental and read
-  only, and each session imports the exe into a new temporary project, so
-  it has none of the names that `bwvr/tools/re.ps1` gives. It fits when it
-  can open a project that is there, or take a symbol file, on Windows.
 - **R7. The word `aimfar` chooses a different object in the test save
   `pen`.** The head is 1 cm from its place in a new game, and some objects
   are at the least distance of the word. So `throw_queue.ps1 -Runs
