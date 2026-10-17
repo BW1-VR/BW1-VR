@@ -30,6 +30,7 @@ Other docs: `software-tnl.md` (the CPU transform and the camera matrix),
 | --- | --- |
 | `src/proxy/ddraw_proxy.cpp` | The `ddraw.dll` stub. Loads the backend named by `backend` |
 | `src/mod/mod_main.cpp` | Settings (`ReadSettings`), hook installation, the log, the shutdown |
+| `src/mod/vr_start.cpp` | The tries to start the headset session on a thread of the mod, and the frame watch of the tries (`vr_start`) |
 | `src/mod/gpu_bridge.cpp` | Shared textures, Direct3D 9 to Direct3D 11 copy, depth format hook |
 | `src/mod/frame_send.cpp` | The way of the eye pictures to the headset: when the mod waits for the GPU, and on which thread (`frame_send`) |
 | `src/mod/draw_merge.cpp` | One draw call for a row of draw calls of the game with one state (`draw_merge`) |
@@ -485,6 +486,176 @@ Turn it on with `gpu_bridge=1` and a capture frame in `bwvr-eye-frames.txt`. It
 writes `bwvr-shared-*.bmp` beside `bwvr-eye-*.bmp`. The two routes must give the
 same bytes.
 
+## The start of the headset session
+
+### The tries
+
+The session needs the device of the game, so the mod starts it on a frame
+(`StartVrOnce` in `mod_main.cpp`), not in `DllMain`. The first frame with a
+render target installs the hooks, and then the tries start. A runtime that
+is installed but has no headset gives `XR_ERROR_FORM_FACTOR_UNAVAILABLE` to
+`xrGetSystem`. The Virtual Desktop runtime does this until the headset
+connects. So the mod makes a try each 3 s for 2 minutes (40 tries), and the
+player can connect the headset after the start of the game. A full screen
+game makes no try (`vr_full_screen=0`), and a game with `vr=0` or
+`stereo_headless=1` makes none.
+
+A try has these parts (`XrScreen` in `src/vr/xr_screen.cpp`). The table
+gives the thread of each part with `vr_start=1`, the default:
+
+| Part | What it does | Thread | Why |
+| --- | --- | --- | --- |
+| `StartInstance` | `xrEnumerateInstanceExtensionProperties` and `xrCreateInstance`. The loader loads the DLL of the runtime here | The thread of the tries | It needs no device. It can fail (no runtime, or a broken API layer: `XR_ERROR_FILE_ACCESS_ERROR`) or wait for the runtime |
+| `StartSystem`, `LogSystem` | `xrGetSystem`, and the name and the size of the headset | The thread of the tries | With no headset it can only fail |
+| `StartSession` | The Direct3D 11 device on the adapter of the runtime, `xrCreateSession`, the spaces, the controllers and the swapchains | The frame thread | It runs one time, only when the runtime has a headset. The frame thread uses the session from the next frame on, and `GpuBridgeStart` opens the shared textures of the game on its device at once, on the frame thread |
+| `Stop` after a try with no headset | `xrDestroyInstance`. The loader unloads the DLL of the runtime here | The thread of the tries | It can wait for the runtime |
+
+OpenXR lets each call come from any thread, when two threads do not use one
+handle at one time. The thread of the tries gives the screen to the frame
+thread when it finds the headset. After that only the frame thread uses the
+screen.
+
+### One instance for all tries
+
+The spec of `xrGetSystem` lets a runtime give `XR_SUCCESS` to a later call
+on the same instance after `XR_ERROR_FORM_FACTOR_UNAVAILABLE`, for example
+when the headset connects. The Virtual Desktop runtime (`VirtualDesktopXR`)
+tries to open the headset again in each call of `xrGetSystem`. The loader
+gives `xrGetSystem` to the runtime with no change. The loader allows one
+instance at a time (a second one gets `XR_ERROR_LIMIT_REACHED`), and it
+unloads the DLL of the runtime in `xrDestroyInstance`.
+
+So with `vr_start=1` the thread makes one instance, and each try calls
+`xrGetSystem` on it again. The DLL of the runtime loads one time and unloads
+one time, at the end of the tries. A different fault than
+`XR_ERROR_FORM_FACTOR_UNAVAILABLE` ends the instance, and the next try makes
+a new one. `vr_start=2` makes a new instance for each try on the thread, for
+a runtime that finds the headset only on a new instance. `vr_start=0` makes
+each try on the frame thread with a new instance.
+
+### A call that does not come back
+
+With `vr_start=0` the frame thread waits for each call of a try, so a call
+into the runtime that does not come back stops the game. In a try with no
+headset, the calls after the line "Connect the headset in Virtual Desktop,
+then start the game." are those of `XrScreen::Stop`, and for a screen with
+no session that is only `xrDestroyInstance`.
+
+With `vr_start=1` and 2 the frame thread does not wait for the thread of the
+tries. Each frame it reads the state of that thread under a lock, and no
+thread holds the lock in a call into the runtime. When a call has run for
+10 s, the frame thread writes one line, and the game goes on, on the
+monitor. When the call comes back, the thread writes a line with its time.
+A call that holds the thread up uses up the time of the tries: no try starts
+later than 120 s after the first one.
+
+Known limit: a call that does not come back while it holds the loader lock
+of Windows (for example in the unload of the DLL of the runtime) can still
+stop a thread of the game that starts or ends later. No run has shown this.
+
+### The thread and the session
+
+When the thread finds the headset, it writes the name and the size of the
+headset to the log, and it gives the screen to the frame thread. In the next
+frame the frame thread starts the session. When the session runs, the thread
+does nothing more. It stays until the shutdown, because a runtime can keep a
+thing of its own on the thread that made the instance. At the shutdown,
+after the end of the session, the mod stops the thread and waits at most
+500 ms for it.
+
+THE FALL BACK. When the session part on the frame thread fails after the
+thread found the headset, the mod uses the tries of `vr_start=0` for the
+rest of the run (`FallBack` in `vr_start_math.h`):
+
+1. The frame thread writes the line "the start through the thread of the
+   tries failed at ..., so the mod starts the session on the frame thread as
+   before (vr_start=0)". The line names the part that failed: the size of
+   the render target, `StartSession` (the `openxr` line before it names the
+   call), or the test key `vr_start_test_fail_session`.
+2. The frame thread gives the screen back. The thread ends the instance and
+   its tries. The loader allows one instance at a time, so the frame thread
+   does not make a try until the thread has ended.
+3. The next try is the try of `vr_start=0`, and it writes its lines to the
+   log. The tries of the thread count, so the tries keep their 2 minutes,
+   and at least one try of `vr_start=0` comes.
+4. When that try fails too, the log says so ("the start on the frame thread
+   failed too"), and the tries go on to the end of the 2 minutes.
+
+No desktop run can show the fall back: with no headset the thread finds no
+system, and the session part does not run. The math checks prove the rule.
+
+### The frame watch
+
+While the tries run, the frame thread counts its frames and the time that
+it spends in the tries, for each value of `vr_start` (`vr_start.cpp`). It
+writes one line each 30 s (at most 8 lines), and one line at the end of the
+tries. The first window has the load of the land, a frame of about 1 s.
+
+With the Virtual Desktop runtime (version 1.0.10) and no headset, at a
+render of 3600 by 2880 and about 57 frames a second:
+
+| `vr_start` | The frame thread in one try | In 2 minutes of tries | The longest frame after the load |
+| --- | --- | --- | --- |
+| 0 | 55 to 56 ms: a frame of 73 ms each 3 s | 2182 ms | 73 ms |
+| 1 | at most 0.006 ms | 3.4 ms | 22 ms |
+| 2 | at most 0.004 ms | 3.7 ms | 22 ms |
+
+With `vr_start=1` and the test keys `vr_start_test_hang_try=2` and
+`vr_start_test_hang_ms=60000`, the thread holds try 2 for 60 s. In that time
+the game made 1730 frames in 30 s, with a mean frame of 17.35 ms and a
+longest frame of 21.79 ms. After the hold the tries go on until 120 s after
+the first try.
+
+### The keys and the log
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `vr_start` | 1 | 0: each try runs on the frame thread, with a new instance. 1: the tries run on a thread of the mod, with one instance for all tries. 2: the tries run on that thread, with a new instance for each try |
+| `vr_start_test_hang_try`, `vr_start_test_hang_ms` | 0, 0 | Test keys of the desktop runs. In try N the thread waits M ms before `xrGetSystem`, as a call into the runtime that does not come back |
+| `vr_start_test_fail_session` | 0 | A test key. 1: when the thread finds the headset, the session part fails one time before `StartSession`, and the fall back runs. With no headset it does nothing |
+
+The log of a run with no headset, `vr_start=1`:
+
+```
+  openxr: runtime "VirtualDesktopXR" version 1.0.10
+  openxr: no head mounted display (XR_ERROR_FORM_FACTOR_UNAVAILABLE)
+  Connect the headset in Virtual Desktop, then start the game.
+vr           : waiting for the headset, will keep trying for 120 seconds. The tries run on a thread of the mod, with one instance for all tries (vr_start=1)
+vr start     : 30.0 s of tries: 1728 frames, a mean frame of 17.37 ms, the longest frame 20.97 ms. The frame thread spent at most 0.003 ms of one frame in the tries (vr_start=1)
+vr           : no headset arrived, the game stays on the monitor
+vr start     : the tries are over, no session. In 120.1 s of tries: 6788 frames, a mean frame of 17.69 ms, the longest frame 1024.67 ms. The frame thread spent at most 0.006 ms of one frame and 3.4 ms in all in the tries (vr_start=1)
+```
+
+A call that does not come back (here the test wait):
+
+```
+vr start     : try 2: the test wait (vr_start_test_hang_ms) has run for 10.0 s and has not come back. The game goes on, and the frame thread does not wait for it
+vr start     : try 2: the test wait (vr_start_test_hang_ms) came back after 60.0 s
+```
+
+A shutdown while the tries run has the line `shutdown     : the thread of
+the tries to start the headset session, T ms`. The thread ends its instance
+in that time (51 ms in a run that ended by itself 60 s after the first
+try).
+
+When the headset comes in the 2 minutes, the line `vr start     : try N found
+the headset` comes after the lines of the headset, and then the lines of the
+session.
+
+### A desktop run with the tries
+
+The rig of the desktop runs sets `vr=0` and `stereo_headless=1`, so a run
+makes no try. With `-Set "vr=1;stereo_headless=0"` a run makes the tries
+with the runtime of the PC, and with no headset the game plays on the
+monitor:
+
+```powershell
+.\bwvr\tools\desk\spawn_run.ps1 -Name vs1 -Dll <build>\src\mod\Release\ddraw.dll -Save temple -Seconds 150 -Set "vr=1;stereo_headless=0;vr_start=1"
+.\bwvr\tools\desk\spawn_run.ps1 -Name vsh -Dll <build>\src\mod\Release\ddraw.dll -Save temple -Seconds 150 -Set "vr=1;stereo_headless=0;vr_start=1;vr_start_test_hang_try=2;vr_start_test_hang_ms=60000"
+```
+
+A desktop run cannot show a session that starts: only a headset can.
+
 ## The end of the mod
 
 ### How the game ends
@@ -562,9 +733,12 @@ The parts of the shutdown, in their order:
    and the detail distance of the game get their own values back.
 2. With a headset session: the reports, and then `XrScreen::Stop`. Each file
    that holds the screen lets it go first.
-3. `GpuBridgeShutdown`: the shared textures on the two devices, and the
+3. With `vr_start=1` and 2: the stop of the thread of the tries. It ends its
+   instance, and the shutdown waits at most 500 ms for it (see "The start of
+   the headset session").
+4. `GpuBridgeShutdown`: the shared textures on the two devices, and the
    references of the bridge to the device of the backend.
-4. `FrameSourceShutdown`.
+5. `FrameSourceShutdown`.
 
 The hooks stay until the process ends. A thread of the game can be in a hook,
 and `FinishFrame` calls the game's function directly after the shutdown.
@@ -2849,6 +3023,8 @@ keys that the launcher sets.
 | `vr`, `stereo` | 1, 1 | VR on, two eye passes. With `vr=0` the mod installs no hook but the answer to the check for an internet connection, and the bridge stays out |
 | `fov_margin_pct` | 0 | 0 to 30. The render goes that many percent past the view of the headset on each side. See "A margin around the view" |
 | `vr_full_screen` | 0 | 0: in a full screen game the mod does not start a headset session, and the game stays on the monitor. 1: it starts one |
+| `vr_start` | 1 | Where the tries to start the headset session run. 0: on the frame thread, with a new instance for each try. 1: on a thread of the mod, with one instance for all tries. 2: on that thread, with a new instance for each try. See "The start of the headset session" |
+| `vr_start_test_hang_try`, `vr_start_test_hang_ms`, `vr_start_test_fail_session` | 0, 0, 0 | Test keys. See the same section |
 | `play_mode` | 4 | See "Keys for v1.0" |
 | `screen_distance_cm`, `screen_width_cm` | 200, 260 | The quad in the window modes |
 | `eye_separation_milli` | 0 | 0 asks the headset |
@@ -2957,6 +3133,9 @@ section, so the uninstaller can put them back.
 
 - The end of the OpenXR session at the exit of the game (`XrScreen::Stop` on
   the exit path) has run in no headset session. See "The end of the mod".
+- A session that starts after a try on the thread of the tries
+  (`vr_start=1`), and the fall back to `vr_start=0`, have run in no headset
+  session. See "The start of the headset session".
 - A device lost after the bridge has started is not tested.
 - The worst frames of 31 to 52 ms have no explanation.
 - The clouds and the sun bob a little in the headset.

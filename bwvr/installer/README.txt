@@ -66,6 +66,10 @@ The launcher saves your settings, starts the game in the headset,
 and closes. "Play, new game" does the same and starts a new game.
 "Save Config" keeps your settings and does not start the game.
 
+If the headset is not connected when the game starts, the game plays
+on the monitor, and the mod looks for the headset for 2 minutes.
+Connect the headset in that time, and the game goes to the headset.
+
 A new game opens the start dialog of the game. You can play the
 tutorial of the game in VR, but it is made for the mouse and the
 keyboard of the original game. We recommend that you skip it: select

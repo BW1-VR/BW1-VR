@@ -167,7 +167,33 @@ class XrScreen {
   // eyes is 1 for a mono screen or 2 for stereo. width and height are the size
   // of the images that will be handed to SetEyeImage. Returns false and logs a
   // reason if anything fails, and the caller can carry on without VR.
+  //
+  // Start does the four parts below in one call, and Stop after a part that
+  // fails. A caller can also call the parts one at a time. The first three
+  // need no device of the game, so they can run on any thread. OpenXR lets
+  // each call come from any thread, when two threads do not use one handle
+  // at one time.
   bool Start(uint32_t width, uint32_t height, int eyes, LogFn log);
+
+  // Makes the instance, and sets the log. With an instance, it only sets
+  // the log. False: no instance, and the log has the reason.
+  bool StartInstance(LogFn log);
+  bool has_instance() const;
+
+  // Asks the runtime for the head mounted display. 1: the system is there.
+  // 0: the runtime has no head mounted display now
+  // (XR_ERROR_FORM_FACTOR_UNAVAILABLE). The instance stays, and a later call
+  // can find it. -1: a different fault, and only Stop is left to do.
+  int StartSystem();
+
+  // Writes the name and the size of the headset that StartSystem found to
+  // the log.
+  void LogSystem();
+
+  // The Direct3D 11 device on the adapter of the runtime, the session, the
+  // spaces, the controllers and the swapchains. After StartSystem gave 1.
+  // False: only Stop is left to do.
+  bool StartSession(uint32_t width, uint32_t height, int eyes);
 
   // Waits for the runtime and starts a frame. Returns false when the session
   // has ended and the caller should stop. When it returns true but
@@ -214,7 +240,8 @@ class XrScreen {
   // False before Start has reached the system.
   bool RecommendedSize(uint32_t* width, uint32_t* height) const;
 
-  // Swap the log sink after Start. The retries log to nowhere so a message
+  // Swap the log sink after Start or between its parts. The retries log to
+  // nowhere so a message
   // every three seconds does not bury the file, and without this the attempt
   // that SUCCEEDS keeps the quiet sink for the whole session and loses every
   // openxr line, including the eye angles and the measured separation.
@@ -293,6 +320,8 @@ class XrScreen {
   // which makes a menu unusable.
   bool SubmitTexture(void* texture);
 
+  // Ends each thing that Start made. For a screen with no session that
+  // started, it can run on any thread.
   void Stop();
 
   bool running() const { return running_; }

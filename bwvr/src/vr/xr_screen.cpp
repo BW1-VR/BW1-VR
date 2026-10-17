@@ -253,12 +253,18 @@ struct XrScreen::Impl {
 
   XrInstance instance = XR_NULL_HANDLE;
   XrSystemId system = XR_NULL_SYSTEM_ID;
+  // From StartSystem, for LogSystem.
+  char system_name[XR_MAX_SYSTEM_NAME_SIZE] = {0};
+  uint32_t max_w = 0;
+  uint32_t max_h = 0;
   XrSession session = XR_NULL_HANDLE;
   XrSpace space = XR_NULL_HANDLE;
   XrSwapchain swapchain[2] = {XR_NULL_HANDLE, XR_NULL_HANDLE};
   XrSpace view_space = XR_NULL_HANDLE;
   XrSessionState state = XR_SESSION_STATE_UNKNOWN;
   bool session_running = false;
+  // StartSession came to its end one time. Stop does not clear it.
+  bool session_started = false;
 
   ID3D11Device* device = nullptr;
   ID3D11DeviceContext* context = nullptr;
@@ -777,11 +783,27 @@ void XrScreen::SetPlacement(float distance_meters, float width_meters) {
 }
 
 bool XrScreen::Start(uint32_t width, uint32_t height, int eyes, LogFn log) {
+  if (!StartInstance(log)) return false;
+  if (StartSystem() != 1) {
+    Stop();
+    return false;
+  }
+  LogSystem();
+  if (!StartSession(width, height, eyes)) {
+    Stop();
+    return false;
+  }
+  return true;
+}
+
+bool XrScreen::has_instance() const {
+  return impl_->instance != XR_NULL_HANDLE;
+}
+
+bool XrScreen::StartInstance(LogFn log) {
   Impl& s = *impl_;
-  eyes_ = (eyes >= 2) ? 2 : 1;
   s.log = (log != nullptr) ? log : &NoLog;
-  s.width = width;
-  s.height = height;
+  if (s.instance != XR_NULL_HANDLE) return true;
 
   // --- instance -----------------------------------------------------------
   // Which extensions the runtime lists. A model of the
@@ -859,23 +881,33 @@ bool XrScreen::Start(uint32_t width, uint32_t height, int eyes, LogFn log) {
           static_cast<unsigned>(XR_VERSION_MINOR(properties.runtimeVersion)),
           static_cast<unsigned>(XR_VERSION_PATCH(properties.runtimeVersion)));
   }
+  return true;
+}
+
+int XrScreen::StartSystem() {
+  Impl& s = *impl_;
+  if (s.instance == XR_NULL_HANDLE) return -1;
 
   // --- system -------------------------------------------------------------
+  // The spec lets a runtime give XR_SUCCESS to a later call on the same
+  // instance after XR_ERROR_FORM_FACTOR_UNAVAILABLE, for example when the
+  // headset connects. So that answer keeps the instance.
   XrSystemGetInfo system_info = {XR_TYPE_SYSTEM_GET_INFO};
   system_info.formFactor = XR_FORM_FACTOR_HEAD_MOUNTED_DISPLAY;
-  result = xrGetSystem(s.instance, &system_info, &s.system);
+  const XrResult result = xrGetSystem(s.instance, &system_info, &s.system);
   if (XR_FAILED(result)) {
+    s.system = XR_NULL_SYSTEM_ID;
     s.log("  openxr: no head mounted display (%s)",
           ResultName(s.instance, result));
     s.log("  Connect the headset in Virtual Desktop, then start the game.");
-    Stop();
-    return false;
+    return result == XR_ERROR_FORM_FACTOR_UNAVAILABLE ? 0 : -1;
   }
 
   XrSystemProperties system_properties = {XR_TYPE_SYSTEM_PROPERTIES};
+  s.system_name[0] = 0;
   if (XR_SUCCEEDED(
           xrGetSystemProperties(s.instance, s.system, &system_properties))) {
-    s.log("  openxr: headset \"%s\"", system_properties.systemName);
+    strcpy_s(s.system_name, system_properties.systemName);
   }
 
   // What the headset would like each eye rendered at. This needs no session
@@ -893,19 +925,38 @@ bool XrScreen::Start(uint32_t width, uint32_t height, int eyes, LogFn log) {
         view_count >= 1) {
       recommended_w_ = views[0].recommendedImageRectWidth;
       recommended_h_ = views[0].recommendedImageRectHeight;
-      s.log("  openxr: the headset asks for %u x %u per eye, and would take up "
-            "to %u x %u",
-            recommended_w_, recommended_h_, views[0].maxImageRectWidth,
-            views[0].maxImageRectHeight);
+      s.max_w = views[0].maxImageRectWidth;
+      s.max_h = views[0].maxImageRectHeight;
     }
   }
+  return 1;
+}
+
+void XrScreen::LogSystem() {
+  Impl& s = *impl_;
+  if (s.system == XR_NULL_SYSTEM_ID) return;
+  if (s.system_name[0] != 0) s.log("  openxr: headset \"%s\"", s.system_name);
+  if (recommended_w_ != 0 && recommended_h_ != 0) {
+    s.log("  openxr: the headset asks for %u x %u per eye, and would take up "
+          "to %u x %u",
+          recommended_w_, recommended_h_, s.max_w, s.max_h);
+  }
+}
+
+bool XrScreen::StartSession(uint32_t width, uint32_t height, int eyes) {
+  Impl& s = *impl_;
+  if (s.instance == XR_NULL_HANDLE || s.system == XR_NULL_SYSTEM_ID) {
+    return false;
+  }
+  eyes_ = (eyes >= 2) ? 2 : 1;
+  s.width = width;
+  s.height = height;
 
   // --- Direct3D 11 on the adapter the runtime wants ------------------------
   if (!s.Check(xrGetInstanceProcAddr(
                    s.instance, "xrGetD3D11GraphicsRequirementsKHR",
                    reinterpret_cast<PFN_xrVoidFunction*>(&s.get_requirements)),
                "xrGetInstanceProcAddr(D3D11 requirements)")) {
-    Stop();
     return false;
   }
 
@@ -913,7 +964,6 @@ bool XrScreen::Start(uint32_t width, uint32_t height, int eyes, LogFn log) {
       XR_TYPE_GRAPHICS_REQUIREMENTS_D3D11_KHR};
   if (!s.Check(s.get_requirements(s.instance, s.system, &requirements),
                "xrGetD3D11GraphicsRequirementsKHR")) {
-    Stop();
     return false;
   }
 
@@ -923,7 +973,6 @@ bool XrScreen::Start(uint32_t width, uint32_t height, int eyes, LogFn log) {
   if (FAILED(CreateDXGIFactory1(__uuidof(IDXGIFactory1),
                                 reinterpret_cast<void**>(&factory)))) {
     s.log("  openxr: CreateDXGIFactory1 failed");
-    Stop();
     return false;
   }
 
@@ -948,7 +997,6 @@ bool XrScreen::Start(uint32_t width, uint32_t height, int eyes, LogFn log) {
 
   if (adapter == nullptr) {
     s.log("  openxr: the runtime asked for an adapter this process cannot see");
-    Stop();
     return false;
   }
 
@@ -961,7 +1009,6 @@ bool XrScreen::Start(uint32_t width, uint32_t height, int eyes, LogFn log) {
   adapter->Release();
   if (FAILED(created)) {
     s.log("  openxr: D3D11CreateDevice failed (0x%08X)", created);
-    Stop();
     return false;
   }
 
@@ -974,7 +1021,6 @@ bool XrScreen::Start(uint32_t width, uint32_t height, int eyes, LogFn log) {
   session_info.systemId = s.system;
   if (!s.Check(xrCreateSession(s.instance, &session_info, &s.session),
                "xrCreateSession")) {
-    Stop();
     return false;
   }
 
@@ -986,7 +1032,6 @@ bool XrScreen::Start(uint32_t width, uint32_t height, int eyes, LogFn log) {
   space_info.poseInReferenceSpace.orientation.w = 1.0f;
   if (!s.Check(xrCreateReferenceSpace(s.session, &space_info, &s.space),
                "xrCreateReferenceSpace")) {
-    Stop();
     return false;
   }
 
@@ -999,7 +1044,6 @@ bool XrScreen::Start(uint32_t width, uint32_t height, int eyes, LogFn log) {
   if (!s.Check(xrCreateReferenceSpace(s.session, &view_space_info,
                                       &s.view_space),
                "xrCreateReferenceSpace(VIEW)")) {
-    Stop();
     return false;
   }
 
@@ -1033,7 +1077,6 @@ bool XrScreen::Start(uint32_t width, uint32_t height, int eyes, LogFn log) {
 
   if (s.format == DXGI_FORMAT_UNKNOWN) {
     s.log("  openxr: no 8 bit BGRA or RGBA swapchain format offered");
-    Stop();
     return false;
   }
   s.log("  openxr: swapchain format %d, %ux%u", static_cast<int>(s.format),
@@ -1054,7 +1097,6 @@ bool XrScreen::Start(uint32_t width, uint32_t height, int eyes, LogFn log) {
     if (!s.Check(xrCreateSwapchain(s.session, &swapchain_info,
                                    &s.swapchain[eye]),
                  "xrCreateSwapchain")) {
-      Stop();
       return false;
     }
 
@@ -1121,12 +1163,15 @@ bool XrScreen::Start(uint32_t width, uint32_t height, int eyes, LogFn log) {
   staging_desc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
   if (FAILED(s.device->CreateTexture2D(&staging_desc, nullptr, &s.staging))) {
     s.log("  openxr: could not create the upload texture");
-    Stop();
     return false;
   }
 
   s.log("  openxr: ready, %d eye(s), %u swapchain images each", eyes_,
         s.image_count[0]);
+  // A layer that was staged before the session is not for its first frame.
+  for (int i = 0; i < kCards; ++i) g_have_staged_card[i] = false;
+  g_have_staged_window = false;
+  s.session_started = true;
   running_ = true;
   return true;
 }
@@ -2403,6 +2448,10 @@ double StopMs(const LARGE_INTEGER& start) {
 
 void XrScreen::Stop() {
   Impl& s = *impl_;
+  // Only a screen whose session started has frames. The end of a screen
+  // with no started session can be on a different thread (vr_start.cpp), so
+  // it does not touch the staged layers, which belong to the frame thread.
+  const bool was_started = s.session_started;
   running_ = false;
   // The second thread gives its frame to the runtime, and then it ends.
   Join();
@@ -2460,10 +2509,10 @@ void XrScreen::Stop() {
   s.panel_acquired = -1;
   for (int i = 0; i < kCards; ++i) {
     s.DestroyCard(i);
-    g_have_staged_card[i] = false;
+    if (was_started) g_have_staged_card[i] = false;
   }
   s.DestroyMask();
-  g_have_staged_window = false;
+  if (was_started) g_have_staged_window = false;
   // The action spaces go before the session.
   s.DestroyInput();
   if (s.view_space != XR_NULL_HANDLE) {

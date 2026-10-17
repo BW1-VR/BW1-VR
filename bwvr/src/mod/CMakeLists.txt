@@ -2,6 +2,7 @@
 add_library(bwvr_mod SHARED
     ../proxy/ddraw_proxy.cpp
     mod_main.cpp
+    vr_start.cpp
     frame_source.cpp
     stereo.cpp
     one_walk.cpp

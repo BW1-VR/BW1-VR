@@ -256,14 +256,20 @@ is built, and no test has proven it.
   beside the other sounds. Each other sound that the game asks for at the
   Hand with no object keeps the test of the game camera (`audio.md`,
   section 12).
-- **B21. A failed start of the headset session can stop the game.** With no
-  headset, each try to start a session ends in `XrScreen::Stop`. One time,
-  in a full screen game, the frame thread did not come back from the first
-  try: the log stopped after the line "Connect the headset in Virtual
-  Desktop, then start the game.". The cause is not known, and no run has
-  repeated it. A full screen game makes no try (`vr_full_screen=0`), and a
-  game with `vr=0` makes none. A game in a window with no headset makes a
-  try each 3 seconds for 2 minutes.
+- **B21. The start of the headset session on a thread of the mod: check it
+  in a headset.** With no headset, the tries to start a session run on a
+  thread of the mod, with one instance for all tries (`vr_start=1`,
+  `backend.md`, "The start of the headset session"). The frame thread does
+  not wait for a call into the runtime, and the log says when a call does
+  not come back. A desktop run with no headset shows the tries and the
+  frames while they run. When the session part fails after the thread found
+  the headset, the mod falls back to the tries of `vr_start=0`. Still open:
+  - Check in a headset that the session starts when the headset connects in
+    the 2 minutes of the tries, and when it is connected before the start of
+    the game.
+  - Check the fall back in a headset with `vr_start_test_fail_session=1`:
+    the log has the line of the fall back, and the session starts on the
+    frame thread.
 - **B22. The glow at the Hand's point with one walk: check it in a
   headset.** In one walk the mod draws the glow for each eye by itself, and
   the right eye has it at the eye difference of the Hand's point

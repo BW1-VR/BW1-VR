@@ -33,6 +33,8 @@
 #include "throw_physics.h"
 #include "teleport.h"
 #include "ui_panel.h"
+#include "vr_start.h"
+#include "vr_start_math.h"
 
 bool ProxyLoadRealDDraw();
 const char* ProxyBackendNote();
@@ -549,6 +551,28 @@ bool g_vr_gave_up = false;
 bool g_vr_full_screen = false;
 int g_vr_tries = 0;
 DWORD g_next_vr_try = 0;
+// Where the tries to start the headset session run (docs/backend.md, "The
+// start of the headset session"). 0: each try on the frame thread, with a
+// new instance. 1: on a thread of the mod, with one instance for all tries.
+// 2: on that thread, with a new instance for each try.
+int g_vr_start = 1;
+// Test keys: in this try the thread of the tries waits this long, as a call
+// into the runtime that does not come back. 0 is off.
+int g_vr_start_test_hang_try = 0;
+int g_vr_start_test_hang_ms = 0;
+// Test key: the session part of a headset that the thread found fails one
+// time, before StartSession, so the fall back runs. 0 is off.
+int g_vr_start_test_fail_session = 0;
+// The thread of the tries runs, and the frame thread only looks at it.
+bool g_vr_thread = false;
+// The session part failed after the thread found the headset. When the
+// thread has ended its instance, the tries of vr_start=0 go on.
+bool g_vr_fell_back = false;
+// The first try of vr_start=0 after the fall back writes its lines.
+bool g_vr_fallback_try = false;
+// The frame watch runs, and the time of the tries in this frame.
+bool g_vr_watch = false;
+double g_vr_code_ms = 0.0;
 
 // Try for two minutes, which is long enough to put a headset on and
 // connect Virtual Desktop after the game has already started.
@@ -1337,6 +1361,15 @@ void ReadSettings() {
       GetPrivateProfileIntA("bwvr", "registry_test_guard", 0, path) != 0;
   g_vr_full_screen =
       GetPrivateProfileIntA("bwvr", "vr_full_screen", 0, path) != 0;
+  g_vr_start = static_cast<int>(
+      GetPrivateProfileIntA("bwvr", "vr_start", 1, path));
+  if (g_vr_start < 0 || g_vr_start > 2) g_vr_start = 1;
+  g_vr_start_test_hang_try = static_cast<int>(
+      GetPrivateProfileIntA("bwvr", "vr_start_test_hang_try", 0, path));
+  g_vr_start_test_hang_ms = static_cast<int>(
+      GetPrivateProfileIntA("bwvr", "vr_start_test_hang_ms", 0, path));
+  g_vr_start_test_fail_session = static_cast<int>(
+      GetPrivateProfileIntA("bwvr", "vr_start_test_fail_session", 0, path));
   ModLog("settings     : vr=%d, stereo=%d, screen %.2f m wide at %.2f m",
          g_vr_enabled ? 1 : 0, g_stereo ? 1 : 0, g_width, g_distance);
   ModLog("settings     : eye separation %.3f world units, interface shift "
@@ -1344,6 +1377,9 @@ void ReadSettings() {
 }
 
 void ModLogNowhere(const char* format, ...);
+double MsSince(const LARGE_INTEGER& start);
+void StartVrFromThread();
+void VrSessionRuns(bwvr::XrScreen* screen, uint32_t width, uint32_t height);
 
 // Starting the VR session needs the Direct3D device, which does not exist
 // until the game has opened it. So this runs on a frame, not in DllMain, where
@@ -1353,10 +1389,20 @@ void ModLogNowhere(const char* format, ...);
 // registered as soon as Virtual Desktop is installed, but it reports no head
 // mounted display until the headset actually connects, so a single attempt at
 // startup forces the player to connect first and launch second. Getting that
-// order wrong looks exactly like the mod is broken. Retrying costs one failed
-// call every few seconds and lets the headset arrive whenever it likes.
-void StartVrOnce() {
-  if (g_screen != nullptr || g_vr_gave_up) return;
+// order wrong looks exactly like the mod is broken. Retrying lets the headset
+// arrive whenever it likes.
+//
+// With no headset, a try can only fail or wait for the runtime. So with
+// vr_start=1 and 2 the tries run on a thread of the mod (vr_start.cpp), and
+// the frame thread only looks at that thread once a frame.
+void StartVrStep() {
+  if (g_vr_thread) {
+    LARGE_INTEGER start;
+    QueryPerformanceCounter(&start);
+    StartVrFromThread();
+    g_vr_code_ms += MsSince(start);
+    return;
+  }
 
   const DWORD now = GetTickCount();
   if (g_next_vr_try != 0 && now < g_next_vr_try) return;
@@ -1578,19 +1624,47 @@ void StartVrOnce() {
     return;
   }
 
+  g_vr_watch = true;
+  if (g_vr_start != 0) {
+    VrStartOptions options = {};
+    options.mode = g_vr_start;
+    options.retry_ms = kVrRetryMs;
+    options.max_tries = kMaxVrTries;
+    options.test_hang_try = g_vr_start_test_hang_try;
+    options.test_hang_ms = g_vr_start_test_hang_ms;
+    if (VrStartBegin(options)) {
+      g_vr_thread = true;
+      return;
+    }
+    // VrStartBegin wrote why. The tries run here, as with vr_start=0.
+    g_vr_start = 0;
+  }
+
+  LARGE_INTEGER try_start;
+  QueryPerformanceCounter(&try_start);
   bwvr::XrScreen* screen = new bwvr::XrScreen();
   screen->SetPlacement(g_distance, g_width);
   screen->EnablePanel(g_stereo && g_ui_panel.mode == kUiPanelLayer);
   // Only the first failure and every tenth after it reach the log. A message
   // every three seconds for two minutes buries everything else.
-  const bool quiet = (g_vr_tries > 0) && (g_vr_tries % 10 != 0);
+  const bool quiet =
+      !g_vr_fallback_try && (g_vr_tries > 0) && (g_vr_tries % 10 != 0);
   if (!screen->Start(width, height, g_stereo ? 2 : 1,
                      quiet ? &ModLogNowhere : &ModLog)) {
     delete screen;
+    g_vr_code_ms += MsSince(try_start);
     ++g_vr_tries;
+    if (g_vr_fallback_try) {
+      g_vr_fallback_try = false;
+      ModLog("vr           : the start on the frame thread failed too, in try "
+             "%d. The tries go on to the end of the 2 minutes (vr_start=0)",
+             g_vr_tries);
+    }
     if (g_vr_tries == 1) {
       ModLog("vr           : waiting for the headset, will keep trying for "
-             "%d seconds", (kMaxVrTries * kVrRetryMs) / 1000);
+             "%d seconds. The tries run on the frame thread, with a new "
+             "instance for each try (vr_start=0)",
+             (kMaxVrTries * kVrRetryMs) / 1000);
     }
     if (g_vr_tries >= kMaxVrTries) {
       g_vr_gave_up = true;
@@ -1599,7 +1673,78 @@ void StartVrOnce() {
     }
     return;
   }
+  g_vr_code_ms += MsSince(try_start);
+  VrSessionRuns(screen, width, height);
+}
 
+// THE TRIES ON THE THREAD OF THE MOD (vr_start=1 and 2). Each frame, with no
+// wait for that thread.
+void StartVrFromThread() {
+  // The same rule as for each try on the frame thread.
+  if (!g_vr_full_screen && GpuBridgeFullScreen()) {
+    VrStartCancel();
+    g_vr_gave_up = true;
+    ModLog("vr           : vr_full_screen=0. The game is full screen, so the "
+           "mod does not use the headset. Start the game from the launcher");
+    return;
+  }
+  bool over = false;
+  bwvr::XrScreen* screen = VrStartTake(&over);
+  if (over) {
+    if (g_vr_fell_back) {
+      // The thread ended its instance, so the loader allows a new one. The
+      // next try is the try of vr_start=0, and the tries of the thread
+      // count, so the tries keep their 2 minutes.
+      g_vr_thread = false;
+      g_vr_fallback_try = true;
+      g_vr_tries =
+          vr_start_math::TriesAfterFallBack(VrStartTries(), kMaxVrTries);
+      g_next_vr_try = 0;
+      return;
+    }
+    g_vr_gave_up = true;
+    return;
+  }
+  if (screen == nullptr) return;
+
+  // THE SESSION RUNS ON THE FRAME THREAD. The thread found the headset, so
+  // this part runs one time, as the last part of a try on the frame thread
+  // does. The frame thread uses the session and its swapchains from the
+  // next frame on, and GpuBridgeStart opens the shared textures of the game
+  // on the Direct3D 11 device of the session at once, on this thread.
+  const char* failed = nullptr;
+  uint32_t width = 0, height = 0;
+  if (vr_start_math::TestFailSession(g_vr_start_test_fail_session, true)) {
+    failed = "the test key vr_start_test_fail_session, before StartSession";
+  } else if (!FrameSourceSize(&width, &height)) {
+    failed = "the size of the render target, before StartSession";
+  } else {
+    screen->SetPlacement(g_distance, g_width);
+    screen->EnablePanel(g_stereo && g_ui_panel.mode == kUiPanelLayer);
+    screen->SetLog(&ModLog);
+    if (!screen->StartSession(width, height, g_stereo ? 2 : 1)) {
+      failed = "StartSession (the openxr line before names the call)";
+    }
+  }
+  if (!vr_start_math::FallBack(g_vr_start, failed == nullptr)) {
+    VrStartSessionRuns();
+    VrSessionRuns(screen, width, height);
+    return;
+  }
+  // THE FALL BACK. A session part that the thread of the tries handed over
+  // failed, so the mod uses the tries of vr_start=0 for the rest of the run.
+  // The thread ends this instance and its tries, and VrStartTake then says
+  // that it is over.
+  ModLog("vr           : the start through the thread of the tries failed at "
+         "%s, so the mod starts the session on the frame thread as before "
+         "(vr_start=0)", failed);
+  g_vr_fell_back = true;
+  g_vr_start = vr_start_math::kOnFrameThread;
+  VrStartGiveBack(screen);
+}
+
+// A screen with a session that runs, from either way of the tries.
+void VrSessionRuns(bwvr::XrScreen* screen, uint32_t width, uint32_t height) {
   // The attempt that succeeded may have been a quiet one, and the sink Start
   // was given lasts for the whole session. Put the real log back, or every
   // openxr line after this point goes nowhere: the eye angles, the measured
@@ -1639,6 +1784,22 @@ void StartVrOnce() {
   }
   ModLog("vr           : running, frame reaches the headset %s",
          GpuBridgeReady() ? "without a readback" : "through a readback");
+}
+
+// Each frame until a session runs or the tries are over. The frame watch
+// says how long the frames are while the tries run, and how much of each
+// frame the tries take on the frame thread.
+void StartVrOnce() {
+  if (g_screen != nullptr || g_vr_gave_up) return;
+  g_vr_code_ms = 0.0;
+  StartVrStep();
+  if (!g_vr_watch) return;
+  VrWatchFrame(g_vr_code_ms, g_vr_start);
+  if (g_screen != nullptr) {
+    VrWatchEnd("a session runs", g_vr_start);
+  } else if (g_vr_gave_up) {
+    VrWatchEnd("no session", g_vr_start);
+  }
 }
 
 // A log sink that throws the line away, for the quiet retries.
@@ -2057,6 +2218,14 @@ void Shutdown(const char* path) {
       screen->Stop();
       delete screen;
     });
+  }
+  // After the session: the thread of the tries made its instance, and it
+  // stays while that instance lives. When Windows ends the process, each
+  // other thread is stopped already, maybe with the lock of vr_start.cpp
+  // held, so then the shutdown does not touch that thread.
+  if (g_vr_thread && !g_process_ends) {
+    ShutdownPart("the thread of the tries to start the headset session",
+                 [] { VrStartShutdown(500); });
   }
   ShutdownPart("the GPU bridge", [] { GpuBridgeShutdown(); });
   ShutdownPart("the frame source", [] { FrameSourceShutdown(); });
