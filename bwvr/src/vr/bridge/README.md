@@ -27,18 +27,18 @@ FramePort. The tested launcher uses FramePort and its OpenXR compatibility
 layer. Keep its prefix, display session and API layer settings. Other
 launcher setups need testing.
 
-With the game closed, keep a copy of the installed mod's `ddraw.dll` outside
-the game folder. Copy the artifact's `ddraw.dll` beside `runblack.exe` and
-copy the whole `bwvr-host` folder there. Keep the installed mod's other
-files, including its 32 bit `openxr_loader.dll` and dxwrapper folder.
-Do not copy the x64 loader out of `bwvr-host`.
+With the game closed, copy the whole `bwvr-host` folder beside
+`runblack.exe`. The `ddraw.dll` of the installer has the client of the
+host, so the add-on has no `ddraw.dll`. Keep the other files of the mod,
+including its 32 bit `openxr_loader.dll` and the dxwrapper folder. Do not
+copy the x64 loader out of `bwvr-host`.
 
 The folder layout is:
 
 ```text
 game/
   runblack.exe
-  ddraw.dll                 experimental 32 bit mod
+  ddraw.dll                 the mod, from the installer
   openxr_loader.dll         existing 32 bit loader
   bwvr.ini
   dxwrapper/                existing backend
@@ -74,8 +74,8 @@ use an existing saved game as a development test. Automated game tests
 must use `bwvr/tools/desk/desk_run.ps1` and its profile safeguards.
 
 To return to the local runtime, set `xr_bridge=0` with the game closed.
-To return to the release, restore the mod DLL you kept. The add-on does not change saves or profiles. Remove its `bwvr-host` folder
-when you no longer use it, with the game closed.
+The add-on does not change saves or profiles. The uninstaller of the mod
+also removes the `bwvr-host` folder.
 
 ## Transport and limitations
 
@@ -103,10 +103,11 @@ The host also watches the parent process between requests. When process
 jobs are available, closing the parent also ends its host. If Proton cannot
 create that job, the mod logs the limitation.
 
-CI builds the mod and host, runs the mod math checks and runs 120 synthetic
-x86 to x64 host exchanges without OpenXR. This checks payloads, pose layout,
-64 bit values, command sequencing and rejection of an incompatible version. It does not test rendering, layers,
-input behavior, game compatibility, device loss or headset comfort.
+CI builds the host and runs 120 synthetic x86 to x64 host exchanges without
+OpenXR. This checks payloads, pose layout, 64 bit values, command
+sequencing and rejection of an incompatible version. It does not test
+rendering, layers, input behavior, game compatibility, device loss or
+headset comfort.
 
 ## Graphics settings on Frame
 
@@ -135,5 +136,5 @@ The normal Build workflow calls `Steam Frame build` for pull
 requests and main. The release workflow waits for those checks and attaches
 the add-on ZIP beside the installer. The standalone workflow also accepts
 manual runs. It builds the x64 loader from OpenXR-SDK release-1.1.43 and
-includes its license. The host and the game DLL come from the same commit.
+includes its license. The host and the installer come from the same commit.
 The ZIP contains no game files, player ini, probe executables or run logs.

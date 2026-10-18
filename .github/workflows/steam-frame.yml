@@ -37,20 +37,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cmake --build local/frame-check-build --config Release
           exit $LASTEXITCODE
-      - name: Build the experimental game DLL and math checks
-        shell: pwsh
-        run: |
-          cmake -S bwvr -B local/frame-mod-build -A Win32
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          cmake --build local/frame-mod-build --config Release --target bwvr_mod bwvr_controller_math_test
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          & ./local/frame-mod-build/test/controller_math/Release/bwvr_controller_math_test.exe
-          exit $LASTEXITCODE
       - name: Collect the game bridge
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force local/frame-game-package/bwvr-host | Out-Null
-          Copy-Item local/frame-mod-build/src/mod/Release/ddraw.dll local/frame-game-package/
           Copy-Item local/frame-host-build/Release/bwvr-xr-host.exe, local/frame-host-build/Release/openxr_loader.dll, local/frame-sdk/LICENSE local/frame-game-package/bwvr-host/
           Copy-Item local/frame-check-build/Release/bwvr-bridge-check.exe local/frame-game-package/
           Copy-Item bwvr/src/vr/bridge/README.md local/frame-game-package/

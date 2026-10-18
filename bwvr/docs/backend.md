@@ -31,6 +31,8 @@ Other docs: `software-tnl.md` (the CPU transform and the camera matrix),
 | `src/proxy/ddraw_proxy.cpp` | The `ddraw.dll` stub. Loads the backend named by `backend` |
 | `src/mod/mod_main.cpp` | Settings (`ReadSettings`), hook installation, the log, the shutdown |
 | `src/mod/vr_start.cpp` | The tries to start the headset session on a thread of the mod, and the frame watch of the tries (`vr_start`) |
+| `src/vr/xr_screen.cpp` | The OpenXR session, the frames, the input and the layers |
+| `src/vr/bridge/client.cpp`, `host.cpp`, `protocol.h` | The x64 host for Steam Frame and its client in the mod (`xr_bridge`) |
 | `src/mod/gpu_bridge.cpp` | Shared textures, Direct3D 9 to Direct3D 11 copy, depth format hook |
 | `src/mod/frame_send.cpp` | The way of the eye pictures to the headset: when the mod waits for the GPU, and on which thread (`frame_send`) |
 | `src/mod/draw_merge.cpp` | One draw call for a row of draw calls of the game with one state (`draw_merge`) |
@@ -488,29 +490,6 @@ same bytes.
 
 ## The start of the headset session
 
-### Experimental game host
-
-`xr_bridge=1` selects the x64 host for the game. `xr_bridge=0` is the default
-local runtime. The setting takes effect at startup. No live backend switch
-is implemented. `bwvr/src/vr/bridge/README.md` describes the separate
-`steam-frame-addon` artifact, installation and test limits.
-
-The game uses the existing XrScreen interface. The host handles the OpenXR
-session, both eyes, input, haptics, panels, cards and cut scene windows.
-Eye and hand state, prediction time, focus and recenter events return to
-the game. Shared textures stay on the GPU. Cards and CPU fallback images
-use a bounded memory payload. Request sequencing and timeouts guard the
-transport. The host waits for each texture copy before it acknowledges it.
-Submission is synchronous, also with `frame_send=2`, to keep texture
-ownership explicit. The local runtime retains its threaded path.
-
-The game runs on Steam Frame with Proton 11 ARM64 and SteamVR/OpenXR 2.18.2.
-Stereo textures, controller input and clean shutdown work. The host submits
-hint cards, subtitles and cut scene layers. Full control coverage, haptic
-feel, device loss, long sessions and a guarded desktop run remain open.
-Frame cost can exceed the display period. The normal Build and release
-workflows provide a separate Steam Frame add-on beside the installer.
-
 ### The tries
 
 The session needs the device of the game, so the mod starts it on a frame
@@ -678,6 +657,51 @@ monitor:
 ```
 
 A desktop run cannot show a session that starts: only a headset can.
+
+## The x64 host for Steam Frame
+
+`xr_bridge=1` sends the OpenXR work of the mod to an x64 process,
+`bwvr-host\bwvr-xr-host.exe`. Steam Frame can then use its 64 bit Proton
+OpenXR runtime. `xr_bridge=0` is the default and keeps the local runtime.
+The mod reads the key at the start of the game, so a change needs a
+restart. `bwvr/src/vr/bridge/README.md` tells a player how to install the
+Steam Frame add-on.
+
+The game keeps the XrScreen interface. Each call of XrScreen goes to the
+host, and the host runs the same `xr_screen.cpp` with its local runtime.
+The host has the OpenXR session, both eyes, the input, the haptics, the
+panels, the cards and the cut scene window. At BeginFrame the eye and hand
+poses, the display time, the focus and a recenter come back to the game.
+
+- The eye textures stay on the GPU. The mod makes its own D3D11 device on
+  the adapter of the host, and the GPU bridge opens the shared textures of
+  Direct3D 9 on it. The host opens the same shared handles and waits for
+  its copy before it answers.
+- The cards and the eye pictures of the CPU path go through a shared
+  memory of at most 32 MiB for each request.
+- Each request has a sequence number. A request that fails or has no
+  answer in time stops the frames to the headset. The start has 30 s,
+  other requests have 5 s and a GPU copy of the host has 2 s. The game
+  does not go back to the local runtime.
+- The frame goes to the headset on the frame thread, also with
+  `frame_send=2`. The second thread of `frame_send=2` is only on the local
+  runtime.
+- At the end of the game the mod tells the host to stop. A host that does
+  not stop in 3 s is ended. A job object of Windows ends the host when the
+  game ends, and the host also watches the game between requests.
+
+The add-on holds only the host, its 64 bit OpenXR loader and the license
+of the loader. The `ddraw.dll` of the installer has the client. The Build
+workflow and the release make the add-on with `steam-frame.yml`, and the
+CI runs 120 requests between an x86 client and the host with no OpenXR.
+
+Known limits:
+
+- On Steam Frame (Proton 11 ARM64, SteamVR OpenXR 2.18.2) the game ran
+  with both eyes, the input and a clean stop, at 42 to 44 frames a second.
+  All controls, the haptics, the loss of the device and long sessions are
+  not tested.
+- A desktop run does not start OpenXR, so it cannot show the host.
 
 ## The end of the mod
 
@@ -3048,6 +3072,7 @@ keys that the launcher sets.
 | `vr_full_screen` | 0 | 0: in a full screen game the mod does not start a headset session, and the game stays on the monitor. 1: it starts one |
 | `vr_start` | 1 | Where the tries to start the headset session run. 0: on the frame thread, with a new instance for each try. 1: on a thread of the mod, with one instance for all tries. 2: on that thread, with a new instance for each try. See "The start of the headset session" |
 | `vr_start_test_hang_try`, `vr_start_test_hang_ms`, `vr_start_test_fail_session` | 0, 0, 0 | Test keys. See the same section |
+| `xr_bridge` | 0 | 0: the mod uses the OpenXR runtime of the PC. 1: the x64 host in `bwvr-host` runs the OpenXR session. See "The x64 host for Steam Frame" |
 | `play_mode` | 4 | See "Keys for v1.0" |
 | `screen_distance_cm`, `screen_width_cm` | 200, 260 | The quad in the window modes |
 | `eye_separation_milli` | 0 | 0 asks the headset |

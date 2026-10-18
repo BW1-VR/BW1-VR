@@ -729,13 +729,13 @@ that moves while the Hand takes it.
   a headset (`ui-layer.md`).
 - **N17. Headset coverage.** Quest 3 through Virtual Desktop and Steam Frame
   through Proton have game coverage. Other headsets and runtimes need tests.
+- **N18. The x64 host for Steam Frame** (`xr_bridge=1`). Not tested: all
+  controls, the haptics, the loss of the device, long sessions, and the
+  install and the uninstall of the add-on on a clean setup. The game ran
+  at 42 to 44 frames a second, and the host sends each frame on the frame
+  thread (`backend.md`).
 
 ### The repo, the release and the tools
-
-- **Steam Frame game bridge.** Check full control coverage, haptic feel,
-  device loss, long sessions and a guarded desktop run for `xr_bridge=1`.
-  Check installation and removal of the release add-on on a clean setup.
-  Frame cost and transport timing need more work (`backend.md`).
 
 - **R1. The installer and a person.** No person has run the installer on a
   real game folder and told the result: the install, an update over a

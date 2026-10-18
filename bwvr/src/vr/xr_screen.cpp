@@ -878,8 +878,8 @@ bool XrScreen::StartInstance(LogFn log) {
           ResultName(XR_NULL_HANDLE, result));
     if (result == XR_ERROR_RUNTIME_UNAVAILABLE) {
       s.log("  The OpenXR loader cannot find or load a runtime for this process.");
-      if (sizeof(void*) == 8) {
-        s.log("  This test process is 64 bit. Check the active runtime for");
+      if constexpr (sizeof(void*) == 8) {
+        s.log("  This process is 64 bit. Check the active runtime for");
         s.log("  64 bit Windows OpenXR applications and the loader log.");
       } else {
         s.log("  The game is 32 bit. It needs a runtime that supports 32 bit");
