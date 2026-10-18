@@ -460,6 +460,10 @@ only the orbit at the start of `intro_motion=1` goes between the orbs. With
 `intro_distance_cm=60` the logo is 45 cm wide and its orbs are 42 cm to
 78 cm in front of the head, so both hands go through it.
 
+With `intro_distance_cm=300` the room has 33.3 units for each meter and the
+orbs are about 1.2 units apart, so a reach of 10 cm holds about 2 orbs and a
+reach of 30 cm (the default) about 50.
+
 The hands give the mouse no motion, so the push of the game acts on a motion
 of the mouse only. `intro_push_3d=0` gives the push of the pointing hand
 through the pointer (see "The push of the hand").
@@ -469,8 +473,23 @@ through the pointer (see "The push of the hand").
 The overlay draws the hand models of the game at both hands, as in play
 (`hand-model.md`). `OverlayIntroFrame` builds only the hands: the world and
 the Hand of the game are not there yet, so the hands have no context of the
-game, and no finger bends on the land or on an object. The draw runs in the
-`FinishFrame` of each eye pass (`OverlayPassEye`).
+game, and no finger bends on the land or on an object. `OverlayPassEye`
+gives the overlay each eye pass.
+
+**The depth.** The effect draws the sky with the depth test and the depth
+write, and then the orbs with the depth test and no depth write [V, with
+`intro_probe=1` the log has the states of each kind of draw]. With
+`intro_hand_depth=1` (the default) the hands draw in the first eye pass and
+in the second, after the sky and before the orbs (`IntroMouseCall`), with
+the depth write. So an orb behind a hand fails the depth test, and an orb in
+front of a hand draws over it: the hands go into the cloud of orbs. The draw
+of the `FinishFrame` of that pass then draws nothing, because the overlay
+draws one time in each eye pass. A hand under 90 percent of its opacity
+writes no depth (`HandModelDraw`), so a hand that fades does not hide the
+orbs behind it. With 0 the hands draw in the `FinishFrame`, over each orb.
+With `intro_motion=2` the hands draw with the camera of the room and the
+orbs with the camera of the orbs, so the depth of the hands against the
+orbs is not exact there.
 
 With `intro_hand_show=1` (the default) a hand shows while it moves and fades
 when it rests (`intro_motion::HandShowStep`). The speed is the motion of the
@@ -550,7 +569,8 @@ the intro" is cleared when mode 2 runs.
 | `intro_push_once` | 1 | 1: only the first eye pass pushes the orbs. 0: each eye pass pushes them |
 | `intro_controller` | 1 | Run the controller frame, so the aim moves the pointer |
 | `intro_push_3d` | 1 | 1: each hand takes the orbs in its reach in 3D, and the hands give the mouse no motion. 0: the pointing hand pushes through the pointer, with the two keys below |
-| `intro_push_radius_cm` | 10 | The reach of a hand for the push in 3D, in cm of the room, 2 to 50 |
+| `intro_push_radius_cm` | 30 | The reach of a hand for the push in 3D, in cm of the room, 2 to 100 |
+| `intro_hand_depth` | 1 | 1: the hands draw after the sky and before the orbs, so an orb in front of a hand draws over it. 0: the hands draw after the orbs, over each orb |
 | `intro_hand_show` | 1 | 0: no hand models. 1: a hand shows while it moves. 2: a hand shows while it is tracked |
 | `intro_hand_push_pct` | 100 | With `intro_push_3d=0`: the motion of the pixel of the hand, in percent, that goes to the motion of the mouse, so the hand pushes the orbs. 0 to 400. 0: only a mouse pushes the orbs |
 | `intro_hand_point` | 1 | With `intro_push_3d=0`: 1, with the direct hand, the pointer is at the pixel of the Hand's point. 0: the pointer is at the pixel of the aim ray |
@@ -575,16 +595,17 @@ With `test_keys=1` these keys act while the logo plays in stereo (`backend.md`,
 | Shift and End | `intro_hand_point` goes between 1 and 0 | Long for 1, short for 0 |
 | Shift and Insert | `intro_push_3d` goes between 1 and 0 | Long for 1, short for 0 |
 | Shift and Backspace | `intro_hand_show` steps: 1, 2, 0 and 1 again | One short pulse for each unit of the new value, one long pulse for 0 |
+| Shift and Pause | `intro_hand_depth` goes between 1 and 0 | Long for 1, short for 0 |
 
 `DoLogo` ends the logo on each key that goes down. While Shift, Page Up, Page
-Down, Delete, Home, End, Insert or Backspace is down, the mod clears the last
-key of the game after each frame (`0x00E85474`), so a press of a test key
-does not end the logo.
+Down, Delete, Home, End, Insert, Backspace or Pause is down, the mod clears
+the last key of the game after each frame (`0x00E85474`), so a press of a
+test key does not end the logo.
 
 In play, Shift and Page Down change `eye_clean`, Shift and Delete change
 `bubble_card`, Shift and Home change `spirit_world_size`, Shift and End
-change `creature_hold_stay`, and Shift and Insert change `text_click`
-(`backend.md`, "Keys for v1.0").
+change `creature_hold_stay`, Shift and Insert change `text_click`, and Shift
+and Backspace change `far_take_carry` (`backend.md`, "Keys for v1.0").
 
 ### The controller in the stereo intro
 
@@ -628,7 +649,13 @@ The tag is `intro`:
   most in one frame, and the frames in which a hand showed.
 - With `intro_probe=1`, each 100 pairs: the pointer, the pointer that the
   push of the game read, and the count of orbs more than 1 unit from their
-  home.
+  home. Also the place of the right hand against the camera, its speed and
+  its opacity.
+- The first eye pass in which the hands draw before the orbs, with the
+  triangles.
+- With `intro_probe=1`: one line for each kind of draw of the first eye pass
+  (the code that draws, and before or after the sky), with the depth states
+  of the device and the depth of its first corner.
 
 ### The math test
 

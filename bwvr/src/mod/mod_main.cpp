@@ -94,7 +94,8 @@ void IntroSetOptions(bool on, int motion, int speed_pct, int distance_cm,
                      bool test_keys);
 void IntroSetTests(int motion_seconds, int push_pixels);
 void IntroSetHandPush(int percent, bool hand_point);
-void IntroSetHands(bool push_3d, int radius_cm, int hand_show);
+void IntroSetHands(bool push_3d, int radius_cm, int hand_show,
+                   bool hand_depth);
 void IntroSetScreen(bwvr::XrScreen* screen);
 void IntroInstall();
 bool IntroFinishFrame();
@@ -618,11 +619,12 @@ int g_intro_hand_push_pct = 100;
 // points.
 bool g_intro_hand_point = true;
 // In the intro each hand takes the orbs in its reach in 3D, the reach in cm
-// of the room, and when the hand models show: 0 never, 1 while a hand moves,
-// 2 while it is tracked.
+// of the room, when the hand models show (0 never, 1 while a hand moves, 2
+// while it is tracked), and whether they draw before the orbs.
 bool g_intro_push_3d = true;
-int g_intro_push_radius_cm = 10;
+int g_intro_push_radius_cm = 30;
 int g_intro_hand_show = 1;
+bool g_intro_hand_depth = true;
 bool g_intro_probe = false;
 // Tests of the desktop runs.
 int g_intro_motion_test_seconds = 0;
@@ -1579,9 +1581,11 @@ void ReadSettings() {
   g_intro_push_3d =
       GetPrivateProfileIntA("bwvr", "intro_push_3d", 1, path) != 0;
   g_intro_push_radius_cm = static_cast<int>(
-      GetPrivateProfileIntA("bwvr", "intro_push_radius_cm", 10, path));
+      GetPrivateProfileIntA("bwvr", "intro_push_radius_cm", 30, path));
   g_intro_hand_show = static_cast<int>(
       GetPrivateProfileIntA("bwvr", "intro_hand_show", 1, path));
+  g_intro_hand_depth =
+      GetPrivateProfileIntA("bwvr", "intro_hand_depth", 1, path) != 0;
   g_intro_probe = GetPrivateProfileIntA("bwvr", "intro_probe", 0, path) != 0;
   g_fix_unscaled =
       GetPrivateProfileIntA("bwvr", "fix_unscaled", 1, path) != 0;
@@ -1842,7 +1846,8 @@ void StartVrStep() {
                     g_intro_controller, g_intro_probe, g_test_keys);
     IntroSetTests(g_intro_motion_test_seconds, g_intro_push_test_px);
     IntroSetHandPush(g_intro_hand_push_pct, g_intro_hand_point);
-    IntroSetHands(g_intro_push_3d, g_intro_push_radius_cm, g_intro_hand_show);
+    IntroSetHands(g_intro_push_3d, g_intro_push_radius_cm, g_intro_hand_show,
+                  g_intro_hand_depth);
     IntroInstall();
     EyeCleanSetOptions(g_eye_clean, g_eye_clean_test, g_eye_clean_test_frame);
     EyeCleanInstall();

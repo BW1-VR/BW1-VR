@@ -96,6 +96,8 @@
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#include <ddraw.h>
+#include <d3d.h>
 #include <intrin.h>
 #include <math.h>
 #include <stdint.h>
@@ -167,6 +169,8 @@ bool HeadCameraGameCamera(float position[3], float focus[3]);
 // overlay.cpp: the hands of the intro, and the eye pass for their draw.
 void OverlayIntroFrame(const float opacity[2]);
 void OverlayPassEye(int eye);
+void OverlayDraw();
+int OverlayEyeTriangles(int eye);
 
 namespace {
 
@@ -225,8 +229,9 @@ int g_hand_push_pct = 100;     // intro_hand_push_pct: the hand pushes the orbs
 int g_hand_push_set_pct = 100; // the value of the ini, for the test key
 bool g_hand_point = true;      // intro_hand_point: the pointer is at the hand
 bool g_push_3d = true;         // intro_push_3d: each hand pushes in 3D
-float g_push_radius_m = 0.10f; // intro_push_radius_cm
+float g_push_radius_m = 0.30f; // intro_push_radius_cm
 int g_hand_show = 1;           // intro_hand_show: 0 off, 1 while moving, 2 on
+bool g_hand_depth = true;      // intro_hand_depth: hands before the orbs
 bool g_probe = false;          // intro_probe: log the cameras each second
 bool g_test_keys = false;      // test_keys
 int g_motion_test_ms = 0;      // intro_motion_test_seconds, a test
@@ -315,6 +320,7 @@ uint64_t g_push_3d_frames = 0;   // frames in which a hand moved an orb
 uint64_t g_push_3d_orbs = 0;     // orbs moved, summed over the frames
 int g_push_3d_most = 0;          // the most orbs that one frame moved
 bool g_push_3d_said = false;
+bool g_after_mouse_call = false; // the eye pass is past the sky (probe)
 uint64_t g_show_frames = 0;      // frames with a hand that shows
 int32_t g_push_pointer_x = 0;    // the pointer that the push of the effect read
 int32_t g_push_pointer_y = 0;
@@ -561,9 +567,9 @@ void SwitchTrails(const char* who) {
 // steps intro_motion. Shift with Page Down switches intro_eye_trails, and
 // Shift with Delete switches intro_text_place: a long pulse for 1 and a
 // short pulse for 0. Shift with Home switches the push of the hand between
-// off and on, Shift with End switches intro_hand_point, and Shift with
-// Insert switches intro_push_3d: a long pulse for on and a short pulse for
-// off. Shift with Backspace steps intro_hand_show: 1, 2, 0 and 1 again, one
+// off and on, Shift with End switches intro_hand_point, Shift with Insert
+// switches intro_push_3d, and Shift with Pause switches intro_hand_depth: a
+// long pulse for on and a short pulse for off. Shift with Backspace steps intro_hand_show: 1, 2, 0 and 1 again, one
 // short pulse for each unit of the new value and one long pulse for 0. Ctrl
 // must be up for each of them.
 void PollKeys() {
@@ -574,6 +580,7 @@ void PollKeys() {
   static bool was_point = false;
   static bool was_push3d = false;
   static bool was_show = false;
+  static bool was_depth = false;
   if (g_key_pulses > 0 && GetTickCount() >= g_key_pulse_tick) {
     --g_key_pulses;
     g_key_pulse_tick = GetTickCount() + 250;
@@ -595,8 +602,11 @@ void PollKeys() {
   const bool push3d =
       lone_shift && (GetAsyncKeyState(VK_INSERT) & 0x8000) != 0;
   const bool show = lone_shift && (GetAsyncKeyState(VK_BACK) & 0x8000) != 0;
+  const bool depth = lone_shift && (GetAsyncKeyState(VK_PAUSE) & 0x8000) != 0;
   const bool push3d_pressed = push3d && !was_push3d;
   const bool show_pressed = show && !was_show;
+  const bool depth_pressed = depth && !was_depth;
+  was_depth = depth;
   was_motion = motion;
   was_trails = trails;
   was_text = text;
@@ -605,7 +615,7 @@ void PollKeys() {
   was_push3d = push3d;
   was_show = show;
   if (!motion_pressed && !trails_pressed && !text_pressed && !hand_pressed &&
-      !point_pressed && !push3d_pressed && !show_pressed) {
+      !point_pressed && !push3d_pressed && !show_pressed && !depth_pressed) {
     return;
   }
   DWORD process = 0;
@@ -671,6 +681,16 @@ void PollKeys() {
                               : "no hand shows",
            *Clock());
   }
+  if (depth_pressed) {
+    g_hand_depth = !g_hand_depth;
+    ControllersGesturePulse(0.5f, g_hand_depth ? 0.24f : 0.08f);
+    ModLog("test key     : Shift and Pause: intro_hand_depth is %d now (%s), "
+           "clock %.2f", g_hand_depth ? 1 : 0,
+           g_hand_depth ? "the hands draw before the orbs, and an orb in "
+                          "front of a hand draws over it"
+                        : "the hands draw after the orbs, over each orb",
+           *Clock());
+  }
 }
 
 // A key that goes down ends the logo: DoLogo tests the last key after each
@@ -685,7 +705,8 @@ void KeepLogoForTestKey() {
       (GetAsyncKeyState(VK_HOME) & 0x8000) == 0 &&
       (GetAsyncKeyState(VK_END) & 0x8000) == 0 &&
       (GetAsyncKeyState(VK_INSERT) & 0x8000) == 0 &&
-      (GetAsyncKeyState(VK_BACK) & 0x8000) == 0) {
+      (GetAsyncKeyState(VK_BACK) & 0x8000) == 0 &&
+      (GetAsyncKeyState(VK_PAUSE) & 0x8000) == 0) {
     return;
   }
   *reinterpret_cast<uint32_t*>(kLastKey) = 0;
@@ -760,6 +781,7 @@ void LogPath() {
 // One eye pass: run the effect once with the state of that eye.
 void RunEye(int eye, uint32_t delta, uint32_t game_time_inc) {
   g_eye = eye;
+  g_after_mouse_call = false;
   g_camera_seen = false;
   g_camera_built = false;
   g_eye_sent = false;
@@ -1259,11 +1281,29 @@ bool IntroCameraPose(uintptr_t caller, const float* position,
 // second eye pass moves no orb (see the top of the file).
 bool IntroMouseCall(uintptr_t caller) {
   if (g_eye < 0 || caller != kMouseCall + 5) return false;
+  // THE DEPTH OF THE HANDS (intro_hand_depth). The sky is drawn and the orbs
+  // are not. The orbs test the depth and do not write it, so hands that draw
+  // here with their depth hide the orbs behind them, and an orb in front of a
+  // hand draws over it. The draw of the FinishFrame of this pass then does
+  // nothing (OverlayDraw draws one time in each eye pass). The hands are
+  // placed from the camera of the room, so they draw before the camera of
+  // the orbs.
+  if (g_overlay_on && g_hand_depth) {
+    OverlayDraw();
+    static bool said = false;
+    if (!said && OverlayEyeTriangles(g_eye) > 0) {
+      said = true;
+      ModLog("intro        : the hands draw before the orbs, %d triangles in "
+             "the eye pass %d, clock %.2f", OverlayEyeTriangles(g_eye), g_eye,
+             *Clock());
+    }
+  }
   if (g_two_cameras && g_have_cameras) {
     HeadCameraIntroPlace(g_orb_position, g_orb_focus);
     IntroCameraBuilt();
   }
   if (g_eye == 0) Push3d();
+  g_after_mouse_call = true;
   return g_eye == 1 && g_push_once;
 }
 
@@ -1324,6 +1364,38 @@ bool IntroFlatVertex(float* x, float* y) {
   const float near_plane =
       *reinterpret_cast<const float*>(bw::tech::kNearPlane);
   return intro_motion::PlaceFlat(m, g_flat_view, near_plane, x, y);
+}
+
+// For draw_hooks.cpp, with intro_probe: one line for each kind of draw of
+// the first eye pass (the code that draws, and before or after the sky), with
+// the depth states of the device and the depth of the first corner. So the
+// log says which draws of the effect test and write the depth.
+void IntroDrawProbe(uint32_t caller, const void* verts, uint32_t count) {
+  if (!g_probe || g_eye != 0 || g_pairs < 100 || verts == nullptr) return;
+  static uint32_t seen[24];
+  static int seen_count = 0;
+  const uint32_t key = caller ^ (g_after_mouse_call ? 0x80000000u : 0u);
+  for (int i = 0; i < seen_count; ++i) {
+    if (seen[i] == key) return;
+  }
+  if (seen_count >= 24) return;
+  seen[seen_count++] = key;
+  IDirect3DDevice7* device = *reinterpret_cast<IDirect3DDevice7* const*>(
+      bw::render::kDirect3DDevice7);
+  DWORD z = 9, write = 9, func = 9, blend = 9, test = 9;
+  if (device != nullptr) {
+    device->GetRenderState(D3DRENDERSTATE_ZENABLE, &z);
+    device->GetRenderState(D3DRENDERSTATE_ZWRITEENABLE, &write);
+    device->GetRenderState(D3DRENDERSTATE_ZFUNC, &func);
+    device->GetRenderState(D3DRENDERSTATE_ALPHABLENDENABLE, &blend);
+    device->GetRenderState(D3DRENDERSTATE_ALPHATESTENABLE, &test);
+  }
+  const float* v = static_cast<const float*>(verts);
+  ModLog("intro        : pair %llu, a draw from 0x%08X %s the sky: %u "
+         "corners, z test %lu, z write %lu, z func %lu, blend %lu, alpha test "
+         "%lu, the first corner at z %.5f rhw %.5f", g_pairs, caller,
+         g_after_mouse_call ? "after" : "before", count, z, write, func,
+         blend, test, v[2], v[3]);
 }
 
 // For draw_hooks.cpp: the batch was drawn at its place, or it was not drawn.
@@ -1475,13 +1547,16 @@ void IntroSetHandPush(int percent, bool hand_point) {
 
 // intro_push_3d: each hand takes the orbs in its reach in 3D, and the hands
 // give the mouse no motion. intro_push_radius_cm: the reach of a hand in the
-// room, 2 to 50. intro_hand_show: 0 no hand models, 1 a hand shows while it
-// moves, 2 a hand shows while it is tracked.
-void IntroSetHands(bool push_3d, int radius_cm, int hand_show) {
+// room, 2 to 100. intro_hand_show: 0 no hand models, 1 a hand shows while it
+// moves, 2 a hand shows while it is tracked. intro_hand_depth: the hands draw
+// before the orbs, so an orb in front of a hand draws over it.
+void IntroSetHands(bool push_3d, int radius_cm, int hand_show,
+                   bool hand_depth) {
   g_push_3d = push_3d;
-  const int cm = radius_cm < 2 ? 2 : radius_cm > 50 ? 50 : radius_cm;
+  const int cm = radius_cm < 2 ? 2 : radius_cm > 100 ? 100 : radius_cm;
   g_push_radius_m = static_cast<float>(cm) * 0.01f;
   g_hand_show = hand_show < 0 || hand_show > 2 ? 1 : hand_show;
+  g_hand_depth = hand_depth;
 }
 
 void IntroInstall() {
@@ -1511,20 +1586,21 @@ void IntroInstall() {
          "intro_motion=2), the clock of the effect runs at %d percent, "
          "intro_eye_trails=%d, intro_text_place=%d, intro_push_once=%d, "
          "controller %s, intro_hand_push_pct=%d, intro_hand_point=%d, "
-         "intro_push_3d=%d with a reach of %.0f cm, intro_hand_show=%d",
+         "intro_push_3d=%d with a reach of %.0f cm, intro_hand_show=%d, "
+         "intro_hand_depth=%d",
          g_motion, MotionText(g_motion), g_distance_m, g_model_distance_m,
          g_speed_pct, g_eye_trails ? 1 : 0, g_text_place ? 1 : 0,
          g_push_once ? 1 : 0, g_controller ? "on" : "off", g_hand_push_pct,
          g_hand_point ? 1 : 0, g_push_3d ? 1 : 0, g_push_radius_m * 100.0f,
-         g_hand_show);
+         g_hand_show, g_hand_depth ? 1 : 0);
   if (g_test_keys) {
     ModLog("intro        : test_keys=1: while the logo plays in stereo, Shift "
            "and Page Up step intro_motion, Shift and Page Down switch "
            "intro_eye_trails, Shift and Delete switch intro_text_place, Shift "
            "and Home switch the push of the hand, Shift and End switch "
-           "intro_hand_point, Shift and Insert switch intro_push_3d, and "
-           "Shift and Backspace step intro_hand_show. These keys do not end "
-           "the logo");
+           "intro_hand_point, Shift and Insert switch intro_push_3d, Shift "
+           "and Backspace step intro_hand_show, and Shift and Pause switch "
+           "intro_hand_depth. These keys do not end the logo");
   }
   if (g_motion_test_ms > 0) {
     ModLog("intro        : test key intro_motion_test_seconds: each %d s of "

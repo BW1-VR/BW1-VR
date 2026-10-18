@@ -501,8 +501,11 @@ The Lionhead logo in stereo draws the hands too (`intro.md`, "The hand
 models in the intro"). `OverlayIntroFrame` builds only the hands, with no
 context of the game and no hand feel, because the world and the Hand of the
 game are not there yet. `HandModelSetOpacity` gives each hand an opacity
-that multiplies the alpha of the texture, so a hand can fade. In play each
-hand has the opacity 1.
+that multiplies the alpha of the texture, so a hand can fade. A hand under
+90 percent of its opacity writes no depth, so it does not hide what draws
+behind it later. In play each hand has the opacity 1. In the intro the
+hands can draw before the orbs of the logo, so the orbs in front of a hand
+draw over it.
 
 ### Keys
 

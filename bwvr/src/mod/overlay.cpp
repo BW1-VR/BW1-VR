@@ -1091,6 +1091,12 @@ void OverlayPassEye(int eye) { g_eye = eye; }
 // the mesh of the game's Hand can stay hidden.
 bool OverlayPointingHandDrawn() { return g_pointing_drawn; }
 
+// For the log of intro_vr.cpp: the triangles that the draw of an eye drew in
+// this frame, 0 before the draw.
+int OverlayEyeTriangles(int eye) {
+  return eye == 0 || eye == 1 ? g_eye_triangles[eye] : 0;
+}
+
 // For a source that aims with a hand (0 the left hand, 1 the right hand), for
 // example a Creature command: the hand takes the point pose. Call it in each
 // frame of the aim. The pose ends one frame after the last call.

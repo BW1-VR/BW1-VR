@@ -584,10 +584,12 @@ that moves while the Hand takes it.
     path slower. Then choose the default, and decide if `intro_vr` goes on.
   - Does the push in 3D feel right? Each hand takes the orbs in its reach
     with its own motion, one to one (`intro_push_3d=1`, a reach of
-    `intro_push_radius_cm=10`), and the hand models show while the hands
-    move (`intro_hand_show=1`). Which `intro_distance_cm` puts the logo in
-    the reach of the arms? Shift and Insert switch the push in 3D, and Shift
-    and Backspace step `intro_hand_show`.
+    `intro_push_radius_cm=30`), and the hand models show while the hands
+    move (`intro_hand_show=1`). An orb in front of a hand draws over it
+    (`intro_hand_depth=1`). With `intro_distance_cm=300` the hands reach the
+    orbs in the orbit at the start.
+    Shift and Insert switch the push in 3D, Shift and Backspace step
+    `intro_hand_show`, and Shift and Pause switch `intro_hand_depth`.
   - Not built: a speed for the orbs that a hand moved, and a push of the
     hand in the flat intro (`intro.md`, "Open work").
 - **P12. Ideas from Half-Life: Alyx** that are not built are in
