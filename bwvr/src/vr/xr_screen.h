@@ -159,8 +159,12 @@ struct LateFrame {
   void (*wait)();
 };
 
+class RemoteScreen;
+
 class XrScreen {
  public:
+  // Select before startup. 0 uses the local runtime, 1 uses the x64 host.
+  static void ConfigureBridge(bool enabled);
   XrScreen();
   ~XrScreen();
 
@@ -395,6 +399,7 @@ class XrScreen {
   void ReportUpload(uint64_t frames);
 
  private:
+  RemoteScreen* remote_ = nullptr;
   struct Impl;
   Impl* impl_;
   bool BuildFrame();   // the layers of the frame

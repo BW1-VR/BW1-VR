@@ -19,7 +19,13 @@ on:
         default: false
 
 jobs:
+  steam-frame:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/steam-frame.yml
+
   release:
+    needs: steam-frame
     runs-on: windows-2022
     permissions:
       contents: write
@@ -27,6 +33,12 @@ jobs:
       - uses: actions/checkout@v7
 
       - uses: ./.github/actions/build
+
+      - name: Get the Steam Frame add-on
+        uses: actions/download-artifact@v7
+        with:
+          name: steam-frame-addon
+          path: local/steam-frame-release
 
       - name: Make the release
         shell: pwsh
@@ -43,5 +55,6 @@ jobs:
           $notes += "`n`nRun the installer over the build that you have. The first line of bwvr.log in your game folder says which build you run: it must show ``build $env:BUILD_ID``."
           $more = @('--prerelease')
           if ($env:DRAFT -eq 'true') { $more += '--draft' }
-          gh release create $tag "$env:INSTALLER" --target $env:GITHUB_SHA --title $title --notes $notes @more
+          $frame = (Get-ChildItem local/steam-frame-release/steam-frame-*.zip).FullName
+          gh release create $tag "$env:INSTALLER" $frame --target $env:GITHUB_SHA --title $title --notes $notes @more
           exit $LASTEXITCODE

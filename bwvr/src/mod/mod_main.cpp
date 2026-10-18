@@ -1010,6 +1010,10 @@ void ReadSettings() {
   // The launcher's "Test keys" box. F12 saves both eye pictures and
   // Shift F12 steps the subtitles. Off for players.
   g_test_keys = GetPrivateProfileIntA("bwvr", "test_keys", 0, path) != 0;
+  const bool xr_bridge = GetPrivateProfileIntA("bwvr", "xr_bridge", 0, path) == 1;
+  bwvr::XrScreen::ConfigureBridge(xr_bridge);
+  ModLog("settings     : xr_bridge=%d, %s", xr_bridge ? 1 : 0,
+         xr_bridge ? "experimental x64 OpenXR host" : "local OpenXR runtime");
   // Not in the launcher. Off only to test the fault it fixes.
   g_game_camera_rebuild =
       GetPrivateProfileIntA("bwvr", "game_camera_rebuild", 1, path) != 0;

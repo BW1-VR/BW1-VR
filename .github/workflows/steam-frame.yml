@@ -1,0 +1,79 @@
+name: Steam Frame build
+on:
+  workflow_call:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: windows-2022
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - name: Get the OpenXR SDK source
+        uses: actions/checkout@v7
+        with:
+          repository: KhronosGroup/OpenXR-SDK
+          ref: release-1.1.43
+          path: local/frame-sdk
+      - name: Build the 64 bit loader
+        shell: pwsh
+        run: |
+          cmake -S local/frame-sdk -B local/frame-sdk-build -A x64 -DDYNAMIC_LOADER=ON -DBUILD_TESTS=OFF -DBUILD_API_LAYERS=OFF
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cmake --build local/frame-sdk-build --config Release
+          exit $LASTEXITCODE
+      - name: Build the x64 OpenXR host
+        shell: pwsh
+        run: |
+          cmake -S bwvr/src/vr/bridge -B local/frame-host-build -A x64 "-DOPENXR_SDK=$pwd/local/frame-sdk" "-DOPENXR_BUILD=$pwd/local/frame-sdk-build"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cmake --build local/frame-host-build --config Release
+          exit $LASTEXITCODE
+      - name: Build the 32 bit transport check
+        shell: pwsh
+        run: |
+          cmake -S bwvr/src/vr/bridge -B local/frame-check-build -A Win32 -DBWVR_BRIDGE_CHECK_ONLY=ON
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cmake --build local/frame-check-build --config Release
+          exit $LASTEXITCODE
+      - name: Build the experimental game DLL and math checks
+        shell: pwsh
+        run: |
+          cmake -S bwvr -B local/frame-mod-build -A Win32
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cmake --build local/frame-mod-build --config Release --target bwvr_mod bwvr_controller_math_test
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & ./local/frame-mod-build/test/controller_math/Release/bwvr_controller_math_test.exe
+          exit $LASTEXITCODE
+      - name: Collect the game bridge
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force local/frame-game-package/bwvr-host | Out-Null
+          Copy-Item local/frame-mod-build/src/mod/Release/ddraw.dll local/frame-game-package/
+          Copy-Item local/frame-host-build/Release/bwvr-xr-host.exe, local/frame-host-build/Release/openxr_loader.dll, local/frame-sdk/LICENSE local/frame-game-package/bwvr-host/
+          Copy-Item local/frame-check-build/Release/bwvr-bridge-check.exe local/frame-game-package/
+          Copy-Item bwvr/src/vr/bridge/README.md local/frame-game-package/
+      - name: Check the game host protocol without a headset
+        shell: pwsh
+        run: |
+          & ./local/frame-game-package/bwvr-bridge-check.exe
+          $result = $LASTEXITCODE
+          Get-Content local/frame-game-package/bwvr-host/bwvr-host.log
+          Remove-Item local/frame-game-package/bwvr-host/bwvr-host.log
+          exit $result
+      - name: Pack the Steam Frame add-on
+        shell: pwsh
+        run: |
+          Remove-Item local/frame-game-package/bwvr-bridge-check.exe
+          $id = (git rev-parse --short=7 HEAD)
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "Build $id. Install with the mod installer from the same commit." | Set-Content local/frame-game-package/BUILD.txt
+          Compress-Archive -Path local/frame-game-package/* -DestinationPath "local/steam-frame-$id.zip"
+      - name: Keep the Steam Frame release archive
+        uses: actions/upload-artifact@v7
+        with:
+          name: steam-frame-addon
+          path: local/steam-frame-*.zip
+          if-no-files-found: error
+          retention-days: 30
