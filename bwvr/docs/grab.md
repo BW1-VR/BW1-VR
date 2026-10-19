@@ -858,6 +858,7 @@ return address in `fn_005D5E40`.
 | `far_grab_near_out_cm` | 15 | The far grab comes back past this distance |
 | `palm_search` | 0 | 1 leaves the game's search at the palm on |
 | `target_check` | 1 | 1 drops a target that the game deleted, at the start of each frame and before the mod puts the target in the pick record (see "A target that the game deletes"). 0 puts the target of the last draw in the record with no check |
+| `fish_take` | 1 | 1 makes each fish farm in reach a candidate of the choice and a far target, so the grip takes fish ("The fish in the sea"). 0 leaves the farms out: the game does not draw them |
 | `hand_glow_idle` | 0 | 1 draws the glow also with no target and while the Hand holds an object |
 | `leash_at_palm` | 1 | 1 ends the rope of the leash at the palm of the mod's hand |
 
@@ -1196,6 +1197,78 @@ For the player:
 
 The mouse is as before: no change runs while no controller button is held.
 
+### The fish in the sea
+
+**What the game does [V].** A `FishFarm` is a bulk source in the sea. Its
+take gives a Pot of fish, with the stream `SF_MultiPickUpFoodFish.txt`
+(`FishFarm::NetworkFriendlyStartLockedSelect` `0x0052D770`). The game does not
+draw the farm (`FishFarm::Draw` `0x0052C830` is a plain `ret`), so the draw
+never offers it to the pick, and no hover gives hand mode `0xD` for it. With
+the mouse a right press over the sea finds it with the search at the palm: the
+record has no object, so `FUN_005D1330` calls `fn_005D39E0` (`0x005D13A1`),
+which takes the nearest object within 5 units of the land under the Hand. The
+press then tests slot `0x6CC` first and starts the take. The farm also says
+yes to `ValidForPlaceInHand` while it has fish, but the press never gets to
+that test. The game's hint for the right button over the land there is "Pick
+Up". An empty farm stays: `FishFarm::Process` `0x0052D130` gives it its fish
+back over time.
+
+Each `FishFarm` is in a list of its town. The constructor (`0x0052C360`)
+takes the nearest town and puts the farm in the list at `Town+0x788` (nodes
+of 8 bytes: the next node, then the farm). The towns of a player are a list
+from `GPlayer+0xA50`, with the next town at `Town+0x75C`
+(`Town::GetNearestTownToPos` `0x0073B170`).
+
+**What the mod does (`fish_take=1`).** The rule of one target turns the search
+at the palm off, so the grip on the fish did nothing. Now the mod reads the
+lists of the towns once a frame and makes each farm in reach a candidate of
+the choice, with no mesh (`OfferFishFarms` in `hand_direct.cpp`):
+
+- The point of a farm is its x and z, at the height of the land there. The
+  sea gives 0.
+- In reach is the range of the far grab from the Hand's point, plus 1 m of
+  the room for the head. With `far_grab_max_m=0` each farm is a candidate.
+- The body is a cylinder of the game's 2D radius (5 units). It goes from 5
+  units under the sea to 10 units over it: the fish are in the water, and the
+  game holds the Hand 5 units over the farm in a take.
+- A grip on a farm takes fish, also when the farm says yes to
+  `ValidForPlaceInHand` (`PressKind` tests the take first, as the press of the
+  game does).
+
+So the Hand at the fish has the halo, the game gives hand mode `0xD`, the card
+says "Hold to collect", and the closed grip collects fish as from a pile. At a
+distance a farm is a target of the aim with no pull ("A bulk source at a
+distance"). The farm has no mesh, so it gets the halo and no glow on a mesh.
+
+**The hint over the land (`hint_palm_check=1`).** With the search at the palm
+off, a press over the land acts on no object. So the card does not show a
+grip hint of the game while the hand mode is the land (`GameHintTrue`,
+[controller-hints.md](controller-hints.md), 9.9). The "Pick Up" of a farm
+behind the palm does not show, and the line "Hold to collect" shows when the
+Hand's point is at the farm. `hint_palm_check=0` shows the grip hints of the
+game over the land.
+
+Tag `hand fish`: the key at the start, and each change of the count of the
+farms, with the place of each farm and its distance from the Hand's point.
+
+**Tests.** Land 1 has 13 farms in 6 towns. Five of them are in the sea west
+of the Temple of the test save `temple` (1755 to 1845, 2425 to 2505). A desktop
+run teleports the God view there (`seek_plan=go,pile`,
+`fish_test_only=1`): the Hand at a farm has it as the target, the card says
+"Hold to collect", and the closed grip takes fish for 51 game turns. A run
+that aims from 1.2 m (`aimfar`, `seek_bulk=1`) takes fish at a distance, with
+the stream from the farm. With `fish_test_off_frame` the same grip presses
+with no target, the search at the palm finds the farm, and the mod gives the
+press no object.
+
+**Not shown on the desktop.** The game did not give its grip hint over the
+land near a farm in the desktop runs, also with `hint_palm_check=0`. Only the
+math checks (`hint_checks.h`) show the rule of `hint_palm_check`.
+
+**Needs the headset.** Whether the body of a farm (5 units around its point,
+11 cm of the room at 44 units a meter) is easy to find with the hand. The
+farm has no mesh, so only the halo shows where it is.
+
 ### The log, tests and keys of the take
 
 Tag `hand bulk`: the start of a take with the class of the source and the first
@@ -1231,10 +1304,16 @@ Test keys of `bwvr.ini`, for the desktop runs only:
   Land 1 is outside the influence for minutes after a new game.
 - `bulk_test_no_keep=1`: the source does not go back in the record, and the mod
   ends no take. This shows the take that does not end.
+- `fish_test_only=1`: the word `pile` of `seek_plan`, and the word `aimfar`
+  with `seek_bulk=1`, go to a fish farm only.
+- `fish_test_off_frame=N`: from frame N of the hand on, the mod acts as with
+  `fish_take=0`. A run puts the Hand on the fish first, and then shows a grip
+  there with the old behavior.
 
-**Not tested:** a field and a fish farm, a store inside the real influence,
-and a take with the hand pulled away from the store. A desktop run has the
-loop of a take of wood ([audio.md](audio.md), section 11).
+**Not tested:** a field, a store inside the real influence, and a take with
+the hand pulled away from the store. A desktop run has the loop of a take of
+wood ([audio.md](audio.md), section 11). Desktop runs have the take of fish
+(see "The fish in the sea").
 
 **Needs the headset.** Whether the count reads at the hand. Whether the loop
 of the take sounds, and how loud it is beside the other sounds. Whether the
@@ -2461,9 +2540,9 @@ gets the Hand (`fake_controller_play_frame=2750`, `aim_queue.ps1` and
 **Not shown in a run:** a villager beside a tree (the start of Land 1 has no villager in view, so the runs use a rock and a tree), a tree or a signpost beside the Creature (the test save `temple` has no tree 20 units or less from the Creature), a large Creature that the draw does not offer, a miracle of a quest beside its signpost, a locked target that drifts out of the
 influence, a villager in the sea, the tether and the halo during a take at a
 distance, a take at a distance from a pile that the game deletes (the runs
-make that case with the test key and a pile of the store), a `Field` and a
-`FishFarm` as a far target, the stream of a take at a distance from a source
-that is not a `PileWood`, on a way that is long along the floor, with a pile
+make that case with the test key and a pile of the store), a `Field` as a
+far target, the stream of a take at a distance from a source that is not a
+`PileWood` or a `FishFarm`, on a way that is long along the floor, with a pile
 that goes down, and with a hand that moves, a take with the Hand over
 land outside the influence, a multiplayer game, a fetch of a villager, a
 Creature or a building, the haptics on a real controller, and the look of the

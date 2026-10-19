@@ -142,6 +142,7 @@ bool HandDirectGlowFacts(float point[3], float* length, int32_t* mode,
 // hand_direct.cpp: what the opening of the grip does with a tree in the Hand
 // (tree_plant_math.h), or -1. And the A/B key of that text.
 int HandDirectTreeVerdict();
+bool HandDirectPalmOff();
 void HandDirectTreeHintToggle();
 void HandDirectRootsToggle();
 // tabletop.cpp: the God view or the table makes the picture.
@@ -168,6 +169,7 @@ int g_timing = 1;            // prompt_timing, and its test key
 int g_words = 3;             // hint_words, and its test key
 int g_moves = 1;             // prompt_moves, and its test key
 int g_learn = 1;             // hint_learn
+bool g_palm_check = true;    // hint_palm_check (GameHintTrue, palm_off)
 // A hint of the game that a prompt owned does not show for this long after
 // the prompt went (hint_words=3, hint_card_math.h, OwnedStale).
 const double kOwnedSeconds = 0.25;
@@ -286,6 +288,11 @@ void ReadSettings() {
   g_moves = IniKey("prompt_moves", 1) != 0 ? 1 : 0;
   g_learn = IniKey("hint_learn", 1) != 0 ? 1 : 0;
   g_size_pct = IniKey("hint_card_size_pct", 100);
+  g_palm_check = IniKey("hint_palm_check", 1) != 0;
+  ModLog("hint card    : hint_palm_check=%d, %s", g_palm_check ? 1 : 0,
+         g_palm_check ? "a grip hint of the game over the land does not show "
+                        "while a press there acts on no object"
+                      : "a grip hint of the game over the land shows");
   if (g_size_pct < 50) g_size_pct = 50;
   if (g_size_pct > 200) g_size_pct = 200;
   ModLog("hint card    : hint_card=%d, %s. prompts=%d, %s. The size is %d "
@@ -1220,13 +1227,14 @@ void KeepTrueHints(const Content& noted, Content* out) {
   const bool have_mode = g_have_facts && g_facts_frame == g_frame;
   const bool drags = TriggerDragsLand();
   const bool leash = CreatureCommandLeashOn();
+  const bool palm_off = g_palm_check && HandDirectPalmOff();
   bool false_trigger = false, false_grip = false;
   const bool click_on = TextClickOn();
   for (int i = 0; i < noted.count; ++i) {
     const Line& line = noted.line[i];
     const bool is_true = hint_card_math::GameHintTrue(
         line.code, have_mode, g_facts_mode, drags, leash,
-        line.click && click_on);
+        line.click && click_on, palm_off);
     if (line.click) {
       // One line of the log for each wait.
       const bool fresh =
@@ -1290,8 +1298,11 @@ void KeepTrueHints(const Content& noted, Content* out) {
                which == 0
                    ? "the trigger does not move the land here. The grip of "
                      "the other hand moves it"
-                   : "with the leash on, the grip on the land does not send "
-                     "the Creature. The trigger sends it",
+                   : leash ? "with the leash on, the grip on the land does "
+                             "not send the Creature. The trigger sends it"
+                           : "the grip over the land acts on no object here, "
+                             "because the search at the palm is off "
+                             "(hint_palm_check=1)",
                g_frame);
       }
       continue;
@@ -2308,7 +2319,7 @@ void HintCardReport() {
          "%llu. %llu hints of the game went to the cards and none drew in an "
          "eye picture. Hints that are false with the controllers did not "
          "show on %llu frames (the trigger and the land) and on %llu (the "
-         "grip and the leashed Creature)",
+         "grip over the land)",
          g_frames_routed, a.frames_shown, b.frames_shown, g_game_hints,
          g_false_trigger, g_false_grip);
   ModLog("hint card    : hint_words=%d: %llu hints of the game with no words "

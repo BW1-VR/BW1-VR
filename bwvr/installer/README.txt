@@ -346,15 +346,16 @@ controller. The left menu button opens the game menu with each hand.
   Grip, forest        Put your Hand in a forest and keep the grip
                       closed. After a moment a tree is in your Hand.
   Grip, store         On the food or wood of a store, on a field or on
-                      a fish farm: keep the grip closed to collect.
+                      the fish in the sea: keep the grip closed to
+                      collect.
                       Open it to stop. The bundle stays in your Hand.
                       Close and open the grip again to put the bundle
                       down.
   Grip, far object    Point at an object that is out of reach. Close
                       the grip, then pull your hand toward your head.
                       The object comes to your Hand. On a far pile of
-                      a store or a far field, the closed grip collects
-                      with no pull. On a far scroll, the closed grip
+                      a store, a far field or far fish, the closed grip
+                      collects with no pull. On a far scroll, the closed grip
                       starts the scroll.
   Grip, far Creature  Point at your Creature from a distance. A short
                       grip changes its leash. Keep the grip closed,
@@ -734,7 +735,9 @@ targets too. Point at one and keep the grip closed to collect from a
 distance. Open the grip to stop. When the pile is used up while the
 grip is closed, the grip carries the bundle, and the next opening of
 the grip puts it down. With far_take_carry=0 in bwvr.ini the Hand
-lets the bundle go when such a pile is used up.
+lets the bundle go when such a pile is used up. To collect fish, put
+your Hand in the water where the fish are, or point at them. With
+fish_take=0 in bwvr.ini the fish are no target.
 
 While you collect from a distance, the pieces of food or wood go up
 out of the pile and along a curve into your Hand. With take_stream=0

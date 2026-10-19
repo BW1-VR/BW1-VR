@@ -306,6 +306,14 @@ inline bool CardsOverlap(const Card& a, float a_width, float a_height,
 //   place. creature_command.cpp leaves that packet out for the grip, and the
 //   trigger sends the Creature.
 //
+//   Code 2 over the land while the search at the palm is off (one target,
+//   palm_search=0). Over the land the pick record has no object, and the
+//   game's hint can name an object near the land behind the palm: "Pick Up"
+//   near a FishFarm in the sea. A right press with an empty record takes that
+//   object (fn_005D39E0), but the mod gives such a press no object. So the
+//   grip does nothing there. The object that the Hand's point is on is in
+//   the record, and then the hand mode is not the land.
+//
 // Each other hint is true: the grip takes, plants, drops and throws as the
 // right button does, it touches the Creature ("Interact"), and the stick
 // zooms as the wheel does.
@@ -322,13 +330,15 @@ const int kHandModeCreature = 0x13;
 // mode, when have_mode. trigger_drags_land: the game's land drag moves the
 // view now. leash_command: the leash is on the Hand, and the trigger
 // commands the Creature. click_prompt: the hint is the click prompt, and
-// text_click is 1.
+// text_click is 1. palm_off: a press with no object in the pick record acts
+// on no object (the search at the palm is off).
 inline bool GameHintTrue(unsigned code, bool have_mode, int mode,
                          bool trigger_drags_land, bool leash_command,
-                         bool click_prompt = false) {
+                         bool click_prompt = false, bool palm_off = false) {
   if (code == 1) return trigger_drags_land || click_prompt;
   if (code == 2) {
-    return !(leash_command && have_mode && mode == kHandModeLand);
+    return !((leash_command || palm_off) && have_mode &&
+             mode == kHandModeLand);
   }
   return true;
 }

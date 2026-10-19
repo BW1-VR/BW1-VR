@@ -515,7 +515,7 @@ that moves while the Hand takes it.
     in a second. If that does not read well, the rule has both values
     (`RaiseTime` at `+0x2C`, `EmitRate` at `+0x30`), and the hook can change
     them for a take at a distance.
-  - No run has shown the stream from a pile of food, a field, a fish farm or
+  - No run has shown the stream from a pile of food, a field or
     the pile of a miracle, a way that is long along the floor, and a pile
     that goes down in the take.
 - **P15. The glow on the mesh of a target: check it in a headset, and the
@@ -838,8 +838,8 @@ that moves while the Hand takes it.
   the game still glide: the follow of the Creature after a double click, the
   pull back past 3500 units, the arrow keys and the automatic tilt
   (`backend.md`).
-- **N12. The far grab.** No desktop run: a villager in the sea, a Field or
-  a FishFarm as a target, a take while the Hand is outside the influence,
+- **N12. The far grab.** No desktop run: a villager in the sea, a Field as
+  a target, a take while the Hand is outside the influence,
   and a second object in the Hand (`grab.md`).
 - **N13. The exact Hand.** No desktop run in the PlayAnim state. The Totem
   and the Citadel states are not read (`hand.md`).

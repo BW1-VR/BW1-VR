@@ -1198,6 +1198,19 @@ inline void HintCardChecks() {
     Check(!GameHintTrue(2, true, 3, false, true),
           "the leash on, over the land: the grip does not send the Creature",
           0, 0);
+    // The search at the palm is off: over the land the grip acts on nothing.
+    Check(!GameHintTrue(2, true, 3, false, false, false, true),
+          "the palm search off, over the land: \"Pick Up\" of a fish farm "
+          "behind the palm is false", 0, 0);
+    Check(GameHintTrue(2, true, 0x0D, false, false, false, true) &&
+              GameHintTrue(2, true, 9, false, false, false, true),
+          "the palm search off, on a source or an object: the grip hint is "
+          "true", 1, 1);
+    Check(GameHintTrue(2, false, 0, false, false, false, true),
+          "the palm search off, with no hand mode: the grip hint is true", 1,
+          1);
+    Check(GameHintTrue(1, true, 3, true, false, false, true),
+          "the palm search off does not change the trigger", 1, 1);
     Check(GameHintTrue(2, true, 9, false, true),
           "the leash on, over an object: the grip acts on it", 1, 1);
     Check(GameHintTrue(2, false, 0, false, true),

@@ -1568,6 +1568,64 @@ bool TakeValid(void* object, void* status) {
              object, nullptr) == 0;
 }
 
+// THE FISH IN THE SEA (docs/grab.md, "The fish in the sea"). A FishFarm is a
+// bulk source in the sea, and the game does not draw it (FishFarm::Draw
+// 0x0052C830 is a plain ret). So the draw does not offer it to the pick. With
+// the mouse the game finds it with the search at the palm: a right press with
+// no object in the pick record takes the nearest object within 5 units of
+// the land under the Hand (fn_005D39E0 at 0x005D13A1), and the press then
+// starts the take of fish (FUN_005D1330 tests slot 0x6CC first). The rule of
+// one target turns that search off, so the mod must offer the farm itself.
+// [V]
+//
+// Each FishFarm is in a list of its town. The constructor (0x0052C360)
+// takes the nearest town and puts the farm at the head of the list at
+// Town+0x788. A node of that list is 8 bytes: the next node, then the farm.
+// The towns of a player are a list from GPlayer+0xA50, with the next town at
+// Town+0x75C (Town::GetNearestTownToPos 0x0073B170). The players are at
+// GGame+0x18, 0xA60 bytes each, up to GGame+0x5318
+// (GGame::GetNextPlayerAndNeutral 0x00550980). The game does not delete an
+// empty FishFarm: its fish come back (FishFarm::Process 0x0052D130). [V]
+const uintptr_t kFishFarmTable = 0x008DADC0;  // ??_7FishFarm
+const int kGamePlayerEnd = 0x5318;  // GGame: the end of the players
+const int kPlayerTowns = 0xA50;     // GPlayer: its first Town
+const int kTownNext = 0x75C;        // Town: the next Town of the player
+const int kTownFishFarms = 0x788;   // Town: the first node of its farms
+// GameThingWithPos: the MapCoords of the object, x and z as ints of the
+// world unit times 6553.6.
+const int kThingPosition = 0x14;
+// Slot 0x64C, GetHeightForHandAboveInteractObject: 5 units for a FishFarm
+// (0x0052C840). The game holds the Hand that high over the farm in a take.
+const int kHandAboveSource = 0x64C;
+const int kMaxTownWalk = 64;
+const int kMaxFarmWalk = 256;
+// fish_take: 1 makes each FishFarm near the Hand a candidate of the choice,
+// and a far target. 0 leaves it out, as the draw does.
+bool g_fish_take = true;
+
+// The test key fish_test_off_frame=N: from frame N of the mod's hand on, the
+// mod acts as with fish_take=0. A desktop run can then put the Hand on the
+// fish and show a grip there with the old behavior.
+uint64_t g_fish_off_frame = 0;
+bool g_fish_said_off = false;
+
+bool FishTakeOn(uint64_t frame) {
+  if (!g_fish_take) return false;
+  if (g_fish_off_frame == 0 || frame < g_fish_off_frame) return true;
+  if (!g_fish_said_off) {
+    g_fish_said_off = true;
+    ModLog("hand fish    : test key fish_test_off_frame: from frame %llu the "
+           "mod acts as with fish_take=0", frame);
+  }
+  return false;
+}
+
+bool IsFishFarm(void* object) {
+  return object != nullptr &&
+         *static_cast<void* const*>(object) ==
+             reinterpret_cast<void*>(kFishFarmTable);
+}
+
 // Once a frame: each start and end of a bulk take, and the amount in the
 // Hand while it grows. With the mouse too, as a reference.
 void LogTake(const uint8_t* face, const uint8_t* hand) {
@@ -3133,6 +3191,11 @@ bool ClickScroll(void* object) {
 
 int PressKind(void* object, void* status) {
   if (g_one_target && IsCreatureObject(object)) return near_math::kCreature;
+  // A FishFarm with fish says yes to ValidForPlaceInHand too. The press of
+  // the game tests the take first, so a grip on it takes fish.
+  if (FishTakeOn(g_frame) && IsFishFarm(object) && TakeValid(object, status)) {
+    return near_math::kTake;
+  }
   if (Holdable(object, status)) return near_math::kHold;
   if (TakeValid(object, status)) return near_math::kTake;
   if (!g_near_rule) return near_math::kNone;
@@ -4344,6 +4407,12 @@ void Measure(const Candidate& c, int kind, Measured* out) {
   } else if (IsTreeObject(c.object) && !IsForest(c.object)) {
     out->target.gap =
         near_math::TreeGap(g_target, c.position, body.radius, body.height);
+  } else if (IsFishFarm(c.object)) {
+    // The fish swim in the sea: the cylinder also goes half its height under
+    // the point of the farm on the sea.
+    out->target.gap = GapTo(body, c.position, true);
+    out->center[1] = c.position[1] + 0.25f * body.height;
+    out->half = 0.75f * body.height;
   } else {
     out->target.gap = GapTo(body, c.position, false);
   }
@@ -4989,9 +5058,97 @@ void Choose() {
 // picture of a frame shows the choice of that frame, and the next press acts
 // on the object that the halo was on. The end of the pass asks again, and the
 // choice is made again only when the draw offered more objects since.
+// THE FISH IN THE SEA AS CANDIDATES (fish_take=1, see kFishFarmTable). Once a
+// frame, before the first choice: each FishFarm of each town that is in reach
+// becomes a candidate with no mesh. Its point is the x and z of the farm and
+// the height of the land there (GetAltitude gives 0 for the sea). In reach is
+// near the Hand's point, or in the range of the far grab from the Hand with 1
+// m more for the head. With far_grab_max_m=0 each farm is a candidate.
+uint64_t g_fish_frame = 0;
+int g_fish_farms = 0;      // the farms in the lists in the last frame
+int g_fish_offered = 0;    // the farms that were candidates in the last frame
+int g_fish_said_farms = -1;
+
+void OfferFishFarms() {
+  if (!FishTakeOn(g_frame) || g_fish_frame == g_frame) return;
+  g_fish_frame = g_frame;
+  if (!g_active || g_face == nullptr || g_face[kFaceLocked] != 0) return;
+  const uint8_t* game = *reinterpret_cast<uint8_t* const*>(kGame);
+  if (game == nullptr) return;
+  const float units = RoomUnits();
+  const float far_m = FarGrabMaxMeters();
+  const float reach = far_m > 0.0f ? (far_m + 1.0f) * units : 0.0f;
+  const GetAltitudeFn altitude = reinterpret_cast<GetAltitudeFn>(kGetAltitude);
+  int farms = 0, offered = 0, towns = 0, walked = 0;
+  const int kSaidFarms = 8;
+  float said[kSaidFarms][3] = {};
+  void* said_object[kSaidFarms] = {};
+  for (int at = kGamePlayers; at + kGamePlayerSize <= kGamePlayerEnd;
+       at += kGamePlayerSize) {
+    const uint8_t* town =
+        *reinterpret_cast<uint8_t* const*>(game + at + kPlayerTowns);
+    while (town != nullptr && towns < kMaxTownWalk) {
+      if (IsBadReadPtr(town, kTownFishFarms + sizeof(void*))) break;
+      ++towns;
+      const uint8_t* node =
+          *reinterpret_cast<uint8_t* const*>(town + kTownFishFarms);
+      while (node != nullptr && walked < kMaxFarmWalk) {
+        if (IsBadReadPtr(node, 2 * sizeof(void*))) break;
+        ++walked;
+        void* farm = *reinterpret_cast<void* const*>(node + sizeof(void*));
+        node = *reinterpret_cast<uint8_t* const*>(node);
+        if (!ObjectLives(farm, reinterpret_cast<void*>(kFishFarmTable))) {
+          continue;
+        }
+        ++farms;
+        const int32_t* coords = reinterpret_cast<const int32_t*>(
+            static_cast<const uint8_t*>(farm) + kThingPosition);
+        const float point[3] = {static_cast<float>(coords[0]) / kMapScale,
+                                altitude(coords),
+                                static_cast<float>(coords[1]) / kMapScale};
+        if (!(point[1] == point[1])) continue;
+        if (farms <= kSaidFarms) {
+          for (int k = 0; k < 3; ++k) said[farms - 1][k] = point[k];
+          said_object[farms - 1] = farm;
+        }
+        if (reach > 0.0f && Distance(point, g_target) > reach) continue;
+        if (g_candidate_count >= g_candidate_limit || !FirstOffer(farm)) {
+          continue;
+        }
+        Candidate& c = g_candidates[g_candidate_count++];
+        if (g_candidate_count > g_most_candidates) {
+          g_most_candidates = g_candidate_count;
+        }
+        c.object = farm;
+        c.model = nullptr;
+        for (int k = 0; k < 3; ++k) c.position[k] = point[k];
+        ++offered;
+      }
+      town = *reinterpret_cast<uint8_t* const*>(town + kTownNext);
+    }
+    if (towns >= kMaxTownWalk) break;
+  }
+  g_fish_farms = farms;
+  g_fish_offered = offered;
+  if (farms != g_fish_said_farms) {
+    g_fish_said_farms = farms;
+    ModLog("hand fish    : %d towns have %d fish farms, %d of them in reach "
+           "of the Hand. A farm in reach is a candidate of the grip "
+           "(fish_take=1), frame %llu", towns, farms, offered, g_frame);
+    for (int i = 0; i < farms && i < kSaidFarms; ++i) {
+      ModLog("hand fish    : the farm %p is at %.1f %.1f %.1f, %.1f cm of the "
+             "room from the Hand's point", said_object[i], said[i][0],
+             said[i][1], said[i][2],
+             units > 0.0f ? Distance(said[i], g_target) / units * 100.0f
+                          : 0.0f);
+    }
+  }
+}
+
 uint64_t g_choose_frame = 0;
 int g_choose_count = -1;
 void ChooseOnce() {
+  OfferFishFarms();
   if (g_choose_frame == g_frame && g_choose_count == g_candidate_count) return;
   g_choose_frame = g_frame;
   g_choose_count = g_candidate_count;
@@ -6982,6 +7139,13 @@ void InstallNear() {
                "is dropped"
              : "The mod puts its target of the last draw in the pick record "
                "with no check that it lives");
+  g_fish_take = IniKey("fish_take", 1) != 0;
+  g_fish_off_frame = static_cast<uint64_t>(TestKey("fish_test_off_frame"));
+  ModLog("hand fish    : fish_take=%d: %s", g_fish_take ? 1 : 0,
+         g_fish_take ? "a fish farm in the sea is a target of the grip at "
+                       "the Hand and at a distance, and the grip takes fish"
+                     : "a fish farm is no target, because the game does not "
+                       "draw it");
   g_stroke_mode = IniKey("creature_stroke_hand", 0);
   if (g_stroke_mode < 0 || g_stroke_mode > 3) g_stroke_mode = 0;
   // -1 says that the ini has no creature_slap_mps: the fist stroke then has
@@ -8263,6 +8427,13 @@ void HandDirectChooseNow() {
 // For hand_glow.cpp: hand_glow_idle, and its A/B key.
 bool HandDirectGlowIdle() { return g_glow_idle; }
 
+// For hint_card.cpp: a press with no object in the pick record acts on no
+// object now. The controller places the Hand, the rule is one target, and the
+// search at the palm is off (h_PalmSearch).
+bool HandDirectPalmOff() {
+  return g_installed && g_owns && g_one_target && !g_palm_search;
+}
+
 // For far_grab.cpp (docs/creature.md, "The leash from a distance"): the leash
 // click on the player's own Creature, as the game sends it after a short
 // press on the Creature (packet 0x5F, GGame::SetPacket). No press goes to the
@@ -9102,6 +9273,10 @@ bool PlanPoint(int word, float out[3]) {
           continue;
         }
       } else if (!TakeValid(c.object, status)) {
+        continue;
+      } else if (TestKey("fish_test_only") != 0 && !IsFishFarm(c.object)) {
+        // The test key fish_test_only=1: the word "pile" goes to a fish
+        // farm only.
         continue;
       }
       const float d = Distance(c.position, g_target);
@@ -9991,6 +10166,9 @@ bool HandDirectSeekFarPoint(float out[3]) {
     }
     if (bulk) {
       if (!TakeValid(c.object, status)) continue;
+      // The test key fish_test_only=1: the aim goes to a fish farm only.
+      static const bool fish_only = TestKey("fish_test_only") != 0;
+      if (fish_only && !IsFishFarm(c.object)) continue;
     } else if (only == 1) {
       // The test of a fetch from a forest aims at the nearest forest.
       if (!IsForest(c.object)) continue;
