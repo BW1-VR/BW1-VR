@@ -171,7 +171,7 @@ A tap is a short Action click. The game calls `InterfaceTap` of the object.
 | A one-off miracle (a bubble), a reward | Takes it, or uses it | Grip and trigger [D] |
 | The Village Store, a field, a fish farm | Take or put food and wood | Grip, held [D]. To put: open the grip with the wood or the food at the store [R] (`village.md`) |
 | The Workshop and a scaffold | Put wood in. Take a scaffold, put one on a second one, put it on the land | Grip, as for each object [D]. A short press takes a scaffold of two apart, and a scaffold that the grip lets go at a second one joins it [R] (`village.md`) |
-| The totem of the Village Centre | Pull it up or down: how many villagers worship | Grip, held: the pole follows the real hand one to one [R]. The town must have a Worship Site (`village.md`) |
+| The totem of the Village Centre | Pull it up or down: how many villagers worship | Grip, held: the pole follows the real hand one to one, at the Hand or from a distance, until the grip opens [R]. The town must have a Worship Site (`village.md`) |
 | A villager, an animal, a tree, a rock | Take, put down, throw | Grip [D] |
 | The Creature | Stroke, slap, the leash | Grip on the Creature [D] (`creature.md`) |
 | A scoreboard of a challenge | Text only | Nothing to do |

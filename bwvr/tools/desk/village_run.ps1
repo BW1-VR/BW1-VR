@@ -37,7 +37,8 @@
 #                shake. -Icon gives the seed type of a different icon (3 is
 #                Food, which pours as Water does).
 # The other kinds (charge, store, job, tree, throw, probe, workshop, site,
-# build, scaffold, fartake, choice) have a comment at their steps below.
+# build, scaffold, fartake, fartotem, choice) have a comment at their steps
+# below.
 param(
     [Parameter(Mandatory = $true)][string]$Name,
     [Parameter(Mandatory = $true)][string]$Dll,
@@ -75,6 +76,27 @@ if ($Kind -eq 'totem') {
         $Steps = $pre + 'seek@920+1 seek@1000+1 grip@1040+280 seek@1090+1 seek@1120+1 seek@1150+1 ' +
                  'seek@1180+1 seek@1210+1 seek@1240+1 seek@1270+1 seek@1300+1 shot@1390+1'
     }
+} elseif ($Kind -eq 'fartotem') {
+    # The totem from a distance (bwvr/docs/village.md, "The totem from a
+    # distance"). The God view goes 60 cm of the room before the totem, the
+    # hand goes near the body, and the word "aimfar" aims at the totem, the
+    # nearest bulk source (seek_bulk=1). The grip stays closed for 400 frames.
+    # The hand goes 3 steps of 4 cm up and 1 step down, and the grip opens.
+    # The lines "far grab" and "village" show who has the totem and when the
+    # Hand lets it go. With -Set "totem_take=0" the far grab lets the totem go
+    # 700 ms after the press, with the grip still closed. The eye pictures
+    # show the ghost of the pole while the grip holds it and after the
+    # release (totem_ghost).
+    if ($Plan -eq '') { $Plan = 'gototem,up,up,up,down' }
+    if ($Census -eq '') { $Census = '890' }
+    if ($Seconds -eq 0) { $Seconds = 70 }
+    $points = '0,-30,60 0,-10,20'
+    if ($Steps -eq '') {
+        $Steps = $pre + 'seek@920+1 point@1000+1 aimfar@1040+1 grip@1080+400 ' +
+                 'seek@1140+1 shot@1150+1 seek@1170+1 seek@1200+1 shot@1230+1 seek@1260+1 shot@1300+1 ' +
+                 'shot@1500+1 shot@1560+1'
+    }
+    $keys = "$keys;seek_bulk=1;far_test_least_cm=30;far_grab_choice=0;far_touch=0"
 } elseif ($Kind -eq 'charge') {
     # An icon that charges for more than one game turn (3000 of 5000 chants),
     # the tap that stops it, a full pool, a tap, and a press with the miracle
@@ -293,6 +315,10 @@ $pattern = '^village      :|^miracle      : (?!miracle_)|^hand pick    : seek pl
            '^hand         : state|^gesture      : (the draw|the game)|^controllers  : the right button press started off|^grip         :|^hand (throw|drop|hold|take) *:'
 if ($Kind -eq 'choice') {
     $pattern = '^far grab    : (far_grab_choice|far_grab_stay|the cone of a living|target|no target|the target \S+ \(\w+\) keeps|test: (aimfar|the tree))|^hand pick    : seek plan'
+}
+if ($Kind -eq 'fartotem') {
+    $pattern = '^village      :|^far grab    : (test|target|the grip closed|the grip goes|the game (takes|moves)|the take|the \w+ ends|aimfar|the word aimfar)|' +
+               '^hand bulk    : the next pick record|^hand press   : the grip pressed|^grip         : (?!\d)'
 }
 if ($Kind -eq 'fartake') {
     $pattern = '^far grab    : (far_take_carry|test|target|the grip closed|the grip goes|the game takes|the take|the target \S+ is gone|the \w+ ends|\d+ targets were deleted)|' +

@@ -15,7 +15,10 @@
 // A BULK SOURCE (a pile of a store, a field, a fish farm) is a target too.
 // It needs no pull: the grip that closes on it starts the game's bulk take at
 // a distance, the take runs while the grip is closed, and the opening ends
-// it. The bundle is then in the Hand.
+// it. The bundle is then in the Hand. The totem of a Village Centre is a
+// target of this kind too (the game starts the same locked select): the pole
+// follows the hand while the grip is closed, and the opening sets the value
+// (village.cpp, totem_take).
 //
 // A FOREST is a target as a single object is. The game puts a new tree in
 // the Hand 225 ms after the press (hand_direct.cpp, IsForest), so the fetch is
@@ -586,14 +589,26 @@ void FarGrabFrame(const FarFrame& f) {
         if (f.take == g_pick.object) {
           ++g_far_takes;
           g_state = kTake;
-          HintCardLearnDone(hint_learn_math::kSkillCollect,
-                            "the game takes from the bulk source at a "
-                            "distance");
+          // THE TOTEM of a Village Centre: the game moves it, and the grip
+          // that opens sets its value. It collects nothing.
+          const bool totem = strcmp(g_pick_name, "TotemStatue") == 0;
+          if (!totem) {
+            HintCardLearnDone(hint_learn_math::kSkillCollect,
+                              "the game takes from the bulk source at a "
+                              "distance");
+          }
           if (LogRoom()) {
-            ModLog("far grab    : the game takes from %p at a distance, %llu "
-                   "frames after the press. The take runs while the grip is "
-                   "closed, frame %llu", g_pick.object,
-                   f.frame - g_fetch_frame, f.frame);
+            if (totem) {
+              ModLog("far grab    : the game moves the totem %p at a "
+                     "distance, %llu frames after the press. The pole "
+                     "follows the hand until the grip opens, frame %llu",
+                     g_pick.object, f.frame - g_fetch_frame, f.frame);
+            } else {
+              ModLog("far grab    : the game takes from %p at a distance, "
+                     "%llu frames after the press. The take runs while the "
+                     "grip is closed, frame %llu", g_pick.object,
+                     f.frame - g_fetch_frame, f.frame);
+            }
           }
         } else if (fetch_ms > near_math::kFetchMs) {
           Cancel("the game did not start the take");

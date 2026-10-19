@@ -85,7 +85,8 @@ struct FarFrame {
   float head_room[3];       // the head in the room, in meters
   void* held;               // CHand+0x4904
   int32_t hand_state;       // CHand+0x4878
-  void* take;               // the source of the game's bulk take now, or null
+  void* take;               // the source of the game's bulk take now, or
+                            // the totem that the Hand moves, or null
 };
 void FarGrabFrame(const FarFrame& frame);
 

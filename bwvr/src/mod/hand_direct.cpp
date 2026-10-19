@@ -1442,6 +1442,23 @@ void* TakeObject(const uint8_t* face) {
              : nullptr;
 }
 
+// The source of the locked select of the game now: the object of a bulk take
+// (TakeObject), or the totem of a Village Centre that the Hand moves
+// (village.cpp, totem_take). The start of the locked select writes the totem
+// to GInterfaceStatus+0x3C as it writes a pile (fn_005DA950), but the totem
+// says no to IsLockedInInteract (Object 0x00402790), so TakeObject does not
+// give it. The release step of the game reads the pick record for the totem
+// too (FUN_005D4830), and the far grab waits for the game to have it.
+void* SelectSource(const uint8_t* face) {
+  void* take = TakeObject(face);
+  if (take != nullptr || face == nullptr) return take;
+  const uint8_t* status =
+      *reinterpret_cast<uint8_t* const*>(face + kFaceStatus);
+  if (status == nullptr) return nullptr;
+  void* object = *reinterpret_cast<void* const*>(status + kStatusTakeObject);
+  return VillageTotemInSelect(object) ? object : nullptr;
+}
+
 // The class of a game object, from its RTTI, for the log: "PileFood" from
 // ".?AVPileFood@@". The locator is at vtable[-1], its type at +0x0C, and the
 // name at +0x08 of the type.
@@ -3699,13 +3716,15 @@ void LogRelease() {
 // source and the controller places the Hand, the source goes in the next pick
 // record. The game's release step reads that record (see kTakeEndStep), so it
 // then ends the take on the frame the button goes up, as it does for the
-// mouse. Before each interface step, and after each eye pass. True when the
-// record holds the source.
+// mouse. The totem that the Hand moves is such a source too (SelectSource):
+// the mouse stays on the totem, and the real hand can go away from it.
+// Before each interface step, and after each eye pass. True when the record
+// holds the source.
 bool KeepTakeSource(uint8_t* face) {
   if (!g_owns || face == nullptr || face != g_face || g_take_no_keep) {
     return false;
   }
-  void* source = TakeObject(face);
+  void* source = SelectSource(face);
   if (source == nullptr) return false;
   void* next = *reinterpret_cast<void* const*>(face + kFaceNextObject);
   if (next == source) {
@@ -6860,7 +6879,8 @@ void FarFrameStep(bool active) {
                ? *reinterpret_cast<void* const*>(g_hand + kHandHeld)
                : nullptr;
   f.hand_state = g_hand != nullptr ? State(g_hand) : 0;
-  f.take = g_face != nullptr ? TakeObject(g_face) : nullptr;
+  // A bulk take, or the totem that the Hand moves (SelectSource).
+  f.take = g_face != nullptr ? SelectSource(g_face) : nullptr;
   const float life = HeadPoseScale();
   if (active && FarGrabOn()) {
     f.usable = true;

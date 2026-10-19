@@ -30,6 +30,11 @@ void VillageKeepRecord();
 // the game sent the packets that put the object in the Hand on this object.
 void VillageApplied(void* held, void* object);
 
+// hand_direct.cpp: the object is the totem of a Village Centre that the
+// locked select of the game holds now (bit 0x10 of +0x24), and totem_take=1.
+// The totem is then the source of a take, as a pile of a store is.
+bool VillageTotemInSelect(void* object);
+
 // hand_direct.cpp, for the test place "villager": the villager passes the
 // tests of the game for a job from a thing near him (Villager::InHand).
 bool VillageCanHaveJob(void* villager);

@@ -28,6 +28,14 @@
 //   the hand is one unit up of the pole. The mod gives the game the screen
 //   rows that make its own math do that (village_math.h). With 0 the game
 //   reads the rows of the pixel of the Hand's point, as the plain game does.
+// - totem_take=1: the totem in the locked select of the game is the source
+//   of a take for hand_direct.cpp (VillageTotemInSelect). The totem says no
+//   to IsLockedInInteract (0x00402790), so the test of a bulk take does not
+//   see it. The pick record then keeps the totem while the grip is closed,
+//   and the grab from a distance keeps the totem until the grip opens.
+// - totem_ghost=1: the ghost of the pole (the two meshes of the totem at the
+//   other value, with an alpha of 0x80) is narrower than the pole, so its
+//   faces do not fight with the faces of the pole (village_math.h).
 // - The card says what the grip does at the totem and at a miracle icon, and
 //   it shows the value of the totem as the game does, with the count of the
 //   villagers that the town sends.
@@ -191,6 +199,18 @@ const int kStateHand = 4;
 const uintptr_t kTotemUpdate = 0x005B77A0;
 const uint8_t kTotemUpdateBytes[9] = {0x55, 0x8B, 0xEC, 0x81, 0xEC,
                                       0xA4, 0x00, 0x00, 0x00};
+// LH3DObject::SetPosition, a fastcall (LH3DObject*, const LHPoint*, float
+// angle, float scale), ret 8. It writes the matrix of the 3D object: the
+// scale on the diagonal (+0x14, +0x24, +0x34), the turn about y, and the
+// point at +0x38.
+const uintptr_t kSetPosition = 0x00423140;
+const uint8_t kSetPositionBytes[5] = {0x51, 0xD9, 0x44, 0x24, 0x08};
+const int kMatrixYY = 0x24;
+// The two calls of SetPosition in TotemStatue::Draw that place the ghost:
+// the return addresses after the call for the mesh at +0x8C (0x00738B9C)
+// and for the mesh at +0x40 (0x00738C13).
+const uintptr_t kGhostPoleBack = 0x00738BA1;
+const uintptr_t kGhostTopBack = 0x00738C18;
 // GPlayer: the first town. Town: the next town of the player.
 const int kPlayerTowns = 0xA50;
 const int kPlayerCitadel = 0xA48;    // the Citadel, the Temple of the player
@@ -320,6 +340,8 @@ typedef int(__fastcall* VirtualIntArgFn)(void* self, void* unused, void* arg);
 typedef float(__fastcall* VirtualFloatFn)(void* self, void* unused);
 typedef void(__fastcall* TotemUpdateFn)(void* self, void* unused, float seconds,
                                         void* matrix);
+typedef void(__fastcall* SetPositionFn)(void* model, const float* point,
+                                        float angle, float scale);
 typedef int(__fastcall* IntArgFn)(void* self, void* unused, int arg);
 typedef int(__fastcall* ValidForRequestFn)(void* self, void* unused,
                                            void* status, int level, int flag);
@@ -342,6 +364,7 @@ typedef void(__fastcall* HandOverPointFn)(void* body, void* unused,
                                           float* out, int toward, float angle);
 
 TotemUpdateFn o_TotemUpdate = nullptr;
+SetPositionFn o_SetPosition = nullptr;
 SendIndexPacketFn o_SendIndexPacket = nullptr;
 HandOverPointFn o_HandOverPoint = nullptr;
 
@@ -349,6 +372,8 @@ HandOverPointFn o_HandOverPoint = nullptr;
 
 struct Settings {
   bool totem = true;       // totem_hand
+  bool take = true;        // totem_take: the totem is the source of a take
+  bool ghost = true;       // totem_ghost: the ghost is narrower than the pole
   bool join = true;        // hold_target
   float join_cm = 6.0f;    // hold_target_cm: the reach of a thing
   bool creature_stay = true;  // hold_creature_stay
@@ -360,6 +385,7 @@ struct Settings {
 Settings g_settings;
 bool g_ready = false;
 bool g_hooked = false;
+bool g_ghost_hooked = false;  // the hook of LH3DObject::SetPosition
 bool g_gift_hooked = false;   // the hook of the packet of the end of a gift
 uint64_t g_frame = 0;
 
@@ -444,6 +470,14 @@ uint64_t g_gift_starts = 0;       // gifts to a Creature that the game started
 uint64_t g_gift_taken = 0;        // the Creature took the object
 uint64_t g_gift_ended = 0;        // the game ended the gift
 uint64_t g_gift_back = 0;         // ends of the game that the mod held back
+// THE GHOST OF THE POLE. The hook of SetPosition counts the meshes of a
+// ghost. It runs in the scene walk, so VillageFrame reads the count once a
+// frame.
+volatile LONG g_ghost_meshes = 0;  // meshes of a ghost since the start
+LONG g_ghost_seen = 0;             // the count at the last frame
+bool g_ghost_on = false;           // a frame with a ghost
+uint64_t g_ghost_since = 0;
+uint64_t g_ghost_frames = 0;       // frames with a ghost, this window
 
 bool Log() {
   if (g_logs >= kMaxLogs) return false;
@@ -646,6 +680,26 @@ void __fastcall h_TotemUpdate(void* self, void* unused, float seconds,
                               void* matrix) {
   if (g_ready) TotemRowsNow(static_cast<uint8_t*>(self));
   o_TotemUpdate(self, unused, seconds, matrix);
+}
+
+// THE GHOST OF THE POLE (village_math.h). SetPosition runs for each 3D
+// object that the game places, and only the two calls of the ghost in
+// TotemStatue::Draw get the narrow scale. The y row of the matrix then gets
+// the scale of the game again, so the ghost has the height of the pole.
+void __fastcall h_SetPosition(void* model, const float* point, float angle,
+                              float scale) {
+  const uintptr_t back = reinterpret_cast<uintptr_t>(_ReturnAddress());
+  if ((back != kGhostPoleBack && back != kGhostTopBack) || model == nullptr) {
+    o_SetPosition(model, point, angle, scale);
+    return;
+  }
+  InterlockedIncrement(&g_ghost_meshes);
+  if (!g_settings.ghost) {
+    o_SetPosition(model, point, angle, scale);
+    return;
+  }
+  o_SetPosition(model, point, angle, village_math::GhostScale(scale, true));
+  *reinterpret_cast<float*>(static_cast<uint8_t*>(model) + kMatrixYY) = scale;
 }
 
 // --- the gift of an object to a Creature --------------------------------------
@@ -994,6 +1048,8 @@ void Init() {
   if (g_ready) return;
   g_ready = true;
   g_settings.totem = IniInt("totem_hand", 1) != 0;
+  g_settings.take = IniInt("totem_take", 1) != 0;
+  g_settings.ghost = IniInt("totem_ghost", 1) != 0;
   // The keys scaffold_join and scaffold_join_cm are the old names of these
   // two. They count when the new keys are not there.
   g_settings.join =
@@ -1062,8 +1118,38 @@ void Init() {
            "the disassembly, so the mod does not hook it and the game moves "
            "the totem with the screen rows of the pointer");
   }
+  if (SameBytes(kSetPosition, kSetPositionBytes, sizeof(kSetPositionBytes))) {
+    void* target = reinterpret_cast<void*>(kSetPosition);
+    MH_STATUS status = MH_CreateHook(target, &h_SetPosition,
+                                     reinterpret_cast<void**>(&o_SetPosition));
+    if (status == MH_OK) status = MH_EnableHook(target);
+    g_ghost_hooked = status == MH_OK;
+    ModLog("hooks        : the place of a 3D object, LH3DObject::SetPosition "
+           "at 0x%08X, for the ghost of the totem %s",
+           static_cast<unsigned>(kSetPosition),
+           g_ghost_hooked ? "ok" : "FAILED");
+  } else {
+    ModLog("village      : LH3DObject::SetPosition does not have the bytes of "
+           "the disassembly, so the mod does not hook it and the ghost of the "
+           "totem has the width of the pole");
+  }
   InstallGift();
   LogKeys("totem_hand");
+  ModLog("village      : totem_take=%d. %s", g_settings.take ? 1 : 0,
+         g_settings.take
+             ? "The totem that the Hand moves is the source of a take: the "
+               "pick record keeps it while the grip is closed, and the grab "
+               "from a distance keeps it until the grip opens"
+             : "The totem is no source of a take: the grab from a distance "
+               "lets the totem go 700 ms after the press, and the pick record "
+               "has the object at the Hand's point");
+  ModLog("village      : totem_ghost=%d. %s", g_settings.ghost ? 1 : 0,
+         g_settings.ghost
+             ? "The ghost of the pole at the other value is 97 percent of the "
+               "width of the pole and has its height, so the pole hides the "
+               "ghost where the two overlap"
+             : "The ghost of the pole has the size of the pole, and where the "
+               "two overlap their faces fight");
   LogHoldKey("hold_target");
   ModLog("village      : hold_creature_stay=%d. %s",
          g_settings.creature_stay ? 1 : 0,
@@ -1471,6 +1557,31 @@ void TestKeys(uint8_t* face) {
 }
 
 // --- the log of each change --------------------------------------------------
+
+// Once a frame: the start and the end of a ghost of the pole.
+void WatchGhost() {
+  const LONG count = g_ghost_meshes;
+  const bool on = count != g_ghost_seen;
+  g_ghost_seen = count;
+  if (on) ++g_ghost_frames;
+  if (on == g_ghost_on) return;
+  g_ghost_on = on;
+  if (on) {
+    g_ghost_since = g_frame;
+    if (Log()) {
+      ModLog("village      : the game draws the ghost of the totem at the "
+             "other value. %s, frame %llu",
+             g_settings.ghost
+                 ? "Its meshes are 97 percent of the width of the pole "
+                   "(totem_ghost=1)"
+                 : "Its meshes have the size of the pole (totem_ghost=0)",
+             g_frame);
+    }
+  } else if (Log()) {
+    ModLog("village      : the ghost of the totem is gone after %llu frames, "
+           "frame %llu", g_frame - g_ghost_since, g_frame);
+  }
+}
 
 void WatchTotems(uint8_t* face, uint8_t* hand) {
   uint8_t* towns[kMaxTowns];
@@ -1927,6 +2038,15 @@ void VillageKeepRecord() {
   if (HandDirectRecordTarget(g_join.target, g_join.at)) ++g_join_puts;
 }
 
+bool VillageTotemInSelect(void* object) {
+  if (!g_settings.take || object == nullptr ||
+      IsBadReadPtr(object, kObjectFlags + 1)) {
+    return false;
+  }
+  const uint8_t* bytes = static_cast<const uint8_t*>(object);
+  return TableOf(object) == kTotemTable && (bytes[kObjectFlags] & 0x10) != 0;
+}
+
 bool VillageCanHaveJob(void* villager) {
   if (villager == nullptr || IsBadReadPtr(villager, 0x120) ||
       ApplyRule(villager) != kApplyVillager) {
@@ -1988,6 +2108,7 @@ void VillageFrame() {
   if (hand == nullptr) return;
   TestKeys(face);
   WatchTotems(face, hand);
+  WatchGhost();
   WatchIcons(face);
   WatchVillager(hand);
   WatchScaffold(hand);
@@ -2250,6 +2371,12 @@ void VillageReport() {
     g_gift_taken = 0;
     g_gift_ended = 0;
     g_gift_back = 0;
+  }
+  if (g_ghost_frames > 0) {
+    ModLog("village      : the game drew the ghost of a totem on %llu frames, "
+           "this window (totem_ghost=%d)", g_ghost_frames,
+           g_settings.ghost ? 1 : 0);
+    g_ghost_frames = 0;
   }
   if (g_frames_totem == 0 && g_drags == 0 && g_charges == 0 &&
       g_charge_ends == 0) {

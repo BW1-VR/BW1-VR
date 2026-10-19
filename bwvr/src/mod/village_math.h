@@ -50,6 +50,34 @@ inline int TotemRows(float value_now, float wanted, float height,
   return static_cast<int>(clamped >= 0.0f ? clamped + 0.5f : clamped - 0.5f);
 }
 
+// THE GHOST OF THE POLE [V]. While the value that the pole shows is not the
+// value of the town, TotemStatue::Draw (0x00738960) draws the two meshes of
+// the totem a second time at the other value, with an alpha of 0x80 (the
+// byte at +0x4F of the 3D object). While the Hand moves the totem, the pole
+// is at the value of the Hand and the ghost at the value of the town. After
+// the release, the pole goes to the new value and the ghost is there. The
+// ghost is the same mesh, higher or lower on the line of the pole. So each
+// vertical face of the ghost is in the plane of a face of the pole, and
+// where the two meshes overlap, the depth test gives noise: the faces fight.
+//
+// With totem_ghost=1 the ghost has kGhostWidth of the width of the pole and
+// the same height. Each side of the ghost is then inside the pole, and the
+// pole hides the ghost where the two overlap. LH3DObject::SetPosition
+// (0x00423140) gets the scale, and the y row of the matrix (+0x24) gets the
+// scale of the game again.
+const float kGhostWidth = 0.97f;
+
+// The scale that the ghost gets for the scale of the game.
+inline float GhostScale(float scale, bool narrow) {
+  return narrow ? scale * kGhostWidth : scale;
+}
+
+// How far a face of the ghost is inside the face of the pole, for a face at
+// this distance from the line of the pole.
+inline float GhostInset(float radius, bool narrow) {
+  return radius - GhostScale(radius, narrow);
+}
+
 // How many villagers the town sends to worship for a value of the totem
 // (Town::GetWorshipersNeeded 0x0073C860): the adults times the value, to the
 // nearest whole number, and one at the least while the value is above 0.

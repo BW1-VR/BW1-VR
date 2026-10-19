@@ -42,6 +42,29 @@ inline void VillageChecks() {
   Near("back from above the top: 0.9 at 4 units up",
        TotemValue(0.4f, 20.0f, 24.0f), 0.9, 1e-6);
 
+  // THE GHOST OF THE POLE: narrower than the pole with totem_ghost=1, and
+  // the scale of the game with totem_ghost=0.
+  Near("the ghost of a pole of scale 1 is 0.97 wide", GhostScale(1.0f, true),
+       0.97, 1e-6);
+  Near("the ghost of a pole of scale 1.5", GhostScale(1.5f, true), 1.455,
+       1e-6);
+  Near("totem_ghost=0: the scale of the game", GhostScale(1.5f, false), 1.5,
+       1e-6);
+  Check(GhostScale(1.0f, true) < 1.0f, "the ghost is inside the pole", 1, 1);
+  // A face 1 unit from the line of the pole is 0.03 units inside: at 30
+  // units from the eye with a near plane of 1.125 units, that is hundreds of
+  // steps of a 24 bit depth buffer.
+  Near("a face 1 unit out is 0.03 units inside", GhostInset(1.0f, true), 0.03,
+       1e-6);
+  Near("totem_ghost=0: the faces are in one plane", GhostInset(1.0f, false),
+       0.0, 1e-6);
+  {
+    const float steps = 1.125f / (30.0f * 30.0f) * GhostInset(1.0f, true) *
+                        16777216.0f;
+    Check(steps > 100.0f, "the inset is many depth steps at 30 units",
+          static_cast<int>(steps), 100);
+  }
+
   // THE ROWS: the game's own math brings its value to the wanted one.
   const float height = 12.0f, screen = 2880.0f;
   Check(TotemRows(0.4f, 0.4f, height, screen) == 0, "no move: no rows",

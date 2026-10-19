@@ -1594,6 +1594,12 @@ A press that the game does not answer in 700 ms ends as a fetch does. The
 rule of "The bulk take" applies: hold the grip to collect, open it to stop and
 keep the bundle, close and open it again to drop.
 
+**The totem of a Village Centre** is a target of this kind too: the game
+starts the same locked select for it (`village.md`, "The mod: the totem is the
+source of a take"). With `totem_take=1` the far grab goes to the Take state
+when the game has the totem, and the pole follows the hand until the grip
+opens.
+
 On each game turn the game ends a take when the Hand's own position is over land
 outside the influence. So the halo of a bulk source is gold only when the land
 under the Hand is inside the influence too.
