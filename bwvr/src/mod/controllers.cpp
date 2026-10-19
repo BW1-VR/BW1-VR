@@ -60,6 +60,7 @@
 #include "haptics.h"
 #include "hand_exact_math.h"
 #include "miracle.h"
+#include "note_depth.h"
 #include "radial_menu.h"
 #include "script_frame_math.h"
 #include "temple.h"
@@ -3841,6 +3842,7 @@ void ControllersFrame() {
   UpdateAim();
   TempleFrame(g_frame);
   TextClickFrame(g_frame);
+  NoteDepthFrame(g_frame);
   Compute();
   ++g_frame;
   ++g_frames_in_window;
@@ -4690,6 +4692,7 @@ void ControllersPump() {
   if (!g_on) return;
   if (g_fake_deactivate) FakeDeactivate();
   TextClickPump();
+  NoteDepthPump();
   PumpButtons(now);
   PumpStick(now);
   PumpWalk();

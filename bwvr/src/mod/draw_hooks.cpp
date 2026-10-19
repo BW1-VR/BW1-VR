@@ -97,6 +97,7 @@
 #include "controller_math.h"
 #include "cutscene_window_math.h"
 #include "hint_card.h"
+#include "note_depth.h"
 #include "subtitle_card_math.h"
 #include "ui_panel.h"
 
@@ -2332,6 +2333,20 @@ void DrawInterfaceEye(DrawAndClipFn original, D3DPRIMITIVETYPE type,
 void DrawInterface(DrawAndClipFn original, D3DPRIMITIVETYPE type,
                    uint32_t fvf, void* verts, uint32_t count, uint16_t* idx,
                    uint32_t n) {
+  // A NOTE OF THE GAME OVER A THING (note_depth.cpp). Each vertex of its text
+  // has the rhw of its place. With note_depth=1 it gets none of the steps of
+  // the interface: each eye pass draws it where the game put it, and in one
+  // walk the right eye gets the move of its rhw, as a batch of the world.
+  if (NoteDepthInNote()) {
+    const bool walk = OneWalkActive() && g_eye == 0;
+    if (NoteDepthOn()) {
+      NoteDepthBatch(verts, fvf, count, g_eye, walk, g_shift, true);
+      PanelRelease();
+      original(type, fvf, verts, count, idx, n);
+      return;
+    }
+    NoteDepthBatch(verts, fvf, count, g_eye, walk, g_shift, false);
+  }
   const bool card =
       BubbleCardInBubble() && BubbleCardOn() && OneWalkMarks();
   // A batch of the video on the screen plane goes to each eye as a batch of

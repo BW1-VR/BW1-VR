@@ -36,6 +36,9 @@ Marks, as in `tabletop.md`:
   works with `ui_panel=0`.
 - The hints and the prompts of the controllers are on the hint cards
   (section 16 and `controller-hints.md`).
+- A note of the game over a thing (the percent of a lesson over the
+  Creature) stays in the eye pictures, at the depth of its place (section
+  19).
 - The pointer on the panel is not built (section 5). The menus draw on the
   panel at their own pixels, but the pointer still comes from the eye view.
 
@@ -1523,3 +1526,126 @@ was a villager 615 units deep: the villager, the box and the text are each
   sign. No run has shown it. A run shows the same for the text of a name
   with `name_card=0`.
 - No run had the name of a quest character.
+
+## 19. A note over a thing
+
+Code: `src/mod/note_depth.cpp` (the hook, the test key and the log), and the
+step in `DrawInterface` of `src/mod/draw_hooks.cpp`.
+
+### 19.1 What the game draws [V]
+
+The game shows a short yellow text over a thing in the world for 6 s, with a
+sprite. `fn_00827A50` puts such a note in a list (the first note is at
+`0x00EB9A74`). The only code that adds a note is the note of a Creature that
+learns: `CreatureMental::ConsiderLearningAction` calls `fn_0047CDA0`, which
+shows the percent of a lesson (`"%.0f%%"`) over the head of the Creature, at
+most each 100 game turns.
+
+Each frame `fn_00827B90` draws the list in the eye pass, from
+`fn_0x005e5cd0`. `fn_00827BD0` draws one note:
+
+1. It projects the point over the thing with the camera of the pass
+   (`fn_00819490`).
+2. It draws the text two times with `GatheringText::DrawTextRaw`: a black
+   shadow 1 px down and to the right, then the text in its colour (yellow,
+   `0xFFFFFF00`, by default). The depth that it gives is the camera depth of
+   the point.
+
+`DrawTextRaw` draws through `LH3DTech::Draw3DScreenTriangle`, which writes
+`rhw = near / depth`. So each vertex of the text has the rhw of the place of
+the note.
+
+### 19.2 Why the interface depth makes it double
+
+`draw_hooks.cpp` takes each batch of `Draw3DScreenTriangle` as interface. The
+interface depth moves a batch to the depth of the nearest world, and in one
+walk the right eye gets the pixel of the left eye with that depth. Neither is
+the depth of the thing. In a desktop run at a render of 3600 by 2880, the
+note over the Creature was 50 units from the eye. The eye difference of its
+place was 168 px, and the interface depth gave the note 48 px. The eyes look
+at the Creature, so they see the note two times, 120 px apart.
+
+### 19.3 What the mod does (`note_depth=1`)
+
+`h_NotesDraw` marks the draw of the list in an eye pass. A batch in that draw
+gets none of the steps of the interface: no interface depth, no interface
+size, no hint rule and no panel.
+
+- Two walks: each eye pass draws the note where the game put it for that
+  eye. The camera of each eye gives the eye difference of the place.
+- One walk: the batch goes to both eyes as a batch of the world. The right
+  eye gets the move of its rhw (`one_walk_math::CopyForRightEye`), with
+  dxwrapper and with the Vulkan renderer. The rhw is that of the place, so
+  the move is the eye difference of the place.
+
+So the note is at the depth of the thing in both eyes, beside it, at the
+size of the game. The depth test of the game stays: a part of the note
+behind the head of the Creature does not show, as in the plain game.
+
+`note_depth=0` gives a note the steps of the interface.
+
+### 19.4 Keys, the test keys and the log
+
+| Key of `bwvr.ini` | Default | Meaning |
+| --- | --- | --- |
+| `note_depth` | 1 | 1: a note of the game over a thing has the depth of its place. 0: the interface depth |
+
+With `test_keys=1`, Ctrl, Shift and the apostrophe key change `note_depth` in
+play. The pointing hand gets a long pulse for 1 and a short pulse for 0.
+
+Test keys for the desktop runs:
+
+- `note_test=<frames>` (up to 4 frames, with commas): at each frame the mod
+  asks the game for the note of a Creature that learns over the player's
+  Creature, with 37 percent (`fn_0047CDA0`). The game shows a note of a
+  Creature at most each 100 game turns, and a test save starts soon after
+  its own start. So the test puts the turn of the last note of the Creature
+  101 game turns back. When the game shows the note, the mod saves the eye
+  pictures of a frame 20 frames later.
+- `note_depth_test_frame=<frame>`: `note_depth` changes at that frame, as
+  the key does.
+
+The frames of both keys count as the steps of the scripted controller count
+(`fake_controller_play_frame`).
+
+The tag `note depth`:
+
+- At the start: `note_depth`, and the test keys.
+- `the game shows a note over a thing: "37%", colour 0xFFFFFF00, ...`: each
+  new note, with its text, its colour and its place.
+- `a batch of a note in one walk: x ... in the left eye as the game put it,
+  rhw ... The right eye has it N px from the left eye`: the first batch of a
+  new note, and then each 150 frames while a note shows. With two walks the
+  line is for each eye pass.
+- Each report window: the new notes, and the batches at the depth of their
+  place and at the interface depth.
+
+### 19.5 Tests
+
+The math test (`OneWalkChecks`) has a note over a Creature 300 units away:
+the right eye of one walk has it at the pixel of the point in that eye, with
+its layout. The interface depth puts the eyes more than 20 px from the eye
+difference of the place.
+
+The desktop run is `creature_recipe.ps1 -Kind leash` in the test save
+`temple`, with `note_test=870,1700` and `note_depth_test_frame=1300`: a note
+over the Creature with `note_depth=1`, and one with 0. Add
+`test_frame_rate=60` for the Vulkan renderer, and
+`backend=dxwrapper\ddraw.dll` for Direct3D 9.
+
+With one walk, the Vulkan renderer and dxwrapper gave the same result. The
+note was 51 units from the eye. With `note_depth=1` the right eye had it 166
+px to the left of the left eye, which is the eye difference of its place,
+and the eye pictures show it over the head of the Creature in both eyes.
+With 0 the right eye had it 48 px to the left, about 120 px to the right of
+the Creature. With two walks (`one_walk=0`) and the Vulkan renderer, the
+camera of each eye pass gave the note 166 px between the eyes. With
+`note_depth=1` that stays. With 0 the interface depth adds its move in each
+eye, so the note is not at the depth of the Creature there either.
+
+### 19.6 Limits
+
+- No run has shown a note that the game made by itself: a Creature that
+  learns from a miracle of the player. The test key uses the same function
+  of the game.
+- Only a headset can show that the note fuses with the Creature.

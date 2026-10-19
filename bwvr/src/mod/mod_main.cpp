@@ -106,6 +106,9 @@ void EyeCleanInstall();
 // bubble_card.cpp: a speech bubble of the game as one card.
 void BubbleCardSetOptions(int on, int name_on, int test, int test_frame);
 void BubbleCardInstall();
+// note_depth.cpp: a note of the game over a thing at the depth of its place.
+void NoteDepthSetOptions(int on, const char* test_frames, int test_frame);
+void NoteDepthInstall();
 // intro_skip.cpp: a press of a controller button skips the logos at the
 // start of the game. `caller` is the address that called FinishFrame.
 void IntroSkipFrame(uintptr_t caller, bwvr::XrScreen* screen);
@@ -624,6 +627,11 @@ int g_bubble_card = 1;
 int g_name_card = 1;
 int g_bubble_card_test = 0;
 int g_bubble_card_test_frame = 0;
+// A note of the game over a thing at the depth of its place (note_depth.cpp),
+// and its test keys for desktop runs.
+int g_note_depth = 1;
+char g_note_test[64] = "";
+int g_note_depth_test_frame = 0;
 bool g_intro_text_place = true;
 bool g_intro_push_once = true;
 bool g_intro_controller = true;
@@ -1590,6 +1598,12 @@ void ReadSettings() {
       GetPrivateProfileIntA("bwvr", "bubble_card_test", 0, path) != 0 ? 1 : 0;
   g_bubble_card_test_frame = static_cast<int>(
       GetPrivateProfileIntA("bwvr", "bubble_card_test_frame", 0, path));
+  g_note_depth =
+      GetPrivateProfileIntA("bwvr", "note_depth", 1, path) != 0 ? 1 : 0;
+  GetPrivateProfileStringA("bwvr", "note_test", "", g_note_test,
+                           sizeof(g_note_test), path);
+  g_note_depth_test_frame = static_cast<int>(
+      GetPrivateProfileIntA("bwvr", "note_depth_test_frame", 0, path));
   g_intro_text_place =
       GetPrivateProfileIntA("bwvr", "intro_text_place", 1, path) != 0;
   g_intro_push_once =
@@ -1958,6 +1972,8 @@ void StartVrStep() {
     BubbleCardSetOptions(g_bubble_card, g_name_card, g_bubble_card_test,
                          g_bubble_card_test_frame);
     BubbleCardInstall();
+    NoteDepthSetOptions(g_note_depth, g_note_test, g_note_depth_test_frame);
+    NoteDepthInstall();
   }
 
   // Headless measuring runs the two passes and throws the pictures away, so

@@ -351,6 +351,13 @@ is built, and no test has proven it.
   checks and the code show it (`creature.md`, section 6). To see in the
   headset: the attack and the block act at the first grip, and the stars
   sit on the body in both eyes.
+- **B33. The note over a Creature that learns: check it in a headset.** The
+  yellow percent of a lesson over the Creature has the depth of the
+  Creature in both eyes (`note_depth=1`, `ui-layer.md`, section 19). Desktop
+  runs with the test key `note_test` show it with both renderers. No run and
+  no session has a note that the game made by itself, from a miracle that
+  the Creature sees. To see in the headset: the note shows one time, over
+  the head of the Creature.
 
 B1b, B2, B4 and B11 are one package: a thing that is held, thrown, or
 that moves while the Hand takes it.

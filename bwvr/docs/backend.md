@@ -53,6 +53,7 @@ Other docs: `software-tnl.md` (the CPU transform and the camera matrix),
 | `src/mod/draw_hooks.cpp` | Hints, tooltips, subtitles, interface depth and size |
 | `src/mod/eye_clean.cpp` | The frame before of each eye: the clean of each eye pass, and the keeps of the eye pictures |
 | `src/mod/bubble_card.cpp` | A speech bubble of the game as one card at the depth of its sign, and the name of a villager as one card at the depth of the villager |
+| `src/mod/note_depth.cpp` | A note of the game over a thing (the percent of a lesson over the Creature) at the depth of its place |
 | `src/mod/sky_detail.cpp`, `water_mode.cpp` | Clouds, the moon, sun glare, detail distance, the sea |
 | `src/mod/spirit_anchor.cpp` | The advisors |
 | `src/mod/near_plane.cpp` | The near plane |
@@ -1931,6 +1932,7 @@ against a true right eye camera at three rolls.
 | A batch with no depth | Every rhw exactly 1 (screen space) or every z 1 (the sky): the copy moves by the eye width only |
 | The interface | `draw_hooks.cpp` runs its chain a second time with the right eye, and the batch goes to the right half only. A tooltip at the Hand has an anchor for each eye. `hand_glow.cpp` gives the right eye its Hand's point by the same rule |
 | A card or a mark of the mod | Its batch goes to the left half only, and then to the right half only, moved by the eye difference of its place. See "The cards and the marks of the mod" |
+| A note of the game over a thing (`note_depth=1`) | Its text has the rhw of its place, so the batch goes to both eyes as a batch of the world, and the right copy moves by its rhw. See `ui-layer.md`, section 19 |
 | An advisor in the cut scene window (`cutscene_advisors=1`) | Its batch goes to the left half only, and then to the right half only, with the eye difference of its place in front of the screen. See `cutscene-window.md`, section 7 |
 | The pass ends | The game's target is bound again. The two halves go to the shared textures: with `frame_send=0` the first copy has no wait and the second has the wait for the GPU, and with `frame_send` 1 and 2 both are copies alone, and `frame_send.cpp` waits one time as for two eye passes |
 
@@ -4957,6 +4959,7 @@ in front. The mod reads the keys and never takes them from the game.
 | Ctrl Shift Numpad Slash | `test_keys=1` | The mod waits for the GPU after each eye pass, one time a frame, or one time a frame on a second thread that also gives the frame to the runtime. A long pulse, a pulse of middle length and a short pulse (`frame_send`, "One wait a frame, and a second thread"). The slash key with Shift and no Ctrl is a key of the Temple, and with no Shift it is a key of the throw |
 | Menu key | `test_keys=1` | One walk for both eyes on and off (see "One walk for both eyes"). The key beside the right Ctrl key that opens a context menu. Ctrl and Shift must be up |
 | Ctrl Shift Right bracket | `test_keys=1` | In one walk: a speech bubble or the name of a villager as a card, the glow at the Hand's point and a halo are drawn for each eye by itself, or the right eye gets them as each other batch. A long pulse and a short pulse (`one_walk_marks`, "The cards and the marks of the mod"). The right square bracket key is two keys right of the P key on a US keyboard |
+| Ctrl Shift Apostrophe | `test_keys=1` | A note of the game over a thing (the percent of a lesson over the Creature) has the depth of its place, or the interface depth. A long pulse and a short pulse (`note_depth`, `ui-layer.md`, section 19). The apostrophe key is right of the semicolon key on a US keyboard |
 | Ctrl Menu key | `test_keys=1` | The layout of the buttons of the hand that does not point. The menu button of the left controller opens the game menu, Y opens the ring and the stick does not drive the ring, or Y opens the game menu and X and the stick open the ring. A long pulse and a short pulse on that hand (`button_layout`, `controllers.md`, 5.1). Shift must be up |
 | Shift Menu key | `test_keys=1` | The walk with the stick of the hand that does not point steps from 1 to 2 to 0 and back: forward is the direction of the head, forward is the direction of that controller, or the stick does not move the player. A medium pulse, a long pulse and a short pulse (`move_stick`, `god-view.md`, section 5.7). Ctrl must be up |
 
@@ -5066,6 +5069,8 @@ keys that the launcher sets.
 | `bubble_card` | 1 | 1: a speech bubble of the game is one flat card at the depth of its sign. 0: it is drawn as the game and the interface depth make it in each eye pass. See `ui-layer.md`, section 18 |
 | `name_card` | 1 | 1: the name of a villager is one flat card at the depth of the villager. 0: it is drawn as the game and the interface depth make it in each eye pass. See `ui-layer.md`, section 18 |
 | `bubble_card_test`, `bubble_card_test_frame` | 0, 0 | Test keys of the desktop runs. See the same section |
+| `note_depth` | 1 | 1: a note of the game over a thing (the percent of a lesson over the Creature) has the depth of its place. 0: the interface depth. See `ui-layer.md`, section 19 |
+| `note_test`, `note_depth_test_frame` | none, 0 | Test keys of the desktop runs. See the same section |
 | `one_walk`, `one_walk_check` | 1, 0 | See "One walk for both eyes" |
 | `one_walk_merge` | 1 | 1: with the render thread, a batch whose two copies are in their own halves is one draw for both eyes. 0: one draw for each eye. See "One draw for both eyes" |
 | `render_thread`, `render_thread_test_frame` | 0, 0 | See "The render thread" |

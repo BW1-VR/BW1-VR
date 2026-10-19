@@ -566,6 +566,11 @@ it. A tree that you drop or throw turns down fast when it lies on the
 land, so it comes to rest in about 1 s. Set throw_tree_settle=0 in
 bwvr.ini for the turn of the game.
 
+When your Creature learns from a miracle, the game shows the percent of
+the lesson in yellow over its head. This note is at the depth of the
+Creature, so it is not double. Set note_depth=0 in bwvr.ini to give it
+the depth of the other text in the view.
+
 The game shows its hints, the amount that you take and the subtitles
 only when its own help options are on. If you see none of them, open
 the game options, then "Help Options". Set "Intelligent ToolTips",

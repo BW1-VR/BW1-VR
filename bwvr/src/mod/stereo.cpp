@@ -65,6 +65,7 @@
 #include "../common/bw_addresses.h"
 #include "../vr/xr_screen.h"
 #include "bubble_card.h"
+#include "note_depth.h"
 #include "cutscene_window.h"
 #include "frame_profile.h"
 #include "d3d7_count.h"
@@ -1058,6 +1059,16 @@ void PollHotkeys() {
     OneWalkMarksToggle("Ctrl, Shift and the right square bracket key");
   }
   marks_down = marks_now;
+  // An A/B of the depth of a note of the game over a thing (note_depth.cpp,
+  // docs/ui-layer.md, section 19). The apostrophe key (VK_OEM_7) has no other
+  // test key.
+  static bool note_down = false;
+  const bool note_now =
+      (GetAsyncKeyState(VK_OEM_7) & 0x8000) != 0 && ctrl && shift;
+  if (g_test_keys && note_now && !note_down && GameHasFocus()) {
+    NoteDepthToggle("Ctrl, Shift and the apostrophe key");
+  }
+  note_down = note_now;
 }
 
 // THE HEAD TRACKING SETUP, once. The render has to cover what the headset asks for,
@@ -1582,6 +1593,7 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
     }
     UiDepthSetEye(eye, g_ui_shift_used);
     BubbleCardPass(eye);
+    NoteDepthPass(eye);
     PassGuardSetEye(eye);
     DrawProbeBeginPass(eye);
 
@@ -1867,6 +1879,7 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
   }
   UiDepthSetEye(-1, 0.0f);
   BubbleCardPass(-1);
+  NoteDepthPass(-1);
   PassGuardSetEye(-1);
   DrawProbeBeginPass(-1);
   EyeCleanEndPair();
@@ -2027,6 +2040,7 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
     EyeCleanReport();
     DrawMergeReport();
     BubbleCardReport();
+    NoteDepthReport();
     FovReport();
     // Step the invented head, and photograph the result straight away. A
     // capture on a timer lands on whatever phase the timer happens to hit:

@@ -12,6 +12,7 @@ add_library(bwvr_mod SHARED
     frame_send.cpp
     draw_merge.cpp
     bubble_card.cpp
+    note_depth.cpp
     draw_hooks.cpp
     ui_panel.cpp
     eye_camera.cpp
