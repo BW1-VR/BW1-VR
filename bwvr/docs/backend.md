@@ -64,6 +64,7 @@ Other docs: `software-tnl.md` (the CPU transform and the camera matrix),
 | `src/mod/scene_sample.cpp`, `scene_sample_math.h` | A test aid: samples of the code of the frame thread in the scene walks, by module (`profile_sample`) |
 | `src/mod/hang_watch.cpp` | A test aid: the place of the frame thread when it makes no frame for 8 s, and of a fault (`hang_watch`). The crash log: the C++ exceptions and each end of the game in its C runtime (`crash_log`) |
 | `src/mod/crash_report.cpp` | The report of a crash in the log, and the dump `bwvr-crash.dmp` (`crash_report`) |
+| `src/mod/memory_watch.cpp` | The line of the address space each 20 s, on a thread of its own (`memory_log`, `address_space_math.h`) |
 | `src/mod/vk_ddraw.cpp` | DirectDraw 7 and Direct3D 7 of the mod on Vulkan (`backend=vulkan`) |
 | `src/mod/vk_window.cpp` | The swapchain of Vulkan on the window of the game (`vk_window`) |
 | `src/mod/vk_fallback.cpp` | The file of the fall back of `backend=vulkan` (`vulkan_fallback`) |
@@ -1606,6 +1607,27 @@ crash        : frame N (hand frame N). Hand state 1, hand mode 0x1. The Hand hol
 crash        : the dump is C:\Black & White\bwvr-crash.dmp, N KiB
 crash        : the report ends. The filter before the mod's filter runs now
 ```
+
+**The address space.** `runblack.exe` is a 32 bit program with no flag for
+a large address space, so the process has 2 GiB of addresses. The game, the
+mod, dxwrapper, Direct3D 9 and 11, the Vulkan driver and the OpenXR runtime
+share them. The images of the modules take about 320 MB in a headset session
+with `backend=vulkan` (the AMD Vulkan driver is loaded two times, about 85 MB
+each). When no free run of addresses is large enough, an allocation fails.
+The game then writes to the null pointer of `malloc` in `LH3DMem::Alloc`
+(`0x00842D4A`, an access violation), and an allocation of the mod gives
+`std::bad_alloc`.
+
+With `memory_log=N` (20 is the default, `memory_watch.cpp`) a thread of its
+own walks the address space with `VirtualQuery` each N seconds and writes a
+line "memory": the use by kind (image, mapped, private) and by state
+(committed, reserved), the free blocks of 64 KiB and the largest free run,
+the private bytes, the heap of the game (`LH3DMem::g_current_amount`
+`0x00EF654C` and its count of blocks), the largest four private allocations,
+and the change since the first line and per minute. The sums are in
+`address_space_math.h`. A walk takes some milliseconds, so it is not on the
+frame thread, and it only reads. When the largest free run is under 64 MB,
+one more line says so. `memory_log=0` writes no line.
 
 **The split in a headset.** SteamVR with a Steam Frame, Ryzen 9 7950X3D,
 Radeon RX 7900 XTX, a render of 3304 by 2644 with 4x multisampling,
@@ -5211,6 +5233,7 @@ keys that the launcher sets.
 | `profile_gpu` | 0 | A test key. See "The GPU time" |
 | `crash_log` | 1 | 1: the log gets the first 8 C++ exceptions and an end of the game in `abort`, `terminate` or `_amsg_exit`, each with the return addresses on its stack. 0: no line. See "The crash log" |
 | `crash_log_test`, `crash_log_caught_test` | 0, 0 | Test keys: at the frame N the frame thread throws a C++ exception that the mod does not catch (the game ends), or that the mod catches. See "The crash log" |
+| `memory_log` | 20 | Each N seconds a line of the use of the address space of 2 GiB, the largest free run and the heap of the game. 0: no line. See "The address space" |
 | `hang_watch` | 0 | A test key: 1 the place of the frame thread when it makes no frame for 8 s, 2 each 8 s. With each of the two the place of a fault. See "The watch of the frame thread" |
 | `crash_report` | 1 | 1: a fault that no handler takes writes a report to the log and the dump `bwvr-crash.dmp`. 0: no report and no dump. See "The report of a crash" |
 | `crash_test_frame` | 0 | A test key of the desktop runs: the frame of `FinishFrame` at which the mod writes to address 0. See "The report of a crash" |

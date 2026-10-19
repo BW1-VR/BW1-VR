@@ -343,6 +343,18 @@ is built, and no test has proven it.
   To decide: a halo or a line of the card that shows which objects the
   grip takes, a longer range of the grab while the leash is on, or no
   change.
+- **B36. The address space of 2 GiB runs full.** A headset session with
+  `backend=vulkan` ended after about 16 minutes of play with an access
+  violation in `LH3DMem::Alloc` (`0x00842D4A`): `malloc` gave a null
+  pointer for 109 KB. The dump had 2035 MB of addresses in use, the limit of
+  `runblack.exe`, which has no flag for a large address space (`backend.md`,
+  "The address space"). A session that ended after 13 minutes with "abnormal
+  program termination" can have the same cause. The line "memory" each 20 s
+  (`memory_log=20`) now gives the use by kind and the largest free run. To
+  do: find what grows in a session, and make it smaller. The flag for a
+  large address space in `runblack.exe` gives 4 GiB, but it changes a file
+  of the game, and that is a decision of the owner.
+
 - **B32. A fight of Creatures: test the grip and the marks in the
   headset.** The grip with the Hand at a Creature is the attack or the
   block of the game, at the place of the body that is nearest to the Hand
