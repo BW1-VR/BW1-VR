@@ -138,6 +138,9 @@ void TargetGlowBatch(void* verts, uint32_t count, const uint16_t* idx,
 // camera. IntroFlatDone counts the batch.
 bool IntroFlatOn(uint32_t caller);
 bool IntroFlatVertex(float* x, float* y);
+// With intro_probe: the states of the device at each kind of draw of an eye
+// pass of the intro, for the log.
+void IntroDrawProbe(uint32_t caller, const void* verts, uint32_t count);
 void IntroFlatDone(bool drawn);
 
 namespace {
@@ -2487,6 +2490,7 @@ void __fastcall h_DrawTriangle(void* verts, uint32_t count, uint16_t* idx,
   }
   const uint32_t outer = g_caller;
   g_caller = reinterpret_cast<uint32_t>(_ReturnAddress());
+  IntroDrawProbe(g_caller, verts, count);
   // The box of a speech bubble is the one batch of the interface that comes
   // this way: its corners are points of the world. Each corner goes to its
   // pixel (bubble_card.cpp).

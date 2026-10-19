@@ -19,6 +19,9 @@ from the code and not confirmed by a run.
   turn (`intro_motion=1`). Each eye has its own trails, and the mark beside the
   logo has the depth of the logo. `intro_vr` is off by default: no headset
   session has checked this state.
+- In the logo in stereo, each hand takes the orbs in its reach with its own
+  motion, one to one, in 3D (`intro_push_3d`). The hand models of the game
+  show while a hand moves (`intro_hand_show`).
 - A press of a trigger or of A, B, X or Y skips the logos and the intro (the
   skip, `intro_skip`, on by default).
 - The mod answers the game's check for an internet connection itself, so a PC
@@ -32,7 +35,8 @@ intro), `src/mod/intro_skip.cpp` and `intro_skip_math.h` (the skip),
 `src/mod/net_check.cpp` (the internet check), `src/mod/dx_check.cpp` (the
 DirectX check), with small parts in
 `head_camera.cpp`, `input_watch.cpp`, `draw_hooks.cpp`, `gpu_bridge.cpp`,
-`stereo.cpp`, `mod_main.cpp` and `controllers.cpp`.
+`stereo.cpp`, `mod_main.cpp`, `controllers.cpp`, `overlay.cpp` and
+`hand_model.cpp`.
 
 ## Section map
 
@@ -427,6 +431,117 @@ after the first eye drew it: the two pictures have it -9.9 px apart, and its
 depth asks for -13.7 px. With `intro_push_once=1` no orb has a different
 place for the two eye passes.
 
+### The push in 3D
+
+With `intro_push_3d=1` (the default) each hand takes the orbs in its reach
+with its own motion, one to one, in place and in turn. The push of the game
+is a disc of one tenth of the picture around one pointer, so it cannot be
+one to one and it has one hand only.
+
+1. `HandsFrame` in `intro_vr.cpp` runs once for each pair, after
+   `ControllersFrame`. `ControllersOverlayHands` gives the grip point and the
+   grip axes of each hand in the world. The mod keeps each pose against the
+   camera that placed it (`HeadCameraGameCamera`), for this pair and the
+   pair before. So the motion of the camera along the path of the game is
+   not a motion of the hand.
+2. In the first eye pass, after the sky and before the effect moves and
+   draws the orbs, the effect calls `LHMouse::UpdateDeltaPos`. There
+   `Push3d` puts both poses on the camera of the orbs of this pair. Each orb
+   within `intro_push_radius_cm` of the grip point of the pose before keeps
+   its place in the hand frame, so it goes where the hand takes that place
+   now (`intro_motion::DragPoint`). The weight is 1 to half the reach and
+   falls to 0 at the reach.
+3. The spring of the effect then pulls each orb back to its home, and the
+   orbs draw. The second eye pass moves no orb.
+
+A hand reaches an orb only when the orb is in the reach of the arm. With
+`intro_distance_cm=300` the formed logo is 2.1 m to 3.9 m from the head, and
+only the orbit at the start of `intro_motion=1` goes between the orbs. With
+`intro_distance_cm=60` the logo is 45 cm wide and its orbs are 42 cm to
+78 cm in front of the head, so both hands go through it.
+
+With `intro_distance_cm=300` the room has 33.3 units for each meter and the
+orbs are about 1.2 units apart, so a reach of 10 cm holds about 2 orbs and a
+reach of 30 cm (the default) about 50.
+
+The hands give the mouse no motion, so the push of the game acts on a motion
+of the mouse only. `intro_push_3d=0` gives the push of the pointing hand
+through the pointer (see "The push of the hand").
+
+### The hand models in the intro
+
+The overlay draws the hand models of the game at both hands, as in play
+(`hand-model.md`). `OverlayIntroFrame` builds only the hands: the world and
+the Hand of the game are not there yet, so the hands have no context of the
+game, and no finger bends on the land or on an object. `OverlayPassEye`
+gives the overlay each eye pass.
+
+**The depth.** The effect draws the sky with the depth test and the depth
+write, and then the orbs with the depth test and no depth write [V, with
+`intro_probe=1` the log has the states of each kind of draw]. With
+`intro_hand_depth=1` (the default) the hands draw in the first eye pass and
+in the second, after the sky and before the orbs (`IntroMouseCall`), with
+the depth write. So an orb behind a hand fails the depth test, and an orb in
+front of a hand draws over it: the hands go into the cloud of orbs. The draw
+of the `FinishFrame` of that pass then draws nothing, because the overlay
+draws one time in each eye pass. A hand under 90 percent of its opacity
+writes no depth (`HandModelDraw`), so a hand that fades does not hide the
+orbs behind it. With 0 the hands draw in the `FinishFrame`, over each orb.
+With `intro_motion=2` the hands draw with the camera of the room and the
+orbs with the camera of the orbs, so the depth of the hands against the
+orbs is not exact there.
+
+With `intro_hand_show=1` (the default) a hand shows while it moves and fades
+when it rests (`intro_motion::HandShowStep`). The speed is the motion of the
+grip point in the room, smoothed over 80 ms, and a hand moves above
+0.12 m/s. A hand that moves comes in 0.15 s. A hand that rests stays for
+0.4 s and then goes in 0.5 s. A hand that is not tracked goes at once. The
+opacity multiplies the alpha of the texture of the hand model
+(`HandModelSetOpacity`). The low poly hand of a game folder with no hand
+files has no alpha, so it shows only from half the opacity. With 2 a hand
+shows while it is tracked, and with 0 no hand shows.
+
+### The push of the hand
+
+With `intro_push_3d=0` the push of the effect does the work. It needs a
+motion of the mouse device (see "How the mouse pushes the particles"). The
+place of the pointer alone moves no orb. So the mod gives the effect a
+motion of the mouse from the motion of the pointing hand. This is the way of
+the game: the push code, its disc and its spring are those of the game.
+
+1. In the first eye pass, the effect calls `LHMouse::UpdateDeltaPos`. After
+   the call, `pointer_map.cpp` puts the pixel of the controller in the
+   pointer. The value of the active box (`0x00C4CD20`) is not 0 while the
+   logo plays, so the direct hand steps aside there (`controllers.md`, "A
+   dialog box takes the pointer"), and that pixel is the pixel of the aim
+   ray. A step of the hand moves an aim ray that points far away by a few
+   pixels only.
+2. With `intro_hand_point=1`, `HandPush` in `intro_vr.cpp` puts the pixel of
+   the Hand's point in the pointer (`ControllerHandPixel`), so the push is
+   at the hand. With 0 the pointer stays at the pixel of the aim ray.
+3. Then `HandPush` takes the motion of that pixel since
+   the frame before, in render pixels, times `intro_hand_push_pct`, and adds
+   it to the two motion sums of `LHMouse` (`0x00E852E4`, `0x00E852E8`).
+   Only whole counts go. The fraction stays for the next frame, so a slow
+   hand also pushes (`intro_motion::HandPushStep`).
+4. The effect reads the sums, smooths them, and pushes the orbs in the disc
+   around the pointer, as for a mouse.
+
+A frame with no pixel of the hand gives no motion, and the next pixel starts
+again: the pointer is the mouse's, the hand is off the view, or the frame
+before was not a stereo frame. So a hand that comes back into the view does
+not push as a jump. The second eye pass gets no motion (see "The second eye
+and the push").
+
+With 100 percent a motion of the hand of one render pixel is one count of the
+mouse. The disc of the push is one tenth of the picture width, so a hand
+that moves a tenth of the picture pushes as a mouse that moves a tenth of
+the picture. The effect clamps the smoothed motion to 20 counts, so at a
+large render size a fast hand pushes no farther than a hand at 20 pixels a
+frame.
+
+Only the pointing hand pushes in this way, because the game has one pointer.
+
 ### The ways back to the flat intro
 
 - `intro_vr=0`, no headset and no `stereo_headless`, stereo off.
@@ -453,6 +568,12 @@ the intro" is cleared when mode 2 runs.
 | `intro_text_place` | 1 | 1: the text and the boxes of the effect are on the plane of the logo. 0: they have the same pixel in each eye |
 | `intro_push_once` | 1 | 1: only the first eye pass pushes the orbs. 0: each eye pass pushes them |
 | `intro_controller` | 1 | Run the controller frame, so the aim moves the pointer |
+| `intro_push_3d` | 1 | 1: each hand takes the orbs in its reach in 3D, and the hands give the mouse no motion. 0: the pointing hand pushes through the pointer, with the two keys below |
+| `intro_push_radius_cm` | 30 | The reach of a hand for the push in 3D, in cm of the room, 2 to 100 |
+| `intro_hand_depth` | 1 | 1: the hands draw after the sky and before the orbs, so an orb in front of a hand draws over it. 0: the hands draw after the orbs, over each orb |
+| `intro_hand_show` | 1 | 0: no hand models. 1: a hand shows while it moves. 2: a hand shows while it is tracked |
+| `intro_hand_push_pct` | 100 | With `intro_push_3d=0`: the motion of the pixel of the hand, in percent, that goes to the motion of the mouse, so the hand pushes the orbs. 0 to 400. 0: only a mouse pushes the orbs |
+| `intro_hand_point` | 1 | With `intro_push_3d=0`: 1, with the direct hand, the pointer is at the pixel of the Hand's point. 0: the pointer is at the pixel of the aim ray |
 | `intro_probe` | 0 | Log the cameras for each second of the effect clock, and for a pair of eye pictures the pixel of some orbs |
 | `intro_motion_test_seconds` | 0 | A test key of the desktop runs: each N seconds of the logo in stereo the mod steps `intro_motion`, as its test key does |
 | `intro_push_test_px` | 0 | A test key of the desktop runs: each frame of the logo in stereo gets that motion of the mouse to the right, with the pointer in the middle of the picture |
@@ -470,21 +591,37 @@ With `test_keys=1` these keys act while the logo plays in stereo (`backend.md`,
 | Shift and Page Up | `intro_motion` steps: 1, 2, 3, 0 and 1 again | One short pulse for each unit of the new value, one long pulse for 0 |
 | Shift and Page Down | `intro_eye_trails` goes between 1 and 0 | Long for 1, short for 0 |
 | Shift and Delete | `intro_text_place` goes between 1 and 0 | Long for 1, short for 0 |
+| Shift and Home | The push of the hand goes off and on: `intro_hand_push_pct` goes between 0 and its value in the ini (100 when that is 0) | Long for on, short for off |
+| Shift and End | `intro_hand_point` goes between 1 and 0 | Long for 1, short for 0 |
+| Shift and Insert | `intro_push_3d` goes between 1 and 0 | Long for 1, short for 0 |
+| Shift and Backspace | `intro_hand_show` steps: 1, 2, 0 and 1 again | One short pulse for each unit of the new value, one long pulse for 0 |
+| Shift and Pause | `intro_hand_depth` goes between 1 and 0 | Long for 1, short for 0 |
 
 `DoLogo` ends the logo on each key that goes down. While Shift, Page Up, Page
-Down or Delete is down, the mod clears the last key of the game after each
-frame (`0x00E85474`), so a press of a test key does not end the logo.
+Down, Delete, Home, End, Insert, Backspace or Pause is down, the mod clears
+the last key of the game after each frame (`0x00E85474`), so a press of a
+test key does not end the logo.
 
-In play, Shift and Page Down change `eye_clean`, and Shift and Delete change
-`bubble_card` (`backend.md`, "Keys for v1.0").
+In play, Shift and Page Down change `eye_clean`, Shift and Delete change
+`bubble_card`, Shift and Home change `spirit_world_size`, Shift and End
+change `creature_hold_stay`, Shift and Insert change `text_click`, and Shift
+and Backspace change `far_take_carry` (`backend.md`, "Keys for v1.0").
 
 ### The controller in the stereo intro
 
 - `ControllersFrame` runs once for each pair. With the pointer owned by the
   controller, `pointer_map.cpp` writes the pixel to `0x00E852C0`, and the
-  effect reads it as the middle of the push.
-- A controller does not push the orbs. The push needs a motion of the mouse
-  device, and the controller gives only the place of the pointer.
+  effect reads it as the middle of the push. That pixel is the pixel of the
+  aim ray, and with `intro_hand_point=1` the mod puts the pixel of the Hand's
+  point there (see "The push of the hand"). The controller gets the pointer
+  when the hand moves 2 cm or the aim turns 1 degree. The mouse takes it
+  back when it moves.
+- Both hands push the orbs in 3D (see "The push in 3D"). With
+  `intro_push_3d=0` the pointing hand pushes through the pointer (see "The
+  push of the hand").
+- The overlay draws both hand models while they move (see "The hand models
+  in the intro"). Like the hands in play, they draw only while the
+  controller owns the pointer.
 - `Usable()` in `controllers.cpp` is false while the intro draws in stereo
   (`IntroBlocksButtons`). No controller button can reach `SetButtons`, so the
   trigger cannot click, and a click cannot end the intro.
@@ -507,15 +644,32 @@ The tag is `intro`:
   and for each pair of eye pictures the pixel of 8 orbs in each eye.
 - `test key`: one line for each press of a test key, with the clock.
 - The first flat batch that gets a place, and at the end the counts.
+- The first frame in which a hand moves orbs in 3D, with the reach in units.
+  At the end: the frames in which the hands moved orbs, the orbs in all, the
+  most in one frame, and the frames in which a hand showed.
+- With `intro_probe=1`, each 100 pairs: the pointer, the pointer that the
+  push of the game read, and the count of orbs more than 1 unit from their
+  home. Also the place of the right hand against the camera, its speed and
+  its opacity.
+- The first eye pass in which the hands draw before the orbs, with the
+  triangles.
+- With `intro_probe=1`: one line for each kind of draw of the first eye pass
+  (the code that draws, and before or after the sky), with the depth states
+  of the device and the depth of its first corner.
 
 ### The math test
 
-`intro_motion_checks.h` (66 checks) covers the camera path against the camera
+`intro_motion_checks.h` (89 checks) covers the camera path against the camera
 that the game asked for in a run, the ease, the fixed heading, the cameras of
 each value of `intro_motion` (the place of the game with no turn, the room
 that stays still, the model that stays in front of the head), the step of the
-test key, the scale and the speed, and the pixel of a flat corner on the
-plane of the logo for each eye.
+test key, the scale and the speed, the pixel of a flat corner on the plane of
+the logo for each eye, the motion of the mouse from the motion of the hand
+(the percent, the fraction of a slow hand, and no motion after a gap), the
+push in 3D (one to one, the soft edge, the reach, a turn of the hand, a hand
+that does not move), and the show of the hands (the shake of the tracking
+of a hand at rest, the times to come and to go, a hand that is not
+tracked).
 
 ### A desktop run
 
@@ -563,6 +717,14 @@ No headset session has seen this state, so `intro_vr` stays 0.
   keeps. On the desktop each call includes a `Flip` that waits for the
   display. With a headset `PresentWatchSkipDesktop` skips them.
 - The menu button skip, and the pulses of the test keys.
+- The push in 3D: whether the orbs move with the real hands, and whether the
+  reach is right (`intro_push_radius_cm`). The scripted hands of a desktop
+  run move in steps, and a real hand moves a little in each frame.
+- The show of the hands: whether the shake of the tracking of a hand at rest
+  stays below the speed of a motion, and whether the times to come and to go
+  feel right.
+- Which `intro_distance_cm` puts the logo in the reach of the arms and still
+  shows it well.
 
 ## The skip
 
@@ -751,23 +913,15 @@ dx check     : the game asked DSETUP.dll for the version of DirectX. The mod ans
 
 ## Open work
 
-- A push of the orbs with a controller. A controller does not push now: the
-  push needs a motion of the mouse device (see "How the mouse pushes the
-  particles"). The game's own way is a motion in the two sums of `LHMouse`
-  (`0x00E852E4`, `0x00E852E8`), from the motion of the aim.
-- A true 3D push (L3b). The pointer push of the stereo intro is a screen space
-  disc. A sphere push needs two hooks keyed on the return address inside
-  `RunAlexFX`: `ProjectPoint` `0x00819390` with return address `0x005F977E`
-  (return "not visible", any value except 2, when the particle is farther than a
-  radius from the hand point) and `fn_0081B370` with return address
-  `0x005F987F` (return the 3D point of the hand instead of the unprojected mouse
-  point). `ControllerDirectHand` in `hand_direct.cpp` gives the 3D point.
-  `ProjectPoint` runs very often across the engine, so a hook must check the
-  return address first, or the two call sites (5 bytes each) can be patched
-  directly. A second way is to change the particle arrays (`0x00D34A98`,
-  `0x00D34A94`, `0x00D34A90`) in place after the original returns. It needs a
-  map of the strides first [I]. A short haptic pulse when a particle moves is an
-  easy extra.
+- A push of the hand in the flat intro (`intro_vr=0`). There the controller
+  frame does not run, and the controller does not move the pointer.
+- A speed for the orbs that a hand moved. The push in 3D moves the place of
+  an orb only, so an orb stops when the hand stops. The push of the game also
+  adds the move to the speed of the orb. That needs the offset of the speed in
+  the record of `0x34` bytes [I]. A short haptic pulse when a hand moves orbs
+  is an easy extra.
+- With `intro_motion=3` the camera of the game turns, and the room of the
+  head turns with it. The push in 3D takes that turn as a turn of the hand.
 - The headset check of the stereo intro (see "What only a headset can
   show").
 - Not verified: the exact particle count and array strides (the `0xC000` bound
