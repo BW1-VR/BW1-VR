@@ -268,6 +268,8 @@ float UiDepthWorldInverseZ();
 // near_plane.cpp
 void NearPlaneReport();
 void UiDepthNewFrame();
+void UiDepthHintHandDepthFrame();
+void UiDepthToggleHintHandDepth(const char* cause);
 void UiDepthTimeSubmit(bool on);
 void UiDepthTakeSubmit(double* ms, uint64_t* calls, uint64_t frames);
 
@@ -1069,6 +1071,16 @@ void PollHotkeys() {
     NoteDepthToggle("Ctrl, Shift and the apostrophe key");
   }
   note_down = note_now;
+  // An A/B of the depth of a hint of the game at the game's Hand
+  // (hint_hand_depth, docs/ui-layer.md, section 15.6). The slash key of the
+  // main keyboard (VK_OEM_2) has no other test key.
+  static bool hint_down = false;
+  const bool hint_now =
+      (GetAsyncKeyState(VK_OEM_2) & 0x8000) != 0 && ctrl && shift;
+  if (g_test_keys && hint_now && !hint_down && GameHasFocus()) {
+    UiDepthToggleHintHandDepth("Ctrl, Shift and the slash key");
+  }
+  hint_down = hint_now;
 }
 
 // THE HEAD TRACKING SETUP, once. The render has to cover what the headset asks for,
@@ -1378,6 +1390,7 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
   }
 
   UiDepthNewFrame();
+  UiDepthHintHandDepthFrame();
   // The route of the interface for both eye passes, latched here. A flat
   // frame has no projection layer, so its interface stays in its picture.
   // The merge of draw calls: its hooks at the first frame of the scene, and

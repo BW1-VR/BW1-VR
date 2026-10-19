@@ -7,6 +7,7 @@
 
 #include <limits>
 
+#include "../../src/mod/hint_depth_math.h"
 #include "../../src/mod/one_walk_math.h"
 
 namespace one_walk_checks {
@@ -308,6 +309,39 @@ inline void OneWalkChecks() {
         "the interface depth puts the eyes more than 20 px from the eye "
         "difference of the place of the note",
         fabs(-48.0f - place_apart), 20.0);
+
+  // A HINT OF THE GAME AT THE GAME'S HAND (hint_hand_depth, docs/ui-layer.md,
+  // section 15.6). DrawKeyOrMouse puts it at the pixel of the point of the
+  // Hand mesh, 55 units from the eye. Each eye projects that point.
+  const float hand_point[3] = {
+      eye_at[0] + 55.0f * forward[0] - 7.0f * right[0] - 3.0f * up[0],
+      eye_at[1] + 55.0f * forward[1] - 7.0f * right[1] - 3.0f * up[1],
+      eye_at[2] + 55.0f * forward[2] - 7.0f * right[2] - 3.0f * up[2]};
+  float hcx_l = 0.0f, hz_l = 0.0f, hcx_r = 0.0f, hz_r = 0.0f;
+  const bool hand_in_front =
+      hint_depth_math::CameraPoint(left, hand_point, near_plane, &hcx_l,
+                                   &hz_l) &&
+      hint_depth_math::CameraPoint(right_eye, hand_point, near_plane, &hcx_r,
+                                   &hz_r);
+  Check(hand_in_front, "the point of the Hand is in front of both eyes",
+        hand_in_front, 1);
+  const float hand_x_l = hint_depth_math::PixelX(hcx_l, hz_l, half);
+  const float hand_x_r = hint_depth_math::PixelX(hcx_r, hz_r, half);
+  Near("the pixel of the point of the Hand is the pixel of ProjectPoint",
+       hand_x_l, Project(left, hand_point, half, half, near_plane).x, 1e-2);
+  Near("one walk moves the hint by the eye difference of the Hand",
+       hand_x_l + hint_depth_math::WalkMove(wide_per_rhw, near_plane, hz_l),
+       hand_x_r, 1e-2);
+  Check(fabs(hand_x_r - hand_x_l) > 50.0f,
+        "a flat hint is more than 50 px from the eye difference of the Hand",
+        fabs(hand_x_r - hand_x_l), 50.0);
+  float unused_x = 0.0f, unused_z = 0.0f;
+  const float behind[3] = {eye_at[0] - 20.0f * forward[0],
+                           eye_at[1] - 20.0f * forward[1],
+                           eye_at[2] - 20.0f * forward[2]};
+  Check(!hint_depth_math::CameraPoint(left, behind, near_plane, &unused_x,
+                                      &unused_z),
+        "a point of the Hand behind the eye gives no move", 0, 0);
 
   Check(ShiftAtDepth(wide_per_rhw, near_plane, 0.0f) == 0.0f,
         "a depth of 0 gives no move", 0, 0);

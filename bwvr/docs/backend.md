@@ -4254,6 +4254,13 @@ anchored to the Hand. `hint_scale_pct` (default 20) sets its size about its own
 anchor, because the game sizes its interface in pixels, which is small on a monitor
 and large in a view of 110 degrees.
 
+A flat hint has no disparity, so it is at the far end of the view. While the game
+places the Hand (the mouse, or controllers that are not tracked), the hint and the
+tooltip of the thing under the Hand are in the eye pictures. With
+`hint_hand_depth=1` (default) the right eye gets the eye difference of the point of
+the Hand, so they have the depth of the Hand. 0 keeps them flat. See `ui-layer.md`,
+section 15.6.
+
 ### Tooltips
 
 The belief gained notice, the Storehouse readout and the Temple readout are
@@ -4960,6 +4967,7 @@ in front. The mod reads the keys and never takes them from the game.
 | Menu key | `test_keys=1` | One walk for both eyes on and off (see "One walk for both eyes"). The key beside the right Ctrl key that opens a context menu. Ctrl and Shift must be up |
 | Ctrl Shift Right bracket | `test_keys=1` | In one walk: a speech bubble or the name of a villager as a card, the glow at the Hand's point and a halo are drawn for each eye by itself, or the right eye gets them as each other batch. A long pulse and a short pulse (`one_walk_marks`, "The cards and the marks of the mod"). The right square bracket key is two keys right of the P key on a US keyboard |
 | Ctrl Shift Apostrophe | `test_keys=1` | A note of the game over a thing (the percent of a lesson over the Creature) has the depth of its place, or the interface depth. A long pulse and a short pulse (`note_depth`, `ui-layer.md`, section 19). The apostrophe key is right of the semicolon key on a US keyboard |
+| Ctrl Shift Slash | `test_keys=1` | A tooltip or a hint of the game at the game's Hand, while the game places the Hand, has the depth of the Hand, or the same pixel in both eyes. A long pulse and a short pulse (`hint_hand_depth`, `ui-layer.md`, section 15.6). The slash key is the key of the main keyboard left of the right Shift key on a US keyboard |
 | Ctrl Menu key | `test_keys=1` | The layout of the buttons of the hand that does not point. The menu button of the left controller opens the game menu, Y opens the ring and the stick does not drive the ring, or Y opens the game menu and X and the stick open the ring. A long pulse and a short pulse on that hand (`button_layout`, `controllers.md`, 5.1). Shift must be up |
 | Shift Menu key | `test_keys=1` | The walk with the stick of the hand that does not point steps from 1 to 2 to 0 and back: forward is the direction of the head, forward is the direction of that controller, or the stick does not move the player. A medium pulse, a long pulse and a short pulse (`move_stick`, `god-view.md`, section 5.7). Ctrl must be up |
 
@@ -5052,6 +5060,8 @@ keys that the launcher sets.
 | `drag_smoothing_ms` | 35 | See "Smoother drags far out" |
 | `script_camera` and its keys | 2 | See "The story camera" |
 | `hint_mode`, `hint_flat`, `hint_scale_pct` | by head, 1, 20 | See "The hint beside the Hand" |
+| `hint_hand_depth` | 1 | 1: a tooltip or a hint of the game at the game's Hand has the depth of the Hand in both eyes. 0: the same pixel in both eyes. See `ui-layer.md`, section 15.6 |
+| `hint_hand_depth_test_frame`, `mouse_owner_test_frame` | 0, 0 | Test keys of the desktop runs. See the same section |
 | `ui_scale_pct` | 25 | See "Interface size" |
 | `subtitle_lift_pct`, `subtitle_deg` | 0, 35 | See "Subtitles" |
 | `cinema_bars` | 0 | 1 shows the story bars |

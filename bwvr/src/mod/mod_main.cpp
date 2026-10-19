@@ -238,7 +238,8 @@ void CutsceneWindowInstall();
 bool UiDepthInstall(bool with_attribution);
 void UiDepthSetAccounting(bool on);
 void UiDepthSetHintMode(int mode);
-void UiDepthSetHintSelfTest(bool on);
+void UiDepthSetHintSelfTest(int mode);
+void UiDepthSetHintHandDepth(int on, int test_frame);
 void UiDepthSetHintScale(float scale);
 DWORD TextureFilterInstall(int requested_anisotropy);
 void TextureFilterReport();
@@ -473,7 +474,11 @@ bool g_controllers = true;
 int g_left_hand = -1;
 bool g_controller_swap_buttons = false;
 bool g_controller_hints = true;
-bool g_hint_selftest = false;
+int g_hint_selftest = 0;
+// A tooltip or a hint of the game at the game's Hand has the depth of the
+// Hand (draw_hooks.cpp, HandHintMove), and its test key with a frame.
+int g_hint_hand_depth = 1;
+int g_hint_hand_depth_test_frame = 0;
 char g_hint_profile[64] = {0};
 bool g_controller_haptics = true;
 FakeControllerSettings g_fake_controller;
@@ -1211,7 +1216,12 @@ void ReadSettings() {
       GetPrivateProfileIntA("bwvr", "controller_hints", 1, path) != 0;
   GetPrivateProfileStringA("bwvr", "hint_profile", "", g_hint_profile,
                            sizeof(g_hint_profile), path);
-  g_hint_selftest = GetPrivateProfileIntA("bwvr", "hint_selftest", 0, path) != 0;
+  g_hint_selftest = static_cast<int>(
+      GetPrivateProfileIntA("bwvr", "hint_selftest", 0, path));
+  g_hint_hand_depth =
+      GetPrivateProfileIntA("bwvr", "hint_hand_depth", 1, path) != 0 ? 1 : 0;
+  g_hint_hand_depth_test_frame = static_cast<int>(
+      GetPrivateProfileIntA("bwvr", "hint_hand_depth_test_frame", 0, path));
   {
     FakeControllerSettings& f = g_fake_controller;
     const auto number = [&](const char* key, int fallback) {
@@ -1765,6 +1775,7 @@ void StartVrStep() {
     UiDepthSetHintSelfTest(g_hint_selftest);
     UiDepthSetHintScale(g_hint_scale);
     UiDepthSetHintFlat(g_hint_flat);
+    UiDepthSetHintHandDepth(g_hint_hand_depth, g_hint_hand_depth_test_frame);
     UiDepthSetSubtitleLift(g_subtitle_lift);
     UiDepthSetSubtitleDegrees(g_subtitle_degrees);
     // After UiDepthInstall, and before GpuBridgeStart below.

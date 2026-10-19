@@ -3820,6 +3820,25 @@ void UpdateHandSide() {
   MatchGameHand();
 }
 
+// The test key mouse_owner_test_frame: from that frame the mouse owns the
+// pointer (the owner mode "mouse only" of Ctrl F12), as when the controllers
+// are not tracked. The game then places the Hand at the pointer, and its
+// hints at the Hand draw in the eye pictures (hint_hand_depth).
+void MouseOwnerTestFrame() {
+  static int at = -1;
+  if (at < 0) at = IniInt("mouse_owner_test_frame", 0);
+  if (at <= 0 || g_owner_mode == 2) return;
+  // As ControllersTestFrame counts it (fake_controller_play_frame).
+  if (script_frame_math::Counted(g_frame, static_cast<uint64_t>(at),
+                                g_script_play, g_script_shift_known,
+                                g_script_shift) != static_cast<uint64_t>(at)) {
+    return;
+  }
+  g_owner_mode = 2;
+  ModLog("controllers  : test key mouse_owner_test_frame: the pointer owner "
+         "is now %s, frame %llu", kOwnerModeName[g_owner_mode], g_frame);
+}
+
 }  // namespace
 
 // Once for each frame the scene is drawn, after the head pose of the frame is
@@ -3842,6 +3861,7 @@ void ControllersFrame() {
   UpdateAim();
   TempleFrame(g_frame);
   TextClickFrame(g_frame);
+  MouseOwnerTestFrame();
   NoteDepthFrame(g_frame);
   Compute();
   ++g_frame;

@@ -567,6 +567,11 @@ it. A tree that you drop or throw turns down fast when it lies on the
 land, so it comes to rest in about 1 s. Set throw_tree_settle=0 in
 bwvr.ini for the turn of the game.
 
+When the game places the Hand (with the mouse, or while the controllers
+are not tracked), its yellow hints at the Hand are at the depth of the
+Hand, so they are not double. Set hint_hand_depth=0 in bwvr.ini to draw
+them at the same place in both eyes.
+
 When your Creature learns from a miracle, the game shows the percent of
 the lesson in yellow over its head. This note is at the depth of the
 Creature, so it is not double. Set note_depth=0 in bwvr.ini to give it

@@ -97,11 +97,15 @@
 #include "controller_math.h"
 #include "cutscene_window_math.h"
 #include "hint_card.h"
+#include "hint_depth_math.h"
 #include "note_depth.h"
 #include "subtitle_card_math.h"
 #include "ui_panel.h"
 
 extern void ModLog(const char* format, ...);
+void ControllersGesturePulse(float amplitude, float seconds);
+uint64_t ControllersFrameCount();
+uint64_t ControllersTestFrame(uint64_t key_frame, uint64_t frame);
 // cutscene_window.cpp: this frame draws on the screen of the cut scene
 // window. There the help layer, the subtitles and the cinema bars draw as the
 // game made them for a flat screen.
@@ -517,6 +521,9 @@ struct FlatAnchor {
 FlatAnchor g_flat[kMaxHelpQuads];
 int g_flat_count = 0;
 bool g_hint_flat = true;
+// hint_hand_depth: 1 gives a hint at the game's Hand the depth of the Hand
+// in the right eye (HandHintMove), 0 keeps it flat.
+int g_hint_hand_depth = 1;
 
 // SUBTITLES YOU CAN ACTUALLY READ.
 //
@@ -1021,8 +1028,12 @@ bool FindFlat(const WidgetImage& image, float* x) {
   return false;
 }
 
+// The move of the right eye that gives a hint at the game's Hand the depth of
+// the Hand (hint_hand_depth). Defined with the tooltips below.
+bool HandHintMove(float* move);
+
 bool FlattenIn(void* verts, uint32_t fvf, uint32_t count) {
-  if (!g_hint_flat || !g_widget_hint) return false;
+  if (!g_widget_hint) return false;
   if (verts == nullptr || fvf != kExpectedFvf || count == 0) return false;
   if (count > kMaxShiftVertices) return false;
 
@@ -1034,8 +1045,11 @@ bool FlattenIn(void* verts, uint32_t fvf, uint32_t count) {
     read += kVertexStride;
   }
 
-  if (g_eye == 0) {
-    if (!FindFlat(g_widget_image, &x_low) && g_flat_count < kMaxHelpQuads) {
+  if (g_eye == 0 && !g_replay_right) {
+    float unused = 0.0f;
+    HandHintMove(&unused);  // two walks: the pixel of the Hand in this eye
+    if (g_hint_flat && !FindFlat(g_widget_image, &x_low) &&
+        g_flat_count < kMaxHelpQuads) {
       g_flat[g_flat_count].image = g_widget_image;
       g_flat[g_flat_count].x = x_low;
       ++g_flat_count;
@@ -1044,11 +1058,20 @@ bool FlattenIn(void* verts, uint32_t fvf, uint32_t count) {
   }
   if (g_eye != 1) return false;
 
+  // The right eye has the pixel of the left eye when hint_flat puts it there,
+  // and in one walk, which draws the batch of the left eye again. Then the
+  // move of hint_hand_depth gives it the depth of the Hand.
+  float dx = 0.0f;
+  bool left_pixel = g_replay_right;
   float target = 0.0f;
   // Nothing recorded means the first pass did not draw this hint, and moving
   // it to a place nobody measured would be worse than leaving it alone.
-  if (!FindFlat(g_widget_image, &target)) return false;
-  const float dx = target - x_low;
+  if (g_hint_flat && FindFlat(g_widget_image, &target)) {
+    dx = target - x_low;
+    left_pixel = true;
+  }
+  float move = 0.0f;
+  if (left_pixel && HandHintMove(&move)) dx += move;
   if (dx == 0.0f) return false;
 
   uint8_t* vertex = static_cast<uint8_t*>(verts);
@@ -1502,6 +1525,120 @@ bool HintSample() {
 
 void HintSampleSoon() { g_hint_log_next = 0; }
 
+// THE DEPTH OF A HINT AT THE GAME'S HAND (hint_hand_depth, docs/ui-layer.md,
+// section 15.6). While the game places the Hand (the mouse, or controllers
+// that are not tracked), a tooltip of the game and a hint with a mouse
+// picture at the Hand draw in the eye pictures. The game draws them at the
+// pixel of the point of the Hand mesh: CameraHelp::DrawKeyOrMouse projects
+// that point when the bits 2 and 4 of its flags are set (0x00447EA0), as the
+// tooltip of the thing under the Hand has them (fn_005C9D00, flags 0x16).
+// The copy of the right eye has the pixel of the left eye: hint_flat puts it
+// there, and one walk draws the batch of the left eye again. Such a hint has
+// no disparity, so it is at the far end of the view, and the eyes see it two
+// times while they look at the Hand or at the land under it. With
+// hint_hand_depth=1 the right eye gets the eye difference of the point of the
+// Hand, so the hint has the depth of the Hand. 0 keeps it flat.
+// The flags of the DrawKeyOrMouse call that draws now.
+uint32_t g_key_flags = 0;
+bool g_key_in = false;
+const uint32_t kKeyAtHand = 6;
+// Two walks: the pixel of the point of the Hand in the left eye of a frame.
+float g_hand_x0 = 0.0f;
+uint64_t g_hand_x0_frame = ~0ull;
+uint64_t g_hand_moves = 0;   // right eyes moved to the depth of the Hand
+uint64_t g_hand_flat = 0;    // right eyes left flat (hint_hand_depth=0)
+uint64_t g_hand_unseen = 0;  // the point of the Hand was not in front
+uint64_t g_hand_said_frame = ~0ull;
+
+const uintptr_t kHintGame = 0x00D0195C;
+const uintptr_t kHintMyInterface = 0x00555850;  // GGame::MyInterface
+const int kFaceHand = 0x3A0;   // GInterface: the CHand
+const int kHandMesh = 0x482C;  // CHand: the mesh object of the Hand
+const int kMeshPoint = 0x38;   // the mesh object: its place, 3 floats
+typedef void*(__fastcall* HintMyInterfaceFn)(void* game, void* unused);
+
+// The point of the Hand mesh, which DrawKeyOrMouse projects.
+bool GameHandPoint(float p[3]) {
+  void* const* game = reinterpret_cast<void* const*>(kHintGame);
+  if (IsBadReadPtr(game, sizeof(void*)) || *game == nullptr) return false;
+  const uint8_t* face = static_cast<const uint8_t*>(
+      reinterpret_cast<HintMyInterfaceFn>(kHintMyInterface)(*game, nullptr));
+  if (face == nullptr || IsBadReadPtr(face + kFaceHand, sizeof(void*))) {
+    return false;
+  }
+  const uint8_t* hand =
+      *reinterpret_cast<const uint8_t* const*>(face + kFaceHand);
+  if (hand == nullptr || IsBadReadPtr(hand + kHandMesh, sizeof(void*))) {
+    return false;
+  }
+  const uint8_t* mesh =
+      *reinterpret_cast<const uint8_t* const*>(hand + kHandMesh);
+  if (mesh == nullptr || IsBadReadPtr(mesh + kMeshPoint, sizeof(float) * 3)) {
+    return false;
+  }
+  const float* point = reinterpret_cast<const float*>(mesh + kMeshPoint);
+  p[0] = point[0];
+  p[1] = point[1];
+  p[2] = point[2];
+  return true;
+}
+
+// For a batch of a DrawKeyOrMouse call at the Hand. In the left eye of two
+// walks it keeps the pixel of the point of the Hand and gives false. For the
+// right eye it gives the move from the left eye that puts the hint at the
+// depth of the Hand, and true. False with hint_hand_depth=0, for a call that
+// is not at the Hand, and when the point is not in front of the eye.
+bool HandHintMove(float* move) {
+  *move = 0.0f;
+  if (!g_key_in || (g_key_flags & kKeyAtHand) != kKeyAtHand || g_eye < 0) {
+    return false;
+  }
+  float p[3];
+  if (!GameHandPoint(p)) return false;
+  const float* m = reinterpret_cast<const float*>(bw::tech::kWorldToCamera);
+  const float near_plane =
+      *reinterpret_cast<const float*>(bw::tech::kNearPlane);
+  const bw::tech::InfoTransform* info =
+      reinterpret_cast<const bw::tech::InfoTransform*>(bw::tech::kInfoTransform);
+  if (IsBadReadPtr(m, sizeof(float) * 12) ||
+      IsBadReadPtr(info, sizeof(*info))) {
+    return false;
+  }
+  float cx = 0.0f, depth = 0.0f;
+  if (!hint_depth_math::CameraPoint(m, p, near_plane, &cx, &depth)) {
+    if (g_eye == 1) ++g_hand_unseen;
+    return false;
+  }
+  const float x = hint_depth_math::PixelX(cx, depth, info->half_res_x);
+  float wanted = 0.0f;
+  if (g_replay_right) {
+    wanted = hint_depth_math::WalkMove(OneWalkShiftPerRhw(), near_plane, depth);
+  } else if (g_eye == 0) {
+    g_hand_x0 = x;
+    g_hand_x0_frame = g_ui_frame;
+    return false;
+  } else {
+    if (g_hand_x0_frame != g_ui_frame) return false;
+    wanted = x - g_hand_x0;
+  }
+  if (g_hint_hand_depth == 0) {
+    ++g_hand_flat;
+  } else {
+    ++g_hand_moves;
+    *move = wanted;
+  }
+  if (HintSample() && g_hand_said_frame != g_ui_frame) {
+    g_hand_said_frame = g_ui_frame;
+    ModLog("ui hint      : frame %llu, a hint of the game at the game's Hand. "
+           "The point of the Hand is %.1f units from the eye, and its eye "
+           "difference is %.1f px. The right eye has the hint %.1f px from "
+           "the left eye (hint_hand_depth=%d, %s)", g_ui_frame, depth, wanted,
+           g_hint_hand_depth != 0 ? wanted : 0.0f, g_hint_hand_depth,
+           g_replay_right ? "one walk" : "two walks");
+  }
+  return g_hint_hand_depth != 0;
+}
+
 void HintLog(const char* what, const wchar_t* text, float x0, float x1,
              float y0, float y1) {
   if (g_eye < 0 || !HintSample()) return;
@@ -1621,6 +1758,15 @@ bool TooltipIn(void* verts, uint32_t fvf, uint32_t count) {
       float target = 0.0f;
       if (FindTooltipFlat(g_tooltip_key, &target)) g_tooltip_dx = target - left;
     }
+    // THE DEPTH OF THE GAME'S HAND (hint_hand_depth). The right eye has the
+    // pixel of the left eye with hint_flat and in one walk. Then it gets the
+    // eye difference of the point of the Hand.
+    if (!g_tooltip_at_hand) {
+      float move = 0.0f;
+      if (HandHintMove(&move) && (g_hint_flat || g_replay_right)) {
+        g_tooltip_dx += move;
+      }
+    }
   }
   if (g_tooltip_at_hand) {
     uint8_t* vertex = static_cast<uint8_t*>(verts);
@@ -1672,12 +1818,10 @@ void TooltipOut(void* verts, uint32_t count) {
 // not have is not drawn, and a key cap for a keyboard key is not drawn. The
 // callers still run their fades. ControllerHintsActive is latched at the start
 // of the left eye, so both eyes decide the same way.
-void __cdecl h_DrawKeyOrMouse(uint32_t blink, uint32_t button,
-                              uint32_t row_or_label, const wchar_t* text,
-                              uint32_t x, uint32_t y, uint32_t size,
-                              uint32_t flags, uint32_t colour_a,
-                              uint32_t colour_b, uint32_t alpha) {
-  const uintptr_t from = reinterpret_cast<uintptr_t>(_ReturnAddress());
+void DrawKeyOrMouseIn(uintptr_t from, uint32_t blink, uint32_t button,
+                      uint32_t row_or_label, const wchar_t* text, uint32_t x,
+                      uint32_t y, uint32_t size, uint32_t flags,
+                      uint32_t colour_a, uint32_t colour_b, uint32_t alpha) {
   ControllerHintsNoteDraw(static_cast<uint32_t>(from), blink, button,
                           row_or_label, text);
   const bool key_cap = blink == 0xFFFFFFFFu;
@@ -1757,6 +1901,24 @@ void __cdecl h_DrawKeyOrMouse(uint32_t blink, uint32_t button,
   g_in_tooltip = false;
 }
 
+// The flags of the call are known while it draws, for the depth of a hint at
+// the game's Hand (HandHintMove).
+void __cdecl h_DrawKeyOrMouse(uint32_t blink, uint32_t button,
+                              uint32_t row_or_label, const wchar_t* text,
+                              uint32_t x, uint32_t y, uint32_t size,
+                              uint32_t flags, uint32_t colour_a,
+                              uint32_t colour_b, uint32_t alpha) {
+  const uintptr_t from = reinterpret_cast<uintptr_t>(_ReturnAddress());
+  const uint32_t outer_flags = g_key_flags;
+  const bool outer_in = g_key_in;
+  g_key_flags = flags;
+  g_key_in = true;
+  DrawKeyOrMouseIn(from, blink, button, row_or_label, text, x, y, size, flags,
+                   colour_a, colour_b, alpha);
+  g_key_flags = outer_flags;
+  g_key_in = outer_in;
+}
+
 // The scopes the interface scale applies in. Both only mark that the help
 // layer is drawing.
 typedef void(__stdcall* HelpTextFinishFn)(void* arg);
@@ -1773,7 +1935,8 @@ const uintptr_t kHelpDraw3D = 0x005C59A0;
 // and a wheel hint. With the mouse as the owner they show as the game draws
 // them, and with a controller as the owner they show as key caps, once in each
 // eye. A fifth call is a key cap for a keyboard key, which is hidden then.
-bool g_hint_selftest = false;
+// 0 off, 1 the five hints below, 2 those and two hints at the game's Hand.
+int g_hint_selftest = 0;
 
 void HintSelfTest() {
   struct Case {
@@ -1801,6 +1964,25 @@ void HintSelfTest() {
                        reinterpret_cast<uint32_t>(&colour_text),
                        reinterpret_cast<uint32_t>(&colour_box), 255);
     }
+  }
+  if (g_hint_selftest < 2) return;
+  // hint_selftest=2: a yellow tooltip and a hint with a mouse picture at the
+  // game's Hand, two copies of each, with the flags of the tooltip of the
+  // thing under the Hand (fn_005C9D00): the game puts them at the pixel of the
+  // point of the Hand, 0 and 40 px under it, at a 25th of the render height.
+  const bw::tech::InfoTransform* info =
+      reinterpret_cast<const bw::tech::InfoTransform*>(bw::tech::kInfoTransform);
+  if (IsBadReadPtr(info, sizeof(*info)) || info->res_y <= 0) return;
+  const uint32_t size = static_cast<uint32_t>(info->res_y) / 25;
+  static uint32_t colour_yellow = 0xFFFFFF00u;
+  static uint32_t colour_none = 0x00000000u;
+  for (int copy = 0; copy < 2; ++copy) {
+    h_DrawKeyOrMouse(0, 0, kIconTypeNone, L"Test tooltip at the Hand", 0, 0,
+                     size, 0x16, reinterpret_cast<uint32_t>(&colour_yellow),
+                     reinterpret_cast<uint32_t>(&colour_none), 255);
+    h_DrawKeyOrMouse(0, 1, 2, L"Test hint at the Hand", 0, size * 2, size,
+                     0x16, reinterpret_cast<uint32_t>(&colour_yellow),
+                     reinterpret_cast<uint32_t>(&colour_none), 255);
   }
 }
 
@@ -2853,7 +3035,51 @@ void UiDepthSetHintMode(int mode) {
 }
 
 int UiDepthHintMode() { return g_hint_mode; }
-void UiDepthSetHintSelfTest(bool on) { g_hint_selftest = on; }
+void UiDepthSetHintSelfTest(int mode) { g_hint_selftest = mode; }
+
+namespace {
+int g_hint_hand_depth_test_frame = 0;
+
+const char* HintHandDepthText(int on) {
+  return on != 0 ? "a tooltip or a hint of the game at the game's Hand has "
+                   "the depth of the Hand in both eyes"
+                 : "a tooltip or a hint of the game at the game's Hand has "
+                   "the same pixel in both eyes";
+}
+}  // namespace
+
+void UiDepthSetHintHandDepth(int on, int test_frame) {
+  g_hint_hand_depth = on != 0 ? 1 : 0;
+  g_hint_hand_depth_test_frame = test_frame;
+  ModLog("ui depth     : hint_hand_depth=%d, %s", g_hint_hand_depth,
+         HintHandDepthText(g_hint_hand_depth));
+  if (test_frame > 0) {
+    ModLog("ui depth     : test key hint_hand_depth_test_frame: "
+           "hint_hand_depth changes at frame %d", test_frame);
+  }
+}
+
+// The test key (Ctrl, Shift and the slash key, test_keys=1). A long pulse for
+// 1 and a short pulse for 0.
+void UiDepthToggleHintHandDepth(const char* cause) {
+  g_hint_hand_depth = g_hint_hand_depth != 0 ? 0 : 1;
+  ControllersGesturePulse(0.5f, g_hint_hand_depth != 0 ? 0.30f : 0.08f);
+  ModLog("ui depth     : %s: hint_hand_depth is %d now (%s), frame %llu", cause,
+         g_hint_hand_depth, HintHandDepthText(g_hint_hand_depth),
+         ControllersFrameCount());
+}
+
+// Once a frame, outside the eye passes: the test key with a frame.
+void UiDepthHintHandDepthFrame() {
+  if (g_hint_hand_depth_test_frame <= 0) return;
+  const uint64_t frame = ControllersFrameCount();
+  const uint64_t at = static_cast<uint64_t>(g_hint_hand_depth_test_frame);
+  static uint64_t done_frame = 0;
+  if (frame != done_frame && ControllersTestFrame(at, frame) == at) {
+    done_frame = frame;
+    UiDepthToggleHintHandDepth("test key hint_hand_depth_test_frame");
+  }
+}
 
 void UiDepthSetHintScale(float scale) {
   if (scale < 0.15f) scale = 0.15f;
@@ -3031,6 +3257,16 @@ void UiDepthReportHelp() {
     ModLog("ui depth     : %llu tooltip calls went to the hint card and did "
            "not draw in an eye picture", g_tooltips_to_card);
     g_tooltips_to_card = 0;
+  }
+  if (g_hand_moves > 0 || g_hand_flat > 0 || g_hand_unseen > 0) {
+    ModLog("ui depth     : the right eye of a hint of the game at the game's "
+           "Hand: %llu times at the depth of the Hand, %llu times at the pixel "
+           "of the left eye (hint_hand_depth=%d now), and %llu times the "
+           "point of the Hand was not in front of the eye", g_hand_moves,
+           g_hand_flat, g_hint_hand_depth, g_hand_unseen);
+    g_hand_moves = 0;
+    g_hand_flat = 0;
+    g_hand_unseen = 0;
   }
   if (g_ui_scaled > 0) {
     ModLog("ui depth     : %llu help batches drawn at the interface size",

@@ -358,6 +358,14 @@ is built, and no test has proven it.
   no session has a note that the game made by itself, from a miracle that
   the Creature sees. To see in the headset: the note shows one time, over
   the head of the Creature.
+- **B34. A hint at the game's Hand: check it in a headset.** While the game
+  places the Hand (the mouse, or controllers that are not tracked), a
+  tooltip or a hint of the game at the Hand has the depth of the Hand in
+  both eyes (`hint_hand_depth=1`, `ui-layer.md`, section 15.6). Desktop runs
+  with the test keys show it with both renderers, in one walk and in two
+  walks. No run had a real tooltip of a thing under the Hand in that state.
+  Only a headset can show that the yellow text at the Hand then shows one
+  time.
 
 B1b, B2, B4 and B11 are one package: a thing that is held, thrown, or
 that moves while the Hand takes it.

@@ -469,7 +469,7 @@ text), the hook `h_DrawKeyOrMouse` in `src/mod/draw_hooks.cpp`, and
 | --- | --- | --- |
 | `controller_hints` | 1 | 0 leaves the hints and the help text as the game makes them |
 | `hint_profile` | empty | Test key. Forces a profile string, for example `htc/vive_controller`. Empty takes the profile the runtime reports. |
-| `hint_selftest` | 0 | Test key (8.5) |
+| `hint_selftest` | 0 | Test key (8.5). 2 also draws two hints at the game's Hand (`ui-layer.md`, 15.6) |
 | `help_test` | 0 | Test key. Turns the game's help on in memory (`ui-layer.md`, 15.1). |
 | `hint_mode` | 1 with head tracking, else 2 | What to do with the two copies the game draws of a picture hint: 0 draw both, 1 keep the copy at the Hand, 2 keep the pinned copy (`draw_hooks.cpp`) |
 | `controller_swap_buttons`, `gesture_button`, `grab_world` | `controllers.md` | Change the words (the trigger and the grip swap, the gesture word, the word of the world grip) |

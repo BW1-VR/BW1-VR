@@ -668,6 +668,7 @@ recenter, and whether Virtual Desktop composes quad layers before the encode.
 | `creature_panel` | 2 | the Creature panel with `ui_panel=1`: 0 off, 1 fixed in the room, 2 near the Creature (section 13) |
 | `screen_distance_cm`, `screen_width_cm` | 200, 260 | the screen quad of 1.4 |
 | `ui_scale_pct`, `hint_scale_pct`, `hint_flat`, `ui_shift_max_px`, `subtitle_lift_pct`, `subtitle_deg` | 25, 20, 1, 24, 0, 35 | the interface in the eye pictures (`backend.md`) |
+| `hint_hand_depth` | 1 | a hint of the game at the game's Hand at the depth of the Hand (section 15.6) |
 | `subtitle_*` | section 17.5 | the subtitle card |
 | `hint_card`, `prompts`, `hint_card_size_pct` | `controller-hints.md` | the hint cards |
 | `bubble_card` | section 18.4 | a speech bubble of the game |
@@ -944,8 +945,8 @@ in `controller_math.h`):
    the Hand's depth, beside the hand.
 
 `ui_scale_pct`, `hint_scale_pct` and `hint_flat` do not change a tooltip at
-the Hand. With the mouse nothing of this runs. The game's mouse picture hint
-(the widget band) is not changed. With the controller words on, the game's
+the Hand. While the game places the Hand, section 15.6 gives the depth.
+The game's mouse picture hint (the widget band) is not changed. With the controller words on, the game's
 hints become key caps and take the tooltip path.
 
 The game draws its Hand after the help, so the mesh can hide a part of a
@@ -969,6 +970,89 @@ take rig of `hand.md` with `help_test=1`.
 
 **Needs the headset.** Whether 2.5 cm reads well at 40 to 80 cm, whether the
 label fuses at the hand's depth, and where the Hand's mesh hides it.
+
+### 15.6 A hint at the game's Hand
+
+While the game places the Hand (with the mouse, or while the controllers are
+not tracked), no controller gives a Hand's point, so 15.3 does not run. The
+tooltip of the thing under the Hand ("Got 22 Belief", "Wood Required: 1000")
+and the hint with a mouse picture ("Move") then draw in the eye pictures.
+
+**What the game does [V].** `fn_005C9D00` makes the tooltip of the thing
+under the Hand with the flags `0x16`. When the bits 2 and 4 of its flags are
+set, `CameraHelp::DrawKeyOrMouse` (`0x00447EA0`) projects the point of the
+Hand mesh (`CHand+0x482C`, its place at `+0x38`) with the camera of the pass,
+and draws the hint at that pixel. So the game puts the hint at a point of the
+world, but its batches have no depth of their own.
+
+**Why it is double.** `hint_flat=1` puts the right eye of the hint at the
+pixel of the left eye, and one walk draws the batch of the left eye again. A
+hint with no disparity is at the far end of the view. In a desktop run the
+point of the Hand was 163 units from the eye, with an eye difference of 52
+px. The eyes look at the Hand or at the land under it, so they see the hint
+two times.
+
+**What the mod does (`hint_hand_depth=1`).** For a batch of a DrawKeyOrMouse
+call with the bits 2 and 4, `HandHintMove` in `draw_hooks.cpp` gives the right
+eye the eye difference of the point of the Hand (`hint_depth_math.h`):
+
+- One walk: the move of the depth of the point
+  (`one_walk_math::ShiftAtDepth`), with the camera of the left eye.
+- Two walks: the pixel of the point in the right eye less its pixel in the
+  left eye. With `hint_flat=0` the right eye pass keeps the pixel that the
+  game gave, which has that eye difference already.
+
+This applies to a tooltip with no picture (the tooltip path of
+`h_DrawKeyOrMouse`) and to the kept copy of a hint with a mouse picture
+(`FlattenIn`). The left eye does not change. A hint that the game does not
+draw at the Hand (the flags without the bits 2 and 4, for example the hint
+beside the help text, or the label of the hand demo) stays as before. When
+the point is not in front of the eye, the hint stays flat. `hint_hand_depth=0`
+keeps each such hint flat.
+
+While a controller places the Hand, these hints go to the hint card (section
+16), or to the Hand's point of 15.3 with `hint_card=0`. No other yellow text
+of the game takes the flat path then.
+
+**Keys, test keys and the log.**
+
+| Key of `bwvr.ini` | Default | Meaning |
+| --- | --- | --- |
+| `hint_hand_depth` | 1 | 1: a tooltip or a hint of the game at the game's Hand has the depth of the Hand. 0: the same pixel in both eyes |
+
+With `test_keys=1`, Ctrl, Shift and the slash key change `hint_hand_depth` in
+play, with a long pulse for 1 and a short pulse for 0. Test keys for the
+desktop runs:
+
+- `hint_hand_depth_test_frame=<frame>`: the key changes at that frame.
+- `mouse_owner_test_frame=<frame>`: from that frame the mouse owns the
+  pointer, as with Ctrl F12 "mouse only" (`controllers.md`, section 3). The
+  game then places the Hand at the pointer that the controller left.
+- `hint_selftest=2`: the five hints of `hint_selftest=1`, and a yellow
+  tooltip and a hint with a mouse picture at the game's Hand, with the flags
+  `0x16`, two copies of each.
+
+The frames of the test keys count as the steps of the scripted controller
+count. On a sample frame of the log the tag `ui hint` gives the depth of the
+point of the Hand, its eye difference and the move of the right eye. The
+report of the tag `ui depth` counts the right eyes at the depth of the Hand,
+the right eyes at the pixel of the left eye, and the frames with the point
+of the Hand not in front.
+
+**Tests.** The math test (`OneWalkChecks`) has a point of the Hand 55 units
+from the eye: one walk puts the hint at the pixel of the point in the right
+eye, and a flat hint is more than 50 px from it. The desktop run is
+`creature_recipe.ps1 -Kind leash` with `hint_selftest=2`,
+`mouse_owner_test_frame=860` and `hint_hand_depth_test_frame=925`, and
+`test_frame_rate=60` for the Vulkan renderer: the pictures of frame 903 have
+the key at 1, and the pictures of frame 953 have it at 0. The game's own
+hint "Move" is at the Hand in that run.
+
+**Limits.**
+
+- No run had a real tooltip of a thing under the Hand while the game placed
+  the Hand. The test key draws through the same call with the same flags.
+- Only a headset can show that the hint fuses with the Hand and the land.
 
 ## 16. The hint card
 

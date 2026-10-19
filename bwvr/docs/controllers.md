@@ -602,7 +602,9 @@ The mouse keeps working all the time. One owner at a time:
 - The pointer stays where the last owner left it. The log names each change.
 
 `test_keys=1` and Ctrl+F12 cycle the owner: automatic, controller only, mouse
-only. This gives an A/B in one run. F11 and F12 are the only keys the mod
+only. This gives an A/B in one run. The test key `mouse_owner_test_frame=<frame>`
+gives the owner "mouse only" at that frame, for a desktop run in which the game
+places the Hand (`ui-layer.md`, 15.6). F11 and F12 are the only keys the mod
 reads for itself. Ctrl held with the mouse at rest does not start the zoom of
 the game.
 
