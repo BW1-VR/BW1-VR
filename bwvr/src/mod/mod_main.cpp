@@ -35,6 +35,7 @@
 #include "vk_scene.h"
 #include "vk_ddraw.h"
 #include "vk_window.h"
+#include "vk_fallback.h"
 #include "../proxy/ddraw_proxy.h"
 #include "render_thread.h"
 #include "tabletop.h"
@@ -1993,7 +1994,12 @@ void StartVrStep() {
                      quiet ? &ModLogNowhere : &ModLog)) {
     // A session with Vulkan that the GPU or the runtime cannot have. With
     // vulkan_only=1 there is no session with Direct3D 11, so the game stays
-    // on the monitor.
+    // on the monitor. With backend=vulkan the next start uses dxwrapper and
+    // a session with Direct3D 11 (VkFallbackFault).
+    if (screen->VulkanFailed()) {
+      VkFallbackFault("the session with Vulkan did not start (the openxr "
+                      "lines before name the call)");
+    }
     if (screen->VulkanFailed() && g_vulkan_only) {
       delete screen;
       g_vr_gave_up = true;
@@ -2308,6 +2314,12 @@ void __cdecl h_FinishFrame() {
   // and make the game look hung with no way back.
   PresentWatchSkipDesktop(g_skip_desktop && g_screen != nullptr &&
                           g_screen->running());
+  // backend=vulkan: the first frame that the session with Vulkan presented
+  // deletes the file of the fall back (vk_fallback.h).
+  if (VkFallbackWaiting() && g_screen != nullptr && g_screen->vulkan() &&
+      vk::Started() && g_screen->presented() > 0) {
+    VkFallbackPicture("the headset");
+  }
 
   // The watch of the frame thread counts each frame, also of the logos
   // (hang_watch, a test key).
@@ -2568,6 +2580,9 @@ void EarlyHooks() {
   // On by default from version 1.1.0. Read here because the device hooks of
   // the bridge need it.
   Depth24SetWanted(GetPrivateProfileIntA("bwvr", "depth24", 1, path) != 0);
+  // backend=vulkan: the line of a fall back to dxwrapper, or the file that
+  // the first picture deletes (vk_fallback.h).
+  VkFallbackStart(g_dir, path);
   // backend=vulkan with vulkan_only=1: no DXVK, no hook on Direct3D 9 and no
   // load of d3d9.dll.
   g_vulkan_only = ProxyBackendVulkan() &&
@@ -2762,6 +2777,9 @@ void Shutdown(const char* path) {
 }
 
 void __cdecl h_free_system() {
+  // The game loop ended as it does for Quit. A fault comes to exit or to
+  // DllMain, not here.
+  VkFallbackEnd();
   Shutdown("the game frees its system (free_system)");
   o_free_system();
 }

@@ -64,6 +64,7 @@ Other docs: `software-tnl.md` (the CPU transform and the camera matrix),
 | `src/mod/crash_report.cpp` | The report of a crash in the log, and the dump `bwvr-crash.dmp` (`crash_report`) |
 | `src/mod/vk_ddraw.cpp` | DirectDraw 7 and Direct3D 7 of the mod on Vulkan (`backend=vulkan`) |
 | `src/mod/vk_window.cpp` | The swapchain of Vulkan on the window of the game (`vk_window`) |
+| `src/mod/vk_fallback.cpp` | The file of the fall back of `backend=vulkan` (`vulkan_fallback`) |
 | `src/common/exe_check.h`, `version.h` | The build check and the product name |
 
 ## How the game draws
@@ -329,6 +330,7 @@ backend=system                  ; system DirectDraw
 backend=vulkan                  ; DirectDraw 7 and Direct3D 7 of the mod on Vulkan
 gpu_bridge=1                    ; use the GPU path when the backend allows it
 vulkan_only=1                   ; backend=vulkan uses only Vulkan ("Only Vulkan")
+vulkan_fallback=1               ; backend=vulkan takes dxwrapper when Vulkan failed
 ```
 
 A name with no path is searched beside the game first. If the chosen backend
@@ -2901,7 +2903,9 @@ object go to the mod (`ProxySetCreateHooks`, `ddraw_proxy.h`). The launcher
 row "Renderer" chooses Vulkan or Direct3D 9. Vulkan is the default: the
 launcher shows it for an ini with no key, and it writes `backend=vulkan` only
 when the GPU has Vulkan 1.3, else dxwrapper. With no key the proxy takes
-dxwrapper, because the proxy cannot ask Vulkan before the mod loads.
+dxwrapper, because the proxy cannot ask Vulkan before the mod loads. A
+start after a fault of Vulkan takes dxwrapper too ("The fall back of the
+renderer Vulkan").
 
 **What the game uses.** `ddraw_census=1` with `backend=system` counts each
 call from the start (dxwrapper puts a hot patch on `DirectDrawCreateEx`
@@ -3136,6 +3140,92 @@ Shift D changes it from the next present: a change to 0 takes the
 swapchain and the surface away, so GDI can draw into the window again. The
 report of each 450 frames has the presents through the swapchain and the
 presents with no free image.
+
+### The fall back of the renderer Vulkan
+
+`vulkan_fallback=1` (the default, `vk_fallback.cpp`, `TestVulkan` in
+`ddraw_proxy.cpp`). With `backend=vulkan` a PC with a GPU or a driver that
+the renderer does not run on gets dxwrapper and Direct3D 9, at this start or
+at the next start. The proxy chooses the backend in `DllMain`, before the
+mod loads one, so it does only cheap tests there. It does not make a Vulkan
+instance under the loader lock.
+
+**The file.** Before the mod uses Vulkan, it writes
+`bwvr-vulkan-pending.txt` beside the game (in `EarlyHooks`, before the game
+makes its DirectDraw object). The first picture of the renderer deletes it:
+a present to the window through the swapchain (`VkWindowPresent`) or
+through GDI, or the first frame that a session with Vulkan presented. A
+start that ends before its first picture leaves the file: a fault, a hang
+that a person stops, a stop of the process. A game that ends as Quit ends
+it (the hook of `free_system`) deletes the file when no fault came, because
+a start that waits for the headset is not a fault ("The device of the
+session").
+
+**When the proxy takes dxwrapper at this start.** With `backend=vulkan` the
+proxy takes `dxwrapper\ddraw.dll`, as with no `backend` key, when:
+
+- the file `bwvr-vulkan-pending.txt` is beside the game. The file stays, so
+  each next start uses dxwrapper too, until a save of the launcher deletes
+  it ("The launcher").
+- there is no `vulkan-1.dll` in the folders where Windows looks for a DLL.
+
+Then the mod is the mod of dxwrapper for the whole process: the GPU bridge,
+the session with Direct3D 11 and the parts for Direct3D 9. The log says
+why:
+
+```
+vulkan fallback: backend=vulkan, but the start before with Vulkan ended before its first picture, or Vulkan failed (bwvr-vulkan-pending.txt is there). This start uses dxwrapper and Direct3D 9. The file stays, so each start uses dxwrapper until a save of the launcher deletes it
+backend      : dxwrapper\ddraw.dll in place of vulkan (the line vulkan fallback says why)
+```
+
+**What falls back at the next start.** These faults come after the game
+made its DirectDraw object of the mod, so this start cannot change its
+backend. The mod writes the file again with the cause, and keeps it, also
+after a picture. The log says so (`vulkan fallback: ... The mod wrote the
+file again, and the next start uses dxwrapper and Direct3D 9`).
+
+| Fault | This start | The next start |
+| --- | --- | --- |
+| No GPU with Vulkan 1.3, dynamic rendering and multiview, or a failed instance or device (`vk::Start`) | The renderer stops, and the window stays black | dxwrapper |
+| A fault that stops the renderer (`Fail` of `vk_scene.cpp`: the shaders, the pipelines, a submit) | The window stays black from the fault | dxwrapper |
+| A session with Vulkan that does not start (`XrScreen::VulkanFailed`) | With `vulkan_only=1` no session: the game is on the monitor | dxwrapper, with a session with Direct3D 11 |
+| A fault or a hang before the first picture | The game stops | dxwrapper |
+
+A failed swapchain of the window is not a fault here: the window then gets
+the picture through GDI ("The window with Vulkan").
+
+**The launcher** shows the file in its status line, and the row "Renderer"
+then shows Direct3D 9 (`launcher.md`, "What it checks"). Each save deletes
+the file, so the next start with the renderer Vulkan tries Vulkan again.
+The game does not write `bwvr.ini`.
+
+**The keys.** `vulkan_fallback=0` is the behavior with no fall back: the
+proxy does not read the file, the mod writes none, and a fault of Vulkan
+does not change the next start. `vulkan_fallback_test=1` (a test key of
+the desktop runs) stops the process when the game makes its DirectDraw
+object, before the first walk, with `TerminateProcess`, as a fault does.
+The launcher removes the key on each save. There is no keyboard test key:
+the choice is made at the start of the process. `desk_run.ps1` takes the
+file out of the game folder for each run and puts the file of the player
+back after the run, and `-VulkanPending <text>` starts a run with the file
+there.
+
+**Desktop runs** (an NVIDIA GeForce RTX 3090, `vulkan_only=1`, a new
+game):
+
+| Run | What it showed |
+| --- | --- |
+| `vulkan_fallback_test=1` | The mod wrote the file, the game made its DirectDraw object, and the process stopped before the first walk. The file stayed |
+| The file there at the start | The line `vulkan fallback` with the cause, the backend `dxwrapper\ddraw.dll in place of vulkan`, and the game with dxwrapper, the GPU bridge and Direct3D 9. The file stayed |
+| No file | The mod wrote the file, and the first present through the swapchain of the window deleted it |
+| `vulkan_fallback=0`, the file there | The game used Vulkan, and the file stayed as it was |
+
+With `test_frame_rate=60` the mod makes no present to the window, so on the
+desktop the file stays until the end of the run.
+
+**Not run:** a PC with no Vulkan 1.3 or no `vulkan-1.dll`, a fault of the
+driver, and a session with Vulkan that does not start. Only a headset shows
+the first picture of a session with Vulkan that deletes the file.
 
 ## Foveated rendering
 
@@ -4850,7 +4940,7 @@ keys that the launcher sets.
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| `backend` | `vulkan` from the launcher when the GPU has Vulkan 1.3, dxwrapper with no key | The launcher row "Renderer": Vulkan writes `vulkan` when the GPU has Vulkan 1.3 (the launcher asks the Vulkan of Windows), Direct3D 9 writes `dxwrapperddraw.dll`. See "Settings" and "The backend of the mod on Vulkan" |
+| `backend` | `vulkan` from the launcher when the GPU has Vulkan 1.3, dxwrapper with no key | The launcher row "Renderer": Vulkan writes `vulkan` when the GPU has Vulkan 1.3 (the launcher asks the Vulkan of Windows), Direct3D 9 writes `dxwrapper\ddraw.dll`. See "Settings" and "The backend of the mod on Vulkan" |
 | `gpu_bridge` | 1 | The GPU path |
 | `frame_send` | 0 | 0: the mod waits for the GPU after each eye pass. 1: one wait a frame. 2: one wait a frame on a second thread, which also gives the frame to the runtime. See "One wait a frame, and a second thread" |
 | `xr_hold_ms` | 30 | When the game gives the runtime no frame for this many ms, a second thread sends the layers of the last frame again, at the rate of the headset. 0 is off: the headset gets no frame while the game gives none. 0 to 1000. A test key: Shift W. See "The hold of the last frame" |
@@ -4941,6 +5031,8 @@ keys that the launcher sets.
 | `vk_stage1` | 1 | With the Vulkan renderer: 1 a draw with a color operation and a texture on texture stage 1 gets that stage, for example the light maps of the Temple. 0 the renderer makes stage 0 alone. A test key: Shift E. See "The second stage" |
 | `vk_present_late` | 1 | With `backend=vulkan` and the way through the CPU (`vk_window=0`): 1 the window on the monitor shows the picture of the present before, with no wait for the GPU, 0 each present waits for its own picture. See "The backend of the mod on Vulkan" |
 | `vulkan_only` | 1 | With `backend=vulkan`: 1 no part for Direct3D 9 starts, and the session with Vulkan has no Direct3D 11 device. 0 these parts start, with no Direct3D 9 to use. There is no test key: the choice is made at the start. See "Only Vulkan" |
+| `vulkan_fallback` | 1 | With `backend=vulkan`: 1 a start takes dxwrapper when the file `bwvr-vulkan-pending.txt` is beside the game or there is no `vulkan-1.dll`, and a fault of Vulkan writes the file for the next start. 0 no file and no fall back. See "The fall back of the renderer Vulkan" |
+| `vulkan_fallback_test` | 0 | A test key of the desktop runs: 1 the mod stops the process before the first walk. See the same section |
 | `vk_window` | 1 | With `backend=vulkan`: 1 the window of the game gets the picture through a swapchain of Vulkan, 0 through the CPU and GDI. A test key: Shift D. See "The window with Vulkan" |
 | `vk_texture_reuse` | 1 | 1 a texture that a walk reads again goes into the image it has when it can, and its pixels into a ring of the slot, so a read makes no allocation of the GPU. 0 each read makes a new image and a staging buffer. See "The Vulkan renderer" |
 | `foveation` | 0 | 0 each pixel of the eye pictures has the full rate. 1 light, 2 medium, 3 strong (the launcher writes 1 and the two degrees of its sliders): the part around the centre of the fovea has the full rate, and the rest fewer shades. Only the eye pictures of the Vulkan renderer. The launcher has the row "Foveated rendering (test)". A test key: Shift O. See "Foveated rendering" |

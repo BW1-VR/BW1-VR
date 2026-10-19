@@ -79,6 +79,9 @@ Every save also writes these:
   not have. The uninstaller puts them back, so the plain game does not open in
   the square window that the mod asks for.
 - It deletes the retired keys (see below) from `bwvr.ini`.
+- It deletes `bwvr-vulkan-pending.txt` beside the game. The renderer is the
+  choice of the player now: with Vulkan the next start tries Vulkan again
+  (`backend.md`, "The fall back of the renderer Vulkan").
 
 If Windows refuses the write (an unelevated write to `bwvr.ini` in Program
 Files fails), the status line says so and not "Saved.".
@@ -170,7 +173,7 @@ does not delete them, so a value that a person writes in `bwvr.ini` is kept.
 
 | Setting | Default | What it does |
 | --- | --- | --- |
-| Renderer | Vulkan | Key `backend`. Vulkan: the mod draws the game with its own DirectDraw and Direct3D 7 on Vulkan, the session is a session with Vulkan, and the window of the game has a swapchain of Vulkan. The mod then uses no dxwrapper, no Direct3D 9 and no Direct3D 11 (`backend.md`, "The backend of the mod on Vulkan", "Only Vulkan"). The launcher writes `vulkan` only when the Vulkan of Windows has a GPU with Vulkan 1.3. Else it writes dxwrapper, sets the list back, and the status line of Save says so. Direct3D 9: dxwrapper and Direct3D 9. A bwvr.ini with no `backend` key shows Vulkan when the GPU has Vulkan 1.3, and a key with dxwrapper shows Direct3D 9 |
+| Renderer | Vulkan | Key `backend`. Vulkan: the mod draws the game with its own DirectDraw and Direct3D 7 on Vulkan, the session is a session with Vulkan, and the window of the game has a swapchain of Vulkan. The mod then uses no dxwrapper, no Direct3D 9 and no Direct3D 11 (`backend.md`, "The backend of the mod on Vulkan", "Only Vulkan"). The launcher writes `vulkan` only when the Vulkan of Windows has a GPU with Vulkan 1.3. Else it writes dxwrapper, sets the list back, and the status line of Save says so. Direct3D 9: dxwrapper and Direct3D 9. A bwvr.ini with no `backend` key shows Vulkan when the GPU has Vulkan 1.3, and a key with dxwrapper shows Direct3D 9. With `backend=vulkan` and the file `bwvr-vulkan-pending.txt` beside the game the row shows Direct3D 9, because the game uses it ("What it checks") |
 | Direct3D 9 through DXVK | off | Key `d3d9_backend`. Only with the renderer Direct3D 9, so the row is not in the table with Vulkan (`backend.md`, "DXVK under dxwrapper") |
 | Headset session with Vulkan | off | Key `xr_vulkan`. Only with the renderer Direct3D 9, so the row is not in the table with Vulkan: the renderer Vulkan always has a session with Vulkan (`backend.md`, "The session with Vulkan") |
 
@@ -272,8 +275,15 @@ pixels cover a wider angle. About 115% matches the native density.
 
 ## What it checks
 
-On start, the status line shows the result of these checks. It says "Ready"
-only when all pass.
+The status line at the bottom of the window shows the result of these
+checks (`CheckEverything`). Each check is cheap, and none starts the game.
+When each check passes, the line is green with a tick: "Ready. OpenXR
+runtime:" and the name of the file of the runtime, for example
+`virtualdesktop-openxr-32.json`. Else the line is red with a warning sign,
+and it gives the first check that fails and what to do. The tooltip of the
+line gives each check that ran and its result, with the full paths. The
+launcher does the checks when it opens, when the row "Renderer" changes,
+and after "Save Config", which puts "Saved." before the result.
 
 1. **The files.** `ddraw.dll`, `openxr_loader.dll`, `dxwrapper\ddraw.dll`,
    `dxwrapper\dxwrapper.dll` and `dxwrapper\dxwrapper.ini`. The status line
@@ -281,10 +291,30 @@ only when all pass.
 2. **The build of the game.** It hashes `runblack.exe` and compares it with the
    v1.42 file, as the mod does at every start (`src/common/exe_check.h`). A
    player with another build is told which one.
-3. **A 32 bit OpenXR runtime.** The game is 32 bit, so a runtime registered
-   only for 64 bit cannot serve it, and the headset shows nothing. The status
-   line names the runtime that it found, for example
-   `virtualdesktop-openxr-32.json`.
+3. **A 32 bit OpenXR runtime.** The game is 32 bit, so its OpenXR loader
+   reads the variable `XR_RUNTIME_JSON`, or else `ActiveRuntime` of
+   `HKLM\SOFTWARE\Khronos\OpenXR\1` in the 32 bit view of the registry
+   (`WOW6432Node`). A runtime that is registered only for 64 bit cannot serve
+   it, and the headset shows nothing. The line says which of these is true:
+   no runtime is set, only a runtime for 64 bit programs is set, or the JSON
+   file of the runtime is missing.
+4. **The OpenXR API layers for 32 bit programs.** Each implicit layer that is
+   on in `HKLM` (32 bit view) and in `HKCU`, under
+   `SOFTWARE\Khronos\OpenXR\1\ApiLayers\Implicit`. A layer is broken when
+   its JSON file is missing, when the DLL of its `library_path` is missing,
+   or when that DLL is for 64 bit programs only. Such a layer stops each
+   runtime (`XR_ERROR_FILE_ACCESS_ERROR`). The line names the layer and the
+   tool "OpenXR API Layers GUI".
+5. **The renderer.** With the file `bwvr-vulkan-pending.txt` and
+   `backend=vulkan`, the last start with Vulkan failed, and the game uses
+   Direct3D 9 (`backend.md`, "The fall back of the renderer Vulkan"). Then
+   the row "Renderer" shows Direct3D 9, and the line says how to try Vulkan
+   again. With the row on Vulkan, a GPU must have Vulkan 1.3 (`HasVulkan13`,
+   asked one time).
+
+The launcher only reads the registry for these checks. The tick and the
+warning sign are not in Segoe UI: Windows takes them from Segoe UI Symbol,
+which it links to Segoe UI. So the status line is a control of Unicode.
 
 ## Where it finds the game
 
@@ -318,13 +348,19 @@ window to a BMP file and end. A person who uses the PC does not see the
 window: it is outside the screen, it has no button on the taskbar, and it
 does not take the focus. The launcher reads the settings for the picture and
 writes nothing but the file. With no game folder it does not stop: the
-picture then shows the default of each row.
+picture then shows the default of each row. `--game <folder>` before
+`-shot` names the game folder when the launcher is not in it, for example
+in the build folder.
 
 `-rows <n>` before `-shot` sets the most rows of a column. This gives the
 picture of a table that has more columns.
 
 `bwvr/tools/desk/launcher_shot.ps1 -Name <name>` runs the launcher of the
-build folder in this way and makes a PNG in `local\launcher-shot`. Look at
+build folder in this way and makes a PNG in `local\launcher-shot`. `-Game
+<folder>` gives it the game folder, so the status line shows the checks of
+that game. The launcher passes its environment to the checks, so a run
+with the variable `XR_RUNTIME_JSON` set to a file that is not there shows
+the line of a runtime file that is missing. Look at
 the picture after each change of the table or of the layout: a text that is
 cut off and two controls that overlap show there. The picture is the client
 area only. It does not show the frame of the window or a tooltip.

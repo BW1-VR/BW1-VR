@@ -114,6 +114,7 @@
 #include "vk_core.h"
 #include "vk_scene.h"
 #include "vk_window.h"
+#include "vk_fallback.h"
 #include "../common/bw_addresses.h"
 #include "fovea_res_math.h"
 #include "foveation_math.h"
@@ -569,6 +570,9 @@ uint64_t g_gaze_frames = 0;
 bool Fail(const char* what) {
   ModLog("vk scene     : %s failed. The Vulkan renderer stops", what);
   g_failed = true;
+  char why[160];
+  sprintf_s(why, "%s failed, and the renderer stopped", what);
+  VkFallbackFault(why);
   return false;
 }
 

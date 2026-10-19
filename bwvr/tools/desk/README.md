@@ -104,7 +104,7 @@ calls it. It keeps these rules, and a new script must keep them too:
 
 | Script | What it is |
 | --- | --- |
-| `desk_run.ps1`, `desk_test.ps1` | One run of a DLL with extra ini keys. The base of each other script. `-Save <name>` starts the run in a test save |
+| `desk_run.ps1`, `desk_test.ps1` | One run of a DLL with extra ini keys. The base of each other script. `-Save <name>` starts the run in a test save. Each run starts with no `bwvr-vulkan-pending.txt` in the game folder, and the file of the player comes back after the run. `-VulkanPending <text>` starts the run with that file (`backend.md`, "The fall back of the renderer Vulkan") |
 | `make_test_save.ps1` | Makes a test save: a saved game that the game writes at the end of a test run. See "A fast start" |
 | `idle_seconds.ps1` | The time since the last input. A large number while the owner's "test now" flag holds |
 | `desk_state.ps1` | Reads the place of the real cursor, the window in front and the idle time |
@@ -112,7 +112,7 @@ calls it. It keeps these rules, and a new script must keep them too:
 | `dialog.ps1` | Measures the start dialog for a render size, and gives the dialog points. Gives the way through the Main Menu of a run in a test save |
 | `verify_build.ps1` | The three runs before a merge |
 | `exit_run.ps1` | A run in which the game ends by itself, and the check of its end |
-| `launcher_shot.ps1` | A picture of the window of the launcher, for a change of its table or its layout. It does not start the game, and it puts no window on the screen, so it needs no idle PC. `-Rows <n>` gives the picture of a table with more columns. See `launcher.md`, "A picture of the window for a test" |
+| `launcher_shot.ps1` | A picture of the window of the launcher, for a change of its table or its layout. It does not start the game, and it puts no window on the screen, so it needs no idle PC. `-Rows <n>` gives the picture of a table with more columns. `-Game <folder>` gives the status line the checks of that game. See `launcher.md`, "A picture of the window for a test" |
 | `aim_run.ps1`, `aim_queue.ps1` | The far fetch, the aim presets, the teleport |
 | `throw_queue.ps1` | Throws and landings |
 | `spawn_run.ps1` | A start with "Keep your old Creature": no story, the player at the Temple |

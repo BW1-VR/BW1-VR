@@ -614,10 +614,10 @@ void SaySlider(int index, int value) {
 
 // THE RENDERER VULKAN needs a GPU with Vulkan 1.3. The launcher asks the
 // Vulkan of Windows, with no device: an instance, the list of the GPUs and
-// their versions.
+// their versions. It asks one time, because an instance takes time.
 bool g_said_no_vulkan = false;
 
-bool HasVulkan13() {
+bool AskVulkan13() {
   HMODULE library = LoadLibraryA("vulkan-1.dll");
   if (library == nullptr) return false;
   bool found = false;
@@ -662,9 +662,63 @@ bool HasVulkan13() {
   return found;
 }
 
-// --- pre-flight, the same checks the script did ----------------------------
+bool HasVulkan13() {
+  static int s_answer = -1;
+  if (s_answer < 0) s_answer = AskVulkan13() ? 1 : 0;
+  return s_answer != 0;
+}
 
-void SayStatus(const char* text) { SetWindowTextA(g_status, text); }
+// THE FALL BACK OF THE RENDERER VULKAN (docs/backend.md). The mod writes
+// this file beside the game before it uses Vulkan, and the first picture
+// deletes it. When it is there at a start, the game uses dxwrapper. A save
+// deletes it, so the next start with Vulkan tries Vulkan again.
+const char kVulkanPendingFile[] = "bwvr-vulkan-pending.txt";
+// bwvr.ini has backend=vulkan and the file is there, so the row "Renderer"
+// shows Direct3D 9 (LoadAll).
+bool g_vulkan_fell_back = false;
+
+bool VulkanPendingThere() { return FileThere(g_game_dir, kVulkanPendingFile); }
+
+// --- the status line: the checks before a start ----------------------------
+
+// The text is green with a tick, or red with a warning sign
+// (WM_CTLCOLORSTATIC).
+bool g_status_ok = true;
+// The tooltip of the status line: each check and its result.
+char g_status_tip[2048] = "";
+
+void SetStatusTip(const char* text) {
+  strcpy_s(g_status_tip, sizeof(g_status_tip), text);
+  if (g_tips == nullptr || g_status == nullptr) return;
+  TOOLINFOA tip = {0};
+  tip.cbSize = sizeof(tip);
+  tip.hwnd = g_window;
+  tip.uId = reinterpret_cast<UINT_PTR>(g_status);
+  tip.lpszText = g_status_tip;
+  SendMessageA(g_tips, TTM_UPDATETIPTEXTA, 0, reinterpret_cast<LPARAM>(&tip));
+}
+
+// The font of the launcher has no tick and no warning sign. Windows takes
+// them from a font that it links to it (Segoe UI Symbol).
+void SayStatus(bool ok, const char* text) {
+  g_status_ok = ok;
+  wchar_t wide[1024];
+  wide[0] = ok ? 0x2713 : 0x26A0;
+  wide[1] = L' ';
+  if (MultiByteToWideChar(CP_ACP, 0, text, -1, wide + 2, 1022) == 0) {
+    wide[2] = 0;
+  }
+  SetWindowTextW(g_status, wide);
+  InvalidateRect(g_status, nullptr, TRUE);
+}
+
+void SayStatus(const char* text) { SayStatus(false, text); }
+
+// Adds one line to the text of a tooltip.
+void TipLine(char* tip, size_t size, const char* line) {
+  if (tip[0] != 0) strcat_s(tip, size, "\n");
+  strcat_s(tip, size, line);
+}
 
 // The build of the game. The mod's addresses fit one file only, so a player
 // with another build must be told, rather than shown a crash.
@@ -689,9 +743,168 @@ bool GameBuildIsRight(char* message, size_t size) {
   return false;
 }
 
-void CheckEverything() {
-  char message[512];
-  message[0] = 0;
+const char* FileName(const char* path) {
+  const char* slash = strrchr(path, '\\');
+  const char* other = strrchr(path, '/');
+  if (other != nullptr && (slash == nullptr || other > slash)) slash = other;
+  return slash != nullptr ? slash + 1 : path;
+}
+
+// The active OpenXR runtime of one view of the registry (KEY_WOW64_32KEY or
+// KEY_WOW64_64KEY), with its variables expanded. It only reads.
+bool ActiveRuntime(REGSAM view, char* out, size_t size) {
+  out[0] = 0;
+  HKEY key;
+  if (RegOpenKeyExA(HKEY_LOCAL_MACHINE, "SOFTWARE\\Khronos\\OpenXR\\1", 0,
+                    KEY_READ | view, &key) != ERROR_SUCCESS) {
+    return false;
+  }
+  char raw[MAX_PATH] = {0};
+  DWORD bytes = sizeof(raw) - 1;
+  DWORD type = 0;
+  const LONG got = RegQueryValueExA(key, "ActiveRuntime", nullptr, &type,
+                                    reinterpret_cast<BYTE*>(raw), &bytes);
+  RegCloseKey(key);
+  if (got != ERROR_SUCCESS || (type != REG_SZ && type != REG_EXPAND_SZ) ||
+      raw[0] == 0) {
+    return false;
+  }
+  if (ExpandEnvironmentStringsA(raw, out, static_cast<DWORD>(size)) == 0) {
+    strcpy_s(out, size, raw);
+  }
+  return true;
+}
+
+// The machine of a DLL from its PE header, or 0 when it cannot be read.
+WORD DllMachine(const char* path) {
+  FILE* f = nullptr;
+  if (fopen_s(&f, path, "rb") != 0 || f == nullptr) return 0;
+  unsigned char head[1024] = {0};
+  const size_t got = fread(head, 1, sizeof(head), f);
+  fclose(f);
+  if (got < 64 || head[0] != 'M' || head[1] != 'Z') return 0;
+  DWORD pe = 0;
+  memcpy(&pe, head + 0x3C, sizeof(pe));
+  if (pe + 6 > got || memcmp(head + pe, "PE\0\0", 4) != 0) return 0;
+  WORD machine = 0;
+  memcpy(&machine, head + pe + 4, sizeof(machine));
+  return machine;
+}
+
+// The value of "library_path" in the manifest of an API layer, as a full
+// path. False when the manifest has none, or names a DLL with no folder
+// (Windows then looks for it in its own folders).
+bool LayerLibrary(const char* manifest, char* out, size_t size) {
+  FILE* f = nullptr;
+  if (fopen_s(&f, manifest, "rb") != 0 || f == nullptr) return false;
+  static char text[65536];
+  const size_t got = fread(text, 1, sizeof(text) - 1, f);
+  fclose(f);
+  text[got] = 0;
+  const char* at = strstr(text, "\"library_path\"");
+  if (at == nullptr) return false;
+  at = strchr(at + 14, ':');
+  if (at == nullptr) return false;
+  at = strchr(at, '"');
+  if (at == nullptr) return false;
+  ++at;
+  char path[MAX_PATH];
+  size_t n = 0;
+  for (; *at != 0 && *at != '"' && n + 1 < sizeof(path); ++at) {
+    if (*at == '\\' && (at[1] == '\\' || at[1] == '/' || at[1] == '"')) ++at;
+    path[n++] = *at == '/' ? '\\' : *at;
+  }
+  path[n] = 0;
+  if (strchr(path, '\\') == nullptr) return false;
+  const bool full = (path[0] != 0 && path[1] == ':') ||
+                    (path[0] == '\\' && path[1] == '\\');
+  if (full) {
+    strcpy_s(out, size, path);
+  } else {
+    char folder[MAX_PATH];
+    strcpy_s(folder, sizeof(folder), manifest);
+    folder[FileName(folder) - folder] = 0;
+    _snprintf_s(out, size, _TRUNCATE, "%s%s", folder, path);
+  }
+  return true;
+}
+
+// The first implicit OpenXR API layer for 32 bit programs that is on and
+// broken: its manifest or its DLL is missing, or its DLL is for 64 bit
+// programs only. The OpenXR loader of the game then stops each runtime
+// (XR_ERROR_FILE_ACCESS_ERROR, xr_screen.cpp). It only reads the registry.
+// `name`, `why` and `where` get the parts of the message.
+bool BrokenApiLayer(char* name, char* why, char* where, size_t size,
+                    int* on_count) {
+  struct Place {
+    HKEY root;
+    const char* name;
+  };
+  const Place places[] = {{HKEY_LOCAL_MACHINE, "HKLM"},
+                          {HKEY_CURRENT_USER, "HKCU"}};
+  for (const Place& place : places) {
+    HKEY key;
+    if (RegOpenKeyExA(place.root,
+                      "SOFTWARE\\Khronos\\OpenXR\\1\\ApiLayers\\Implicit", 0,
+                      KEY_READ | KEY_WOW64_32KEY, &key) != ERROR_SUCCESS) {
+      continue;
+    }
+    for (DWORD i = 0;; ++i) {
+      char manifest[MAX_PATH];
+      DWORD name_size = sizeof(manifest);
+      DWORD type = 0;
+      DWORD value = 1;
+      DWORD value_size = sizeof(value);
+      const LONG got =
+          RegEnumValueA(key, i, manifest, &name_size, nullptr, &type,
+                        reinterpret_cast<BYTE*>(&value), &value_size);
+      if (got == ERROR_NO_MORE_ITEMS) break;
+      if (got != ERROR_SUCCESS || type != REG_DWORD || value != 0) continue;
+      ++*on_count;
+      const char* fault = nullptr;
+      char library[MAX_PATH];
+      if (GetFileAttributesA(manifest) == INVALID_FILE_ATTRIBUTES) {
+        fault = "its file is missing";
+      } else if (LayerLibrary(manifest, library, sizeof(library))) {
+        if (GetFileAttributesA(library) == INVALID_FILE_ATTRIBUTES) {
+          fault = "its DLL is missing";
+        } else if (DllMachine(library) == IMAGE_FILE_MACHINE_AMD64) {
+          fault = "its DLL is for 64 bit programs only";
+        }
+      }
+      if (fault != nullptr) {
+        strcpy_s(name, size, FileName(manifest));
+        strcpy_s(why, size, fault);
+        _snprintf_s(where, size, _TRUNCATE, "%s, %s", place.name, manifest);
+        RegCloseKey(key);
+        return true;
+      }
+    }
+    RegCloseKey(key);
+  }
+  return false;
+}
+
+// The checks, in order: the files, the game, OpenXR and the renderer. The
+// status line shows the first that fails, or "Ready". The tooltip shows
+// each check that ran. `before` comes first in the line, for example
+// "Saved.".
+void CheckEverything(const char* before = nullptr) {
+  char line[768] = "";
+  char tip[2048] = "";
+  char detail[1024];
+  bool ok = false;
+  if (before != nullptr && before[0] != 0) {
+    strcpy_s(line, sizeof(line), before);
+    strcat_s(line, sizeof(line), " ");
+  }
+  char runtime[MAX_PATH] = "";
+  char layer[MAX_PATH] = "", fault[MAX_PATH] = "", where[MAX_PATH] = "";
+  int layers_on = 0;
+  const char* missing = nullptr;
+  char from_env[MAX_PATH] = "";
+  DWORD env = 0;
+  const char* source = "the 32 bit registry";
 
   // Every file the mod needs at run time. A missing dxwrapper file makes the
   // mod fall back to a slow path in silence, so this check lists them.
@@ -702,7 +915,6 @@ void CheckEverything() {
       "dxwrapper\\dxwrapper.dll",
       "dxwrapper\\dxwrapper.ini",
   };
-  const char* missing = nullptr;
   for (const char* name : kNeeded) {
     if (!FileThere(g_game_dir, name)) {
       missing = name;
@@ -710,44 +922,129 @@ void CheckEverything() {
     }
   }
   if (missing != nullptr) {
-    _snprintf_s(message, sizeof(message), _TRUNCATE,
+    _snprintf_s(detail, sizeof(detail), _TRUNCATE,
                 "%s is missing from the game folder. Install the %s again.",
                 missing, kProductName);
-    SayStatus(message);
-    return;
+    strcat_s(line, sizeof(line), detail);
+    _snprintf_s(detail, sizeof(detail), _TRUNCATE,
+                "The files of the mod: %s is missing in %s.", missing,
+                g_game_dir);
+    TipLine(tip, sizeof(tip), detail);
+    goto done;
   }
+  TipLine(tip, sizeof(tip),
+          "The files of the mod: ddraw.dll, openxr_loader.dll and the "
+          "dxwrapper folder are there.");
 
-  if (!GameBuildIsRight(message, sizeof(message))) {
-    SayStatus(message);
-    return;
+  if (!GameBuildIsRight(detail, sizeof(detail))) {
+    strcat_s(line, sizeof(line), detail);
+    TipLine(tip, sizeof(tip), "The game: runblack.exe is not v1.42.");
+    goto done;
   }
+  TipLine(tip, sizeof(tip), "The game: runblack.exe is v1.42.");
 
-  // The game is 32 bit, so a runtime registered only for 64 bit cannot serve
-  // it. This is the single most common reason for a headset showing nothing.
-  HKEY key;
-  bool runtime = false;
-  if (RegOpenKeyExA(HKEY_LOCAL_MACHINE,
-                    "SOFTWARE\\WOW6432Node\\Khronos\\OpenXR\\1", 0, KEY_READ,
-                    &key) == ERROR_SUCCESS) {
-    char path[MAX_PATH] = {0};
-    DWORD size = sizeof(path);
-    DWORD type = 0;
-    if (RegQueryValueExA(key, "ActiveRuntime", nullptr, &type,
-                         reinterpret_cast<BYTE*>(path), &size) ==
-        ERROR_SUCCESS) {
-      const char* name = strrchr(path, '\\');
-      _snprintf_s(message, sizeof(message), _TRUNCATE, "Ready. OpenXR runtime: %s",
-                  name != nullptr ? name + 1 : path);
-      runtime = true;
+  // OPENXR. The game is 32 bit, so its OpenXR loader reads the variable
+  // XR_RUNTIME_JSON, or else the 32 bit view of the registry. A runtime that
+  // is registered only for 64 bit cannot serve it. This is the most common
+  // reason for a headset that shows nothing.
+  env = GetEnvironmentVariableA("XR_RUNTIME_JSON", from_env, sizeof(from_env));
+  if (env > 0 && env < sizeof(from_env)) {
+    strcpy_s(runtime, sizeof(runtime), from_env);
+    source = "the variable XR_RUNTIME_JSON";
+  } else if (!ActiveRuntime(KEY_WOW64_32KEY, runtime, sizeof(runtime))) {
+    char only64[MAX_PATH] = "";
+    if (ActiveRuntime(KEY_WOW64_64KEY, only64, sizeof(only64))) {
+      strcat_s(line, sizeof(line),
+               "The OpenXR runtime is set for 64 bit programs only. The "
+               "game is 32 bit. Use a runtime with 32 bit support.");
+      _snprintf_s(detail, sizeof(detail), _TRUNCATE,
+                  "OpenXR: no runtime for 32 bit programs. The runtime for "
+                  "64 bit programs is %s. Virtual Desktop has a runtime for "
+                  "32 bit programs, and SteamVR has one from version 2.17.",
+                  only64);
+    } else {
+      strcat_s(line, sizeof(line),
+               "No OpenXR runtime is set. Start the VR app of your headset, "
+               "and make it the OpenXR runtime.");
+      strcpy_s(detail, sizeof(detail),
+               "OpenXR: no active runtime in the registry "
+               "(HKLM\\SOFTWARE\\Khronos\\OpenXR\\1, ActiveRuntime).");
     }
-    RegCloseKey(key);
+    TipLine(tip, sizeof(tip), detail);
+    goto done;
   }
-  if (!runtime) {
-    strcpy_s(message, sizeof(message),
-             "No 32 bit OpenXR runtime is registered. The game is 32 bit, so a "
-             "64 bit only runtime cannot serve it.");
+  if (GetFileAttributesA(runtime) == INVALID_FILE_ATTRIBUTES) {
+    _snprintf_s(detail, sizeof(detail), _TRUNCATE,
+                "The file of the OpenXR runtime is missing: %s. Install the "
+                "VR app of your headset again.",
+                FileName(runtime));
+    strcat_s(line, sizeof(line), detail);
+    _snprintf_s(detail, sizeof(detail), _TRUNCATE,
+                "OpenXR: the runtime from %s is %s, and this file is not "
+                "there.",
+                source, runtime);
+    TipLine(tip, sizeof(tip), detail);
+    goto done;
   }
-  SayStatus(message);
+  _snprintf_s(detail, sizeof(detail), _TRUNCATE,
+              "OpenXR: the runtime for 32 bit programs is %s (from %s).",
+              runtime, source);
+  TipLine(tip, sizeof(tip), detail);
+
+  if (BrokenApiLayer(layer, fault, where, sizeof(layer), &layers_on)) {
+    _snprintf_s(detail, sizeof(detail), _TRUNCATE,
+                "The OpenXR API layer %s is broken: %s. Turn it off with the "
+                "tool OpenXR API Layers GUI.",
+                layer, fault);
+    strcat_s(line, sizeof(line), detail);
+    _snprintf_s(detail, sizeof(detail), _TRUNCATE,
+                "OpenXR API layers for 32 bit programs: %s is on, and %s. "
+                "It stops each runtime.",
+                where, fault);
+    TipLine(tip, sizeof(tip), detail);
+    goto done;
+  }
+  _snprintf_s(detail, sizeof(detail), _TRUNCATE,
+              "OpenXR API layers for 32 bit programs: %d on, and none is "
+              "broken.",
+              layers_on);
+  TipLine(tip, sizeof(tip), detail);
+
+  // THE RENDERER, as the row shows it.
+  if (g_vulkan_fell_back || (g_renderer_vulkan && VulkanPendingThere())) {
+    strcat_s(line, sizeof(line),
+             "The last start with Vulkan failed, so the game uses Direct3D "
+             "9. To try Vulkan again, set Renderer to Vulkan and save.");
+    _snprintf_s(detail, sizeof(detail), _TRUNCATE,
+                "Renderer: the file %s is in the game folder. The mod wrote "
+                "it, because the last start with Vulkan stopped before its "
+                "first picture, or Vulkan failed. bwvr.log of that start "
+                "gives the cause.",
+                kVulkanPendingFile);
+    TipLine(tip, sizeof(tip), detail);
+    goto done;
+  }
+  if (g_renderer_vulkan) {
+    if (!HasVulkan13()) {
+      strcat_s(line, sizeof(line),
+               "Your GPU has no Vulkan 1.3. Set Renderer to Direct3D 9.");
+      TipLine(tip, sizeof(tip),
+              "Renderer: Vulkan, but no GPU has Vulkan 1.3.");
+      goto done;
+    }
+    TipLine(tip, sizeof(tip), "Renderer: Vulkan. A GPU has Vulkan 1.3.");
+  } else {
+    TipLine(tip, sizeof(tip), "Renderer: Direct3D 9.");
+  }
+
+  _snprintf_s(detail, sizeof(detail), _TRUNCATE, "Ready. OpenXR runtime: %s",
+              FileName(runtime));
+  strcat_s(line, sizeof(line), detail);
+  ok = true;
+
+done:
+  SayStatus(ok, line);
+  SetStatusTip(tip);
 }
 
 // --- reading and writing the whole table -----------------------------------
@@ -770,6 +1067,8 @@ void UpdateRendererRows(bool first) {
   if (vulkan == g_renderer_vulkan && !first) return;
   g_renderer_vulkan = vulkan;
   LayOutControls(first);
+  // The check of the renderer follows the row.
+  if (!first) CheckEverything();
 }
 
 void LoadAll() {
@@ -814,10 +1113,15 @@ void LoadAll() {
       }
       case kRenderer: {
         // No key: Vulkan, when the GPU has Vulkan 1.3. The save writes it.
+        // With the file of the fall back the game uses Direct3D 9, and the
+        // row shows it. A save with Vulkan tries Vulkan again.
         char text[MAX_PATH] = {0};
         ReadIniText(s.key, text, sizeof(text));
-        const bool vulkan = text[0] == 0 ? HasVulkan13()
-                                         : _stricmp(text, "vulkan") == 0;
+        bool vulkan = text[0] == 0 ? HasVulkan13()
+                                   : _stricmp(text, "vulkan") == 0;
+        g_vulkan_fell_back =
+            _stricmp(text, "vulkan") == 0 && VulkanPendingThere();
+        if (g_vulkan_fell_back) vulkan = false;
         SendMessageA(g_control[i], CB_SETCURSEL, vulkan ? 0 : 1, 0);
         break;
       }
@@ -910,7 +1214,7 @@ const char* const kRetiredKeys[] = {
     "profile_sample_thread", "profile_sample_dump", "profile_gpu",
     "hang_watch", "gpu_flush_ab", "ab_test", "d3d7_count", "fast_transform_check",
     "test_cores", "vk_scene", "vk_scene_test_frame", "vk_scene_follow", "vk_eyes", "xr_vulkan_upload", "vk_panel", "vk_only", "vk_only_test", "vk_upload_queue", "vk_scene_reread_test", "ddraw_census", "test_smt", "test_spin_walk_us", "test_spin_idle_us",
-    "test_wake_records",
+    "test_wake_records", "vulkan_fallback_test",
     "render_thread_test_frame",
     "temple_test_camera_trace",
     "temple_test_click_frame", "temple_test_door_on",
@@ -1015,6 +1319,14 @@ void SaveAll() {
           g_said_no_vulkan = true;
         }
         WriteIniText(s.key, vulkan ? "vulkan" : "dxwrapper\\ddraw.dll");
+        // The renderer is the choice of the player now. With Vulkan the
+        // next start tries Vulkan again, and with Direct3D 9 the file does
+        // nothing.
+        char pending[MAX_PATH];
+        _snprintf_s(pending, sizeof(pending), _TRUNCATE, "%s\\%s",
+                    g_game_dir, kVulkanPendingFile);
+        DeleteFileA(pending);
+        g_vulkan_fell_back = false;
         break;
       }
       default:
@@ -1519,14 +1831,18 @@ void BuildControls() {
                  reinterpret_cast<LPARAM>(heart));
   }
   // SS_NOPREFIX, because the product name holds an ampersand and a static
-  // control would otherwise read it as an access key.
-  g_status = CreateWindowExA(0, "STATIC", "",
-                             WS_CHILD | WS_VISIBLE | SS_LEFT | SS_NOPREFIX, 0,
-                             0, 0, 0, g_window, nullptr, nullptr, nullptr);
+  // control would otherwise read it as an access key. A window of Unicode,
+  // for the tick and the warning sign (SayStatus). SS_NOTIFY gives the
+  // mouse to the tooltip.
+  g_status = CreateWindowExW(
+      0, L"STATIC", L"",
+      WS_CHILD | WS_VISIBLE | SS_LEFT | SS_NOPREFIX | SS_NOTIFY, 0, 0, 0, 0,
+      g_window, nullptr, nullptr, nullptr);
   for (HWND button : g_buttons) {
     SendMessageA(button, WM_SETFONT, reinterpret_cast<WPARAM>(g_font), TRUE);
   }
   SendMessageA(g_status, WM_SETFONT, reinterpret_cast<WPARAM>(g_font), TRUE);
+  AddTip(g_status, g_status_tip);
   AddTip(g_buttons[kButtonFresh],
          "Start a new game on the first island, skipping the menu.");
   AddTip(g_buttons[kButtonSave],
@@ -1558,10 +1874,10 @@ LRESULT CALLBACK Proc(HWND window, UINT message, WPARAM w, LPARAM l) {
             SayStatus("Windows did not let the launcher write bwvr.ini in the "
                       "game folder.");
           } else if (g_said_no_vulkan) {
-            SayStatus("Saved. Your GPU has no Vulkan 1.3, so the renderer "
-                      "stays Direct3D 9.");
+            CheckEverything("Saved. Your GPU has no Vulkan 1.3, so the "
+                            "renderer stays Direct3D 9.");
           } else {
-            SayStatus("Saved.");
+            CheckEverything("Saved.");
           }
           return 0;
         case 4:
@@ -1593,6 +1909,11 @@ LRESULT CALLBACK Proc(HWND window, UINT message, WPARAM w, LPARAM l) {
     }
     case WM_CTLCOLORSTATIC:
       SetBkMode(reinterpret_cast<HDC>(w), TRANSPARENT);
+      // The status line: green when each check passes, else red.
+      if (reinterpret_cast<HWND>(l) == g_status) {
+        SetTextColor(reinterpret_cast<HDC>(w),
+                     g_status_ok ? RGB(0, 128, 0) : RGB(200, 0, 0));
+      }
       return reinterpret_cast<LRESULT>(GetSysColorBrush(COLOR_BTNFACE));
     case WM_DESTROY:
       PostQuitMessage(0);
@@ -1759,7 +2080,7 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE, LPSTR command, int) {
     if (strcmp(__argv[i], "--game") == 0) game = __argv[i + 1];
   }
   bool found = FindGame();
-  if (!found && picture != nullptr && game != nullptr &&
+  if (!found && (picture != nullptr || shot != nullptr) && game != nullptr &&
       FileThere(game, "runblack.exe")) {
     TakeGameDir(game);
     found = true;
@@ -1774,7 +2095,8 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE, LPSTR command, int) {
       return 1;
     }
     // A picture of -shot needs no game. The table then shows its defaults,
-    // and the status line names a file that is missing.
+    // and the status line names a file that is missing. "--game <folder>"
+    // gives it a game.
     TakeGameDir(".");
   }
 

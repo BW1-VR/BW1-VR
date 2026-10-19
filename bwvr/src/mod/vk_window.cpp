@@ -4,6 +4,7 @@
 #include <windows.h>
 #define VK_USE_PLATFORM_WIN32_KHR
 #include "vk_window.h"
+#include "vk_fallback.h"
 
 void ModLog(const char* format, ...);
 void ControllersGesturePulse(float amplitude, float seconds);
@@ -519,6 +520,7 @@ bool VkWindowPresent(HWND window, const vk::Image& source, uint32_t width,
     return true;
   }
   ++g_presents;
+  VkFallbackPicture("the window, through the swapchain");
   return true;
 }
 

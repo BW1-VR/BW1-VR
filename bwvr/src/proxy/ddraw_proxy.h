@@ -26,3 +26,10 @@ void* ProxyRealExport(const char* name);
 // backend=vulkan in bwvr.ini: the proxy loaded no backend DLL, and the mod
 // makes DirectDraw itself (vk_ddraw.h).
 bool ProxyBackendVulkan();
+
+// backend=vulkan in bwvr.ini, but this start uses dxwrapper (vulkan_fallback,
+// docs/backend.md, "The fall back of the renderer Vulkan"). The reason, ready
+// to log, or null.
+const char* ProxyVulkanFallback();
+// The name of the file of the fall back, beside the game.
+const char* ProxyVulkanPendingFile();

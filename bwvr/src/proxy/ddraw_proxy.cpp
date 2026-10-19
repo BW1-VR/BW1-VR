@@ -30,6 +30,12 @@
 //   backend=dxwrapper\ddraw.dll  the same, named in full
 //   backend=system               system DirectDraw, which cannot go far
 //                                above 720p here
+//   backend=vulkan               DirectDraw of the mod on Vulkan
+//                                (vk_ddraw.cpp). With vulkan_fallback=1
+//                                (the default) the start takes dxwrapper
+//                                when the file bwvr-vulkan-pending.txt is
+//                                beside the game, or when there is no
+//                                vulkan-1.dll (TestVulkan).
 //
 // The stub keeps the name ddraw.dll inside the dxwrapper folder, because it
 // takes its mode from its own name. backend=dxwrapper.dll loads the wrong
@@ -108,6 +114,40 @@ bool g_force_system = false;
 // backend=vulkan (ReadBackendSetting).
 bool g_vulkan = false;
 
+// THE FALL BACK OF backend=vulkan (vulkan_fallback=1, the default). The mod
+// writes this file beside the game before it uses Vulkan, and the first
+// picture deletes it (vk_fallback.cpp). A fault of Vulkan writes it again.
+// When the file is there at a start, the start before ended before its
+// first picture, or Vulkan failed. Then this start uses dxwrapper.
+const char kVulkanPendingFile[] = "bwvr-vulkan-pending.txt";
+
+// Why backend=vulkan uses dxwrapper in this start, or empty.
+char g_vulkan_fallback[192] = "";
+
+// Fills g_vulkan_fallback when backend=vulkan cannot start in this process.
+// Only cheap tests: the proxy is in DllMain, under the loader lock.
+void TestVulkan(const char* folder, const char* ini) {
+  g_vulkan_fallback[0] = 0;
+  if (GetPrivateProfileIntA("bwvr", "vulkan_fallback", 1, ini) == 0) return;
+  char pending[MAX_PATH];
+  lstrcpynA(pending, folder, MAX_PATH);
+  lstrcatA(pending, kVulkanPendingFile);
+  if (GetFileAttributesA(pending) != INVALID_FILE_ATTRIBUTES) {
+    wsprintfA(g_vulkan_fallback,
+              "the start before with Vulkan ended before its first picture, "
+              "or Vulkan failed (%s is there)",
+              kVulkanPendingFile);
+    return;
+  }
+  char found[MAX_PATH];
+  if (SearchPathA(nullptr, "vulkan-1.dll", nullptr, MAX_PATH, found,
+                  nullptr) == 0) {
+    lstrcpynA(g_vulkan_fallback,
+              "there is no vulkan-1.dll (no Vulkan driver)",
+              sizeof(g_vulkan_fallback));
+  }
+}
+
 // Reads the backend name from bwvr.ini. Returns false when the setting names
 // the system implementation, or when there is nothing to load.
 //
@@ -115,9 +155,11 @@ bool g_vulkan = false;
 // is installed beside the game. That is what the installer puts there, and
 // what every measurement in docs/backend.md was made on. System DirectDraw
 // cannot go far above 720p here, so a missing key must not choose it.
-bool ReadBackendSetting(char* out, size_t size) {
-  if (g_force_system) return false;
-
+//
+// The choice is made one time, because the mod asks before
+// ProxyLoadRealDDraw too, and the file of the fall back changes after the
+// first answer.
+bool DecideBackend(char* out, size_t size) {
   char folder[MAX_PATH];
   GameFolder(folder, MAX_PATH);
   if (folder[0] == 0) return false;
@@ -131,6 +173,17 @@ bool ReadBackendSetting(char* out, size_t size) {
     GetPrivateProfileStringA("bwvr", "backend", "", out,
                              static_cast<DWORD>(size), ini);
   }
+  // backend=vulkan: the mod makes DirectDraw itself (vk_ddraw.cpp). System
+  // DirectDraw gives only the exports that the mod does not make. When
+  // Vulkan cannot start, dxwrapper as with no key.
+  if (lstrcmpiA(out, "vulkan") == 0) {
+    TestVulkan(folder, ini);
+    if (g_vulkan_fallback[0] == 0) {
+      g_vulkan = true;
+      return false;
+    }
+    out[0] = 0;
+  }
   if (out[0] == 0) {
     const char* fallback = "dxwrapper\\ddraw.dll";
     char beside[MAX_PATH];
@@ -141,13 +194,21 @@ bool ReadBackendSetting(char* out, size_t size) {
     return true;
   }
   if (lstrcmpiA(out, "system") == 0) return false;
-  // backend=vulkan: the mod makes DirectDraw itself (vk_ddraw.cpp). System
-  // DirectDraw gives only the exports that the mod does not make.
-  if (lstrcmpiA(out, "vulkan") == 0) {
-    g_vulkan = true;
-    return false;
-  }
   return true;
+}
+
+char g_backend[MAX_PATH] = "";
+bool g_backend_load = false;
+bool g_backend_read = false;
+
+bool ReadBackendSetting(char* out, size_t size) {
+  if (g_force_system) return false;
+  if (!g_backend_read) {
+    g_backend_read = true;
+    g_backend_load = DecideBackend(g_backend, MAX_PATH);
+  }
+  lstrcpynA(out, g_backend, static_cast<int>(size));
+  return g_backend_load;
 }
 
 // Loads system DirectDraw, on demand only.
@@ -174,14 +235,19 @@ void ProxyForceSystemDDraw() { g_force_system = true; }
 // The mod asks before ProxyLoadRealDDraw too (EarlyHooks), so the first call
 // reads the setting.
 bool ProxyBackendVulkan() {
-  static bool read = false;
-  if (!read) {
-    read = true;
-    char backend[MAX_PATH];
-    ReadBackendSetting(backend, MAX_PATH);
-  }
+  char backend[MAX_PATH];
+  ReadBackendSetting(backend, MAX_PATH);
   return g_vulkan;
 }
+
+// Why backend=vulkan uses dxwrapper in this start, or null.
+const char* ProxyVulkanFallback() {
+  char backend[MAX_PATH];
+  ReadBackendSetting(backend, MAX_PATH);
+  return g_vulkan_fallback[0] != 0 ? g_vulkan_fallback : nullptr;
+}
+
+const char* ProxyVulkanPendingFile() { return kVulkanPendingFile; }
 
 bool ProxyLoadRealDDraw() {
   char backend[MAX_PATH];
@@ -196,7 +262,10 @@ bool ProxyLoadRealDDraw() {
     if (g_real == nullptr) g_real = LoadLibraryA(backend);
 
     if (g_real != nullptr) {
-      wsprintfA(g_note, "backend      : %s", backend);
+      wsprintfA(g_note, "backend      : %s%s", backend,
+                g_vulkan_fallback[0] != 0
+                    ? " in place of vulkan (the line vulkan fallback says why)"
+                    : "");
     } else {
       wsprintfA(g_note,
                 "backend      : %s would not load (error %lu), falling back "

@@ -40,6 +40,7 @@ add_library(bwvr_mod SHARED
     vk_core.cpp
     vk_scene.cpp
     vk_window.cpp
+    vk_fallback.cpp
     frame_time.cpp
     fov.cpp
     input_watch.cpp

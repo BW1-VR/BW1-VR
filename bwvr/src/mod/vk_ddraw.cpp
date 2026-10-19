@@ -42,6 +42,7 @@
 #include "../proxy/ddraw_proxy.h"
 #include "vk_core.h"
 #include "vk_ddraw.h"
+#include "vk_fallback.h"
 #include "vk_scene.h"
 #include "vk_window.h"
 #include "vk_prim_math.h"
@@ -1901,8 +1902,10 @@ void Surface::Present() {
   info.bmiHeader.biCompression = BI_RGB;
   HDC dc = ::GetDC(window);
   if (dc == nullptr) return;
-  SetDIBitsToDevice(dc, 0, 0, w, h, 0, 0, 0, h, pixels, &info,
-                    DIB_RGB_COLORS);
+  if (SetDIBitsToDevice(dc, 0, 0, w, h, 0, 0, 0, h, pixels, &info,
+                        DIB_RGB_COLORS) != 0) {
+    VkFallbackPicture("the window, through the CPU and GDI");
+  }
   ::ReleaseDC(window, dc);
 }
 
@@ -2033,6 +2036,7 @@ HRESULT Device::GetDirect3D(LPDIRECT3D7* out) {
 // The two exports of the proxy.
 
 HRESULT CreateEx(ProxyCreateExFn, GUID*, void** out, REFIID id, IUnknown*) {
+  VkFallbackTestStop();
   if (out == nullptr) return DDERR_INVALIDPARAMS;
   if (!IsEqualGUID(id, IID_IDirectDraw7)) {
     *out = nullptr;
@@ -2050,6 +2054,7 @@ HRESULT CreateEx(ProxyCreateExFn, GUID*, void** out, REFIID id, IUnknown*) {
 }
 
 HRESULT Create(ProxyCreateFn, GUID*, void** out, IUnknown*) {
+  VkFallbackTestStop();
   if (out == nullptr) return DDERR_INVALIDPARAMS;
   if (g_draw == nullptr) g_draw = new Draw();
   *out = new DrawOld();

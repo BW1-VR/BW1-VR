@@ -68,6 +68,16 @@ and closes. "Play, new game" does the same and starts a new game.
 
 If the headset is not connected when the game starts, the game plays
 on the monitor, and the mod looks for the headset for 2 minutes.
+
+The line at the bottom of the launcher shows if your PC is ready. A
+green tick and "Ready" show that each check passed. A red warning
+shows the first problem and what to do. Hold the pointer over the
+line to see each check.
+
+If a start with the renderer Vulkan fails, the next start uses
+Direct3D 9. The launcher then shows "Direct3D 9" in the row
+"Renderer", and a red warning. To try Vulkan again, set "Renderer" to
+Vulkan and save. To turn this off, set vulkan_fallback=0 in bwvr.ini.
 Connect the headset in that time, and the game goes to the headset.
 
 A new game opens the start dialog of the game. You can play the

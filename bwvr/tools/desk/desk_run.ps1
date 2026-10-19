@@ -28,6 +28,10 @@
 #    the slot back. A file of the slot that the run did not write is a file
 #    of the player, and the script does not copy it. make_test_save.ps1 uses
 #    this.
+# -VulkanPending <text>: the run starts with the file bwvr-vulkan-pending.txt
+#    in the game folder, with this text. With backend=vulkan the game then
+#    uses dxwrapper (docs/backend.md, "The fall back of the renderer
+#    Vulkan"). Without it, each run starts with no such file.
 param(
     [Parameter(Mandatory = $true)][string]$Name,
     [Parameter(Mandatory = $true)][string]$Dll,
@@ -37,13 +41,16 @@ param(
     [int]$MinIdleMinutes = 10,
     [int]$WaitMinutes = 30,
     [string]$Save = '',
-    [string]$KeepSave = ''
+    [string]$KeepSave = '',
+    [string]$VulkanPending = ''
 )
 $sp = Split-Path -Parent $MyInvocation.MyCommand.Path
 . (Join-Path $PSScriptRoot 'game.ps1')
 . (Join-Path $PSScriptRoot 'desk_state.ps1')
 $game = Get-BwvrGame
 $installed = Join-Path $game 'ddraw.dll'
+$pending = Join-Path $game 'bwvr-vulkan-pending.txt'
+$pendingKeep = $null
 $lock = Join-Path (Get-BwvrDeskShared) 'desk.lock'
 if (-not (Test-Path $Dll)) { "NOT RUN: no DLL at $Dll"; exit 6 }
 $saveFrom = $null
@@ -242,6 +249,21 @@ public static class IdleR {
             $Extra['registry_test_guard'] = 1
             $Args = ''
         }
+        # THE GUARD OF THE FALL BACK OF VULKAN. With backend=vulkan the mod
+        # writes bwvr-vulkan-pending.txt in the game folder, and the first
+        # picture deletes it. A start with the file there uses dxwrapper. So
+        # a file that a different run left goes before the run, and after the
+        # run the file of the player comes back.
+        $pendingKeep = Join-Path $out 'bwvr-vulkan-pending.txt.before'
+        Remove-Item -LiteralPath $pendingKeep -Force -ErrorAction SilentlyContinue
+        if (Test-Path -LiteralPath $pending) {
+            Move-Item -LiteralPath $pending -Destination $pendingKeep -Force
+            "bwvr-vulkan-pending.txt was in the game folder. It is out for the run, and it comes back after it"
+        }
+        if ($VulkanPending -ne '') {
+            Set-Content -LiteralPath $pending -Value $VulkanPending -Encoding ascii
+            "the run starts with bwvr-vulkan-pending.txt in the game folder: $VulkanPending"
+        }
         if ($saveIn) {
             Copy-Item $Dll $installed -Force
             & (Join-Path $sp 'desk_test.ps1') -Name $Name -Extra $Extra -Seconds $Seconds -Args $Args -MinIdleMinutes 0 |
@@ -289,6 +311,19 @@ public static class IdleR {
         # the move, so it also goes out as a warning.
         if ($moved) { Write-Warning $state[2] }
         if (-not (Get-Process runblack -ErrorAction SilentlyContinue)) {
+            if ($pendingKeep) {
+                if (Test-Path -LiteralPath $pending) {
+                    Copy-Item -LiteralPath $pending -Destination (Join-Path $out 'bwvr-vulkan-pending.txt.after') -Force
+                    "bwvr-vulkan-pending.txt after the run: there. $((Get-Content -LiteralPath $pending -Raw).Trim())"
+                    [System.IO.File]::Delete($pending)
+                } else {
+                    "bwvr-vulkan-pending.txt after the run: not there"
+                }
+                if (Test-Path -LiteralPath $pendingKeep) {
+                    Move-Item -LiteralPath $pendingKeep -Destination $pending -Force
+                    "bwvr-vulkan-pending.txt of the player put back"
+                }
+            }
             Copy-Item $keep $installed -Force
             "installed dll put back: " + ((Get-FileHash $installed).Hash -eq (Get-FileHash $keep).Hash)
             if ($KeepSave -ne '' -and $keepSlot) {
