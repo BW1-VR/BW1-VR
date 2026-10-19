@@ -1,6 +1,7 @@
 # The VR output layer. Shared by the standalone test and the mod.
 add_library(bwvr_vr STATIC
     xr_screen.cpp
+    bridge/client.cpp
 )
 
 set(OPENXR_SDK "${BWVR_THIRD_PARTY}/OpenXR-SDK")

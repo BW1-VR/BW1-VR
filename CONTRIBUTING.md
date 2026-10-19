@@ -238,3 +238,12 @@ responsible for what you submit: build it, run it, and read it first.
 
 The project has the MIT license. When you open a pull request, you agree
 that your contribution has the same license.
+
+## Steam Frame builds from Linux
+
+Push a branch to your fork and open a pull request, or run the Build
+workflow by hand. GitHub builds the Windows binaries on Windows runners.
+Download the installer and `steam-frame-addon` from that run. The add-on
+holds the x64 host, and the installer holds the game DLL. See the
+[Steam Frame guide](bwvr/src/vr/bridge/README.md). Local Linux syntax checks
+do not replace the MSVC build or the Windows transport checks.

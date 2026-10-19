@@ -832,8 +832,13 @@ that moves while the Hand takes it.
   villager lives (`throw.md`).
 - **N15. The interface panel** (`ui_panel=1`). No run, on the desktop or in
   a headset (`ui-layer.md`).
-- **N17. Only one headset.** No person has run the mod with a headset or a
-  runtime other than a Quest 3 through Virtual Desktop.
+- **N17. Headset coverage.** Quest 3 through Virtual Desktop and Steam Frame
+  through Proton have game coverage. Other headsets and runtimes need tests.
+- **N18. The x64 host for Steam Frame** (`xr_bridge=1`). Not tested: all
+  controls, the haptics, the loss of the device, long sessions, and the
+  install and the uninstall of the add-on on a clean setup. The game ran
+  at 42 to 44 frames a second, and the host sends each frame on the frame
+  thread (`backend.md`).
 
 ### The repo, the release and the tools
 

@@ -16,6 +16,11 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  steam-frame:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/steam-frame.yml
+
   build:
     runs-on: windows-2022
     permissions:

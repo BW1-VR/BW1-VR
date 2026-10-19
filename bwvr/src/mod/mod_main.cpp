@@ -1107,6 +1107,22 @@ void ReadSettings() {
   // The launcher's "Test keys" box. F12 saves both eye pictures and
   // Shift F12 steps the subtitles. Off for players.
   g_test_keys = GetPrivateProfileIntA("bwvr", "test_keys", 0, path) != 0;
+  const bool xr_bridge_key =
+      GetPrivateProfileIntA("bwvr", "xr_bridge", 0, path) == 1;
+  // The bridge to the x64 host gives the frames of Direct3D 11 to the host.
+  // backend=vulkan and xr_vulkan=1 have a session with Vulkan, so they use
+  // the local runtime (docs/backend.md, "Only Vulkan").
+  const bool vulkan_session =
+      ProxyBackendVulkan() ||
+      GetPrivateProfileIntA("bwvr", "xr_vulkan", 0, path) != 0;
+  const bool xr_bridge = xr_bridge_key && !vulkan_session;
+  bwvr::XrScreen::ConfigureBridge(xr_bridge);
+  ModLog("settings     : xr_bridge=%d, %s", xr_bridge_key ? 1 : 0,
+         xr_bridge ? "experimental x64 OpenXR host"
+         : xr_bridge_key
+             ? "but the session has Vulkan (backend=vulkan or xr_vulkan=1), "
+               "and the bridge needs Direct3D 11. The local OpenXR runtime"
+             : "local OpenXR runtime");
   // Not in the launcher. Off only to test the fault it fixes.
   g_game_camera_rebuild =
       GetPrivateProfileIntA("bwvr", "game_camera_rebuild", 1, path) != 0;

@@ -1,4 +1,5 @@
 #include "xr_screen.h"
+#include "bridge/client.h"
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -27,6 +28,7 @@ namespace bwvr {
 namespace {
 
 void NoLog(const char*, ...) {}
+bool g_bridge_enabled = false;
 
 const char* StateName(XrSessionState state) {
   switch (state) {
@@ -1082,6 +1084,8 @@ void XrScreen::Impl::DestroyActionSet() {
   for (int a = 0; a < kActionCount; ++a) actions[a] = XR_NULL_HANDLE;
 }
 
+void XrScreen::ConfigureBridge(bool enabled) { g_bridge_enabled = enabled; }
+
 XrScreen::XrScreen()
     : impl_(new Impl()),
       running_(false),
@@ -1116,14 +1120,20 @@ bool XrScreen::RecommendedSize(uint32_t* width, uint32_t* height) const {
 }
 
 const char* XrScreen::HandProfile(int index) const {
+  if (remote_) return remote_->packet->state.profiles[index ? 1 : 0];
   return impl_->profile[index ? 1 : 0];
 }
 
 bool XrScreen::InputFocused() const {
+  if (remote_) return remote_->healthy() && remote_->packet->state.focus != 0;
   return impl_->input_ready && impl_->focused;
 }
 
 void XrScreen::Haptic(int index, float amplitude, float seconds) {
+  if (remote_) {
+    remote_->packet->index = index; remote_->packet->amplitude = amplitude; remote_->packet->duration = seconds;
+    remote_->Call(bridge::Haptic); return;
+  }
   Impl& s = *impl_;
   if (!s.input_ready || !s.session_running) return;
   const int h = index ? 1 : 0;
@@ -1142,6 +1152,7 @@ void XrScreen::Haptic(int index, float amplitude, float seconds) {
 }
 
 void XrScreen::SetLog(LogFn log) {
+  if (remote_) remote_->SetLog(log ? log : NoLog);
   impl_->log = (log != nullptr) ? log : &NoLog;
 }
 
@@ -1165,10 +1176,22 @@ bool XrScreen::Start(uint32_t width, uint32_t height, int eyes, LogFn log) {
 }
 
 bool XrScreen::has_instance() const {
+  if (remote_) return remote_->healthy() && remote_->instance_ready;
   return impl_->instance != XR_NULL_HANDLE;
 }
 
 bool XrScreen::StartInstance(LogFn log) {
+  // The bridge gives the frames of Direct3D 11 to the host, so a session
+  // with Vulkan does not use it.
+  if ((g_bridge_enabled && !impl_->vulkan) || remote_) {
+    impl_->log = log ? log : NoLog;
+    if (!remote_) {
+      remote_ = new RemoteScreen(log ? log : NoLog);
+      if (!remote_->Launch()) return false;
+    }
+    remote_->instance_ready = remote_->Call(bridge::Instance) && remote_->packet->result != 0;
+    return remote_->instance_ready;
+  }
   Impl& s = *impl_;
   s.log = (log != nullptr) ? log : &NoLog;
   if (s.instance != XR_NULL_HANDLE) return true;
@@ -1229,7 +1252,23 @@ bool XrScreen::StartInstance(LogFn log) {
   if (XR_FAILED(result)) {
     s.log("  openxr: xrCreateInstance failed (%s)",
           ResultName(XR_NULL_HANDLE, result));
-    if (result == XR_ERROR_FILE_ACCESS_ERROR ||
+    if (result == XR_ERROR_RUNTIME_UNAVAILABLE) {
+      s.log("  The OpenXR loader cannot find or load a runtime for this process.");
+      if constexpr (sizeof(void*) == 8) {
+        s.log("  This process is 64 bit. Check the active runtime for");
+        s.log("  64 bit Windows OpenXR applications and the loader log.");
+      } else {
+        s.log("  The game is 32 bit. It needs a runtime that supports 32 bit");
+        s.log("  Windows OpenXR applications. A 64 bit runtime alone is not enough.");
+        s.log("  On Windows, check the active 32 bit OpenXR runtime.");
+        s.log("  On Wine or Proton, check support for 32 bit Windows OpenXR");
+        s.log("  applications in that build. A running SteamVR alone does not");
+        s.log("  confirm this support. Check the loader log for the cause.");
+      }
+    } else if (result == XR_ERROR_EXTENSION_NOT_PRESENT) {
+      s.log("  The runtime does not provide the required XR_KHR_D3D11_enable");
+      s.log("  extension. The mod needs OpenXR support for Direct3D 11.");
+    } else if (result == XR_ERROR_FILE_ACCESS_ERROR ||
         result == XR_ERROR_FILE_CONTENTS_INVALID) {
       // The runtime gave its extensions, so the loader found it. At the
       // instance the loader also loads each implicit API layer, and a layer
@@ -1259,6 +1298,12 @@ bool XrScreen::StartInstance(LogFn log) {
 }
 
 int XrScreen::StartSystem() {
+  if (remote_) {
+    if (!remote_->Call(bridge::System)) return -1;
+    recommended_w_ = remote_->packet->state.recommended_width;
+    recommended_h_ = remote_->packet->state.recommended_height;
+    return remote_->packet->result;
+  }
   Impl& s = *impl_;
   if (s.instance == XR_NULL_HANDLE) return -1;
 
@@ -1321,6 +1366,7 @@ int XrScreen::StartSystem() {
 }
 
 void XrScreen::LogSystem() {
+  if (remote_) { impl_->log("xr bridge    : recommended eye size %ux%u", recommended_w_, recommended_h_); return; }
   Impl& s = *impl_;
   if (s.system == XR_NULL_SYSTEM_ID) return;
   if (s.system_name[0] != 0) s.log("  openxr: headset \"%s\"", s.system_name);
@@ -1332,6 +1378,16 @@ void XrScreen::LogSystem() {
 }
 
 bool XrScreen::StartSession(uint32_t width, uint32_t height, int eyes) {
+  if (remote_) {
+    auto& p = *remote_->packet;
+    p.width = width; p.height = height; p.eyes = eyes >= 2 ? 2 : 1;
+    p.distance = impl_->distance; p.screen_width = impl_->quad_width;
+    p.panel_enabled = impl_->panel_wanted;
+    if (!remote_->Call(bridge::Session) || !p.result || !remote_->MakeDevice()) return false;
+    eyes_ = p.eyes; running_ = true;
+    impl_->log("xr bridge    : session ready. Frame submission is synchronous in this mode");
+    return true;
+  }
   Impl& s = *impl_;
   if (s.instance == XR_NULL_HANDLE || s.system == XR_NULL_SYSTEM_ID) {
     return false;
@@ -1519,6 +1575,14 @@ bool XrScreen::StartSession(uint32_t width, uint32_t height, int eyes) {
 }
 
 bool XrScreen::BeginFrame() {
+  if (remote_) {
+    if (!remote_->Call(bridge::Begin) || !remote_->packet->result) { running_ = false; should_render_ = false; return false; }
+    const auto& state = remote_->packet->state;
+    running_ = state.running != 0; should_render_ = state.render != 0; recenter_due_ |= state.recenter != 0;
+    for (int i = 0; i < 2; ++i) { views_[i] = state.eyes[i]; hands_[i] = state.hands[i]; }
+    impl_->frame_open = true;
+    return true;
+  }
   Impl& s = *impl_;
   should_render_ = false;
   if (!running_ || s.session == XR_NULL_HANDLE) return false;
@@ -1721,6 +1785,7 @@ bool XrScreen::BeginFrame() {
 }
 
 void XrScreen::SetEyeImage(int index, const void* pixels, int pitch) {
+  if (remote_) { if (impl_->frame_open && should_render_) remote_->Pixels((index >= 1 && eyes_ > 1) ? 1 : 0, pixels, pitch); return; }
   Impl& s = *impl_;
   if (!s.frame_open || !should_render_ || pixels == nullptr) return;
   const int eye = (index >= 1 && eyes_ > 1) ? 1 : 0;
@@ -1799,13 +1864,15 @@ void XrScreen::SetEyeImage(int index, const void* pixels, int pitch) {
   ++s.uploads;
 }
 
-void* XrScreen::D3D11Device() const { return impl_->device; }
+void* XrScreen::D3D11Device() const { return remote_ ? remote_->device : impl_->device; }
 
 uint32_t XrScreen::SwapchainFormat() const {
+  if (remote_) return remote_->packet->state.format;
   return static_cast<uint32_t>(impl_->format);
 }
 
 void XrScreen::SetEyeTexture(int index, void* texture) {
+  if (remote_) { if (impl_->frame_open && should_render_) remote_->Texture(texture, (index >= 1 && eyes_ > 1) ? 1 : 0, false); return; }
   Impl& s = *impl_;
   if (!s.frame_open || !should_render_ || texture == nullptr ||
       s.context == nullptr) {
@@ -2124,12 +2191,14 @@ bool XrScreen::Impl::SendMask(const WindowLayer& window,
 }
 
 bool XrScreen::panel_ready() const {
+  if (remote_) return remote_->healthy() && remote_->packet->state.panel_ready != 0;
   return impl_->panel_swapchain != XR_NULL_HANDLE;
 }
 
 // The panel, the way SetEyeTexture sends an eye: acquire, wait, one copy on
 // the GPU, release.
 void XrScreen::SetPanelTexture(void* texture) {
+  if (remote_) { if (impl_->frame_open && should_render_) remote_->Texture(texture, 2, true); return; }
   Impl& s = *impl_;
   s.panel_acquired = -1;
   if (!s.frame_open || !should_render_ || texture == nullptr ||
@@ -2167,6 +2236,13 @@ void XrScreen::SetPanelVulkan(uint64_t image) {
 }
 
 void XrScreen::SetPanelQuads(const PanelQuad quads[2]) {
+  if (remote_) {
+    for (int i = 0; i < 2; ++i) remote_->packet->panels[i] = quads[i];
+    remote_->packet->panels[2] = g_staged_quad;
+    if (!g_have_staged_quad) remote_->packet->panels[2].visible = false;
+    g_have_staged_quad = false;
+    remote_->Call(bridge::Panels); return;
+  }
   for (int i = 0; i < 2; ++i) impl_->panel_quads[i] = quads[i];
   // The Creature panel shows only in the frame that staged it.
   impl_->panel_quads[2] = g_staged_quad;
@@ -2180,6 +2256,7 @@ void XrScreen::StagePanelQuad(const PanelQuad& quad) {
 }
 
 void XrScreen::ReportUpload(uint64_t frames) {
+  if (remote_) return;
   Impl& s = *impl_;
   if (s.vulkan && (s.vk_pushes > 0 || s.vk_copies > 0 || s.vk_uploads > 0)) {
     LARGE_INTEGER hz_now;
@@ -2338,6 +2415,24 @@ void XrScreen::SetRenderPose(int index, const float position[3],
 }
 
 void XrScreen::EndFrame() {
+  if (remote_) {
+    if (!impl_->frame_open) return;
+    if (!remote_->healthy()) { impl_->frame_open = false; running_ = false; return; }
+    auto& p = *remote_->packet;
+    for (int card = 0; card < kCards; ++card) {
+      if (g_have_staged_card[card]) remote_->Card(card, g_staged_card[card]);
+      g_have_staged_card[card] = false;
+    }
+    if (g_have_staged_window) { p.window = g_staged_window; remote_->Call(bridge::Window); }
+    g_have_staged_window = false;
+    p.projection = projection_; p.half_angle = render_half_angle_; p.have_render_pose = have_render_pose_;
+    for (int i = 0; i < 2; ++i) p.render_pose[i] = render_views_[i];
+    p.distance = impl_->distance; p.screen_width = impl_->quad_width;
+    if (!remote_->Call(bridge::End)) running_ = false;
+    presented_ = p.state.presented; skipped_ = p.state.skipped;
+    for (int i = 0; i < kCards; ++i) g_card_failed[i] = p.state.card_failed[i] != 0;
+    impl_->frame_open = false; return;
+  }
   // A frame with no wait for the GPU and no copies of a late frame.
   impl_->late_gpu = 0;
   impl_->late_copy = 0;
@@ -2758,6 +2853,13 @@ void XrScreen::FinishFrame() {
 // the GPU works on the eye pictures. Then come the wait for the GPU, the
 // copies and xrEndFrame, on the second thread or on this thread.
 void XrScreen::EndFrameLate(const LateFrame& frame, bool on_thread) {
+  if (remote_) {
+    if (!impl_->frame_open) return;
+    if (frame.wait) frame.wait();
+    for (int i = 0; i < eyes_; ++i) if (frame.eye_texture[i]) SetEyeTexture(i, frame.eye_texture[i]);
+    SetPanelTexture(frame.panel_texture);
+    EndFrame(); return;
+  }
   Impl& s = *impl_;
   if (!s.frame_open) return;
   s.late = frame;
@@ -2814,6 +2916,10 @@ void XrScreen::Join() {
 bool XrScreen::sending() const { return impl_->send_busy; }
 
 bool XrScreen::LastDisplayTime(int64_t* time, int64_t* period) const {
+  if (remote_) {
+    if (!remote_->healthy() || remote_->packet->state.time <= 0) return false;
+    *time = remote_->packet->state.time; *period = remote_->packet->state.period; return true;
+  }
   const Impl& s = *impl_;
   if (s.frame_state.predictedDisplayTime <= 0) return false;
   *time = s.frame_state.predictedDisplayTime;
@@ -3092,6 +3198,13 @@ double StopMs(const LARGE_INTEGER& start) {
 }  // namespace
 
 void XrScreen::Stop() {
+  if (remote_) {
+    delete remote_; remote_ = nullptr; running_ = false; should_render_ = false;
+    impl_->frame_open = false;
+    for (int i = 0; i < kCards; ++i) { g_have_staged_card[i] = false; g_card_failed[i] = false; }
+    g_have_staged_quad = false; g_have_staged_window = false;
+    return;
+  }
   Impl& s = *impl_;
   // Only a screen whose session started has frames. The end of a screen
   // with no started session can be on a different thread (vr_start.cpp), so
