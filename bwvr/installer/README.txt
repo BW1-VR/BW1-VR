@@ -1096,7 +1096,7 @@ text and tooltips follow your head. They do not hang in the world.
 Smoke and other particles shimmer. The game asks for new random
 numbers for each eye, so each eye gets a different jitter.
 
-The clouds and the sun move a little as you move your head.
+The sun can move a little as you move your head.
 
 A hill in the distance can look different in each eye. The game
 picks how much detail an island gets from its distance. An island at

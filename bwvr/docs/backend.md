@@ -53,7 +53,7 @@ Other docs: `software-tnl.md` (the CPU transform and the camera matrix),
 | `src/mod/draw_hooks.cpp` | Hints, tooltips, subtitles, interface depth and size |
 | `src/mod/eye_clean.cpp` | The frame before of each eye: the clean of each eye pass, and the keeps of the eye pictures |
 | `src/mod/bubble_card.cpp` | A speech bubble of the game as one card at the depth of its sign, and the name of a villager as one card at the depth of the villager |
-| `src/mod/sky_detail.cpp`, `water_mode.cpp` | Clouds, sun glare, detail distance, the sea |
+| `src/mod/sky_detail.cpp`, `water_mode.cpp` | Clouds, the moon, sun glare, detail distance, the sea |
 | `src/mod/spirit_anchor.cpp` | The advisors |
 | `src/mod/near_plane.cpp` | The near plane |
 | `src/mod/frame_timers.cpp`, `eye_capture.cpp`, `draw_probe.cpp` | Timing, eye pictures, draw probe |
@@ -4394,9 +4394,13 @@ the camera it gets, which is the head camera. The body of the dome sits 130 to 5
 units from its pivot along that basis, so a nod would swing each cloud across the
 sky.
 
-A hook on `LH3DMist::Draw` gives each cloud its own basis: facing the game camera
-position at `0x00EA1DB8` (no head) with world up. With the head straight ahead this
-is the engine's own basis. Weather clouds and ground mist are the same class. The
+A hook on `LH3DMist::Draw` gives each cloud its own basis: facing the camera of the
+frame with no head in it, with world up. In the full view that is the stored camera
+at `0x00EA1DB8`, which `head_camera.cpp` keeps free of the head. In a table frame
+(the table and the God view) the stored camera is the render head while the scene
+is drawn, so the clouds face the table camera: the place of the recenter pose in the
+world (`HeadCameraTableCamera`). With the head straight ahead this is the engine's
+own basis. Weather clouds and ground mist are the same class. The
 engine makes the pole `20 * A` long (`A` is the scale at `+0x88`, divided by a
 flatten term for sky clouds: flag value 2 at `+0x80`, flatten at `+0x8C`), which is
 260 to 1000 units seen from below. With the pole pointed at the eye, a cloud nearer
@@ -4406,6 +4410,29 @@ line of sight, so the outline stays and the geometry stays away from the eye. Th
 basis of the game camera does not work, because the dome is one sided, and the
 clouds behind the player would vanish.
 
+**The head does not turn a cloud.** A cloud that faces the render head turns with
+each move of the head. In the God view the clouds can be near the head: at 1000 units
+for each meter they hang 30 to 50 cm over the land. A small move of the head is then
+a large turn of a cloud, and a cloud below the head spins about its pole when the
+head goes over it. The body and the rim of the dome then move up, down
+and to the side. A cloud that faces the table camera keeps its place and its turn
+while the head moves. Only the steps of the player move the table camera: a zoom, a
+grab, a snap turn and a teleport. The engine also scales the rows 1 and 2 of the
+basis by `A` from the stored camera. The mod gives those rows the ratio of `A` from
+the table camera to `A` from the render head (`sky_math.h`, `MistScale`), so the
+shape of a cloud does not change with the head either.
+
+`clouds_head_free` (default 1) picks the point in a table frame: 1 the table camera,
+0 the render head. The full view is the same with each value. The pole limit uses
+the distance to the point that the cloud faces.
+
+A cloud moves only as the plain game moves it. `CloudInSky` (`0x005E23F0` makes 70
+clouds, `fn_005E25C0` moves them, from `GLandscape::Draw`) adds 70 units for each
+second of the time step of the game (`0x00EA9EC0`) along the wind, and wraps a cloud
+at 8000 units. It reads no camera. In the second eye pass the time step is 0, and
+with one walk the right eye is a copy of the batches of the left eye, so a cloud is
+at the same place in both eyes.
+
 `UpdateCamera` also builds a heading turn at `0x00EA1D88` from the stored camera. The
 draw at `0x0080DB30` turns billboard meshes at the lowest detail by it, so far trees
 would turn with the head. It is built again after each call from the camera the game
@@ -4414,6 +4441,47 @@ asked for, with the engine's `fn_00841260` and the constant at `0x008C78D8`.
 `LH3DSprite::Draw` builds the model view of each billboard at `0x00EA9E10` as an
 identity rotation in camera space, with the centre from the full per eye matrix. A
 billboard for VR wants world up, not the camera's up.
+
+### The moon
+
+`LH3DSky::Draw` (`0x0086B010`) puts the moon at the stored camera plus the moon
+position (`0x00EDD378`), so the moon keeps its direction from the eye at each place.
+It draws the moon when the height of the moon position is more than 220.
+`fn_0086AC60` (`__cdecl`: the place, the turn, the matrix of the mesh) turns the moon
+to the camera. It takes the direction `d` from the camera matrix at `0x00EA1D28` to
+the moon, and the right of the moon is the camera up crossed with `d`. The glow quad
+(`fn_0086A930`, 1000 units across times the scale at `0x00FA2750`) and the moon mesh
+(the object at `0x00FA2728`, turned by the phase of the moon from the date) take that
+turn. The second call of `fn_0086AC60` is the reflection of the moon in the sea. The
+camera matrix has the head with its roll, so with the matrix of the game the moon
+turns with the head.
+
+A hook on `fn_0086AC60` gives it a camera matrix at the same place with world up
+(`sky_math.h`, `LevelCamera`), and puts the camera matrix back after the call. The
+moon then turns only with its direction from the eye, so it stays fixed in the sky.
+With the head level and no roll, this is the turn of the game. `moon_world_up`
+(default 1) picks it: 1 world up, 0 the camera with the head.
+
+The sun disc (`fn_0086C140`) is a fixed quad and reads no camera turn. The dome
+(`fn_0086B6B0`) is a sphere about a fixed point. The sun glare has its own key (see
+"The sun glare").
+
+Three test keys are for desktop runs. The launcher removes them from `bwvr.ini` on
+each save.
+
+- `sky_test_frame=N`: at frame N of the scripted controller, `clouds_head_free` and
+  `moon_world_up` both change.
+- `sky_test_trace=1`: each report window has a line `sky trace` with the largest move
+  of an axis of a cloud and of a cloud from one frame to the next, and the largest
+  move of the point that the clouds face. With a moon, a second line has the largest
+  angle of the right of the moon from level, and its largest turn from one frame to
+  the next.
+- `sky_test_hour=H`: at the first frame of play, the time of day of the game goes to
+  hour H (`GLandAlignement::SetTime` `0x005E22E0`, and the visual time at
+  `0x00BF3380`). The time then goes on as the game moves it. `LH3DAtmos::UpdateGame`
+  gives the moon the height `1100 * cos(15 * t) - 150`, with `t` from the visual time
+  (`fn_0086A160`), so the moon shows at night. The time of day comes from the game
+  and not from the clock of the PC: the test save "pen" is at dusk.
 
 ### The sun glare
 
@@ -4430,8 +4498,8 @@ Ruled out as the cause: the full screen quad that `LH3DRender::FinishFrame` draw
 `0x0082F617` (diffuse 0, a transparent fade) and `CloudInSky` (its per frame update at
 `0x005E25C0` drifts the 70 clouds in world space and reads no camera).
 
-Open: the clouds and the sun bob a little as the head moves in the headset. The sun
-glare is the best candidate, and it is not proven.
+Open: the sun bobs a little as the head moves in the headset. The sun glare is the
+best candidate, and it is not proven.
 
 ### Models keep their detail further out
 
@@ -4928,10 +4996,12 @@ The ini keys of the settled choices stay, so a test can set a value by hand:
 | Freeze time on the second pass | `freeze_time` |
 | No Hand prepare on the second pass | `skip_hand_prepare` |
 | Sun glare | `sun_glare` |
+| Clouds that the head does not turn | `clouds_head_free` |
+| A moon with world up | `moon_world_up` |
 | Advisors in the room | `spirit_anchor` |
 
-Head position is always 6DOF, the world steps run once a frame, the Hand uses its
-exact ray and the clouds hold still. These have no key.
+Head position is always 6DOF, the world steps run once a frame and the Hand uses
+its exact ray. These have no key.
 
 ## Ini keys of this area
 
@@ -4985,6 +5055,9 @@ keys that the launcher sets.
 | `spirit_anchor` | 1 | See "The advisors" |
 | `spirit_world_size` | 1 | The size of an advisor at a place of the world. See "The advisors" and `tabletop.md` |
 | `cloud_pole_pct`, `sun_glare`, `detail_distance` | 25, 0, 3 | See "Sky, clouds and detail" |
+| `clouds_head_free` | 1 | 1: in the table and the God view the clouds face the table camera, so a move of the head does not turn them. 0: they face the render head. See "Clouds" |
+| `moon_world_up` | 1 | 1: the moon turns with world up, so it stays fixed in the sky. 0: it turns with the camera of the head. See "The moon" |
+| `sky_test_frame`, `sky_test_trace`, `sky_test_hour` | 0, 0, -1 | Test keys of the desktop runs. See "The moon" |
 | `freeze_time` | 1 | See "Time, bars and the second eye pass" |
 | `frame_time_real` | 1 | 1: after the two eye passes the game has the real time of the frame as its frame time. 0: it has the number from before the passes. See "The delta time after the passes" |
 | `frame_time_test_frame`, `frame_time_test_readers`, `frame_time_test_readers_frames` | 0, 0, 600 | Test keys of the desktop runs. See "The delta time after the passes" |
@@ -5119,7 +5192,7 @@ section, so the uninstaller can put them back.
   session. See "The start of the headset session".
 - A device lost after the bridge has started is not tested.
 - The worst frames of 31 to 52 ms have no explanation.
-- The clouds and the sun bob a little in the headset.
+- The sun bobs a little in the headset.
 - The advisors look a little beside the Hand when the head is turned away.
 - The detail distance is measured along the view axis, not as a distance.
 - A vignette during a land drag, and a single scene walk with a derived second eye

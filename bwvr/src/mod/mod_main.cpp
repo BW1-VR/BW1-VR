@@ -189,6 +189,8 @@ void SkyDetailInstall();
 void SkyDetailRelease();
 void SkySetGlareMode(int mode);
 void SkySetCloudPoleShare(int percent);
+void SkySetHeadFree(bool clouds, bool moon, int test_frame, bool trace,
+                    int test_hour);
 void PointerMapSetDragSmoothing(int ms);
 void PointerMapSetFakeMouse(const char* script, int step_px,
                             const int x_pct[2], const int y_pct[2]);
@@ -423,6 +425,15 @@ int g_drag_smoothing_ms = 35;
 int g_sun_glare = 0;
 // How long a cloud may reach toward the eye, as a percent of its distance.
 int g_cloud_pole_pct = 25;
+// In the table and the God view the clouds face the table camera, not the
+// render head. The moon turns with world up, not with the head.
+bool g_clouds_head_free = true;
+bool g_moon_world_up = true;
+// Test keys of a desktop run: both keys above change at this frame, and the
+// report has the moves of the clouds and the moon from frame to frame.
+int g_sky_test_frame = 0;
+bool g_sky_test_trace = false;
+int g_sky_test_hour = -1;
 // The black bars of the story scenes. Off by default in a headset.
 bool g_cinema_bars = false;
 // The advisors stay where the player looked when they came.
@@ -1087,6 +1098,17 @@ void ReadSettings() {
       GetPrivateProfileIntA("bwvr", "sun_glare", 0, path));
   g_cloud_pole_pct = static_cast<int>(
       GetPrivateProfileIntA("bwvr", "cloud_pole_pct", 25, path));
+  // Not in the launcher. See docs/backend.md, "Sky, clouds and detail".
+  g_clouds_head_free =
+      GetPrivateProfileIntA("bwvr", "clouds_head_free", 1, path) != 0;
+  g_moon_world_up =
+      GetPrivateProfileIntA("bwvr", "moon_world_up", 1, path) != 0;
+  g_sky_test_frame = static_cast<int>(
+      GetPrivateProfileIntA("bwvr", "sky_test_frame", 0, path));
+  g_sky_test_trace =
+      GetPrivateProfileIntA("bwvr", "sky_test_trace", 0, path) != 0;
+  g_sky_test_hour = static_cast<int>(
+      GetPrivateProfileIntA("bwvr", "sky_test_hour", -1, path));
   g_cinema_bars = GetPrivateProfileIntA("bwvr", "cinema_bars", 0, path) != 0;
   g_spirit_anchor =
       GetPrivateProfileIntA("bwvr", "spirit_anchor", 1, path) != 0;
@@ -1695,6 +1717,8 @@ void StartVrStep() {
     PointerMapSetFakeMouse(g_fake_mouse_script, g_fake_mouse_step_px,
                            g_fake_mouse_x_pct, g_fake_mouse_y_pct);
     SkySetCloudPoleShare(g_cloud_pole_pct);
+    SkySetHeadFree(g_clouds_head_free, g_moon_world_up, g_sky_test_frame,
+                   g_sky_test_trace, g_sky_test_hour);
     SkySetGlareMode(g_sun_glare);
     SkyDetailInstall();
     SpiritAnchorSetEnabled(g_spirit_anchor);

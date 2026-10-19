@@ -793,6 +793,15 @@ bool HeadCameraTableEye(float out[3]) {
   return true;
 }
 
+// The camera of the table frame that is drawn, in world units: the place of
+// the recenter pose in the world, with no head. False outside a table frame.
+// sky_detail.cpp turns the clouds to it.
+bool HeadCameraTableCamera(float out[3]) {
+  if (g_table_frame != g_frame) return false;
+  for (int i = 0; i < 3; ++i) out[i] = g_table_camera[i];
+  return true;
+}
+
 // The setting alone: the head goes on the camera in the full view.
 bool HeadCameraOn() { return g_installed && g_enabled; }
 

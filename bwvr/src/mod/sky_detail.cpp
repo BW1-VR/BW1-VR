@@ -1,6 +1,6 @@
-// Three things about the world at a distance: clouds that stay still when the
-// head moves, a sun glare that stays on the sun, and models that keep their
-// detail further out.
+// Four things about the world at a distance: clouds that stay still when the
+// head moves, a moon that stays fixed in the sky, a sun glare that stays on
+// the sun, and models that keep their detail further out.
 //
 // CLOUDS THAT FACE THE PLAYER, NOT THE HEAD
 //
@@ -17,9 +17,28 @@
 // across the sky.
 //
 // The mod gives each cloud its own basis just before it is drawn: facing the
-// game camera's position (0x00EA1DB8, which head_camera.cpp keeps free of the
-// head), with world up. Nothing about it depends on where the head points.
-// The weather clouds and ground mist are LH3DMist too, and get the same.
+// camera of the frame with no head in it, with world up. In the full view
+// that is the stored camera (0x00EA1DB8), which head_camera.cpp keeps free of
+// the head. In a table frame (the table and the God view) the stored camera
+// is the render head while the scene is drawn, so the clouds face the table
+// camera: the place of the recenter pose in the world. The weather clouds
+// and ground mist are LH3DMist too, and get the same.
+//
+// THE HEAD DOES NOT TURN A CLOUD
+//
+// A cloud that faces the render head turns with each move of the head. In
+// the God view the clouds are near the head, so a small move of the head is
+// a large turn of a cloud. A cloud that is below the head spins about its
+// pole when the head goes over it. The body and the rim of each dome then
+// move up, down and to the side. A cloud that faces the table camera keeps
+// its place and its turn while the head moves. Only the steps of the player
+// (a zoom, a grab, a snap turn) move the table camera.
+//
+// The engine also scales the rows 1 and 2 by A (below), from the stored
+// camera. So the mod gives those rows the ratio of A from the table camera to
+// A from the render head, and the shape of a cloud does not change with the
+// head either. The key clouds_head_free=0 gives the clouds the render head
+// in a table frame.
 //
 // A CLOUD MUST NOT REACH THE EYE
 //
@@ -44,6 +63,26 @@
 // primitive flags of mist.l3d are 0, so fn_00856D40 removes back faces in
 // software. One basis for all domes shows the base side of every dome behind
 // the game camera, and those domes vanish when the player turns around.
+//
+// THE MOON
+//
+// LH3DSky::Draw (0x0086B010) puts the moon at the stored camera plus the
+// moon position (0x00EDD378), so the moon keeps its direction from the eye
+// at each place, as a thing at a very large distance does. fn_0086AC60 then turns it to the camera: it takes the
+// direction d from the camera matrix (0x00EA1D28) to the moon, and the right
+// of the moon is the camera up crossed with d. The camera matrix has the
+// head, with its roll, so with that matrix the moon turns with the head. The
+// glow quad (fn_0086A930) and the moon mesh (the object at 0x00FA2728) both
+// take that turn. The reflection of the moon in the sea is the second call.
+//
+// The mod gives fn_0086AC60 a camera matrix at the same place with world up
+// (sky_math.h, LevelCamera), and puts the camera matrix back after the call.
+// The moon then turns only with its direction from the eye, so it stays
+// fixed in the sky. The key moon_world_up=0 gives the moon the camera with
+// the head.
+//
+// The sun disc (fn_0086C140) is a fixed quad and reads no camera turn. The
+// dome (fn_0086B6B0) is a sphere about a fixed point.
 //
 // THE SUN GLARE
 //
@@ -90,8 +129,14 @@
 #include <string.h>
 
 #include "MinHook.h"
+#include "sky_math.h"
 
 extern void ModLog(const char* format, ...);
+// head_camera.cpp: the camera of the table frame that is drawn, with no
+// head. False outside a table frame.
+bool HeadCameraTableCamera(float out[3]);
+// controllers.cpp: the frame number that the scripted controller counts.
+uint64_t ControllersFrameCount();
 // head_camera.cpp: the room, which is world up and the game camera's
 // heading. Columns are right, up and forward, in world space.
 bool HeadCameraStageBasis(float basis_out[9]);
@@ -119,6 +164,22 @@ const int kMistScale = 0x88;    // float, the size of the dome
 const int kMistFlatten = 0x8C;  // float, how flat a cloud near the horizon is
 const float kDomeHeight = 20.0f;  // mist.l3d: the pole is at y 20
 
+// The moon. fn_0086AC60 is __cdecl with three arguments: the place of the
+// moon, the turn that it makes (12 floats) and the matrix of the moon mesh.
+// It reads the camera matrix at 0x00EA1D28. Two calls, both in LH3DSky::Draw
+// (0x0086B649 and the reflection at 0x0086B685).
+const uintptr_t kMoonTurn = 0x0086AC60;
+const uintptr_t kCameraMatrix = 0x00EA1D28;
+
+// The time of day of the game, in hours. UpdateTime moves the visual time
+// (0x00BF3380) toward the time that GLandAlignement::SetTime (0x005E22E0,
+// __thiscall, two floats, ret 8) sets at 0x00BF3384. SetTime also sets the
+// flag of the night. LH3DAtmos::UpdateGame puts the moon at a height of
+// 1100 * cos(15 * t) - 150, with t from the visual time (fn_0086A160), and
+// LH3DSky::Draw draws it above 220.
+const uintptr_t kVisualTime = 0x00BF3380;
+const uintptr_t kSetTime = 0x005E22E0;
+
 // The sun glare. No arguments and a plain ret. The only call is at
 // 0x0082F4C9, in LH3DRender::FinishFrame.
 const uintptr_t kSunGlare = 0x0086BB60;
@@ -141,9 +202,29 @@ typedef void(__fastcall* MistDrawFn)(void* self, void* unused);
 MistDrawFn o_MistDraw = nullptr;
 typedef void(__cdecl* SunGlareFn)();
 SunGlareFn o_SunGlare = nullptr;
+typedef void(__cdecl* MoonTurnFn)(const float* place, float* turn,
+                                  float* mesh);
+MoonTurnFn o_MoonTurn = nullptr;
 
 bool g_head_free = true;
 bool g_hooked = false;
+// clouds_head_free: in a table frame the clouds face the table camera, not
+// the render head.
+bool g_clouds_head_free = true;
+// moon_world_up: the moon turns with world up, not with the camera up.
+bool g_moon_world_up = true;
+// sky_test_frame: at this frame of the scripted controller both keys above
+// change, for one run with each value. 0 is no change.
+uint64_t g_test_frame = 0;
+bool g_test_done = false;
+// sky_test_hour: at the first frame of play the time of day of the game
+// goes to this hour, so a run in a test save can show the moon. -1 is no
+// change.
+int g_test_hour = -1;
+bool g_test_hour_done = false;
+// sky_test_trace: the report has how far the clouds and the moon moved from
+// one frame to the next.
+bool g_trace = false;
 // The longest pole a cloud may have, as a share of its distance to the
 // camera. Zero means no limit.
 float g_pole_share = 0.25f;
@@ -157,6 +238,35 @@ uint64_t g_dome_draws = 0;
 uint64_t g_poles_limited = 0;
 uint64_t g_glare_calls = 0;
 uint64_t g_glare_wanted = 0;
+uint64_t g_table_faced = 0;
+uint64_t g_moon_turns = 0;
+uint64_t g_moon_level = 0;
+
+// THE TRACE (sky_test_trace=1). For each dome, the last frame in which it
+// was drawn, its place and the three axes that the engine gives it (the
+// basis rows with the engine's scale, times the dome size). A move of an
+// axis tip from one frame to the next is a move of the body or the rim.
+struct DomeTrace {
+  const void* mist;
+  uint64_t frame;
+  float place[3];
+  float axes[9];
+};
+const int kTraceSlots = 512;
+DomeTrace g_traces[kTraceSlots];
+float g_trace_shape_most = 0.0f;   // units, the largest move of an axis tip
+double g_trace_shape_sum = 0.0;
+float g_trace_place_most = 0.0f;   // units, the largest move of a pivot
+uint64_t g_trace_pairs = 0;
+float g_trace_eye_most = 0.0f;     // units, the largest move of the point
+uint64_t g_trace_eye_frame = 0;    // the clouds face
+float g_trace_eye[3] = {0.0f, 0.0f, 0.0f};
+// The moon: the angle of its right from the horizontal, and the largest turn
+// of its right from one frame to the next.
+float g_moon_tilt_most = 0.0f;
+float g_moon_step_most = 0.0f;
+uint64_t g_moon_frame = 0;
+float g_moon_right[3] = {0.0f, 0.0f, 0.0f};
 
 void Normalize(float* v) {
   const float length = sqrtf(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
@@ -190,22 +300,13 @@ void OverheadRight(const float forward[3], float right[3]) {
 // Makes the pole of the dome at most g_pole_share of its distance. The
 // engine copies the basis and then scales its rows, so a shorter row 1 gives
 // a shorter pole. Rows 0 and 2 stay as they are, so the outline does not
-// change. `rise` is the height of the cloud above the camera. True when the
-// limit made the pole shorter.
-bool LimitPole(const uint8_t* mist, float rise, float distance,
-               float basis[9]) {
+// change. `a` is the scale that the engine gives the pole, seen from the
+// point that the cloud faces, and `distance` is the distance to that point.
+// True when the limit made the pole shorter.
+bool LimitPole(float a, float distance, float basis[9]) {
   if (g_pole_share <= 0.0f) return false;
-  // The length the engine is about to give the pole, worked out as it does.
-  const float scale = *reinterpret_cast<const float*>(mist + kMistScale);
-  float a = scale;
-  if ((mist[kMistFlags] & kMistSkyCloud) != 0) {
-    const float flatten = *reinterpret_cast<const float*>(mist + kMistFlatten);
-    const float divisor =
-        (flatten - 1.0f) * (1.0f - fabsf(rise) / distance) + 1.0f;
-    // A divisor near zero is a dome the game itself draws wrong. Leave it.
-    if (!(divisor > 1e-6f)) return false;
-    a = scale / divisor;
-  }
+  // A scale of zero is a dome the game itself draws wrong. Leave it.
+  if (a == 0.0f) return false;
   const float pole = kDomeHeight * fabsf(a);
   const float most = g_pole_share * distance;
   if (!(pole > most)) return false;
@@ -216,13 +317,106 @@ bool LimitPole(const uint8_t* mist, float rise, float distance,
   return true;
 }
 
+// At the first frame of play, the time of day of sky_test_hour.
+void TestHourCheck() {
+  if (g_test_hour < 0 || g_test_hour_done) return;
+  if (ControllersFrameCount() == 0) return;
+  g_test_hour_done = true;
+  const float hour = static_cast<float>(g_test_hour);
+  typedef void(__fastcall * SetTimeFn)(void* self, void* unused, float time,
+                                       float seconds);
+  reinterpret_cast<SetTimeFn>(kSetTime)(nullptr, nullptr, hour, 0.0f);
+  *reinterpret_cast<float*>(kVisualTime) = hour;
+  ModLog("sky          : sky_test_hour: the time of day of the game is %d "
+         "hours now, frame %llu", g_test_hour, ControllersFrameCount());
+}
+
+// At sky_test_frame both keys change one time.
+void TestFrameCheck() {
+  TestHourCheck();
+  if (g_test_frame == 0 || g_test_done) return;
+  const uint64_t frame = ControllersFrameCount();
+  if (frame < g_test_frame) return;
+  g_test_done = true;
+  g_clouds_head_free = !g_clouds_head_free;
+  g_moon_world_up = !g_moon_world_up;
+  ModLog("sky          : sky_test_frame at frame %llu: clouds_head_free=%d "
+         "and moon_world_up=%d now", frame, g_clouds_head_free ? 1 : 0,
+         g_moon_world_up ? 1 : 0);
+}
+
+float Distance3(const float a[3], const float b[3]) {
+  const float d[3] = {a[0] - b[0], a[1] - b[1], a[2] - b[2]};
+  return sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+}
+
+DomeTrace* TraceSlot(const void* mist) {
+  const uintptr_t key = reinterpret_cast<uintptr_t>(mist);
+  int index = static_cast<int>((key >> 4) % kTraceSlots);
+  for (int probe = 0; probe < kTraceSlots; ++probe) {
+    DomeTrace* slot = &g_traces[index];
+    if (slot->mist == mist) return slot;
+    if (slot->mist == nullptr) {
+      slot->mist = mist;
+      slot->frame = 0;
+      return slot;
+    }
+    index = (index + 1) % kTraceSlots;
+  }
+  return nullptr;
+}
+
+// One dome draw for the trace. The axes are the basis rows with the scale
+// of the engine, times the dome size.
+void TraceDome(const void* mist, const float place[3], const float basis[9],
+               float scale, float a, const float eye[3]) {
+  const uint64_t frame = ControllersFrameCount();
+  if (frame != g_trace_eye_frame) {
+    if (g_trace_eye_frame != 0 && frame == g_trace_eye_frame + 1) {
+      const float moved = Distance3(eye, g_trace_eye);
+      if (moved > g_trace_eye_most) g_trace_eye_most = moved;
+    }
+    g_trace_eye_frame = frame;
+    memcpy(g_trace_eye, eye, sizeof(g_trace_eye));
+  }
+  DomeTrace* slot = TraceSlot(mist);
+  if (slot == nullptr || slot->frame == frame) return;
+  float axes[9];
+  for (int i = 0; i < 3; ++i) {
+    axes[i] = basis[i] * scale * kDomeHeight;
+    axes[3 + i] = basis[3 + i] * a * kDomeHeight;
+    axes[6 + i] = basis[6 + i] * a * kDomeHeight;
+  }
+  if (slot->frame != 0 && frame == slot->frame + 1) {
+    float most = 0.0f;
+    for (int row = 0; row < 3; ++row) {
+      const float moved = Distance3(&axes[row * 3], &slot->axes[row * 3]);
+      if (moved > most) most = moved;
+    }
+    if (most > g_trace_shape_most) g_trace_shape_most = most;
+    g_trace_shape_sum += most;
+    const float pivot = Distance3(place, slot->place);
+    if (pivot > g_trace_place_most) g_trace_place_most = pivot;
+    ++g_trace_pairs;
+  }
+  slot->frame = frame;
+  memcpy(slot->place, place, sizeof(slot->place));
+  memcpy(slot->axes, axes, sizeof(slot->axes));
+}
+
 void __fastcall h_MistDraw(void* self, void* unused) {
   if (TabletopHidesMist(self)) return;
+  TestFrameCheck();
   if (g_head_free && self != nullptr) {
     const uint8_t* mist = static_cast<const uint8_t*>(self);
     const float* position =
         reinterpret_cast<const float*>(mist + kMistPosition);
-    const float* eye = reinterpret_cast<const float*>(kStoredPosition);
+    // The engine measures the flatten of a cloud from the stored camera.
+    const float* stored = reinterpret_cast<const float*>(kStoredPosition);
+    float table[3];
+    const bool table_faced =
+        g_clouds_head_free && HeadCameraTableCamera(table);
+    const float* eye = table_faced ? table : stored;
     // Forward, from the camera to the cloud.
     float f[3] = {position[0] - eye[0], position[1] - eye[1],
                   position[2] - eye[2]};
@@ -230,7 +424,6 @@ void __fastcall h_MistDraw(void* self, void* unused) {
     // A cloud at the camera itself has no direction. It keeps the engine's
     // basis.
     if (distance > 1e-3f) {
-      const float rise = f[1];
       f[0] /= distance;
       f[1] /= distance;
       f[2] /= distance;
@@ -246,12 +439,68 @@ void __fastcall h_MistDraw(void* self, void* unused) {
                           f[0] * r[1] - f[1] * r[0]};
       float basis[9] = {r[0], r[1], r[2], -f[0], -f[1], -f[2],
                         u[0], u[1], u[2]};
+      const float scale = *reinterpret_cast<const float*>(mist + kMistScale);
+      const bool sky_cloud = (mist[kMistFlags] & kMistSkyCloud) != 0;
+      const float flatten =
+          *reinterpret_cast<const float*>(mist + kMistFlatten);
+      const float a_engine =
+          sky_math::MistScale(scale, sky_cloud, flatten, position, stored);
+      float a = a_engine;
+      if (table_faced) {
+        // The engine scales rows 1 and 2 by A from the stored camera, which
+        // is the render head here. The ratio gives them A from the table
+        // camera.
+        const float a_table =
+            sky_math::MistScale(scale, sky_cloud, flatten, position, eye);
+        if (a_engine != 0.0f && a_table != 0.0f) {
+          const float ratio = a_table / a_engine;
+          for (int i = 3; i < 9; ++i) basis[i] *= ratio;
+          a = a_table;
+        }
+        ++g_table_faced;
+      }
       ++g_dome_draws;
-      if (LimitPole(mist, rise, distance, basis)) ++g_poles_limited;
+      if (LimitPole(a, distance, basis)) ++g_poles_limited;
       memcpy(reinterpret_cast<void*>(kMistBasis), basis, sizeof(basis));
+      if (g_trace) TraceDome(self, position, basis, scale, a_engine, eye);
     }
   }
   o_MistDraw(self, unused);
+}
+
+// The moon, in both of its calls. See THE MOON above.
+void __cdecl h_MoonTurn(const float* place, float* turn, float* mesh) {
+  TestFrameCheck();
+  float* camera = reinterpret_cast<float*>(kCameraMatrix);
+  float saved[12];
+  float level[12];
+  const bool swap =
+      g_head_free && g_moon_world_up && sky_math::LevelCamera(camera, level);
+  if (swap) {
+    memcpy(saved, camera, sizeof(saved));
+    memcpy(camera, level, sizeof(level));
+    ++g_moon_level;
+  }
+  o_MoonTurn(place, turn, mesh);
+  if (swap) memcpy(camera, saved, sizeof(saved));
+  ++g_moon_turns;
+  if (!g_trace || turn == nullptr) return;
+  // The first call of a frame is the moon. The second is its reflection.
+  const uint64_t frame = ControllersFrameCount();
+  if (frame == g_moon_frame) return;
+  float right[3] = {turn[0], turn[1], turn[2]};
+  Normalize(right);
+  const float tilt = asinf(fminf(1.0f, fabsf(right[1]))) * 57.29578f;
+  if (tilt > g_moon_tilt_most) g_moon_tilt_most = tilt;
+  if (g_moon_frame != 0 && frame == g_moon_frame + 1) {
+    const float along = right[0] * g_moon_right[0] +
+                        right[1] * g_moon_right[1] +
+                        right[2] * g_moon_right[2];
+    const float step = acosf(fmaxf(-1.0f, fminf(1.0f, along))) * 57.29578f;
+    if (step > g_moon_step_most) g_moon_step_most = step;
+  }
+  g_moon_frame = frame;
+  memcpy(g_moon_right, right, sizeof(g_moon_right));
 }
 
 // The glare runs once in each eye pass, as the first 3D draw after the
@@ -307,6 +556,31 @@ void SkyDetailInstall() {
        reinterpret_cast<void**>(&o_MistDraw), "LH3DMist::Draw");
   Hook(kSunGlare, reinterpret_cast<void*>(&h_SunGlare),
        reinterpret_cast<void**>(&o_SunGlare), "sun glare");
+  Hook(kMoonTurn, reinterpret_cast<void*>(&h_MoonTurn),
+       reinterpret_cast<void**>(&o_MoonTurn), "the turn of the moon");
+}
+
+// clouds_head_free, moon_world_up, sky_test_frame, sky_test_trace and
+// sky_test_hour.
+void SkySetHeadFree(bool clouds, bool moon, int test_frame, bool trace,
+                    int test_hour) {
+  g_test_hour = test_hour >= 0 && test_hour < 24 ? test_hour : -1;
+  g_clouds_head_free = clouds;
+  g_moon_world_up = moon;
+  g_test_frame = test_frame > 0 ? static_cast<uint64_t>(test_frame) : 0;
+  g_trace = trace;
+  ModLog("sky          : clouds_head_free=%d. In the table and the God view "
+         "the clouds face %s", clouds ? 1 : 0,
+         clouds ? "the table camera, so a move of the head does not turn them"
+                : "the render head, so they turn with each move of the head");
+  ModLog("sky          : moon_world_up=%d. The moon turns with %s",
+         moon ? 1 : 0,
+         moon ? "world up, so it stays fixed in the sky"
+              : "the camera up, so it turns with the head");
+  if (g_test_frame != 0) {
+    ModLog("sky          : sky_test_frame=%d changes both keys at that frame",
+           test_frame);
+  }
 }
 
 bool SkyHeadFree() { return g_head_free; }
@@ -344,10 +618,41 @@ void SkyDetailReport() {
     ModLog("sky          : %llu of %llu passes asked for a sun glare, %s",
            g_glare_wanted, g_glare_calls, GlareModeText(g_glare_mode));
   }
+  if (g_table_faced > 0) {
+    ModLog("sky          : %llu of %llu cloud and mist draws faced the table "
+           "camera", g_table_faced, g_dome_draws);
+  }
+  if (g_moon_turns > 0) {
+    ModLog("sky          : the moon was turned %llu times, %llu of them with "
+           "world up", g_moon_turns, g_moon_level);
+  }
+  if (g_trace && g_trace_pairs > 0) {
+    ModLog("sky trace    : from one frame to the next an axis of a cloud "
+           "moved at most %.2f units (mean %.3f), and a cloud at most %.2f "
+           "units, in %llu pairs. The point that the clouds face moved at "
+           "most %.2f units in a frame",
+           g_trace_shape_most, g_trace_shape_sum / g_trace_pairs,
+           g_trace_place_most, g_trace_pairs, g_trace_eye_most);
+  }
+  if (g_trace && g_moon_frame != 0) {
+    ModLog("sky trace    : the right of the moon was at most %.2f degrees "
+           "from level, and it turned at most %.3f degrees from one frame "
+           "to the next", g_moon_tilt_most, g_moon_step_most);
+  }
   g_dome_draws = 0;
   g_poles_limited = 0;
   g_glare_calls = 0;
   g_glare_wanted = 0;
+  g_table_faced = 0;
+  g_moon_turns = 0;
+  g_moon_level = 0;
+  g_trace_shape_most = 0.0f;
+  g_trace_shape_sum = 0.0;
+  g_trace_place_most = 0.0f;
+  g_trace_pairs = 0;
+  g_trace_eye_most = 0.0f;
+  g_moon_tilt_most = 0.0f;
+  g_moon_step_most = 0.0f;
 }
 
 // Moves every detail switch out by `factor`. 1 is the game's own distances.
