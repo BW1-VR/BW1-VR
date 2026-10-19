@@ -1116,13 +1116,17 @@ To report a fault:
    https://github.com/BW1-VR/BW1-VR/issues
 2. Select "New issue", and fill in the form.
 3. Attach bwvr.log and each bwvr-old file of the same day.
-4. Write what you did, what you expected and what happened.
+4. If the game crashed, put bwvr-crash.dmp from the game folder in
+   a zip file, and attach the zip file too.
+5. Write what you did, what you expected and what happened.
 
 The log holds:
 
   - the settings that the mod read,
   - the hooks that went in, and the hooks that failed,
-  - the frame rate reports, and a count of the frames.
+  - the frame rate reports, and a count of the frames,
+  - a report of a crash: where the game stopped and what the Hand
+    held. The mod also writes the file bwvr-crash.dmp then.
 
 To ask a question or to talk with other players, join the Discord
 server of the mod:

@@ -61,6 +61,7 @@ Other docs: `software-tnl.md` (the CPU transform and the camera matrix),
 | `src/mod/fast_transform.cpp`, `fast_transform_math.h` | The two vertex loops of the engine with SSE (`fast_transform`) |
 | `src/mod/scene_sample.cpp`, `scene_sample_math.h` | A test aid: samples of the code of the frame thread in the scene walks, by module (`profile_sample`) |
 | `src/mod/hang_watch.cpp` | A test aid: the place of the frame thread when it makes no frame for 8 s, and of a fault (`hang_watch`) |
+| `src/mod/crash_report.cpp` | The report of a crash in the log, and the dump `bwvr-crash.dmp` (`crash_report`) |
 | `src/mod/vk_ddraw.cpp` | DirectDraw 7 and Direct3D 7 of the mod on Vulkan (`backend=vulkan`) |
 | `src/mod/vk_window.cpp` | The swapchain of Vulkan on the window of the game (`vk_window`) |
 | `src/common/exe_check.h`, `version.h` | The build check and the product name |
@@ -1516,6 +1517,58 @@ while the frame thread makes frames. With each of the two values a fault
 that no handler takes writes its code, its place and the return addresses
 on the stack of its thread (a stack overflow shows the calls that repeat),
 and the frame thread keeps 64 KiB of its stack for that line.
+
+**The report of a crash.** `crash_report=1` (the default, `crash_report.cpp`)
+puts an unhandled exception filter of the mod in place when the DLL loads. A
+fault that no handler takes then writes one block of lines with the tag
+`crash` to `bwvr.log`:
+
+- the code of the exception, the address of the code with its module and
+  the offset in the module, or "no module", the thread (the frame thread or
+  not), and for an access violation the kind and the address of the access,
+- the registers,
+- up to 32 return addresses on the stack of the thread, the nearest first.
+  Each one is a word of the stack that is in a module, after a call,
+- the frame, the frame of the Hand, the Hand state, the hand mode, the object
+  in the Hand and the object of the next pick record, each with its class.
+
+Then the filter writes a small minidump, `bwvr-crash.dmp`, beside
+`runblack.exe` (`MiniDumpWriteDump` of `dbghelp.dll`, with the threads, their
+stacks, the modules and the memory that the stacks point to). A new crash
+writes over the dump of the crash before. The last line of the block names
+the dump and its size. Each line of the log goes to the file at once. Then
+the filter calls the filter that was there before it, and Windows ends the
+game as it does with no report.
+
+The module of an address comes from `VirtualQuery` and from the headers of
+the module in memory (the game is `runblack.exe`, each DLL has the name of
+its export directory), so the filter needs no lock of the loader. The C
+runtime of the game puts its own filter in front of the mod's filter at its
+start (`__CxxSetUnhandledExceptionFilter` `0x007D51A6`). That filter calls
+the filter before it for each fault that is not a C++ exception. At the first
+frame the mod puts its filter in front again, and it calls the filter of the
+C runtime after its report. `dbghelp.dll` loads at the first frame too, so a
+crash before the first frame gives the lines and no dump. The frame thread
+keeps 64 KiB of its stack for the report of a stack overflow. With `hang_watch`
+both filters write, and the one of the watch calls the other one after it.
+
+`crash_report=0` puts no filter in place. `crash_test_frame=N` (a test key)
+writes to address 0 at frame N of `FinishFrame`. Windows then shows no box
+for that fault, so a desktop run puts no window in front. The run scripts
+move each `bwvr-*.dmp` that the run wrote into the folder of the run
+(`desk_test.ps1`).
+
+The log of a crash test:
+
+```
+crash report : test key crash_test_frame=N. The mod writes to address 0 now
+crash        : a fault that no handler takes. Exception 0xC0000005 at ddraw.dll+0x..., on thread T (the frame thread). It was a write to 0x00000000
+crash        : registers eax=... ebx=... ...
+crash        : 32 return addresses on the stack, the nearest first: ddraw.dll+0x..., runblack.exe+0x..., ...
+crash        : frame N (hand frame N). Hand state 1, hand mode 0x1. The Hand holds 00000000 (nothing). The pick record holds 00000000 (nothing)
+crash        : the dump is C:\Black & White\bwvr-crash.dmp, N KiB
+crash        : the report ends. The filter before the mod's filter runs now
+```
 
 **The split in a headset.** SteamVR with a Steam Frame, Ryzen 9 7950X3D,
 Radeon RX 7900 XTX, a render of 3304 by 2644 with 4x multisampling,
@@ -4879,6 +4932,8 @@ keys that the launcher sets.
 | `fast_transform` | 1 | 1: the two vertex loops of the engine run with SSE, with the bits of the game. 0: on the x87 unit. See "The vertex loops with SSE" |
 | `profile_gpu` | 0 | A test key. See "The GPU time" |
 | `hang_watch` | 0 | A test key: 1 the place of the frame thread when it makes no frame for 8 s, 2 each 8 s. With each of the two the place of a fault. See "The watch of the frame thread" |
+| `crash_report` | 1 | 1: a fault that no handler takes writes a report to the log and the dump `bwvr-crash.dmp`. 0: no report and no dump. See "The report of a crash" |
+| `crash_test_frame` | 0 | A test key of the desktop runs: the frame of `FinishFrame` at which the mod writes to address 0. See "The report of a crash" |
 | `vk_lines` | 1 | With `backend=vulkan`: 1 a draw of points or lines becomes triangles of 1 pixel across, 0 it is not drawn. See "The backend of the mod on Vulkan" |
 | `vk_keep_picture` | 1 | With `backend=vulkan`: 1 a walk with no clear of the whole target before its first draw starts with the picture of the walk before, and the intro in stereo keeps the picture of each eye. 0 each walk starts black. A test key: Shift T. See "The picture of the walk before" |
 | `vk_black_check` | 1 | With `backend=vulkan`, a test aid: 1 checks 16 by 16 points of each eye picture, and a black picture gives a line of the log with what its walk drew. 0 no check. See "The check for a black picture" |

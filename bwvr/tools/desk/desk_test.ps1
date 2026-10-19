@@ -153,6 +153,7 @@ try {
         }
         $script:watch = $now
     }
+    $runStart = Get-Date
     $p = Start-Process @startArgs
     $deadline = (Get-Date).AddSeconds($Seconds)
     while ((Get-Date) -lt $deadline -and -not $p.HasExited) {
@@ -166,6 +167,12 @@ try {
     Copy-Item $log (Join-Path $out 'bwvr.log') -Force
     "game exited on its own: $exited"
     Get-ChildItem $game -Filter 'bwvr-*.bmp' -ErrorAction SilentlyContinue |
+        Move-Item -Destination $out -Force
+    # A dump of a fault (crash_report=1) that this run wrote is a file of the
+    # run, and not of the player's game folder. An older dump is the player's
+    # and stays.
+    Get-ChildItem $game -Filter 'bwvr-*.dmp' -ErrorAction SilentlyContinue |
+        Where-Object { $_.LastWriteTime -ge $runStart } |
         Move-Item -Destination $out -Force
 }
 finally {

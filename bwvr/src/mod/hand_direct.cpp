@@ -885,6 +885,8 @@ bool g_grip_reopened = true;
 bool HandEmpty();
 void Inject();
 void AssertRecord();
+bool ChoiceLives();
+bool KeepLiveChoice(const char* when);
 int PlanCount();
 float RoomUnits();
 
@@ -923,6 +925,21 @@ bool g_choice_touched = false;
 int g_logged_acts = -1;
 // The first word of the choice at the draw that offered it (ChoiceLives).
 void* g_choice_table = nullptr;
+// THE TARGET CHECK (target_check, docs/grab.md, "A target that the game
+// deletes"). The game turn runs between two draws, and a script or the
+// physics can delete the object of the choice in it. The choice of the last
+// draw then points to freed memory. 1: at the start of each frame and before
+// Inject puts the choice in the pick record, a choice that does not live
+// (ChoiceLives) is dropped. 0: no check.
+bool g_target_check = true;
+uint64_t g_target_gone = 0;  // choices dropped, this window
+int g_target_gone_logs = 0;
+const int kMaxTargetGoneLogs = 40;
+// target_check_test_frame (a test key): at the first eye pass from that
+// frame on with a choice at the Hand, the choice becomes a dead object of
+// the mod's own, with a first word that is not the table of a class.
+uint64_t g_gone_test_frame = 0;
+bool g_gone_test_done = false;
 
 // THE PICK AT THE GLOW (docs/grab.md, "One point for each interaction").
 // The keys, in centimeters of the room. The A/B key (test_keys=1, the point
@@ -5594,6 +5611,9 @@ void FarSelect() {
 void Inject() {
   if (!g_active || g_face == nullptr || !HandEmpty()) return;
   if (State(g_hand) == kStateCreature) return;
+  // The pick record calls IsInteractable through the first word of the
+  // object (fn_005D5E40 at 0x005D5E50).
+  if (!KeepLiveChoice("before the mod puts it in the pick record")) return;
   // The object of a fetch can die in the game turn of this frame, after the
   // test of FarFrameStep. Then the record does not get it.
   if (g_choice_far && !FarTargetLives()) {
@@ -5647,6 +5667,40 @@ bool ChoiceLives() {
   return g_choice != nullptr && g_choice_table != nullptr &&
          !IsBadReadPtr(g_choice, sizeof(void*)) &&
          *static_cast<void* const*>(g_choice) == g_choice_table;
+}
+
+// THE TARGET CHECK (target_check=1). True when the choice lives, when there
+// is no choice, or when the key is 0. Else the choice is dropped with each of
+// its facts, and the log names it. `when` is the place in the frame. The
+// object of a fetch from a distance has its own check, which also ends the
+// fetch (FarTargetLives).
+bool KeepLiveChoice(const char* when) {
+  if (!g_target_check || g_choice == nullptr || g_choice_far ||
+      ChoiceLives()) {
+    return true;
+  }
+  ++g_target_gone;
+  if (g_target_gone_logs < kMaxTargetGoneLogs) {
+    ++g_target_gone_logs;
+    const void* first = !IsBadReadPtr(g_choice, sizeof(void*))
+                            ? *static_cast<void* const*>(g_choice)
+                            : nullptr;
+    ModLog("hand pick    : the target %p is gone: its first word is %p and "
+           "not the table %p of its class. The game deleted it after the "
+           "draw that offered it. The mod drops it %s (target_check=1), "
+           "frame %llu", g_choice, first, g_choice_table, when, g_frame);
+  }
+  g_choice = nullptr;
+  g_choice_take = false;
+  g_choice_tap = false;
+  g_choice_click = false;
+  g_choice_kind = near_math::kNone;
+  g_choice_acts = false;
+  g_choice_touched = false;
+  g_choice_table = nullptr;
+  g_choice_last = false;
+  g_choice_loose = false;
+  return false;
 }
 
 // ONE TARGET: THE RECORD IS THE CHOICE WHEN THE PRESS COMES. The game reads
@@ -6898,6 +6952,16 @@ void InstallNear() {
   if (g_touch_cm < 0) g_touch_cm = 0;
   if (g_touch_cm > g_pick_cm) g_touch_cm = g_pick_cm;
   g_palm_search = IniKey("palm_search", 0) != 0;
+  g_target_check = IniKey("target_check", 1) != 0;
+  g_gone_test_frame =
+      static_cast<uint64_t>(IniKey("target_check_test_frame", 0));
+  ModLog("hand pick    : target_check=%d. %s", g_target_check ? 1 : 0,
+         g_target_check
+             ? "At the start of each frame and before the mod puts its "
+               "target in the pick record, a target that the game deleted "
+               "is dropped"
+             : "The mod puts its target of the last draw in the pick record "
+               "with no check that it lives");
   g_stroke_mode = IniKey("creature_stroke_hand", 0);
   if (g_stroke_mode < 0 || g_stroke_mode > 3) g_stroke_mode = 0;
   // -1 says that the ini has no creature_slap_mps: the fist stroke then has
@@ -7970,6 +8034,9 @@ void HandDirectFrame() {
     return;
   }
   ++g_active_frames;
+  // The game turn before this draw can have deleted the choice of the last
+  // draw. Each reader of the choice in this frame gets a live object or none.
+  KeepLiveChoice("at the start of the frame");
   {
     // The motion history of the throw and of the Creature.
     float reach_room[3], grip_room[3], room[9];
@@ -8467,6 +8534,24 @@ void HandDirectGripOpened() {
 // choice all through the pass.
 void HandDirectPassBegin(int eye) {
   g_eye = eye;
+  // The test key target_check_test_frame: the choice of the last draw is a
+  // dead object now, as after a delete of the game in the game turn. Its
+  // first word points to a table of zeros, so a virtual call through it goes
+  // to address 0.
+  if (eye == 0 && g_gone_test_frame > 0 && !g_gone_test_done &&
+      g_active && g_near_pick && g_choice != nullptr && !g_choice_far &&
+      ControllersTestFrame(g_gone_test_frame, g_frame) >=
+          g_gone_test_frame) {
+    g_gone_test_done = true;
+    static void* s_zeros[0x200 / sizeof(void*)] = {};
+    static void* s_dead[0x100 / sizeof(void*)] = {};
+    s_dead[0] = s_zeros;
+    ModLog("hand pick    : test key target_check_test_frame=%llu. The target "
+           "%p (%s) becomes the dead object %p, frame %llu",
+           g_gone_test_frame, g_choice, ClassName(g_choice),
+           static_cast<void*>(s_dead), g_frame);
+    g_choice = s_dead;
+  }
   if (g_active && g_near_pick && g_choice != nullptr) Inject();
 }
 
@@ -8621,6 +8706,34 @@ bool HandDirectSeen(const float at[3], float radius) {
 }
 
 const char* HandDirectClass(void* object) { return ClassName(object); }
+
+// For crash_report.cpp: the Hand at a fault. The CHand and the GInterface of
+// the last frame, the Hand state, the hand mode, the object in the Hand and
+// the object of the next pick record, each with its class. The function only
+// reads, and it checks each pointer before the read. False with no CHand.
+bool HandDirectCrashFacts(int32_t* state, int32_t* mode, void** held,
+                          char* held_class, size_t held_size, void** next,
+                          char* next_class, size_t next_size,
+                          uint64_t* frame) {
+  *frame = g_frame;
+  if (g_hand == nullptr || IsBadReadPtr(g_hand, kHandHeld + sizeof(void*))) {
+    return false;
+  }
+  *state = State(g_hand);
+  *held = *reinterpret_cast<void* const*>(g_hand + kHandHeld);
+  strcpy_s(held_class, held_size,
+           *held != nullptr ? ClassName(*held) : "nothing");
+  *mode = 0;
+  *next = nullptr;
+  strcpy_s(next_class, next_size, "nothing");
+  if (g_face != nullptr &&
+      !IsBadReadPtr(g_face, kFaceNextObject + sizeof(void*))) {
+    *mode = *reinterpret_cast<const int32_t*>(g_face + kFaceHandMode);
+    *next = *reinterpret_cast<void* const*>(g_face + kFaceNextObject);
+    if (*next != nullptr) strcpy_s(next_class, next_size, ClassName(*next));
+  }
+  return true;
+}
 
 // For creature_command.cpp: a living thing, by the class test of the value of
 // far_grab_choice in use (FarLiving).
@@ -10237,6 +10350,12 @@ void HandDirectReport() {
            "(fight_grip=%d), this window", g_fight_rays, g_fight_hits,
            g_fight_game_hits, g_fight_grip ? 1 : 0);
     g_fight_rays = g_fight_hits = g_fight_game_hits = 0;
+  }
+  if (g_target_gone != 0) {
+    ModLog("hand pick    : %llu targets were gone at the start of a frame or "
+           "before the pick record, and the mod dropped them (target_check=1), "
+           "this window", g_target_gone);
+    g_target_gone = 0;
   }
   if (g_presses != 0 || g_palm_asks != 0 || g_record_puts != 0 ||
       g_record_clears != 0) {

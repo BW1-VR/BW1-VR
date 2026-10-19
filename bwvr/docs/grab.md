@@ -802,6 +802,41 @@ gives one line each time the leash comes on, with the palm, the distance from
 the game's point to it, and how far that point is below it. No desktop run can
 put the leash on from a new game.
 
+### A target that the game deletes
+
+The mod chooses its target in the first eye pass of a draw (`Choose`). The
+game turn runs between two draws, and the game can delete the object of the
+target in it: a script deletes the scroll of a challenge, the physics breaks
+a rock, a villager dies. The target of the last draw then points to freed
+memory. At the start of the first eye pass of the next draw, `Inject` puts
+the target in the next pick record, and the function of the record
+(`fn_005D5E40`) calls `IsInteractable` through the first word of the object
+(slot `0x190`, at `0x005D5E50`) [V]. When the heap gave that memory to a new
+block, the call goes to an address that no module holds, and the game
+crashes.
+
+`target_check=1` drops a target that does not live, at the start of each
+frame and before `Inject` puts it in the record. An object lives while its
+first word is the table of its class from the draw that offered it
+(`ChoiceLives`, the same test as before an interface step and before a
+press). The target of a fetch from a distance has its own check, which also
+ends the fetch. The target of the next draw comes from the objects that the draw
+offers, so a deleted object is no target after that draw. The log has one
+line for each dropped target, "the target ... is gone", with the first word
+and the table, and a count in each report window.
+
+`target_check=0` puts the target of the last draw in the record with no
+check.
+
+A desktop run cannot make a script delete its scroll. The test key
+`target_check_test_frame=N` makes the target a dead object of the mod's own
+at the first eye pass from frame N on (frame of the steps, as
+`near_test_flips` counts). The first word of that object points to a table of
+zeros. With `target_check=1` the log has "the target ... is gone" and the run
+goes on. With `target_check=0` the call of the record goes to address 0, and
+the report of a crash (`backend.md`, "The report of a crash") names the
+return address in `fn_005D5E40`.
+
 ### Keys of the pick and the target
 
 | Key | Default | What it does |
@@ -822,6 +857,7 @@ put the leash on from a new game.
 | `far_grab_beside_loose` | 1 | 1: a tree, a forest, a building or a bulk source that the Hand's point is not in does not turn the far grab off, and it is no target at the Hand while the aim has a far target. 0: it turns the far grab off as each other object that a press acts on |
 | `far_grab_near_out_cm` | 15 | The far grab comes back past this distance |
 | `palm_search` | 0 | 1 leaves the game's search at the palm on |
+| `target_check` | 1 | 1 drops a target that the game deleted, at the start of each frame and before the mod puts the target in the pick record (see "A target that the game deletes"). 0 puts the target of the last draw in the record with no check |
 | `hand_glow_idle` | 0 | 1 draws the glow also with no target and while the Hand holds an object |
 | `leash_at_palm` | 1 | 1 ends the rope of the leash at the palm of the mod's hand |
 

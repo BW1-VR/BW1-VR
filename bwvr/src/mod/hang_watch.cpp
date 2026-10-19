@@ -45,6 +45,9 @@ volatile LONG g_frames = 0;
 scene_sample::Module g_modules[kMaxModules];
 char g_names[kMaxModules][40];
 int g_module_count = 0;
+// The filter that was there before CrashFilter (the report of a crash,
+// crash_report.cpp). CrashFilter calls it after its lines.
+LPTOP_LEVEL_EXCEPTION_FILTER g_previous = nullptr;
 
 int IniKey(const char* key, int fallback) {
   char path[MAX_PATH];
@@ -140,7 +143,8 @@ void Report(uint32_t eip, const uint32_t* stack, int words,
 // A FAULT. With hang_watch=1 or 2 an exception that no handler takes writes
 // its code, its place and the return addresses on the stack of its thread
 // (a stack overflow shows the calls that repeat). The frame thread keeps 64
-// KiB of its stack for this (SetThreadStackGuarantee).
+// KiB of its stack for this (SetThreadStackGuarantee). Then the filter that
+// was there before runs.
 LONG WINAPI CrashFilter(EXCEPTION_POINTERS* info) {
   static volatile LONG s_once = 0;
   if (InterlockedExchange(&s_once, 1) != 0) return EXCEPTION_CONTINUE_SEARCH;
@@ -160,6 +164,7 @@ LONG WINAPI CrashFilter(EXCEPTION_POINTERS* info) {
   }
   Report(static_cast<uint32_t>(c->Eip), stack,
          static_cast<int>(copied / sizeof(uint32_t)), what);
+  if (g_previous != nullptr) return g_previous(info);
   return EXCEPTION_CONTINUE_SEARCH;
 }
 
@@ -238,7 +243,7 @@ void HangWatchFrame() {
     CloseHandle(thread);
     ULONG guarantee = 64 * 1024;
     SetThreadStackGuarantee(&guarantee);
-    SetUnhandledExceptionFilter(&CrashFilter);
+    g_previous = SetUnhandledExceptionFilter(&CrashFilter);
     ModLog("hang watch   : hang_watch=%d. When the frame thread makes no frame "
            "for %d s, the log gets the place where it is%s. A fault that no "
            "handler takes writes its place too",

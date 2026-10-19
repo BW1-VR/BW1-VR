@@ -273,6 +273,9 @@ void UiDepthReport();
 void ExitTestSetFrame(int frame);
 void ExitTestFrame(uint64_t frame);
 void ExitTestGuardFromStart();
+// crash_report.cpp: the report and the dump of a fault (crash_report).
+void CrashReportInstall(const char* ini);
+void CrashReportFrame(uint64_t frame);
 
 void ModLog(const char* format, ...);
 
@@ -2274,6 +2277,7 @@ void __cdecl h_FinishFrame() {
   UiBarsEnd(bars);
   ++g_frame;
   ExitTestFrame(g_frame);
+  CrashReportFrame(g_frame);
   if (g_cursor_trace) CursorTraceFrame(g_frame);
   // The rules for the switch (docs/ui-layer.md, "Rules for the switch"):
   // the game's target is back before anything else runs.
@@ -2544,6 +2548,8 @@ void EarlyHooks() {
   char path[MAX_PATH];
   lstrcpynA(path, g_dir, MAX_PATH);
   lstrcatA(path, "bwvr.ini");
+  // The report of a fault goes in first, so it also covers the start.
+  CrashReportInstall(path);
   // The game's check for an internet connection can wait forever when a
   // service of Windows does not answer. The mod answers it by default. It
   // goes in here, before each other thing, because it must work with vr
