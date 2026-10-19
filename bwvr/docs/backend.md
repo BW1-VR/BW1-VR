@@ -2845,9 +2845,10 @@ mod, in place of dxwrapper and Direct3D 9. The proxy then loads no backend
 DLL: system DirectDraw gives only the exports that the mod does not make
 (the enumeration of the displays). The two exports that make a DirectDraw
 object go to the mod (`ProxySetCreateHooks`, `ddraw_proxy.h`). The launcher
-row "Renderer" chooses Vulkan or Direct3D 9: it writes `backend=vulkan` only
+row "Renderer" chooses Vulkan or Direct3D 9. Vulkan is the default: the
+launcher shows it for an ini with no key, and it writes `backend=vulkan` only
 when the GPU has Vulkan 1.3, else dxwrapper. With no key the proxy takes
-dxwrapper.
+dxwrapper, because the proxy cannot ask Vulkan before the mod loads.
 
 **What the game uses.** `ddraw_census=1` with `backend=system` counts each
 call from the start (dxwrapper puts a hot patch on `DirectDrawCreateEx`
@@ -4796,7 +4797,7 @@ keys that the launcher sets.
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| `backend` | dxwrapper when installed | The launcher row "Renderer": Vulkan writes `vulkan` when the GPU has Vulkan 1.3 (the launcher asks the Vulkan of Windows), Direct3D 9 writes `dxwrapperddraw.dll`. See "Settings" and "The backend of the mod on Vulkan" |
+| `backend` | `vulkan` from the launcher when the GPU has Vulkan 1.3, dxwrapper with no key | The launcher row "Renderer": Vulkan writes `vulkan` when the GPU has Vulkan 1.3 (the launcher asks the Vulkan of Windows), Direct3D 9 writes `dxwrapperddraw.dll`. See "Settings" and "The backend of the mod on Vulkan" |
 | `gpu_bridge` | 1 | The GPU path |
 | `frame_send` | 0 | 0: the mod waits for the GPU after each eye pass. 1: one wait a frame. 2: one wait a frame on a second thread, which also gives the frame to the runtime. See "One wait a frame, and a second thread" |
 | `xr_hold_ms` | 30 | When the game gives the runtime no frame for this many ms, a second thread sends the layers of the last frame again, at the rate of the headset. 0 is off: the headset gets no frame while the game gives none. 0 to 1000. A test key: Shift W. See "The hold of the last frame" |

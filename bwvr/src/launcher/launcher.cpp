@@ -118,11 +118,12 @@ const Setting kSettings[] = {
      "frame time in busy places."},
 
     {kGroup, nullptr, "Performance", nullptr, 0, nullptr},
-    {kRenderer, "backend", "Renderer", "Vulkan|Direct3D 9", 1,
-     "Vulkan: the mod draws the game with a Vulkan renderer of its own, and "
-     "the pictures go to the headset and to the window through Vulkan. The "
-     "mod then uses no dxwrapper, no Direct3D 9 and no Direct3D 11. Your GPU "
-     "needs Vulkan 1.3: with no Vulkan 1.3 the launcher keeps Direct3D 9. "
+    {kRenderer, "backend", "Renderer", "Vulkan|Direct3D 9", 0,
+     "Vulkan (the default): the mod draws the game with a Vulkan renderer of "
+     "its own, and the pictures go to the headset and to the window through "
+     "Vulkan. The mod then uses no dxwrapper, no Direct3D 9 and no Direct3D "
+     "11. Your GPU needs Vulkan 1.3: with no Vulkan 1.3 the launcher keeps "
+     "Direct3D 9. "
      "Direct3D 9: the game draws through dxwrapper and Direct3D 9, as in "
      "the versions before. The change counts from the next start."},
     {kBool, "d3d9_backend", "Direct3D 9 through DXVK", nullptr, 0,
@@ -812,10 +813,12 @@ void LoadAll() {
         break;
       }
       case kRenderer: {
+        // No key: Vulkan, when the GPU has Vulkan 1.3. The save writes it.
         char text[MAX_PATH] = {0};
         ReadIniText(s.key, text, sizeof(text));
-        SendMessageA(g_control[i], CB_SETCURSEL,
-                     _stricmp(text, "vulkan") == 0 ? 0 : 1, 0);
+        const bool vulkan = text[0] == 0 ? HasVulkan13()
+                                         : _stricmp(text, "vulkan") == 0;
+        SendMessageA(g_control[i], CB_SETCURSEL, vulkan ? 0 : 1, 0);
         break;
       }
       case kScale: {
