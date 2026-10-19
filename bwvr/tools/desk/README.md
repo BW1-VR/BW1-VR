@@ -189,6 +189,11 @@ Known limits of the recipes:
   that renderer. The other scripts of one area do not: give them
   `-Set 'test_frame_rate=60'` (`throw_queue.ps1 -Fps 60`), or the renderer
   Direct3D 9 (`backend=dxwrapper\ddraw.dll` in `bwvr.ini`).
+- With the renderer Direct3D 9 a run has no pace, and a fast PC has 90 to
+  180 frames a second. Then `tland` of `verify_build.ps1`, which plays the
+  first story of a new game, can miss its landing, for example with
+  `cutscene_immersive=1` in `bwvr.ini`. `verify_build.ps1 -Fps 60` paces
+  each run to 60 frames a second with each renderer.
 - A run with `test_frame_rate` shows no new picture in the window of the
   game. The key acts from frame 150 of the controllers, so a step of a
   recipe before that frame comes at the frame rate of the renderer.
