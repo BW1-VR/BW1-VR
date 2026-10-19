@@ -35,6 +35,9 @@ void VillageApplied(void* held, void* object);
 // The totem is then the source of a take, as a pile of a store is.
 bool VillageTotemInSelect(void* object);
 
+// hint_card.cpp: the object is the totem of a Village Centre.
+bool VillageIsTotem(void* object);
+
 // hand_direct.cpp, for the test place "villager": the villager passes the
 // tests of the game for a job from a thing near him (Villager::InHand).
 bool VillageCanHaveJob(void* villager);

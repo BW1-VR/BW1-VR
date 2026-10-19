@@ -2038,6 +2038,11 @@ void VillageKeepRecord() {
   if (HandDirectRecordTarget(g_join.target, g_join.at)) ++g_join_puts;
 }
 
+bool VillageIsTotem(void* object) {
+  return object != nullptr && !IsBadReadPtr(object, sizeof(void*)) &&
+         TableOf(object) == kTotemTable;
+}
+
 bool VillageTotemInSelect(void* object) {
   if (!g_settings.take || object == nullptr ||
       IsBadReadPtr(object, kObjectFlags + 1)) {

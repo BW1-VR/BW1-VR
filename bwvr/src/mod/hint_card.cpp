@@ -769,6 +769,10 @@ void AddPrompts(Content cards[kHands], int context, bool first_show) {
                 : far_draw.leash == 2 ? L"Take the leash off"
                 : far_draw.leash == 3 ? L"Take the leash back"
                 : far_draw.touch ? L"Activate"
+                // The totem is a source of a take too, but the grip sets
+                // its value (totem_take, village.cpp).
+                : far_draw.bulk && VillageIsTotem(far_draw.target)
+                    ? L"Hold, then move up or down"
                 : far_draw.bulk ? L"Hold to collect"
                                 : L"Pull to fetch",
                 kToneGrab,
