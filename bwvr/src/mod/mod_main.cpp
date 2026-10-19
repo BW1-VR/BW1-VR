@@ -112,8 +112,10 @@ void NoteDepthInstall();
 // intro_skip.cpp: a press of a controller button skips the logos at the
 // start of the game. `caller` is the address that called FinishFrame.
 void IntroSkipFrame(uintptr_t caller, bwvr::XrScreen* screen);
-// hang_watch.cpp: the watch of the frame thread (hang_watch, a test key).
+// hang_watch.cpp: the watch of the frame thread (hang_watch, a test key),
+// and the crash log (crash_log).
 void HangWatchFrame();
+void CrashLogInstall();
 // controllers.cpp
 void ControllerHintsSetOptions(bool on, const char* forced_profile);
 bool ControllerHintsInstall();
@@ -2720,6 +2722,9 @@ void Startup() {
     g_vr_enabled = false;
     return;
   }
+  // The crash log: before each other hook, so an end of the game in its C
+  // runtime has a line from the start (hang_watch.cpp).
+  CrashLogInstall();
   // Before the game makes its window, so the log has each call from the start.
   if (g_cursor_trace) CursorTraceInstall();
   // Before the game reads its profile, so the guard has each write.
