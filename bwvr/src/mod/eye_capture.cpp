@@ -165,6 +165,23 @@ void Load() {
 // either eye pass.
 uint64_t g_armed_frame = 0;
 
+// A REQUEST FROM OUTSIDE (test_keys=1): a file bwvr-capture-now.txt beside
+// runblack.exe arms the next frame as F12 does, and goes away. So a frame of
+// a player with no keyboard can be saved. The file is looked for each 45
+// frames.
+void EyeCaptureArmNow(uint64_t stereo_frame);
+void EyeCaptureCheckFile(uint64_t stereo_frame) {
+  if (stereo_frame % 45 != 0) return;
+  if (!g_loaded) Load();
+  char path[MAX_PATH];
+  lstrcpynA(path, g_dir, MAX_PATH);
+  lstrcatA(path, "bwvr-capture-now.txt");
+  if (GetFileAttributesA(path) == INVALID_FILE_ATTRIBUTES) return;
+  DeleteFileA(path);
+  ModLog("eye capture  : bwvr-capture-now.txt asked for a picture");
+  EyeCaptureArmNow(stereo_frame + 1);
+}
+
 void EyeCaptureArmNow(uint64_t stereo_frame) {
   g_armed_frame = stereo_frame;
   ModLog("eye capture  : armed for stereo frame %llu", stereo_frame);

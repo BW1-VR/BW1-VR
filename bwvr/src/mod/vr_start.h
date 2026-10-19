@@ -22,6 +22,12 @@ struct VrStartOptions {
   int max_tries;
   int test_hang_try;  // vr_start_test_hang_try: 0 is off
   int test_hang_ms;   // vr_start_test_hang_ms
+  // The graphics API of the session, before StartInstance: a session with
+  // Vulkan (XrScreen::UseVulkan), with a Direct3D 11 device or not
+  // (XrScreen::UseD3D11), and eye tracking (XrScreen::WantEyeGaze).
+  bool vulkan;
+  bool d3d11;
+  bool eye_gaze;
 };
 
 // On the frame thread, one time: starts the thread. False: no thread, and

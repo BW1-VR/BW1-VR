@@ -67,7 +67,29 @@
 #include "bubble_card.h"
 #include "cutscene_window.h"
 #include "frame_profile.h"
+#include "d3d7_count.h"
+#include "d3d7_thread.h"
+#include "fast_transform.h"
+#include "thread_wait.h"
+#include "ddraw_census.h"
+#include "foveation_math.h"
+#include "vk_scene.h"
+#include "vk_ddraw.h"
+#include "vk_window.h"
+#include "render_thread.h"
+#include "scene_sample.h"
 #include "ui_panel.h"
+
+// d3d9_backend.cpp: the start with DXVK did not fail.
+void D3D9BackendConfirm();
+// mod_main.cpp: the test key of xr_vulkan_upload.
+void XrVulkanUploadToggle(const char* keys);
+// mod_main.cpp: the test key of xr_hold_ms.
+void XrHoldToggle(const char* keys);
+// mod_main.cpp: backend=vulkan with vulkan_only=1.
+bool VulkanOnly();
+// mod_main.cpp: a line of the log with the DLLs of Direct3D in the process.
+void LogDirect3DModules(const char* when);
 
 extern void ModLog(const char* format, ...);
 
@@ -136,6 +158,9 @@ void PassGuardLogHand(int count);
 void UiDepthDumpNextFrame();
 void PassGuardSetEye(int eye);
 void PassGuardReport();
+// file_read_ahead.cpp: the read ahead of the files of LHFile.
+void FileReadAheadReport();
+void FileReadAheadToggle(const char* keys);
 void FrameTimersReport(uint64_t frames);
 void FovReport();
 void FovSetAbsolute(float radians);
@@ -247,6 +272,8 @@ void UiDepthTakeSubmit(double* ms, uint64_t* calls, uint64_t frames);
 
 // eye_capture.cpp: write the two eye images to disk for inspection.
 bool EyeCaptureWanted(uint64_t stereo_frame);
+// eye_capture.cpp: bwvr-capture-now.txt arms the next frame.
+void EyeCaptureCheckFile(uint64_t stereo_frame);
 void EyeCaptureSave(uint64_t stereo_frame, int eye, const void* pixels,
                     int pitch, uint32_t width, uint32_t height);
 
@@ -582,6 +609,88 @@ float FrameSeparation() {
   return separation;
 }
 
+// THE KEYS OF A VIRTUAL KEYBOARD. The keyboard of Virtual Desktop can send a
+// key down and up at once, between two frames, so GetAsyncKeyState in a
+// frame does not see it. The game reads its keys from the window messages of
+// its thread. A hook of the messages of that thread sees each key as the game
+// sees it, and keeps the press for the next frame. The state of Shift and
+// Ctrl comes from GetKeyState, which is the state of that message.
+//
+// A virtual keyboard can also send a capital letter as the character alone
+// (VK_PACKET), with no Shift. Then only a WM_CHAR of the capital letter
+// comes. So a WM_CHAR of a letter of ShiftKeyIndex is the same key, unless
+// a WM_KEYDOWN of that key came less than 300 ms before it: a real keyboard
+// sends both, and a held key sends both again and again. A repeat counts
+// never. The digits have no such second way, because the
+// character of Shift 8 and Shift 9 is not the same on each keyboard layout.
+// Shift 8, Shift 9, Shift F, Shift G, Shift H, Shift J, Shift K, Shift L,
+// Shift M, Shift N, Shift B, Shift V, Shift C, Shift X, Shift Z, Shift Y,
+// Shift U, Shift I, Shift O, Shift P, Shift T, Shift W, Shift Q, Shift E,
+// Shift R, Shift D
+static const int kShiftKeys = 26;
+static volatile LONG g_shift_key[kShiftKeys] = {};
+static DWORD g_shift_key_at[kShiftKeys] = {};
+static HHOOK g_message_hook = nullptr;
+static bool g_message_hook_tried = false;
+
+static int ShiftKeyIndex(WPARAM key) {
+  return key == '8'   ? 0
+         : key == '9' ? 1
+         : key == 'F' ? 2
+         : key == 'G' ? 3
+         : key == 'H' ? 4
+         : key == 'J' ? 5
+         : key == 'K' ? 6
+         : key == 'L' ? 7
+         : key == 'M' ? 8
+         : key == 'N' ? 9
+         : key == 'B' ? 10
+         : key == 'V' ? 11
+         : key == 'C' ? 12
+         : key == 'X' ? 13
+         : key == 'Z' ? 14
+         : key == 'Y' ? 15
+         : key == 'U' ? 16
+         : key == 'I' ? 17
+         : key == 'O' ? 18
+         : key == 'P' ? 19
+         : key == 'T' ? 20
+         : key == 'W' ? 21
+         : key == 'Q' ? 22
+         : key == 'E' ? 23
+         : key == 'R' ? 24
+         : key == 'D' ? 25
+                      : -1;
+}
+
+static LRESULT CALLBACK KeyMessageHook(int code, WPARAM remove, LPARAM message) {
+  if (code == HC_ACTION && remove == PM_REMOVE) {
+    const MSG* m = reinterpret_cast<const MSG*>(message);
+    const bool first = (m->lParam & (1 << 30)) == 0;  // not a repeat
+    const int index = ShiftKeyIndex(m->wParam);
+    const bool ctrl = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
+    // A key that is held sends the character again (a repeat), and a press
+    // can come as the key and as the character: one press counts one time
+    // in 300 ms.
+    const bool fresh =
+        index >= 0 && GetTickCount() - g_shift_key_at[index] > 300;
+    if (m->message == WM_KEYDOWN && first && fresh &&
+        (GetKeyState(VK_SHIFT) & 0x8000) != 0 && !ctrl) {
+      InterlockedExchange(&g_shift_key[index], 1);
+      g_shift_key_at[index] = GetTickCount();
+    } else if (m->message == WM_KEYDOWN && index >= 0) {
+      // Each key down of the letter, also a repeat, starts the 300 ms again,
+      // so its character does not count.
+      g_shift_key_at[index] = GetTickCount();
+    } else if (m->message == WM_CHAR && index >= 2 && first && fresh &&
+               !ctrl) {
+      InterlockedExchange(&g_shift_key[index], 1);
+      g_shift_key_at[index] = GetTickCount();
+    }
+  }
+  return CallNextHookEx(g_message_hook, code, remove, message);
+}
+
 // A key pressed in another program is not for the game. GetAsyncKeyState
 // reads the keyboard of the whole system, so the mod reads its keys only
 // while a window of this process is in front.
@@ -591,6 +700,16 @@ bool GameHasFocus() {
   DWORD process = 0;
   GetWindowThreadProcessId(window, &process);
   return process == GetCurrentProcessId();
+}
+
+// A test key of a part for Direct3D 9 does nothing with vulkan_only=1: that
+// part does not start, and a session with Vulkan alone has no Direct3D 9 or
+// Direct3D 11 to change to.
+bool D3D9KeyHere(const char* keys) {
+  if (!VulkanOnly()) return true;
+  ModLog("test key     : %s does nothing. It changes a part for Direct3D 9 "
+         "or Direct3D 11, and vulkan_only=1 has none", keys);
+  return false;
 }
 
 // THE MOD'S KEYS.
@@ -636,6 +755,41 @@ bool GameHasFocus() {
 //               (eye_clean, eye_clean.cpp)
 //   Shift Delete  a speech bubble of the game is one card at the depth of its
 //               sign, or it is drawn as before (bubble_card, bubble_card.cpp)
+//   Shift 8     the calls of each scene walk go to the render thread, or to
+//               Direct3D 9 as they come (render_thread, render_thread.cpp)
+//   Shift 9     the answers of some calls of a texture with no lock of the
+//               device go on and off (render_thread_lock_free,
+//               render_thread.cpp)
+//   Shift F     a call of a walk that sets the value that the device has
+//               already goes to Direct3D 9 or not (render_thread_filter,
+//               render_thread.cpp)
+//   Shift G     the render thread draws from buffers of its own, or gives
+//               each DrawIndexedPrimitiveUP to Direct3D 9
+//               (render_thread_buffers, render_thread.cpp)
+//   Shift H     a batch of one walk is one draw for both eyes, or one draw
+//               for each eye (one_walk_merge, one_walk.cpp)
+//   Shift J     the driver gives the calls of a walk to the GPU each N
+//               draws, or when it wants (gpu_flush,
+//               render_thread.cpp)
+//   Shift K     the render thread or the frame thread makes the copy of a
+//               batch of one walk for the right eye
+//               (render_thread_right_eye, render_thread.cpp)
+//   Shift L     the two vertex loops of the engine run with SSE or on the
+//               x87 unit (fast_transform, fast_transform.cpp)
+//   Shift M     the calls of Direct3D 7 of a walk go to the D3D7 thread or
+//               to dxwrapper on the frame thread (d3d7_thread,
+//               d3d7_thread.cpp)
+//   Shift N     the end of a walk does not wait for the render thread, or
+//               it waits (render_thread_late_end, render_thread.cpp)
+//   Shift Q     a small read of a file of LHFile comes from a copy of the
+//               next 256 KB of the file, or from ReadFile (file_read_ahead,
+//               file_read_ahead.cpp)
+//   Shift R     a stage 0 of the Vulkan renderer with no texture gives the
+//               diffuse color for the texture argument, or a white texel
+//               (vk_untextured, vk_scene.cpp)
+//   Shift D     with backend=vulkan the window of the game gets the picture
+//               through a swapchain of Vulkan, or through the CPU and GDI
+//               (vk_window, vk_window.cpp)
 //   Ctrl Shift Numpad Slash  the mod waits for the GPU after each eye pass,
 //               one time a frame, or one time a frame on a second thread
 //               that also gives the frame to the runtime (frame_send,
@@ -766,6 +920,114 @@ void PollHotkeys() {
   // Kept up to date without focus too, so a key that is already down when
   // the game comes to the front does not count as a new press.
   for (int i = 0; i < kKeys; ++i) down[i] = now[i];
+  // An A/B of the render thread (docs/backend.md, "The render thread"), and
+  // of the answers with no lock of the device ("The lock of the device"):
+  // Shift 8 and Shift 9, from the hook of the messages. The game uses Shift
+  // with 1 to 7 for its bookmarks, and no key with 8 or 9.
+  if (g_test_keys && !g_message_hook_tried) {
+    g_message_hook_tried = true;
+    g_message_hook =SetWindowsHookExA(WH_GETMESSAGE, KeyMessageHook, nullptr,
+                                       GetCurrentThreadId());
+    ModLog("test key     : the hook of the messages for Shift 8 and Shift 9 "
+           "%s", g_message_hook != nullptr ? "is in" : "FAILED");
+  }
+  if (InterlockedExchange(&g_shift_key[0], 0) != 0 &&
+      D3D9KeyHere("Shift and 8")) {
+    RenderThreadToggle("Shift and 8");
+  }
+  if (InterlockedExchange(&g_shift_key[1], 0) != 0 &&
+      D3D9KeyHere("Shift and 9")) {
+    RenderThreadLockFreeToggle("Shift and 9");
+  }
+  if (InterlockedExchange(&g_shift_key[2], 0) != 0 &&
+      D3D9KeyHere("Shift and F")) {
+    RenderThreadFilterToggle("Shift and F");
+  }
+  if (InterlockedExchange(&g_shift_key[3], 0) != 0 &&
+      D3D9KeyHere("Shift and G")) {
+    RenderThreadBuffersToggle("Shift and G");
+  }
+  if (InterlockedExchange(&g_shift_key[4], 0) != 0 &&
+      D3D9KeyHere("Shift and H")) {
+    OneWalkMergeToggle("Shift and H");
+  }
+  if (InterlockedExchange(&g_shift_key[5], 0) != 0 &&
+      D3D9KeyHere("Shift and J")) {
+    RenderThreadFlushToggle("Shift and J");
+  }
+  if (InterlockedExchange(&g_shift_key[6], 0) != 0 &&
+      D3D9KeyHere("Shift and K")) {
+    RenderThreadRightEyeToggle("Shift and K");
+  }
+  if (InterlockedExchange(&g_shift_key[7], 0) != 0) {
+    FastTransformToggle("Shift and L");
+  }
+  if (InterlockedExchange(&g_shift_key[8], 0) != 0 &&
+      D3D9KeyHere("Shift and M")) {
+    D3D7ThreadToggle("Shift and M");
+  }
+  if (InterlockedExchange(&g_shift_key[9], 0) != 0 &&
+      D3D9KeyHere("Shift and N")) {
+    RenderThreadLateEndToggle("Shift and N");
+  }
+  if (InterlockedExchange(&g_shift_key[10], 0) != 0) {
+    ThreadWaitToggle("Shift and B");
+  }
+  if (InterlockedExchange(&g_shift_key[11], 0) != 0 &&
+      D3D9KeyHere("Shift and V")) {
+    D3D7ThreadMergeToggle("Shift and V");
+  }
+  if (InterlockedExchange(&g_shift_key[12], 0) != 0 &&
+      D3D9KeyHere("Shift and C")) {
+    VkSceneEyesToggle("Shift and C");
+  }
+  if (InterlockedExchange(&g_shift_key[13], 0) != 0) {
+    VkSceneFollowToggle("Shift and X");
+  }
+  if (InterlockedExchange(&g_shift_key[14], 0) != 0 &&
+      D3D9KeyHere("Shift and Z")) {
+    XrVulkanUploadToggle("Shift and Z");
+  }
+  if (InterlockedExchange(&g_shift_key[15], 0) != 0) {
+    VkScenePanelToggle("Shift and Y");
+  }
+  if (InterlockedExchange(&g_shift_key[16], 0) != 0 &&
+      D3D9KeyHere("Shift and U")) {
+    VkSceneOnlyToggle("Shift and U");
+  }
+  if (InterlockedExchange(&g_shift_key[17], 0) != 0) {
+    VkSceneUploadsToggle("Shift and I");
+  }
+  if (InterlockedExchange(&g_shift_key[18], 0) != 0) {
+    VkSceneFoveationToggle("Shift and O");
+  }
+  if (InterlockedExchange(&g_shift_key[19], 0) != 0) {
+    VkSceneFoveaResToggle("Shift and P");
+  }
+  if (InterlockedExchange(&g_shift_key[20], 0) != 0) {
+    VkSceneKeepPictureToggle("Shift and T");
+  }
+  if (InterlockedExchange(&g_shift_key[21], 0) != 0) {
+    XrHoldToggle("Shift and W");
+  }
+  // An A/B of the read ahead of the files of LHFile (docs/backend.md, "The
+  // read ahead of the files of the game").
+  if (InterlockedExchange(&g_shift_key[22], 0) != 0) {
+    FileReadAheadToggle("Shift and Q");
+  }
+  // An A/B of texture stage 1 of the Vulkan renderer (docs/backend.md, "The
+  // Vulkan renderer", "The second stage").
+  if (InterlockedExchange(&g_shift_key[23], 0) != 0) {
+    VkSceneStage1Toggle("Shift and E");
+  }
+  if (InterlockedExchange(&g_shift_key[24], 0) != 0) {
+    VkSceneUntexturedToggle("Shift and R");
+  }
+  // An A/B of the swapchain on the window (docs/backend.md, "The window
+  // with Vulkan").
+  if (InterlockedExchange(&g_shift_key[25], 0) != 0) {
+    VkWindowToggle("Shift and D");
+  }
   // An A/B of the read ahead of the subtitle card (docs/ui-layer.md, "The
   // subtitle card"). Ctrl Shift Pause is the key of throw_land_rest
   // (throw_physics.cpp), and the right square bracket is the key of
@@ -1110,7 +1372,32 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
   // The merge of draw calls: its hooks at the first frame of the scene, and
   // the pictures of its test.
   if (DrawMergeFrame(ControllersFrameCount())) EyeCaptureArmNow(g_frames + 1);
+  if (RenderThreadFrame(ControllersFrameCount())) {
+    EyeCaptureArmNow(g_frames + 1);
+  }
+  if (g_test_keys) EyeCaptureCheckFile(g_frames);
+  VkSceneFrame(ControllersFrameCount(), g_frames + 1,
+               EyeCaptureWanted(g_frames + 1));
+  // FOVEATED RENDERING: the gaze of an eye tracker is the centre of the
+  // fovea of this frame. With none the centre is straight ahead.
+  {
+    float direction[3] = {0.0f, 0.0f, -1.0f};
+    float gx = 0.0f, gy = 0.0f;
+    const bool gaze = to_headset && g_screen->EyeGaze(direction) &&
+                      foveation_math::GazeTangent(direction, &gx, &gy);
+    VkSceneSetGaze(gaze, gx, gy);
+  }
+  // The walk of one walk of this frame can go without Direct3D 9 (vk_only)
+  // when its eye pictures come from the Vulkan renderer: in a session with
+  // Vulkan, or on the desktop with vk_only_test=1.
+  VkSceneOnlyFrame(to_headset ? g_screen->vulkan() && VkSceneEyesWanted()
+                              : VkSceneOnlyTest());
   const bool capture_frame = EyeCaptureWanted(g_frames + 1);
+  // The swapchain images of a frame that saves pictures, in a session with
+  // Vulkan (a test aid).
+  if (capture_frame && to_headset && g_screen->vulkan()) {
+    g_screen->CaptureSwapchainNext(g_frames + 1);
+  }
   UiPanelBeginFrame(to_headset, to_headset && g_screen->projection() && !flat,
                     g_frames + 1, capture_frame);
   InputWatchFrame();
@@ -1215,12 +1502,13 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
   // sideways offset alone, so not with a pose for each eye. A flat frame of
   // the cut scene window has two eye cameras side by side, which is that
   // case. With a headset it needs the GPU path, because the backend's own
-  // target does not hold the eyes.
+  // target does not hold the eyes, or backend=vulkan, whose renderer draws
+  // both eyes into the layers of its target.
   const bool pose_per_eye = g_head_tracking && !flat && !HeadCameraEnabled() &&
                             (to_headset || HeadPoseFakeOn());
   const bool one_walk = OneWalkWanted() && !pose_per_eye &&
                         !g_headless_grab &&
-                        (!to_headset || GpuBridgeReady());
+                        (!to_headset || GpuBridgeReady() || VkSceneDirect());
   bool one_walk_done = false;
   // one_walk_check=1: on a frame that saves pictures, the right eye also gets
   // its own walk, as without one walk, and its picture is saved as "walk2"
@@ -1317,6 +1605,7 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
     if (raw_time != nullptr) *raw_time = (eye == 0) ? saved_raw_time : 0;
 
     QueryPerformanceCounter(&t2);
+    SceneSampleWalk(true);
     HandDirectPassBegin(eye);
     OverlayPassEye(eye);
     const uint64_t walk_start = profile ? FrameProfileTicks() : 0;
@@ -1334,10 +1623,27 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
     }
     // The merge of draw calls takes the draw calls of the scene walk only.
     DrawMergePass(true);
+    // The calls of the walk to Direct3D 9 can go to the render thread. The
+    // end waits until each of them went to Direct3D 9.
+    RenderThreadWalk(true);
+    D3D7ThreadWalk(true, RenderThreadQueueing());
+    static bool s_frame_thread_added = false;
+    if (!s_frame_thread_added) {
+      s_frame_thread_added = true;
+      ThreadLoadAddThis("frame thread");
+      // The start with DXVK did not fail (d3d9_backend.cpp).
+      D3D9BackendConfirm();
+    }
+    D3D7CountWalk(true);
+    DdrawCensusWalk(true);
     o_Process3dEngine(self, unused);
+    DdrawCensusWalk(false);
     // The targets get the color of the game back (target_glow.cpp).
     TargetGlowPassDone();
     DrawMergePass(false);
+    D3D7CountWalk(false);
+    D3D7ThreadWalk(false, false);
+    RenderThreadWalk(false);
     if (walk_wide) {
       EyeCleanOneWalkAfter();
       OneWalkEndPass();
@@ -1348,6 +1654,7 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
     const uint64_t walk_end = profile ? FrameProfileTicks() : 0;
     OverlayPassEye(-1);
     HandDirectPassDone(eye);
+    SceneSampleWalk(false);
     QueryPerformanceCounter(&t3);
     // This eye pass is over. Nothing after it may put its camera back.
     g_eye_placement = kEyeNotPlaced;
@@ -1371,16 +1678,50 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
     // capture, or the one wait of the frame (frame_send.cpp).
     if (eye == 0) UiPanelAfterFirstEye(g_frames + 1, capture_frame);
     void* ui_texture = nullptr;
-    if (eye == 0 && to_headset && GpuBridgeReady() &&
-        UiPanelMode() == kUiPanelLayer) {
-      ui_texture = GpuBridgeCaptureUi();
+    uint64_t ui_vulkan = 0;
+    if (eye == 0 && to_headset && UiPanelMode() == kUiPanelLayer) {
+      // In a session with Vulkan with vk_panel=1: the panel of the Vulkan
+      // renderer (vk_scene.h), with no copy of Direct3D 9.
+      if (g_screen->vulkan() && VkScenePanelOn()) {
+        VkScenePanelFor(g_screen->width(), g_screen->height(), &ui_vulkan);
+      } else if (GpuBridgeReady()) {
+        ui_texture = GpuBridgeCaptureUi();
+      }
     }
     bool sent = false;
     long eye_rect[2][4];
     const bool walked_once = one_walk_done && eye == 0;
     const bool wide = walked_once && OneWalkEyeRect(0, eye_rect[0]) &&
                       OneWalkEyeRect(1, eye_rect[1]);
-    if (to_headset && GpuBridgeReady() && wide) {
+    // In a session with Vulkan: both eyes from the image of the Vulkan
+    // renderer, with no copy of Direct3D 9 (vk_eyes, docs/backend.md, "The
+    // session with Vulkan").
+    uint64_t vk_image = 0;
+    const bool vk_eyes = to_headset &&
+                         (wide || (walked_once && VkSceneDirect())) &&
+                         g_screen->vulkan() &&
+                         VkSceneEyesWanted() &&
+                         VkSceneEyesFor(g_screen->width(), g_screen->height(),
+                                        &vk_image);
+    // backend=vulkan in a frame of two walks: after the pass of the right
+    // eye the image of the renderer has both eyes (vk_scene.cpp, "TWO WALKS
+    // FOR THE EYES"). The pass of the left eye sends nothing.
+    const bool vk_pair = !vk_eyes && to_headset && !one_walk_done &&
+                         eye == 1 && VkSceneDirect() && g_screen->vulkan() &&
+                         VkSceneEyesWanted() &&
+                         VkSceneEyesFor(g_screen->width(), g_screen->height(),
+                                        &vk_image);
+    if (vk_eyes || vk_pair) {
+      for (int e = 0; e < 2; ++e) {
+        if (send_mode == 0) {
+          g_screen->SetEyeVulkan(e, vk_image, static_cast<uint32_t>(e));
+        } else {
+          late.eye_vulkan[e] = vk_image;
+          late.eye_layer[e] = static_cast<uint32_t>(e);
+        }
+      }
+      sent = true;
+    } else if (to_headset && GpuBridgeReady() && wide) {
       // Both eyes from the halves of the wide target, in this pass.
       if (send_mode == 0) {
         // The first copy goes with no wait and the second with the wait, so
@@ -1417,16 +1758,19 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
         sent = late.eye_texture[eye] != nullptr;
       }
     }
-    if (ui_texture != nullptr && sent) {
+    if ((ui_texture != nullptr || ui_vulkan != 0) && sent) {
       bwvr::PanelQuad quads[2];
       const bw::tech::InfoTransform* info = Info();
       if (!IsBadReadPtr(info, sizeof(*info)) &&
           UiPanelQuads(static_cast<uint32_t>(info->res_x),
                        static_cast<uint32_t>(info->res_y), quads)) {
-        if (send_mode == 0) {
+        if (send_mode == 0 && ui_vulkan != 0) {
+          g_screen->SetPanelVulkan(ui_vulkan);
+        } else if (send_mode == 0) {
           g_screen->SetPanelTexture(ui_texture);
         } else {
           late.panel_texture = ui_texture;
+          late.panel_vulkan = ui_vulkan;
         }
         g_screen->SetPanelQuads(quads);
       }
@@ -1494,16 +1838,19 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
         OneWalkReadDone();
       }
     }
-    // In one walk the backend's own target holds neither eye.
+    // In one walk the backend's own target holds neither eye. With
+    // backend=vulkan the pixels of the target are not the picture of the
+    // walk, so they do not go to the headset.
     const bool luma = EyeLumaOn();
+    const bool cpu_eye = to_headset && !sent && !VkSceneDirect();
     if (!one_walk_done &&
-        ((to_headset && !sent) || g_headless_grab || want_capture || luma)) {
+        (cpu_eye || g_headless_grab || want_capture || luma)) {
       // The surface stays locked while the VR layer reads it, so the frame is
       // copied once instead of twice.
       int pitch = 0;
       const void* pixels = FrameSourceBegin(&pitch);
       if (pixels != nullptr) {
-        if (to_headset && !sent) g_screen->SetEyeImage(eye, pixels, pitch);
+        if (cpu_eye) g_screen->SetEyeImage(eye, pixels, pitch);
         if (luma) {
           EyeLumaEye(eye, pixels, pitch, static_cast<uint32_t>(pitch / 4),
                      g_height);
@@ -1549,7 +1896,8 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
     // wait after each eye pass is.
     uint64_t gpu_wait = 0;
     if (to_headset) {
-      if (late.eye_texture[0] != nullptr || late.eye_texture[1] != nullptr) {
+      if (late.eye_texture[0] != nullptr || late.eye_texture[1] != nullptr ||
+          late.eye_vulkan[0] != 0 || late.eye_vulkan[1] != 0) {
         gpu_wait = FrameSendEnd(late, send_mode);
       } else {
         g_screen->EndFrame();
@@ -1642,6 +1990,25 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
     }
     ModLog("rest of frame: %.2f ms outside the scene walk entirely",
            Ms(g_after_hook_ticks));
+    SceneSampleReport(g_timed_now, Ms(g_scene_ticks));
+    // Before the report of the render thread, which changes the key of
+    // ab_test for the next window.
+    FastTransformReport(g_timed_now);
+    D3D7CountReport(g_timed_now);
+    D3D7ThreadReport(g_timed_now);
+    DdrawCensusReport(g_timed_now);
+    VkSceneReport(g_timed_now);
+    VkDdrawReport(g_timed_now);
+    VkWindowReport();
+    // One time: the DLLs of Direct3D in the process, also in a desktop run
+    // with no session.
+    static bool s_said_modules = false;
+    if (!s_said_modules) {
+      s_said_modules = true;
+      LogDirect3DModules("the first report of 450 frames");
+    }
+    ThreadLoadReport(g_timed_now);
+    RenderThreadReport(g_timed_now);
     PresentWatchReport(g_timed_now);
     {
       const float inverse_z = UiDepthWorldInverseZ();
@@ -1652,6 +2019,7 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
     GpuBridgeReport(g_timed_now);
     OneWalkReport(g_timed_now);
     PassGuardReport();
+    FileReadAheadReport();
     FrameTimersReport(g_frames);
     FrameTimeReport();
     TickDirectReport();

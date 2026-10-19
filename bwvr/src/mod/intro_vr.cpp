@@ -91,6 +91,7 @@
 #include "MinHook.h"
 #include "../common/bw_addresses.h"
 #include "../vr/xr_screen.h"
+#include "vk_scene.h"
 #include "intro_motion_math.h"
 
 extern void ModLog(const char* format, ...);
@@ -634,6 +635,13 @@ void RunEye(int eye, uint32_t delta, uint32_t game_time_inc) {
   // The effect draws over the picture that is in the render target. That
   // must be the last picture of this eye. See "THE TRAILS" at the top.
   if (g_eye_trails) GpuBridgeKeepGive(eye);
+  // backend=vulkan: the pixels of the CPU are not the picture, so a frame
+  // that saves the eyes also asks the renderer for the picture of the walk
+  // (bwvr-vk-left-M.bmp, M = 10 times the number of the capture plus the
+  // eye).
+  if (VkSceneDirect() && EyeCaptureWanted(kCaptureBase + g_pairs)) {
+    VkSceneFrame(0, (kCaptureBase + g_pairs) * 10 + eye, true);
+  }
   *DeltaTime() = delta;
   *GameTimeInc() = game_time_inc;
   g_pass_delta = delta;
@@ -1027,7 +1035,19 @@ void IntroCameraBuilt() {
 bool IntroFinishFrame() {
   if (g_eye < 0) return false;
   bool sent = false;
-  if (g_to_headset && GpuBridgeReady()) {
+  // backend=vulkan: the picture of the walk of this eye pass, with a copy
+  // of the GPU.
+  {
+    uint64_t image = 0;
+    uint32_t layer = 0, width = 0, height = 0;
+    if (g_to_headset && g_screen->vulkan() &&
+        VkSceneLastPicture(&image, &layer, &width, &height) &&
+        width >= g_screen->width() && height >= g_screen->height()) {
+      g_screen->SetEyeVulkan(g_eye, image, layer);
+      sent = true;
+    }
+  }
+  if (!sent && g_to_headset && GpuBridgeReady()) {
     void* texture = GpuBridgeCaptureEye(g_eye);
     if (texture != nullptr) {
       g_screen->SetEyeTexture(g_eye, texture);
@@ -1037,8 +1057,10 @@ bool IntroFinishFrame() {
   const bool want = EyeCaptureWanted(kCaptureBase + g_pairs);
   if (want && g_probe) ProbeOrbs();
   // The picture of this eye is finished. Its keep gets it: the next pass of
-  // this eye draws over it.
-  if (g_eye_trails && !GpuBridgeKeepTake(g_eye) && !g_no_keep_said) {
+  // this eye draws over it. With backend=vulkan the target of the eye in the
+  // renderer keeps it (IntroPassEye).
+  if (g_eye_trails && !VkSceneDirect() && !GpuBridgeKeepTake(g_eye) &&
+      !g_no_keep_said) {
     g_no_keep_said = true;
     ModLog("intro        : there is no keep for the picture of each eye (the "
            "mod does not have the Direct3D 9 device of the backend, or a "
@@ -1064,6 +1086,10 @@ bool IntroFinishFrame() {
   if (sent) g_eye_sent = true;
   return true;
 }
+
+// For vk_scene.cpp: the eye pass of the intro that runs, when each eye keeps
+// its own picture (intro_eye_trails). Else -1.
+int IntroPassEye() { return g_eye_trails ? g_eye : -1; }
 
 // For controllers.cpp: while the intro draws in stereo, a controller must not
 // press a mouse button. Any click ends the logo (DoLogo tests both main

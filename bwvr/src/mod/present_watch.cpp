@@ -35,8 +35,11 @@
 #include "../common/bw_addresses.h"
 #include "blt_copy_math.h"
 #include "frame_profile.h"
+#include "render_thread.h"
 
 extern void ModLog(const char* format, ...);
+// proxy/ddraw_proxy.cpp
+bool ProxyBackendVulkan();
 // draw_merge.cpp: the batch of the merge of draw calls goes to Direct3D
 // before a copy between surfaces and before the end of the frame.
 void DrawMergeFlush();
@@ -294,9 +297,18 @@ bool TextureCopy(IDirectDrawSurface7* self, const RECT* destination,
       d.right - d.left != s.right - s.left ||
       d.bottom - d.top != s.bottom - s.top) {
     if (log) {
-      LogCopy(plain ? "a copy with a texture goes to dxwrapper"
-                    : "a copy with a texture and an effect goes to dxwrapper",
-              to, d, from, s, caller);
+      if (ProxyBackendVulkan()) {
+        LogCopy(plain ? "a copy with a texture goes to the DirectDraw of the "
+                        "mod"
+                      : "a copy with a texture and an effect goes to the "
+                        "DirectDraw of the mod",
+                to, d, from, s, caller);
+      } else {
+        LogCopy(plain ? "a copy with a texture goes to dxwrapper"
+                      : "a copy with a texture and an effect goes to "
+                        "dxwrapper",
+                to, d, from, s, caller);
+      }
     }
     return false;
   }
@@ -362,6 +374,7 @@ HRESULT WINAPI h_Blt(IDirectDrawSurface7* self, LPRECT destination,
                      IDirectDrawSurface7* source, LPRECT source_rect,
                      DWORD flags, LPDDBLTFX fx) {
   DrawMergeFlush();
+  RenderThreadSync();
   HRESULT copied = DD_OK;
   if (g_texture_copy && TextureCopy(self, destination, source, source_rect,
                                     flags, fx, _ReturnAddress(), &copied)) {
@@ -406,6 +419,7 @@ HRESULT WINAPI h_Blt(IDirectDrawSurface7* self, LPRECT destination,
 HRESULT WINAPI h_Flip(IDirectDrawSurface7* self, IDirectDrawSurface7* target,
                       DWORD flags) {
   DrawMergeFlush();
+  RenderThreadSync();
   LARGE_INTEGER before, after;
   QueryPerformanceCounter(&before);
   const HRESULT hr = o_Flip(self, target, flags);
@@ -479,11 +493,14 @@ void PresentWatchInstall() {
       g_texture_copy =
           GetPrivateProfileIntA("bwvr", "blt_texture_copy", 1, path) != 0;
     }
-    ModLog("present      : blt_texture_copy=%d. %s", g_texture_copy ? 1 : 0,
+    const char* backend =
+        ProxyBackendVulkan() ? "the DirectDraw of the mod" : "dxwrapper";
+    ModLog("present      : blt_texture_copy=%d. %s %s", g_texture_copy ? 1 : 0,
            g_texture_copy
                ? "The mod makes a copy with a texture and no stretch itself, "
-                 "and not dxwrapper"
-               : "Each copy between surfaces goes to dxwrapper");
+                 "and not"
+               : "Each copy between surfaces goes to",
+           backend);
     if (g_test_rate < 20 || g_test_rate > 240) g_test_rate = 0;
     if (g_test_rate > 0) {
       ModLog("present      : test_frame_rate=%d, a test key of the desktop "

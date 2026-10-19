@@ -55,11 +55,17 @@
 // needs the old headers lives in interop_probe.cpp.
 #include <d3d9.h>
 #include <d3d11.h>
+#include <dxgi1_2.h>
 #include <stdint.h>
 #include <string.h>
 
 #include "MinHook.h"
+#include "render_thread.h"
+// d3d9_backend.cpp: true when dxwrapper draws with DXVK.
+bool D3D9BackendDxvk();
+#include "thread_wait.h"
 #include "ui_panel.h"
+#include "vk_scene.h"
 
 extern void ModLog(const char* format, ...);
 // comfort_camera.cpp: true for a moment after a snap turn or a jump.
@@ -109,9 +115,19 @@ bool g_two_threads_wanted = false;
 // second thread writes these. The frame thread reads them in the next frame,
 // when the second thread has no frame.
 bool g_thread_waited = false;
+// With the late end of the render thread (render_thread.cpp) the render
+// thread issues the event query of the frame, in the order of its queue.
+// This is its number, or 0 when the frame thread issued it.
+unsigned long g_flush_number = 0;
 bool g_thread_gave_up = false;
 uint64_t g_thread_wait_ticks = 0;
 uint32_t g_thread_polls = 0;
+// thread_wait=1: the time from the issue of the query to the end of the GPU
+// in the last frames, and the sleep before the polls.
+const int kRecentWaits = 8;
+LONGLONG g_recent_waits[kRecentWaits] = {0};
+int g_recent_at = 0;
+uint64_t g_thread_sleep_ticks = 0;
 int g_gave_up_lines = 0;
 
 uint32_t g_width = 0;
@@ -302,6 +318,8 @@ uint64_t g_ahead_failures = 0;
 
 // The state of the switch. g_bound is -1 when the game's target is bound.
 int g_bound = -1;
+// backend=vulkan: the panel of the Vulkan renderer is bound (VkScenePanelBind).
+bool g_vk_bound = false;
 IDirect3DSurface9* g_saved_target = nullptr;
 IDirect3DSurface9* g_saved_depth = nullptr;
 D3DVIEWPORT9 g_saved_viewport;
@@ -519,6 +537,9 @@ HRESULT STDMETHODCALLTYPE h_CreateDepth(IDirect3DDevice9* self, UINT width,
                                         DWORD quality, BOOL discard,
                                         IDirect3DSurface9** out,
                                         HANDLE* shared) {
+  // A new surface in a scene walk: each call of the walk goes to Direct3D 9
+  // first (render_thread.cpp).
+  RenderThreadSync();
   if (g_making_own_depth) {
     return o_CreateDepth(self, width, height, format, multisample, quality,
                          discard, out, shared);
@@ -827,6 +848,214 @@ bool GpuBridgeFullScreen() { return g_full_screen; }
 
 bool GpuBridgeReady() { return g_ready; }
 
+// THE WAYS OF THE SHARE. The Direct3D 9 of Windows makes a shared texture,
+// and Direct3D 11 opens it (kShareFrom9). DXVK cannot give such a texture to
+// the Direct3D 11 of Windows: the game stops in the open. So with DXVK
+// (d3d9_backend.cpp), and when the first way fails, Direct3D 11 makes the
+// texture and Direct3D 9 opens it: with a handle of the kernel
+// (kShareFrom11), and else with an NT handle (kShareFrom11Nt). The first way
+// that works stays for the session.
+enum ShareWay { kShareNone = 0, kShareFrom9, kShareFrom11, kShareFrom11Nt };
+int g_share_way = kShareNone;
+bool g_said_share_way = false;
+
+const char* ShareWayName(int way) {
+  return way == kShareFrom9    ? "Direct3D 9 makes each shared texture"
+         : way == kShareFrom11 ? "Direct3D 11 makes each shared texture, and "
+                                 "Direct3D 9 opens it with a handle of the "
+                                 "kernel"
+                               : "Direct3D 11 makes each shared texture, and "
+                                 "Direct3D 9 opens it with an NT handle";
+}
+
+uint32_t g_share_seen = 0;  // the color that the last check read
+
+// True when a color that Direct3D 9 copies into the texture comes out of
+// the texture of Direct3D 11. A backend can give D3D_OK for a share that it
+// could not make, so the mod checks each way once. The color goes in as the
+// eye pictures do, with StretchRect from a target that has it: DXVK keeps a
+// ColorFill until it uses the texture itself, so Direct3D 11 would read the
+// texture with no color.
+bool ShareCarries(ID3D11Device* d11, IDirect3DTexture9* texture9,
+                  ID3D11Texture2D* texture11) {
+  IDirect3DSurface9* surface = nullptr;
+  if (FAILED(texture9->GetSurfaceLevel(0, &surface))) return false;
+  IDirect3DSurface9* source = nullptr;
+  if (FAILED(g_device_ex->CreateRenderTarget(16, 16, D3DFMT_A8R8G8B8,
+                                             D3DMULTISAMPLE_NONE, 0, FALSE,
+                                             &source, nullptr))) {
+    surface->Release();
+    return false;
+  }
+  const D3DCOLOR mark = D3DCOLOR_ARGB(0xFF, 0x12, 0x9A, 0x56);
+  HRESULT hr = g_device_ex->ColorFill(source, nullptr, mark);
+  const RECT corner = {0, 0, 16, 16};
+  if (SUCCEEDED(hr)) {
+    hr = g_device_ex->StretchRect(source, nullptr, surface, &corner,
+                                  D3DTEXF_NONE);
+  }
+  source->Release();
+  surface->Release();
+  if (FAILED(hr)) return false;
+  // In a walk the fill can wait in the queue of the render thread. The query
+  // comes after it only when the queue is empty.
+  RenderThreadSync();
+  IDirect3DQuery9* query = nullptr;
+  if (SUCCEEDED(g_device_ex->CreateQuery(D3DQUERYTYPE_EVENT, &query))) {
+    query->Issue(D3DISSUE_END);
+    const DWORD start = GetTickCount();
+    while (query->GetData(nullptr, 0, D3DGETDATA_FLUSH) == S_FALSE &&
+           GetTickCount() - start < 500) {
+      Sleep(0);
+    }
+    query->Release();
+  }
+  D3D11_TEXTURE2D_DESC desc = {};
+  desc.Width = 1;
+  desc.Height = 1;
+  desc.MipLevels = 1;
+  desc.ArraySize = 1;
+  desc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+  desc.SampleDesc.Count = 1;
+  desc.Usage = D3D11_USAGE_STAGING;
+  desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+  ID3D11Texture2D* staging = nullptr;
+  if (FAILED(d11->CreateTexture2D(&desc, nullptr, &staging))) return false;
+  ID3D11DeviceContext* context = nullptr;
+  d11->GetImmediateContext(&context);
+  bool carries = false;
+  uint32_t seen = 0;
+  // The other device can see the color a moment later: 20 reads, 5 ms apart.
+  for (int i = 0; i < 20 && context != nullptr && !carries; ++i) {
+    if (i > 0) Sleep(5);
+    const D3D11_BOX box = {0, 0, 0, 1, 1, 1};
+    context->CopySubresourceRegion(staging, 0, 0, 0, 0, texture11, 0, &box);
+    D3D11_MAPPED_SUBRESOURCE mapped;
+    if (SUCCEEDED(context->Map(staging, 0, D3D11_MAP_READ, 0, &mapped))) {
+      seen = *static_cast<const uint32_t*>(mapped.pData);
+      carries = seen == mark;
+      context->Unmap(staging, 0);
+    }
+  }
+  if (context != nullptr) context->Release();
+  staging->Release();
+  g_share_seen = seen;
+  return carries;
+}
+
+// One shared texture of width by height in one way. False with nothing kept
+// when the way does not work.
+bool ShareOneWay(ID3D11Device* d11, int way, UINT width, UINT height,
+                 IDirect3DTexture9** texture9, ID3D11Texture2D** texture11,
+                 HRESULT* result) {
+  *texture9 = nullptr;
+  *texture11 = nullptr;
+  HANDLE shared = nullptr;
+  HRESULT hr = E_FAIL;
+  if (way == kShareFrom9) {
+    hr = g_device_ex->CreateTexture(width, height, 1, D3DUSAGE_RENDERTARGET,
+                                    D3DFMT_A8R8G8B8, D3DPOOL_DEFAULT, texture9,
+                                    &shared);
+    if (SUCCEEDED(hr) && shared != nullptr) {
+      hr = d11->OpenSharedResource(shared, __uuidof(ID3D11Texture2D),
+                                   reinterpret_cast<void**>(texture11));
+    } else if (SUCCEEDED(hr)) {
+      hr = E_FAIL;
+    }
+  } else {
+    D3D11_TEXTURE2D_DESC desc = {};
+    desc.Width = width;
+    desc.Height = height;
+    desc.MipLevels = 1;
+    desc.ArraySize = 1;
+    desc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
+    desc.SampleDesc.Count = 1;
+    desc.Usage = D3D11_USAGE_DEFAULT;
+    desc.BindFlags = D3D11_BIND_RENDER_TARGET | D3D11_BIND_SHADER_RESOURCE;
+    desc.MiscFlags = way == kShareFrom11
+                         ? D3D11_RESOURCE_MISC_SHARED
+                         : D3D11_RESOURCE_MISC_SHARED |
+                               D3D11_RESOURCE_MISC_SHARED_NTHANDLE;
+    hr = d11->CreateTexture2D(&desc, nullptr, texture11);
+    bool close = false;
+    if (SUCCEEDED(hr) && way == kShareFrom11) {
+      IDXGIResource* resource = nullptr;
+      hr = (*texture11)->QueryInterface(__uuidof(IDXGIResource),
+                                        reinterpret_cast<void**>(&resource));
+      if (SUCCEEDED(hr)) {
+        hr = resource->GetSharedHandle(&shared);
+        resource->Release();
+      }
+    } else if (SUCCEEDED(hr)) {
+      IDXGIResource1* resource = nullptr;
+      hr = (*texture11)->QueryInterface(__uuidof(IDXGIResource1),
+                                        reinterpret_cast<void**>(&resource));
+      if (SUCCEEDED(hr)) {
+        hr = resource->CreateSharedHandle(
+            nullptr, DXGI_SHARED_RESOURCE_READ | DXGI_SHARED_RESOURCE_WRITE,
+            nullptr, &shared);
+        resource->Release();
+        close = SUCCEEDED(hr);
+      }
+    }
+    if (SUCCEEDED(hr) && shared != nullptr) {
+      hr = g_device_ex->CreateTexture(width, height, 1, D3DUSAGE_RENDERTARGET,
+                                      D3DFMT_A8R8G8B8, D3DPOOL_DEFAULT,
+                                      texture9, &shared);
+    } else if (SUCCEEDED(hr)) {
+      hr = E_FAIL;
+    }
+    if (close) CloseHandle(shared);
+  }
+  *result = hr;
+  if (SUCCEEDED(hr) && *texture9 != nullptr && *texture11 != nullptr) {
+    return true;
+  }
+  if (*texture9 != nullptr) (*texture9)->Release();
+  if (*texture11 != nullptr) (*texture11)->Release();
+  *texture9 = nullptr;
+  *texture11 = nullptr;
+  return false;
+}
+
+// One shared texture: the way of the session, or the first way that works
+// and carries a color (ShareCarries).
+bool ShareOne(ID3D11Device* d11, UINT width, UINT height,
+              IDirect3DTexture9** texture9, ID3D11Texture2D** texture11,
+              HRESULT* result) {
+  if (g_share_way != kShareNone) {
+    return ShareOneWay(d11, g_share_way, width, height, texture9, texture11,
+                       result);
+  }
+  for (int way = D3D9BackendDxvk() ? kShareFrom11 : kShareFrom9;
+       way <= kShareFrom11Nt; ++way) {
+    if (ShareOneWay(d11, way, width, height, texture9, texture11, result) &&
+        !ShareCarries(d11, *texture9, *texture11)) {
+      ModLog("gpu bridge   : the share in the way \"%s\" gave no error, but "
+             "a color of Direct3D 9 did not come out in Direct3D 11 (it "
+             "read %08X)",
+             ShareWayName(way), g_share_seen);
+      (*texture9)->Release();
+      (*texture11)->Release();
+      *texture9 = nullptr;
+      *texture11 = nullptr;
+      *result = E_FAIL;
+      continue;
+    }
+    if (*texture9 != nullptr) {
+      g_share_way = way;
+      if (!g_said_share_way) {
+        g_said_share_way = true;
+        ModLog("gpu bridge   : %s", ShareWayName(way));
+      }
+      return true;
+    }
+    ModLog("gpu bridge   : the share in the way \"%s\" failed (0x%08lX)",
+           ShareWayName(way), *result);
+  }
+  return false;
+}
+
 // Builds the shared pair. d3d11_device is the device the OpenXR session was
 // made with, and format is its swapchain format. Returns false, with a
 // reason in the log, if the GPU path cannot be used.
@@ -855,13 +1084,10 @@ bool GpuBridgeStart(void* d3d11_device, uint32_t width, uint32_t height,
   g_resume_wanted = false;
 
   for (int eye = 0; eye < kEyes; ++eye) {
-    HANDLE shared = nullptr;
-    HRESULT hr = g_device_ex->CreateTexture(
-        width, height, 1, D3DUSAGE_RENDERTARGET, D3DFMT_A8R8G8B8,
-        D3DPOOL_DEFAULT, &g_shared[eye], &shared);
-    if (FAILED(hr) || shared == nullptr) {
-      ModLog("gpu bridge   : CreateTexture(shared) failed for eye %d "
-             "(0x%08lX)", eye, hr);
+    HRESULT hr = E_FAIL;
+    if (!ShareOne(d11, width, height, &g_shared[eye], &g_opened[eye], &hr)) {
+      ModLog("gpu bridge   : the shared texture of eye %d failed (0x%08lX)",
+             eye, hr);
       ReleaseShared();
       return false;
     }
@@ -869,14 +1095,6 @@ bool GpuBridgeStart(void* d3d11_device, uint32_t width, uint32_t height,
     if (FAILED(hr)) {
       ModLog("gpu bridge   : GetSurfaceLevel failed for eye %d (0x%08lX)", eye,
              hr);
-      ReleaseShared();
-      return false;
-    }
-    hr = d11->OpenSharedResource(shared, __uuidof(ID3D11Texture2D),
-                                 reinterpret_cast<void**>(&g_opened[eye]));
-    if (FAILED(hr) || g_opened[eye] == nullptr) {
-      ModLog("gpu bridge   : OpenSharedResource failed for eye %d (0x%08lX)",
-             eye, hr);
       ReleaseShared();
       return false;
     }
@@ -893,16 +1111,9 @@ bool GpuBridgeStart(void* d3d11_device, uint32_t width, uint32_t height,
   // The interface panel goes the same way, through a third shared texture.
   // A failure here keeps the interface in the eyes and the eyes on the GPU.
   if (g_panel_wanted && g_panel_share) {
-    HANDLE shared = nullptr;
-    HRESULT hr = g_device_ex->CreateTexture(
-        width, height, 1, D3DUSAGE_RENDERTARGET, D3DFMT_A8R8G8B8,
-        D3DPOOL_DEFAULT, &g_panel_shared, &shared);
-    if (SUCCEEDED(hr) && shared != nullptr) {
+    HRESULT hr = E_FAIL;
+    if (ShareOne(d11, width, height, &g_panel_shared, &g_panel_opened, &hr)) {
       hr = g_panel_shared->GetSurfaceLevel(0, &g_panel_shared_surface);
-    }
-    if (SUCCEEDED(hr) && shared != nullptr) {
-      hr = d11->OpenSharedResource(shared, __uuidof(ID3D11Texture2D),
-                                   reinterpret_cast<void**>(&g_panel_opened));
     }
     if (FAILED(hr) || g_panel_opened == nullptr) {
       ModLog("ui panel     : the panel texture could not be shared (0x%08lX). "
@@ -1118,6 +1329,8 @@ void GpuBridgeWaitHere() { WaitForGpu(); }
 // end of the frame in the queue and sends the queue to the GPU.
 void GpuBridgeWaitBegin() {
   if (g_flush_query == nullptr) return;
+  g_flush_number = RenderThreadQueueFlush(g_flush_query);
+  if (g_flush_number != 0) return;
   g_flush_query->Issue(D3DISSUE_END);
   g_flush_issued = true;
   g_flush_query->GetData(nullptr, 0, D3DGETDATA_FLUSH);
@@ -1125,19 +1338,60 @@ void GpuBridgeWaitBegin() {
 
 // Then the second thread waits for that end. The device takes a lock for
 // each call, and the frame thread can draw the next frame at the same time.
-// So this loop asks about 20,000 times a second and not without a stop. Each
-// call has D3DGETDATA_FLUSH, as the wait on the frame thread has. The loop
-// has a limit of 100 ms: the frame then goes out as it is.
+// With thread_wait=0 this loop asks about 20,000 times a second and spins
+// between the questions. With thread_wait=1 the thread sleeps with a timer of
+// high resolution until 0.3 ms before the earliest end of the last 8 frames,
+// asks each 50 microseconds for the next 0.5 ms, and then each 100
+// microseconds with a sleep between. Each call has D3DGETDATA_FLUSH, as the
+// wait on the frame thread has. The loop has a limit of 100 ms: the frame then
+// goes out as it is.
 void GpuBridgeWaitOnThread() {
   IDirect3DQuery9* query = g_flush_query;
   if (query == nullptr || g_frequency.QuadPart == 0) return;
+  static bool s_added = false;
+  if (!s_added) {
+    s_added = true;
+    ThreadWaitTune(GetCurrentThread(), L"bwvr frame_send thread");
+    ThreadLoadAddThis("frame_send thread");
+  }
   const LONGLONG pause = g_frequency.QuadPart / 20000;
   const LONGLONG limit = g_frequency.QuadPart / 10;
+  const bool sleeps = ThreadWaitMode() != 0;
   LARGE_INTEGER start, now;
   QueryPerformanceCounter(&start);
   uint32_t polls = 0;
   bool gave_up = false;
-  for (;;) {
+  // Before the render thread issued the query, the query has the end of the
+  // frame before.
+  if (g_flush_number != 0 && !RenderThreadWaitFlushed(g_flush_number, 100)) {
+    gave_up = true;
+  }
+  LARGE_INTEGER issued;
+  QueryPerformanceCounter(&issued);
+  LONGLONG slept = 0;
+  if (sleeps && !gave_up) {
+    LONGLONG earliest = 0;
+    for (int i = 0; i < kRecentWaits; ++i) {
+      if (g_recent_waits[i] <= 0) {
+        earliest = 0;
+        break;
+      }
+      if (earliest == 0 || g_recent_waits[i] < earliest) {
+        earliest = g_recent_waits[i];
+      }
+    }
+    const LONGLONG margin = g_frequency.QuadPart * 3 / 10000;  // 0.3 ms
+    if (earliest > 2 * margin &&
+        query->GetData(nullptr, 0, D3DGETDATA_FLUSH) == S_FALSE) {
+      ThreadWaitSleep(earliest - margin);
+      QueryPerformanceCounter(&now);
+      slept = now.QuadPart - issued.QuadPart;
+    }
+  }
+  const LONGLONG spin_until = g_frequency.QuadPart / 2000;  // 0.5 ms
+  LARGE_INTEGER polls_from;
+  QueryPerformanceCounter(&polls_from);
+  for (; !gave_up;) {
     QueryPerformanceCounter(&now);
     const LONGLONG waited = now.QuadPart - start.QuadPart;
     if (query->GetData(nullptr, 0, D3DGETDATA_FLUSH) != S_FALSE) break;
@@ -1146,6 +1400,10 @@ void GpuBridgeWaitOnThread() {
       gave_up = true;
       break;
     }
+    if (sleeps && now.QuadPart - polls_from.QuadPart > spin_until &&
+        ThreadWaitSleep(2 * pause)) {
+      continue;
+    }
     LARGE_INTEGER then;
     do {
       YieldProcessor();
@@ -1153,7 +1411,12 @@ void GpuBridgeWaitOnThread() {
     } while (then.QuadPart - now.QuadPart < pause);
   }
   QueryPerformanceCounter(&now);
+  if (!gave_up) {
+    g_recent_waits[g_recent_at] = now.QuadPart - issued.QuadPart;
+    g_recent_at = (g_recent_at + 1) % kRecentWaits;
+  }
   g_thread_wait_ticks = static_cast<uint64_t>(now.QuadPart - start.QuadPart);
+  g_thread_sleep_ticks += static_cast<uint64_t>(slept);
   g_thread_polls = polls;
   g_thread_gave_up = gave_up;
   g_thread_waited = true;
@@ -1289,11 +1552,14 @@ void GpuBridgeReport(uint64_t frames) {
   }
   const double to_ms = 1000.0 / static_cast<double>(g_frequency.QuadPart);
   const double per_frame = static_cast<double>(frames);
-  ModLog("gpu bridge   : blit %.2f ms + GPU drain %.2f ms per frame, %llu "
-         "captures, %llu waited, %llu failed",
+  ModLog("gpu bridge   : blit %.2f ms + GPU drain %.2f ms per frame (%.2f ms "
+         "of it a sleep of the second thread), %llu captures, %llu waited, "
+         "%llu failed",
          (static_cast<double>(g_blit_ticks) / per_frame) * to_ms,
-         (static_cast<double>(g_flush_ticks) / per_frame) * to_ms, g_captures,
-         g_flush_spins, g_failures);
+         (static_cast<double>(g_flush_ticks) / per_frame) * to_ms,
+         (static_cast<double>(g_thread_sleep_ticks) / per_frame) * to_ms,
+         g_captures, g_flush_spins, g_failures);
+  g_thread_sleep_ticks = 0;
   g_blit_ticks = 0;
   g_flush_ticks = 0;
   g_captures = 0;
@@ -1478,13 +1744,27 @@ void GpuBridgePanelWant(bool target, bool share) {
   g_panel_share = target && share;
 }
 
+// With backend=vulkan there is no Direct3D 9: the panel is the panel of the
+// Vulkan renderer (VkScenePanelBind), and a session with Vulkan takes it.
 bool GpuBridgePanelUsable() {
+  if (VkSceneDirect()) return g_panel_wanted && VkScenePanelOn();
   return g_panel_wanted && !g_panel_failed && g_device != nullptr;
 }
 
-bool GpuBridgePanelShared() { return g_ready && g_panel_opened != nullptr; }
+bool GpuBridgePanelShared() {
+  if (VkSceneDirect()) return VkScenePanelOn();
+  return g_ready && g_panel_opened != nullptr;
+}
+
+bool GpuBridgeIsPanel(const void* surface) {
+  return surface != nullptr && surface == g_panel;
+}
 
 void GpuBridgePanelNewFrame(bool check) {
+  if (g_vk_bound) {
+    VkScenePanelBind(false);
+    g_vk_bound = false;
+  }
   if (g_bound >= 0 && g_device != nullptr) RestoreGameState();
   g_panel_cleared = false;
   g_check_cleared = false;
@@ -1496,6 +1776,17 @@ void GpuBridgePanelNewFrame(bool check) {
 // False when the batch must draw into the eye as before.
 bool GpuBridgePanelBind(int which) {
   DrawMergeFlush();
+  if (VkSceneDirect()) {
+    // The renderer clears the panel at its first draw in a walk, and draws
+    // it with the blend of the panel. There is no check target.
+    if (which != 0 || !GpuBridgePanelUsable()) return false;
+    // A bind of render target 0 of the game can come between two batches,
+    // so each batch binds the panel again.
+    if (!g_vk_bound) ++g_panel_binds;
+    VkScenePanelBind(true);
+    g_vk_bound = true;
+    return true;
+  }
   if (!GpuBridgePanelUsable() || g_read_locked) return false;
   which = which == 1 ? 1 : 0;
   // The check target only follows a panel draw of the same batch.
@@ -1558,6 +1849,11 @@ bool GpuBridgePanelBind(int which) {
 // back. Does nothing when the game's target is bound.
 void GpuBridgePanelUnbind() {
   DrawMergeFlush();
+  if (g_vk_bound) {
+    VkScenePanelBind(false);
+    g_vk_bound = false;
+    return;
+  }
   if (g_bound < 0) return;
   if (g_device == nullptr) {
     g_bound = -1;

@@ -74,6 +74,7 @@
 #include "hint_card.h"
 #include "subtitle_card_math.h"
 #include "ui_panel.h"
+#include "vk_scene.h"
 
 extern void ModLog(const char* format, ...);
 
@@ -595,9 +596,25 @@ int SubtitleCopy(const int rect[4], uint32_t render_w, uint32_t render_h,
   QueryPerformanceCounter(&t0);
   int pitch = 0;
   uint32_t w = 0, h = 0;
+  // With vk_panel=1 the panel of the Vulkan renderer (vk_scene.h), with no
+  // read ahead. Else the panel target of Direct3D 9, with the read ahead
+  // when it is on.
+  const bool vulkan = VkScenePanelOn();
+  const auto read_done = [vulkan]() {
+    if (vulkan) {
+      VkScenePanelReadDone();
+    } else {
+      GpuBridgePanelReadDone();
+    }
+  };
   const uint8_t* source = nullptr;
   bool failed = false;
-  if (s.set.read_ahead) {
+  if (vulkan) {
+    for (int i = 0; i < 4; ++i) used[i] = rect[i];
+    source = static_cast<const uint8_t*>(
+        VkScenePanelReadHalf(rect, &pitch, &w, &h));
+    failed = source == nullptr;
+  } else if (s.set.read_ahead) {
     failed = !GpuBridgePanelQueueHalf(rect, g_frame);
     source = static_cast<const uint8_t*>(
         GpuBridgePanelReadyHalf(s.content_since, used, &pitch, &w, &h));
@@ -613,11 +630,11 @@ int SubtitleCopy(const int rect[4], uint32_t render_w, uint32_t render_h,
     failed = true;
   }
   if (!failed && source == nullptr) {
-    GpuBridgePanelReadDone();
+    read_done();
     return kCopyNotYet;
   }
   if (failed) {
-    GpuBridgePanelReadDone();
+    read_done();
     ++s.frames_lost;
     s.showing = false;
     s.window_showing = false;
@@ -648,7 +665,7 @@ int SubtitleCopy(const int rect[4], uint32_t render_w, uint32_t render_h,
       }
     }
   }
-  GpuBridgePanelReadDone();
+  read_done();
   QueryPerformanceCounter(&t1);
   const double ms = 1000.0 * static_cast<double>(t1.QuadPart - t0.QuadPart) /
                     static_cast<double>(frequency.QuadPart);
@@ -659,6 +676,26 @@ int SubtitleCopy(const int rect[4], uint32_t render_w, uint32_t render_h,
   *h_out = h;
   *ms_out = ms;
   return kCopyDone;
+}
+
+// The test of vk_panel, in a frame that saves pictures: the same part of the
+// panel of the Vulkan renderer and of the panel target of Direct3D 9, with
+// no fade, as subtitle-card-vk and subtitle-card-d3d9. While the renderer
+// draws in the shadow of Direct3D 9 both panels have the help text.
+void SubtitleComparePanels(const int rect[4]) {
+  if (!VkScenePanelOn()) return;
+  int pitch = 0;
+  uint32_t w = 0, h = 0;
+  const void* pixels = VkScenePanelReadHalf(rect, &pitch, &w, &h);
+  if (pixels != nullptr) {
+    EyeCaptureSaveUi("subtitle-card-vk", g_frame, 0, pixels, pitch, w, h);
+  }
+  VkScenePanelReadDone();
+  pixels = GpuBridgePanelReadHalf(rect, &pitch, &w, &h);
+  if (pixels != nullptr) {
+    EyeCaptureSaveUi("subtitle-card-d3d9", g_frame, 0, pixels, pitch, w, h);
+  }
+  GpuBridgePanelReadDone();
 }
 
 // The card of a flat frame of the cut scene window: the part of the render
@@ -878,6 +915,7 @@ void SubtitleEndPasses() {
     EyeCaptureSaveUi("subtitle-card", g_frame, 0, s.pixels, out_pitch, w, h);
     EyeCaptureSaveUi("subtitle-card-over", g_frame, 1, s.pixels, out_pitch, w,
                      h);
+    SubtitleComparePanels(rect);
   }
 }
 

@@ -145,3 +145,6 @@ void GpuBridgePanelFetchHalf();
 const void* GpuBridgePanelReadyHalf(uint64_t since, int rect[4], int* pitch,
                                     uint32_t* width, uint32_t* height);
 void GpuBridgePanelReport();
+// True when `surface` (an IDirect3DSurface9) is the panel target. The Vulkan
+// renderer draws the draws for it into its own panel (vk_scene.h, vk_panel).
+bool GpuBridgeIsPanel(const void* surface);

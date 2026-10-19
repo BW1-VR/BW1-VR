@@ -23,6 +23,9 @@
 #include <stdlib.h>
 #include <string.h>
 
+#define VK_NO_PROTOTYPES
+#include <vulkan/vulkan.h>
+
 #include "../common/exe_check.h"
 #include "../common/version.h"
 
@@ -55,6 +58,8 @@ enum Kind {
   kChoice,      // one of a list, stored as the index
   kValues,      // one of a "label=value" list, stored as the value
   kScale,       // a slider, as a percentage of what the headset asks for
+  kSlider,      // a slider with a value of its own: "low|high|step|unit"
+  kRenderer,    // the renderer: "backend" in the ini, as text
 };
 
 struct Setting {
@@ -111,6 +116,78 @@ const Setting kSettings[] = {
      "How far out trees, villagers and buildings keep their full models "
      "before they change to simpler ones or disappear. Further costs more "
      "frame time in busy places."},
+
+    {kGroup, nullptr, "Performance", nullptr, 0, nullptr},
+    {kRenderer, "backend", "Renderer", "Vulkan|Direct3D 9", 1,
+     "Vulkan: the mod draws the game with a Vulkan renderer of its own, and "
+     "the pictures go to the headset and to the window through Vulkan. The "
+     "mod then uses no dxwrapper, no Direct3D 9 and no Direct3D 11. Your GPU "
+     "needs Vulkan 1.3: with no Vulkan 1.3 the launcher keeps Direct3D 9. "
+     "Direct3D 9: the game draws through dxwrapper and Direct3D 9, as in "
+     "the versions before. The change counts from the next start."},
+    {kBool, "d3d9_backend", "Direct3D 9 through DXVK", nullptr, 0,
+     "Only with the renderer Direct3D 9. The game draws through DXVK and "
+     "Vulkan in place of the Direct3D 9 of Windows. This takes about half "
+     "of the time of the driver off each frame. The mod uses it only when "
+     "your GPU has Vulkan 1.3 and the file dxvk\\d3d9.dll is in the game "
+     "folder. Else, and when a start with it fails, the game draws as "
+     "before. The change counts from the next start."},
+    {kBool, "xr_vulkan", "Headset session with Vulkan", nullptr, 0,
+     "Only with the renderer Direct3D 9: the renderer Vulkan always has a "
+     "session with Vulkan. The headset gets the pictures through Vulkan in "
+     "place of Direct3D 11, and the mod draws the scene of each eye with its "
+     "Vulkan renderer. Your GPU needs Vulkan 1.3. When the session with "
+     "Vulkan does not start, the mod starts one with Direct3D 11. The change "
+     "counts from the next start."},
+
+    {kGroup, nullptr, "Foveated rendering", nullptr, 0, nullptr},
+    {kBool, "foveation", "Fewer shades away from the middle", nullptr, 0,
+     "The middle of each eye picture keeps all its shades of color, and the "
+     "parts around it get one shade for 2 by 2 pixels (4 by 4 at the edge "
+     "when the GPU has it). The edges of things stay sharp. This can take "
+     "time off a GPU that is slow for each pixel. With an eye tracker (for "
+     "example Quest Pro) the middle follows your gaze. With no eye tracker "
+     "(for example Quest 3) it stays in the middle of the view. It needs "
+     "the Vulkan renderer, or the headset session with Vulkan, and a GPU "
+     "with variable rate shading."},
+    {kSlider, "foveation_inner_deg", "All shades within", "10|45|1| degrees",
+     22,
+     "How far the part with all shades goes from the middle to each side. "
+     "Smaller saves more."},
+    {kSlider, "foveation_outer_deg", "One shade for 2 by 2 within",
+     "15|70|1| degrees", 35,
+     "Past this angle a shade is for 4 by 4 pixels, when the GPU has it. It "
+     "is at least the angle above."},
+    {kBool, "fovea_res", "Fewer pixels away from the middle", nullptr, 0,
+     "The mod draws each eye picture from two pictures: one of the whole "
+     "view with fewer pixels, and one of the middle with more. The middle "
+     "follows your gaze with an eye tracker, and stays in the middle of the "
+     "view with none. The three sliders below set the two resolutions and "
+     "the size of the middle. It needs the Vulkan renderer, or the headset "
+     "session with Vulkan."},
+    {kSlider, "fovea_res_outer_pct", "Resolution of the whole view",
+     "5|100|5|%", 50,
+     "The pixels of the whole view, as a percentage of the eye picture on "
+     "each side. 50% is a quarter of the pixels."},
+    {kSlider, "fovea_res_center_pct", "Resolution of the middle", "50|200|5|%",
+     100,
+     "The pixels of the middle, as a percentage of the eye picture on each "
+     "side. More than 100% makes the middle smoother than the eye picture "
+     "alone."},
+    {kSlider, "fovea_res_center_deg", "Size of the middle", "10|45|1| degrees",
+     25,
+     "How far the middle goes from its centre to each side. A larger middle "
+     "is sharp further out and costs more frame time."},
+    {kSlider, "fovea_res_center_down_deg", "Middle lower by", "0|15|1| degrees",
+     0,
+     "Moves the sharp middle down from straight ahead, for example to the "
+     "land and the hands at your waist. Only with no eye tracker: a middle "
+     "that follows your gaze stays where you look."},
+    {kBool, "foveation_show", "Show the parts with fewer details", nullptr, 0,
+     "A blue colour over the parts with fewer shades or fewer pixels, so "
+     "you can find the settings that you like. Turn it off to play. With "
+     "the test keys, Shift O and Shift P change the two kinds while you "
+     "play."},
 
     {kGroup, nullptr, "View", nullptr, 0, nullptr},
     {kValues, "play_mode", "Play mode",
@@ -278,8 +355,21 @@ const int kSettingCount = sizeof(kSettings) / sizeof(kSettings[0]);
 // because a slider has no text of its own and puts its value in its label.
 HWND g_control[kSettingCount];
 HWND g_label[kSettingCount];
+HWND g_heading[kSettingCount];
+// The buttons below the table.
+enum {
+  kButtonPlay,
+  kButtonFresh,
+  kButtonSave,
+  kButtonPlain,
+  kButtonSupport,
+  kButtonCount
+};
+HWND g_buttons[kButtonCount];
 HWND g_window = nullptr;
 HWND g_status = nullptr;
+// The row "Renderer" shows Vulkan (UpdateRendererRows).
+bool g_renderer_vulkan = false;
 HWND g_tips = nullptr;
 HFONT g_font = nullptr;
 HFONT g_bold = nullptr;
@@ -394,6 +484,10 @@ int ReadIni(const char* key, int fallback) {
   return GetPrivateProfileIntA("bwvr", key, fallback, g_ini_path);
 }
 
+void ReadIniText(const char* key, char* out, DWORD size) {
+  GetPrivateProfileStringA("bwvr", key, "", out, size, g_ini_path);
+}
+
 // True when Windows refused a write to bwvr.ini. Under Program Files an
 // unelevated write fails, and the launcher must not say "Saved." then.
 bool g_write_failed = false;
@@ -484,6 +578,87 @@ void SayScale(int index, int percent) {
   _snprintf_s(text, sizeof(text), _TRUNCATE, "%s: %d%% (%d x %d)",
               kSettings[index].label, percent, w, h);
   SetWindowTextA(g_label[index], text);
+}
+
+// THE SLIDERS WITH A VALUE OF THEIR OWN (kSlider). The spec is
+// "low|high|step|unit". The value is on the step.
+int SliderValue(int index) {
+  int low = 0, high = 0, step = 0;
+  ScaleRange(kSettings[index].choices, &low, &high, &step);
+  int value = static_cast<int>(
+      SendMessageA(g_control[index], TBM_GETPOS, 0, 0));
+  if (step > 1) value = low + (value - low + step / 2) / step * step;
+  if (value < low) value = low;
+  if (value > high) value = high;
+  return value;
+}
+
+void SaySlider(int index, int value) {
+  if (g_label[index] == nullptr) return;
+  // The unit is the text after the third '|'.
+  const char* unit = kSettings[index].choices;
+  for (int bars = 0; unit != nullptr && *unit != 0 && bars < 3; ++unit) {
+    if (*unit == '|') ++bars;
+    if (bars == 3) {
+      ++unit;
+      break;
+    }
+  }
+  char text[128];
+  _snprintf_s(text, sizeof(text), _TRUNCATE, "%s: %d%s",
+              kSettings[index].label, value,
+              unit != nullptr ? unit : "");
+  SetWindowTextA(g_label[index], text);
+}
+
+// THE RENDERER VULKAN needs a GPU with Vulkan 1.3. The launcher asks the
+// Vulkan of Windows, with no device: an instance, the list of the GPUs and
+// their versions.
+bool g_said_no_vulkan = false;
+
+bool HasVulkan13() {
+  HMODULE library = LoadLibraryA("vulkan-1.dll");
+  if (library == nullptr) return false;
+  bool found = false;
+  PFN_vkGetInstanceProcAddr get_proc =
+      reinterpret_cast<PFN_vkGetInstanceProcAddr>(
+          GetProcAddress(library, "vkGetInstanceProcAddr"));
+  PFN_vkCreateInstance create =
+      get_proc != nullptr
+          ? reinterpret_cast<PFN_vkCreateInstance>(
+                get_proc(nullptr, "vkCreateInstance"))
+          : nullptr;
+  VkApplicationInfo app = {VK_STRUCTURE_TYPE_APPLICATION_INFO};
+  app.pApplicationName = "Black & White VR Mod launcher";
+  app.apiVersion = VK_API_VERSION_1_3;
+  VkInstanceCreateInfo info = {VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
+  info.pApplicationInfo = &app;
+  VkInstance instance = VK_NULL_HANDLE;
+  if (create != nullptr &&
+      create(&info, nullptr, &instance) == VK_SUCCESS) {
+    PFN_vkEnumeratePhysicalDevices enumerate =
+        reinterpret_cast<PFN_vkEnumeratePhysicalDevices>(
+            get_proc(instance, "vkEnumeratePhysicalDevices"));
+    PFN_vkGetPhysicalDeviceProperties properties =
+        reinterpret_cast<PFN_vkGetPhysicalDeviceProperties>(
+            get_proc(instance, "vkGetPhysicalDeviceProperties"));
+    PFN_vkDestroyInstance destroy = reinterpret_cast<PFN_vkDestroyInstance>(
+        get_proc(instance, "vkDestroyInstance"));
+    if (enumerate != nullptr && properties != nullptr) {
+      VkPhysicalDevice devices[16];
+      uint32_t count = 16;
+      if (enumerate(instance, &count, devices) >= 0) {
+        for (uint32_t i = 0; i < count && i < 16; ++i) {
+          VkPhysicalDeviceProperties p;
+          properties(devices[i], &p);
+          if (p.apiVersion >= VK_API_VERSION_1_3) found = true;
+        }
+      }
+    }
+    if (destroy != nullptr) destroy(instance, nullptr);
+  }
+  FreeLibrary(library);
+  return found;
 }
 
 // --- pre-flight, the same checks the script did ----------------------------
@@ -579,6 +754,23 @@ void CheckEverything() {
 int ChoiceValue(const char* choices, int index);
 int ChoiceIndex(const char* choices, int value);
 
+void LayOutControls(bool first);
+
+// The rows that only the renderer Direct3D 9 uses are not in the table with
+// the renderer Vulkan (RowShown). `first`: the window goes to the middle of
+// the work area.
+void UpdateRendererRows(bool first) {
+  bool vulkan = false;
+  for (int i = 0; i < kSettingCount; ++i) {
+    if (kSettings[i].kind == kRenderer && g_control[i] != nullptr) {
+      vulkan = SendMessageA(g_control[i], CB_GETCURSEL, 0, 0) == 0;
+    }
+  }
+  if (vulkan == g_renderer_vulkan && !first) return;
+  g_renderer_vulkan = vulkan;
+  LayOutControls(first);
+}
+
 void LoadAll() {
   for (int i = 0; i < kSettingCount; ++i) {
     const Setting& s = kSettings[i];
@@ -607,6 +799,23 @@ void LoadAll() {
         if (strcmp(s.key, "play_mode") == 0 && value == 0) value = 4;
         SendMessageA(g_control[i], CB_SETCURSEL, ChoiceIndex(s.choices, value),
                      0);
+        break;
+      }
+      case kSlider: {
+        int low = 0, high = 0, step = 0;
+        ScaleRange(s.choices, &low, &high, &step);
+        int value = ReadIni(s.key, s.fallback);
+        if (value < low) value = low;
+        if (value > high) value = high;
+        SendMessageA(g_control[i], TBM_SETPOS, TRUE, value);
+        SaySlider(i, value);
+        break;
+      }
+      case kRenderer: {
+        char text[MAX_PATH] = {0};
+        ReadIniText(s.key, text, sizeof(text));
+        SendMessageA(g_control[i], CB_SETCURSEL,
+                     _stricmp(text, "vulkan") == 0 ? 0 : 1, 0);
         break;
       }
       case kScale: {
@@ -693,7 +902,13 @@ const char* const kRetiredKeys[] = {
     "spawn_test_toggle", "spawn_test_x", "spawn_test_z",
     "spirit_point_world_test", "spirit_world_size_test",
     "subtitle_card_test", "subtitle_selftest",
-    "subtitle_read_ahead_test_seconds", "temple_test_camera_trace",
+    "subtitle_read_ahead_test_seconds", "profile_sample",
+    "profile_sample_thread", "profile_sample_dump", "profile_gpu",
+    "hang_watch", "gpu_flush_ab", "ab_test", "d3d7_count", "fast_transform_check",
+    "test_cores", "vk_scene", "vk_scene_test_frame", "vk_scene_follow", "vk_eyes", "xr_vulkan_upload", "vk_panel", "vk_only", "vk_only_test", "vk_upload_queue", "vk_scene_reread_test", "ddraw_census", "test_smt", "test_spin_walk_us", "test_spin_idle_us",
+    "test_wake_records",
+    "render_thread_test_frame",
+    "temple_test_camera_trace",
     "temple_test_click_frame", "temple_test_door_on",
     "temple_test_enter_frame", "temple_test_flight_frame",
     "temple_test_follow_frame", "temple_test_scan", "temple_test_scan_frame",
@@ -782,14 +997,36 @@ void SaveAll() {
         WriteRegistryInt("ScreenH", h);
         break;
       }
+      case kSlider:
+        WriteIni(s.key, SliderValue(i));
+        break;
+      case kRenderer: {
+        // Vulkan only with a GPU that has Vulkan 1.3: else the game would
+        // have no picture.
+        bool vulkan =
+            SendMessageA(g_control[i], CB_GETCURSEL, 0, 0) == 0;
+        if (vulkan && !HasVulkan13()) {
+          vulkan = false;
+          SendMessageA(g_control[i], CB_SETCURSEL, 1, 0);
+          g_said_no_vulkan = true;
+        }
+        WriteIniText(s.key, vulkan ? "vulkan" : "dxwrapper\\ddraw.dll");
+        break;
+      }
       default:
         break;
     }
   }
+  // A PC with no Vulkan 1.3 has the renderer Direct3D 9 now, and its rows.
+  UpdateRendererRows(false);
   // These are not offered as choices, because getting them wrong stops the mod
-  // working at all and there is only one right answer.
-  WriteIniText("backend", "dxwrapper\\ddraw.dll");
-  WriteIni("gpu_bridge", 1);
+  // working at all and there is only one right answer. The renderer Vulkan
+  // has no bridge of Direct3D 9.
+  if (g_renderer_vulkan) {
+    WritePrivateProfileStringA("bwvr", "gpu_bridge", nullptr, g_ini_path);
+  } else {
+    WriteIni("gpu_bridge", 1);
+  }
   WriteIni("vr", 1);
   WriteIni("stereo", 1);
   WriteIni("head_camera", 1);
@@ -799,7 +1036,9 @@ void SaveAll() {
   for (const char* key : kRetiredKeys) {
     WritePrivateProfileStringA("bwvr", key, nullptr, g_ini_path);
   }
-  WriteBackendAnisotropy(ReadIni("anisotropy", 16));
+  // The renderer Vulkan takes the anisotropy of the game, so dxwrapper.ini
+  // matters only with Direct3D 9.
+  if (!g_renderer_vulkan) WriteBackendAnisotropy(ReadIni("anisotropy", 16));
   SaveGameDisplayOnce();
   // The game reads these from the registry. If they are missing, it starts
   // full screen at the size of the desktop, in 16 bit color. Another install
@@ -849,8 +1088,12 @@ HANDLE g_plain_game = nullptr;
 int g_headset_screen_w = 0;
 int g_headset_screen_h = 0;
 
+// The renderer of the headset: the plain game has dxwrapper.
+char g_headset_backend[MAX_PATH] = {0};
+
 void WriteHeadsetStart() {
   WriteIni("vr", 1);
+  if (g_headset_backend[0] != 0) WriteIniText("backend", g_headset_backend);
   WriteRegistryInt("ScreenW", g_headset_screen_w);
   WriteRegistryInt("ScreenH", g_headset_screen_h);
   WriteRegistryInt("FullScreen", 0);
@@ -858,6 +1101,8 @@ void WriteHeadsetStart() {
 
 void PlayNoVr() {
   SaveAll();
+  ReadIniText("backend", g_headset_backend, sizeof(g_headset_backend));
+  WriteIniText("backend", "dxwrapper\\ddraw.dll");
   g_headset_screen_w = ReadRegistryInt("ScreenW", 0);
   g_headset_screen_h = ReadRegistryInt("ScreenH", 0);
   WriteIni("vr", 0);
@@ -937,11 +1182,19 @@ int ChoiceIndex(const char* choices, int value) {
 }
 
 // How many rows a group takes: its heading and every setting under it.
+// The rows that the renderer Vulkan does not use. With Vulkan they are not
+// in the table.
+bool RowShown(int index) {
+  const char* key = kSettings[index].key;
+  if (!g_renderer_vulkan || key == nullptr) return true;
+  return strcmp(key, "d3d9_backend") != 0 && strcmp(key, "xr_vulkan") != 0;
+}
+
 int GroupRows(int group) {
   int rows = 1;
   for (int i = group + 1; i < kSettingCount; ++i) {
     if (kSettings[i].kind == kGroup) break;
-    ++rows;
+    if (RowShown(i)) ++rows;
   }
   return rows;
 }
@@ -992,26 +1245,50 @@ HICON MakeHeartIcon(int size) {
   return icon;
 }
 
-// Lay the table out in columns, starting a new one when the current gets tall.
-// This is what lets the table grow without the window growing past the screen.
-void BuildControls() {
-  const int pad = Scaled(12);
-  const int row = Scaled(26);
-  const int label_w = Scaled(210);
+// The sizes of the table.
+struct TableSizes {
+  int pad, row, label_w, field_w, col_w;
+};
+
+TableSizes Sizes() {
+  TableSizes t;
+  t.pad = Scaled(12);
+  t.row = Scaled(26);
+  t.label_w = Scaled(210);
   // Wide enough for the longest choice, "Grip of the other hand".
-  const int field_w = Scaled(160);
-  const int col_w = label_w + field_w + pad;
+  t.field_w = Scaled(160);
+  t.col_w = t.label_w + t.field_w + t.pad;
+  return t;
+}
+
+// Puts each shown row, the buttons and the status line in place, and sizes
+// the window to them. The table goes in columns, and a new column starts when
+// the current gets tall. This is what lets the table grow without the window
+// growing past the screen. The first call puts the window in the middle of
+// the work area, and a later call keeps its place.
+void LayOutControls(bool first) {
+  const TableSizes t = Sizes();
+  const int pad = t.pad;
+  const int row = t.row;
+  const int label_w = t.label_w;
+  const int field_w = t.field_w;
+  const int col_w = t.col_w;
   // The tallest a column may get. Rows and pixels are interchangeable
   // everywhere below, so this number also caps the height of the table.
   const int max_rows = g_max_rows;
+  const UINT move = SWP_NOZORDER | SWP_NOACTIVATE;
 
   int column = 0;
   int used = 0;
   int tallest = 0;
-  int id = 100;
 
   for (int i = 0; i < kSettingCount; ++i) {
     const Setting& s = kSettings[i];
+    if (!RowShown(i)) {
+      if (g_label[i] != nullptr) ShowWindow(g_label[i], SW_HIDE);
+      if (g_control[i] != nullptr) ShowWindow(g_control[i], SW_HIDE);
+      continue;
+    }
     // Break between groups, so a heading always keeps all of its settings. A
     // group taller than a column is the one case that still breaks inside it.
     if (s.kind == kGroup) {
@@ -1025,94 +1302,53 @@ void BuildControls() {
     }
     const int x = pad + column * (col_w + pad);
     const int y = pad + used * row;
+    used += 1;
+    if (used > tallest) tallest = used;
 
     if (s.kind == kGroup) {
-      HWND heading = CreateWindowExA(
-          0, "STATIC", s.label, WS_CHILD | WS_VISIBLE, x, y + Scaled(6),
-          col_w, row - Scaled(4), g_window, nullptr, nullptr, nullptr);
-      SendMessageA(heading, WM_SETFONT, reinterpret_cast<WPARAM>(g_bold), TRUE);
-      g_control[i] = nullptr;
-      used += 1;
-      if (used > tallest) tallest = used;
+      SetWindowPos(g_heading[i], nullptr, x, y + Scaled(6), col_w,
+                   row - Scaled(4), move);
       continue;
     }
-
-    g_label[i] = nullptr;
-    if (s.kind != kBool) {
+    if (g_label[i] != nullptr) {
       // A slider says its value in its own label, so it needs the whole width
       // rather than the label column.
-      const int width = s.kind == kScale ? col_w : label_w;
-      HWND label = CreateWindowExA(0, "STATIC", s.label,
-                                   WS_CHILD | WS_VISIBLE | SS_LEFT, x,
-                                   y + Scaled(4), width, row - Scaled(6),
-                                   g_window, nullptr, nullptr, nullptr);
-      SendMessageA(label, WM_SETFONT, reinterpret_cast<WPARAM>(g_font), TRUE);
-      AddTip(label, s.help);
-      g_label[i] = label;
+      const int width =
+          s.kind == kScale || s.kind == kSlider ? col_w : label_w;
+      SetWindowPos(g_label[i], nullptr, x, y + Scaled(4), width,
+                   row - Scaled(6), move);
+      ShowWindow(g_label[i], SW_SHOW);
     }
-
-    HWND control = nullptr;
+    HWND control = g_control[i];
+    if (control == nullptr) continue;
     switch (s.kind) {
       case kBool:
-        control = CreateWindowExA(
-            0, "BUTTON", s.label, WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX, x,
-            y + Scaled(2), col_w, row - Scaled(4), g_window,
-            reinterpret_cast<HMENU>(static_cast<INT_PTR>(id++)), nullptr,
-            nullptr);
+        SetWindowPos(control, nullptr, x, y + Scaled(2), col_w,
+                     row - Scaled(4), move);
         break;
       case kInt:
-        control = CreateWindowExA(
-            WS_EX_CLIENTEDGE, "EDIT", "",
-            WS_CHILD | WS_VISIBLE | ES_NUMBER | ES_RIGHT, x + label_w, y,
-            field_w, row - Scaled(4), g_window,
-            reinterpret_cast<HMENU>(static_cast<INT_PTR>(id++)), nullptr,
-            nullptr);
+      case kScale:
+      case kSlider:
+        SetWindowPos(control, nullptr, x + label_w, y, field_w,
+                     row - Scaled(4), move);
         break;
-      case kScale: {
-        // TBS_NOTICKS keeps the slider inside one ordinary row, which matters
-        // because the whole layout counts rows rather than pixels. A taller
-        // control would mean the column break and the window height stopped
-        // agreeing with each other.
-        int low = 0, high = 0, step = 0;
-        ScaleRange(s.choices, &low, &high, &step);
-        control = CreateWindowExA(
-            0, TRACKBAR_CLASS, "",
-            WS_CHILD | WS_VISIBLE | TBS_HORZ | TBS_NOTICKS, x + label_w, y,
-            field_w, row - Scaled(4), g_window,
-            reinterpret_cast<HMENU>(static_cast<INT_PTR>(id++)), nullptr,
-            nullptr);
-        SendMessageA(control, TBM_SETRANGE, TRUE, MAKELONG(low, high));
-        SendMessageA(control, TBM_SETPAGESIZE, 0, step);
-        SendMessageA(control, TBM_SETLINESIZE, 0, step);
-        break;
-      }
       case kChoice:
       case kValues:
-        control = CreateWindowExA(
-            0, "COMBOBOX", "",
-            WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL,
-            x + label_w, y, field_w, row * 8, g_window,
-            reinterpret_cast<HMENU>(static_cast<INT_PTR>(id++)), nullptr,
-            nullptr);
-        FillChoices(control, s.choices);
+      case kRenderer:
+        SetWindowPos(control, nullptr, x + label_w, y, field_w, row * 8,
+                     move);
         break;
       default:
         break;
     }
-    if (control != nullptr) {
-      SendMessageA(control, WM_SETFONT, reinterpret_cast<WPARAM>(g_font), TRUE);
-      AddTip(control, s.help);
-    }
-    g_control[i] = control;
-    used += 1;
-    if (used > tallest) tallest = used;
+    ShowWindow(control, SW_SHOW);
   }
 
   // The buttons are a block below the last column, as wide as its fields.
   // The two ways to play in VR are in the first row, "Save Config" and "Play,
   // no VR" in the second, and "Support" has the third row to itself. When a
   // column before the last is taller, the block is at the bottom of the
-  // window. The buttons are made in the order of the Tab key.
+  // window.
   const int button_h = Scaled(28);
   const int button_gap = Scaled(8);
   const int columns = column + 1;
@@ -1127,73 +1363,184 @@ void BuildControls() {
   if (row1_y < table_bottom - block_h) row1_y = table_bottom - block_h;
   const int row2_y = row1_y + button_h + button_gap;
   const int row3_y = row2_y + button_h + button_gap;
-  HWND play = CreateWindowExA(
-      0, "BUTTON", "Play in VR", WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON,
-      left_x, row1_y, half_w, button_h, g_window, reinterpret_cast<HMENU>(1),
-      nullptr, nullptr);
-  HWND fresh = CreateWindowExA(0, "BUTTON", "Play, new game",
-                               WS_CHILD | WS_VISIBLE, right_x, row1_y, half_w,
-                               button_h, g_window, reinterpret_cast<HMENU>(2),
-                               nullptr, nullptr);
-  HWND save = CreateWindowExA(0, "BUTTON", "Save Config", WS_CHILD | WS_VISIBLE,
-                              left_x, row2_y, half_w, button_h, g_window,
-                              reinterpret_cast<HMENU>(3), nullptr, nullptr);
-  HWND plain = CreateWindowExA(0, "BUTTON", "Play, no VR",
-                               WS_CHILD | WS_VISIBLE, right_x, row2_y, half_w,
-                               button_h, g_window, reinterpret_cast<HMENU>(5),
-                               nullptr, nullptr);
-  // The space at the start of the text keeps the text off the heart.
-  HWND support = CreateWindowExA(0, "BUTTON", " Support", WS_CHILD | WS_VISIBLE,
-                                 left_x, row3_y, block_w, button_h, g_window,
-                                 reinterpret_cast<HMENU>(4), nullptr, nullptr);
-  // The heart shows to the left of the text, at the height of a capital.
-  HICON heart = MakeHeartIcon(Scaled(14));
-  if (heart != nullptr) {
-    SendMessageA(support, BM_SETIMAGE, IMAGE_ICON,
-                 reinterpret_cast<LPARAM>(heart));
-  }
+  SetWindowPos(g_buttons[kButtonPlay], nullptr, left_x, row1_y, half_w,
+               button_h, move);
+  SetWindowPos(g_buttons[kButtonFresh], nullptr, right_x, row1_y, half_w,
+               button_h, move);
+  SetWindowPos(g_buttons[kButtonSave], nullptr, left_x, row2_y, half_w,
+               button_h, move);
+  SetWindowPos(g_buttons[kButtonPlain], nullptr, right_x, row2_y, half_w,
+               button_h, move);
+  SetWindowPos(g_buttons[kButtonSupport], nullptr, left_x, row3_y, block_w,
+               button_h, move);
   // The status line is below the table and the buttons, over the whole
-  // window, and has room for two lines of text. SS_NOPREFIX, because the
-  // product name holds an ampersand and a static control would otherwise
-  // read it as an access key.
+  // window, and has room for two lines of text.
   const int block_bottom = row3_y + button_h;
   const int status_y =
       (block_bottom > table_bottom ? block_bottom : table_bottom) + Scaled(8);
   const int status_h = Scaled(32);
   const int height = status_y + status_h + Scaled(6);
-  g_status = CreateWindowExA(0, "STATIC", "",
-                             WS_CHILD | WS_VISIBLE | SS_LEFT | SS_NOPREFIX,
-                             pad, status_y, width - pad * 2, status_h,
-                             g_window, nullptr, nullptr, nullptr);
-  SendMessageA(play, WM_SETFONT, reinterpret_cast<WPARAM>(g_font), TRUE);
-  SendMessageA(fresh, WM_SETFONT, reinterpret_cast<WPARAM>(g_font), TRUE);
-  SendMessageA(save, WM_SETFONT, reinterpret_cast<WPARAM>(g_font), TRUE);
-  SendMessageA(plain, WM_SETFONT, reinterpret_cast<WPARAM>(g_font), TRUE);
-  SendMessageA(support, WM_SETFONT, reinterpret_cast<WPARAM>(g_font), TRUE);
-  SendMessageA(g_status, WM_SETFONT, reinterpret_cast<WPARAM>(g_font), TRUE);
-  AddTip(fresh, "Start a new game on the first island, skipping the menu.");
-  AddTip(save, "Write the settings without starting the game.");
-  AddTip(plain, "Start the game on the monitor, without the headset. The game "
-                "is full screen, at the size of the desktop, and the mod does "
-                "nothing in it.");
-  AddTip(support, "Opens " BWVR_SUPPORT_URL " in your browser. The mod is "
-                  "free, and it stays free.");
+  SetWindowPos(g_status, nullptr, pad, status_y, width - pad * 2, status_h,
+               move);
 
   RECT want = {0, 0, width, height};
   AdjustWindowRect(&want, WS_OVERLAPPEDWINDOW & ~WS_THICKFRAME, FALSE);
-  RECT work = {0, 0, 0, 0};
-  SystemParametersInfoA(SPI_GETWORKAREA, 0, &work, 0);
   const int frame_w = want.right - want.left;
   const int frame_h = want.bottom - want.top;
-  SetWindowPos(g_window, nullptr,
-               work.left + ((work.right - work.left) - frame_w) / 2,
-               work.top + ((work.bottom - work.top) - frame_h) / 2, frame_w,
-               frame_h, SWP_NOZORDER);
+  if (first) {
+    RECT work = {0, 0, 0, 0};
+    SystemParametersInfoA(SPI_GETWORKAREA, 0, &work, 0);
+    SetWindowPos(g_window, nullptr,
+                 work.left + ((work.right - work.left) - frame_w) / 2,
+                 work.top + ((work.bottom - work.top) - frame_h) / 2, frame_w,
+                 frame_h, SWP_NOZORDER);
+  } else {
+    SetWindowPos(g_window, nullptr, 0, 0, frame_w, frame_h,
+                 SWP_NOZORDER | SWP_NOMOVE | SWP_NOACTIVATE);
+    InvalidateRect(g_window, nullptr, TRUE);
+  }
+}
+
+// Makes a control for each row, the buttons and the status line, and lays
+// them out (LayOutControls).
+void BuildControls() {
+  const TableSizes t = Sizes();
+  const int row = t.row;
+  int id = 100;
+
+  for (int i = 0; i < kSettingCount; ++i) {
+    const Setting& s = kSettings[i];
+    g_heading[i] = nullptr;
+    g_label[i] = nullptr;
+    g_control[i] = nullptr;
+    if (s.kind == kGroup) {
+      HWND heading = CreateWindowExA(0, "STATIC", s.label,
+                                     WS_CHILD | WS_VISIBLE, 0, 0, t.col_w,
+                                     row - Scaled(4), g_window, nullptr,
+                                     nullptr, nullptr);
+      SendMessageA(heading, WM_SETFONT, reinterpret_cast<WPARAM>(g_bold), TRUE);
+      g_heading[i] = heading;
+      continue;
+    }
+
+    if (s.kind != kBool) {
+      HWND label = CreateWindowExA(0, "STATIC", s.label,
+                                   WS_CHILD | WS_VISIBLE | SS_LEFT, 0, 0,
+                                   t.label_w, row - Scaled(6), g_window,
+                                   nullptr, nullptr, nullptr);
+      SendMessageA(label, WM_SETFONT, reinterpret_cast<WPARAM>(g_font), TRUE);
+      AddTip(label, s.help);
+      g_label[i] = label;
+    }
+
+    HWND control = nullptr;
+    switch (s.kind) {
+      case kBool:
+        control = CreateWindowExA(
+            0, "BUTTON", s.label, WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX, 0,
+            0, t.col_w, row - Scaled(4), g_window,
+            reinterpret_cast<HMENU>(static_cast<INT_PTR>(id++)), nullptr,
+            nullptr);
+        break;
+      case kInt:
+        control = CreateWindowExA(
+            WS_EX_CLIENTEDGE, "EDIT", "",
+            WS_CHILD | WS_VISIBLE | ES_NUMBER | ES_RIGHT, 0, 0, t.field_w,
+            row - Scaled(4), g_window,
+            reinterpret_cast<HMENU>(static_cast<INT_PTR>(id++)), nullptr,
+            nullptr);
+        break;
+      case kScale:
+      case kSlider: {
+        // TBS_NOTICKS keeps the slider inside one ordinary row, which matters
+        // because the whole layout counts rows rather than pixels. A taller
+        // control would mean the column break and the window height stopped
+        // agreeing with each other.
+        int low = 0, high = 0, step = 0;
+        ScaleRange(s.choices, &low, &high, &step);
+        control = CreateWindowExA(
+            0, TRACKBAR_CLASS, "",
+            WS_CHILD | WS_VISIBLE | TBS_HORZ | TBS_NOTICKS, 0, 0, t.field_w,
+            row - Scaled(4), g_window,
+            reinterpret_cast<HMENU>(static_cast<INT_PTR>(id++)), nullptr,
+            nullptr);
+        SendMessageA(control, TBM_SETRANGE, TRUE, MAKELONG(low, high));
+        SendMessageA(control, TBM_SETPAGESIZE, 0, step);
+        SendMessageA(control, TBM_SETLINESIZE, 0, step);
+        break;
+      }
+      case kChoice:
+      case kValues:
+      case kRenderer:
+        control = CreateWindowExA(
+            0, "COMBOBOX", "",
+            WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL, 0, 0,
+            t.field_w, row * 8, g_window,
+            reinterpret_cast<HMENU>(static_cast<INT_PTR>(id++)), nullptr,
+            nullptr);
+        FillChoices(control, s.choices);
+        break;
+      default:
+        break;
+    }
+    if (control != nullptr) {
+      SendMessageA(control, WM_SETFONT, reinterpret_cast<WPARAM>(g_font), TRUE);
+      AddTip(control, s.help);
+    }
+    g_control[i] = control;
+  }
+
+  // The buttons are made in the order of the Tab key. LayOutControls gives
+  // them their places and sizes.
+  g_buttons[kButtonPlay] = CreateWindowExA(
+      0, "BUTTON", "Play in VR", WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON, 0,
+      0, 0, 0, g_window, reinterpret_cast<HMENU>(1), nullptr, nullptr);
+  g_buttons[kButtonFresh] = CreateWindowExA(
+      0, "BUTTON", "Play, new game", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0,
+      g_window, reinterpret_cast<HMENU>(2), nullptr, nullptr);
+  g_buttons[kButtonSave] = CreateWindowExA(
+      0, "BUTTON", "Save Config", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, g_window,
+      reinterpret_cast<HMENU>(3), nullptr, nullptr);
+  g_buttons[kButtonPlain] = CreateWindowExA(
+      0, "BUTTON", "Play, no VR", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, g_window,
+      reinterpret_cast<HMENU>(5), nullptr, nullptr);
+  // The space at the start of the text keeps the text off the heart.
+  g_buttons[kButtonSupport] = CreateWindowExA(
+      0, "BUTTON", " Support", WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, g_window,
+      reinterpret_cast<HMENU>(4), nullptr, nullptr);
+  // The heart shows to the left of the text, at the height of a capital.
+  HICON heart = MakeHeartIcon(Scaled(14));
+  if (heart != nullptr) {
+    SendMessageA(g_buttons[kButtonSupport], BM_SETIMAGE, IMAGE_ICON,
+                 reinterpret_cast<LPARAM>(heart));
+  }
+  // SS_NOPREFIX, because the product name holds an ampersand and a static
+  // control would otherwise read it as an access key.
+  g_status = CreateWindowExA(0, "STATIC", "",
+                             WS_CHILD | WS_VISIBLE | SS_LEFT | SS_NOPREFIX, 0,
+                             0, 0, 0, g_window, nullptr, nullptr, nullptr);
+  for (HWND button : g_buttons) {
+    SendMessageA(button, WM_SETFONT, reinterpret_cast<WPARAM>(g_font), TRUE);
+  }
+  SendMessageA(g_status, WM_SETFONT, reinterpret_cast<WPARAM>(g_font), TRUE);
+  AddTip(g_buttons[kButtonFresh],
+         "Start a new game on the first island, skipping the menu.");
+  AddTip(g_buttons[kButtonSave],
+         "Write the settings without starting the game.");
+  AddTip(g_buttons[kButtonPlain],
+         "Start the game on the monitor, without the headset. The game "
+         "is full screen, at the size of the desktop, and the mod does "
+         "nothing in it.");
+  AddTip(g_buttons[kButtonSupport],
+         "Opens " BWVR_SUPPORT_URL " in your browser. The mod is "
+         "free, and it stays free.");
+  LayOutControls(true);
 }
 
 LRESULT CALLBACK Proc(HWND window, UINT message, WPARAM w, LPARAM l) {
   switch (message) {
     case WM_COMMAND:
+      if (HIWORD(w) == CBN_SELCHANGE) UpdateRendererRows(false);
       switch (LOWORD(w)) {
         case 1:
           Play(false);
@@ -1206,6 +1553,9 @@ LRESULT CALLBACK Proc(HWND window, UINT message, WPARAM w, LPARAM l) {
           if (g_write_failed) {
             SayStatus("Windows did not let the launcher write bwvr.ini in the "
                       "game folder.");
+          } else if (g_said_no_vulkan) {
+            SayStatus("Saved. Your GPU has no Vulkan 1.3, so the renderer "
+                      "stays Direct3D 9.");
           } else {
             SayStatus("Saved.");
           }
@@ -1227,8 +1577,12 @@ LRESULT CALLBACK Proc(HWND window, UINT message, WPARAM w, LPARAM l) {
     case WM_HSCROLL: {
       HWND from = reinterpret_cast<HWND>(l);
       for (int i = 0; i < kSettingCount; ++i) {
-        if (g_control[i] != from || kSettings[i].kind != kScale) continue;
-        SayScale(i, static_cast<int>(SendMessageA(from, TBM_GETPOS, 0, 0)));
+        if (g_control[i] != from) continue;
+        if (kSettings[i].kind == kScale) {
+          SayScale(i, static_cast<int>(SendMessageA(from, TBM_GETPOS, 0, 0)));
+        } else if (kSettings[i].kind == kSlider) {
+          SaySlider(i, SliderValue(i));
+        }
         break;
       }
       return 0;
@@ -1329,6 +1683,52 @@ bool WriteShot(const char* path) {
 
 }  // namespace
 
+// A TEST AID: "--picture <file>" saves a picture of the window as a BMP
+// file and ends. "--game <folder>" names the folder of the game when the
+// launcher is not in it. The window is outside the screen, at the bottom of the
+// order of the windows, and is never active. Nothing is written to the ini.
+bool SavePicture(const char* path) {
+  RECT r;
+  GetWindowRect(g_window, &r);
+  const int w = r.right - r.left, h = r.bottom - r.top;
+  HDC screen = GetDC(nullptr);
+  HDC dc = CreateCompatibleDC(screen);
+  BITMAPINFO info = {};
+  info.bmiHeader.biSize = sizeof(info.bmiHeader);
+  info.bmiHeader.biWidth = w;
+  info.bmiHeader.biHeight = h;
+  info.bmiHeader.biPlanes = 1;
+  info.bmiHeader.biBitCount = 32;
+  info.bmiHeader.biCompression = BI_RGB;
+  void* bits = nullptr;
+  HBITMAP bitmap =
+      CreateDIBSection(screen, &info, DIB_RGB_COLORS, &bits, nullptr, 0);
+  ReleaseDC(nullptr, screen);
+  if (bitmap == nullptr) {
+    DeleteDC(dc);
+    return false;
+  }
+  HGDIOBJ old = SelectObject(dc, bitmap);
+  const BOOL printed = PrintWindow(g_window, dc, 2);  // PW_RENDERFULLCONTENT
+  SelectObject(dc, old);
+  bool ok = false;
+  FILE* file = nullptr;
+  if (printed && fopen_s(&file, path, "wb") == 0 && file != nullptr) {
+    BITMAPFILEHEADER head = {};
+    head.bfType = 0x4D42;
+    head.bfOffBits = sizeof(head) + sizeof(info.bmiHeader);
+    head.bfSize = head.bfOffBits + static_cast<DWORD>(w) * h * 4;
+    fwrite(&head, sizeof(head), 1, file);
+    fwrite(&info.bmiHeader, sizeof(info.bmiHeader), 1, file);
+    fwrite(bits, static_cast<size_t>(w) * h * 4, 1, file);
+    fclose(file);
+    ok = true;
+  }
+  DeleteObject(bitmap);
+  DeleteDC(dc);
+  return ok;
+}
+
 int WINAPI WinMain(HINSTANCE instance, HINSTANCE, LPSTR command, int) {
   // The words of a test: "-rows <n>", then "-shot <file>" to the end of the
   // line.
@@ -1348,7 +1748,20 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE, LPSTR command, int) {
                                                          ICC_BAR_CLASSES};
   InitCommonControlsEx(&controls);
 
-  if (!FindGame()) {
+  const char* picture = nullptr;
+  const char* game = nullptr;
+  for (int i = 1; i + 1 < __argc; ++i) {
+    if (strcmp(__argv[i], "--picture") == 0) picture = __argv[i + 1];
+    if (strcmp(__argv[i], "--game") == 0) game = __argv[i + 1];
+  }
+  bool found = FindGame();
+  if (!found && picture != nullptr && game != nullptr &&
+      FileThere(game, "runblack.exe")) {
+    TakeGameDir(game);
+    found = true;
+  }
+  if (!found) {
+    if (picture != nullptr) return 1;
     if (shot == nullptr) {
       MessageBoxA(nullptr,
                   "Cannot find runblack.exe. Install the " BWVR_PRODUCT_NAME
@@ -1356,8 +1769,8 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE, LPSTR command, int) {
                   kProductName, MB_ICONERROR | MB_OK);
       return 1;
     }
-    // A picture needs no game. The table then shows its defaults, and the
-    // status line names a file that is missing.
+    // A picture of -shot needs no game. The table then shows its defaults,
+    // and the status line names a file that is missing.
     TakeGameDir(".");
   }
 
@@ -1374,7 +1787,8 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE, LPSTR command, int) {
   RegisterClassA(&wc);
 
   g_window = CreateWindowExA(
-      0, kWindowClass, kTitle, WS_OVERLAPPEDWINDOW & ~WS_THICKFRAME &
+      picture != nullptr ? WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW : 0,
+      kWindowClass, kTitle, WS_OVERLAPPEDWINDOW & ~WS_THICKFRAME &
                                    ~WS_MAXIMIZEBOX,
       CW_USEDEFAULT, CW_USEDEFAULT, Scaled(700), Scaled(560), nullptr, nullptr,
       instance, nullptr);
@@ -1387,7 +1801,28 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE, LPSTR command, int) {
 
   BuildControls();
   LoadAll();
+  UpdateRendererRows(true);
   CheckEverything();
+  if (picture != nullptr) {
+    SetWindowPos(g_window, HWND_BOTTOM, -30000, -30000, 0, 0,
+                 SWP_NOSIZE | SWP_NOACTIVATE);
+    ShowWindow(g_window, SW_SHOWNOACTIVATE);
+    // Each control paints itself now, and the messages of the paint go out
+    // before the picture.
+    RedrawWindow(g_window, nullptr, nullptr,
+                 RDW_INVALIDATE | RDW_UPDATENOW | RDW_ALLCHILDREN);
+    const DWORD until = GetTickCount() + 300;
+    MSG pending;
+    while (GetTickCount() < until) {
+      while (PeekMessageA(&pending, nullptr, 0, 0, PM_REMOVE)) {
+        DispatchMessageA(&pending);
+      }
+      Sleep(10);
+    }
+    const bool saved = SavePicture(picture);
+    DestroyWindow(g_window);
+    return saved ? 0 : 1;
+  }
   if (shot != nullptr) return WriteShot(shot) ? 0 : 1;
   ShowWindow(g_window, SW_SHOW);
   UpdateWindow(g_window);

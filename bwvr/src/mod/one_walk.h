@@ -15,6 +15,12 @@ enum OneWalkMode {
 void OneWalkSetWanted(bool on);
 // one_walk_check: a frame that saves pictures also walks the right eye.
 void OneWalkSetCheck(bool on);
+// one_walk_merge: 1 draws a batch whose two copies are in their own halves
+// in one draw for both eyes (with the render thread), 0 in one draw for each
+// eye.
+void OneWalkSetMerge(bool on);
+// The test key: one_walk_merge goes between 1 and 0.
+void OneWalkMergeToggle(const char* keys);
 bool OneWalkCheck();
 // True when one walk is asked for and nothing has failed.
 bool OneWalkWanted();
@@ -50,6 +56,8 @@ void OneWalkMarksToggle(const char* cause);
 // holds, as left, top, right, bottom.
 void* OneWalkTarget();
 bool OneWalkEyeRect(int eye, long rect[4]);
+// Render target 0 (an IDirect3DSurface9) in a pass, or null with no pass.
+void* OneWalkBoundTarget();
 
 // The picture of one eye of the last pass, for a file, and its end.
 const void* OneWalkReadEye(int eye, int* pitch, uint32_t* width,
@@ -57,3 +65,7 @@ const void* OneWalkReadEye(int eye, int* pitch, uint32_t* width,
 void OneWalkReadDone();
 
 void OneWalkReport(uint64_t frames);
+
+// The mode of one walk for the draw now, on the thread that calls: the
+// D3D7 thread has its own copy (one_walk.cpp).
+int OneWalkModeNow();

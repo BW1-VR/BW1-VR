@@ -28,13 +28,24 @@
 # that does not work, the run starts in a new game, and the script says so.
 # -NewGame gives each run the start of a new game.
 #
+# THE FRAME RATE. The frames of each recipe fit a game that runs at about 60
+# to 150 frames a second. With backend=vulkan in bwvr.ini of the game folder
+# a desktop frame is 1.5 to 3 ms, so each step comes seconds too early. Then
+# each run, also the run of make_test_save.ps1, has the test key
+# test_frame_rate=60: the mod does not copy the picture to the monitor, and
+# each frame lasts 1/60 s at the least (docs/backend.md, "The copy to the
+# monitor"). The window of the game then shows no new picture. -Fps 60 gives
+# the test key with each backend, and -Fps 0 gives no test key. The recipes
+# keep their frames, so a different rate is not possible.
+#
 # The script ends with VERIFIED, or it names the run that did not show what
 # it must. The logs and the pictures of a run are in the folder desk-<run>
 # beside this script.
 param(
     [Parameter(Mandatory = $true)][string]$Tag,
     [string]$Dll,
-    [switch]$NewGame
+    [switch]$NewGame,
+    [int]$Fps = -1
 )
 $sp = Split-Path -Parent $MyInvocation.MyCommand.Path
 . (Join-Path $sp 'game.ps1')
@@ -46,13 +57,22 @@ if ($why) {
     exit 8
 }
 
+# The frame rate of the runs.
+if ($Fps -lt 0) { $Fps = if ((Get-BwvrBackend) -eq 'vulkan') { 60 } else { 0 } }
+if ($Fps -ne 0 -and $Fps -ne 60) { "NOT RUN: -Fps takes 0 or 60. The recipes keep their frames only at 60 frames a second"; exit 7 }
+$rate = ''
+if ($Fps -gt 0) {
+    $rate = "test_frame_rate=$Fps"
+    "each run has $Fps frames a second ($rate). The window of the game shows no new picture"
+}
+
 # The test saves of the runs. A save that is not there is made one time.
 $save = @{ pen = ''; temple = '' }
 if (-not $NewGame) {
     foreach ($name in 'pen', 'temple') {
         if (-not (Get-BwvrTestSave $name)) {
             "the test save '$name' is not there: one run makes it"
-            & (Join-Path $sp 'make_test_save.ps1') -Name $name -Dll $Dll -Minutes 150 | Select-Object -Last 1
+            & (Join-Path $sp 'make_test_save.ps1') -Name $name -Dll $Dll -Minutes 150 -Set $rate | Select-Object -Last 1
         }
         if (Get-BwvrTestSave $name) { $save[$name] = $name }
         else { "the test save '$name' was not made, so its run starts in a new game" }
@@ -63,6 +83,7 @@ if (-not $NewGame) {
 # In a new game that frame is after the start dialog. In a test save it is
 # after the Main Menu of the start.
 $aimSet = 'fake_controller_front=1;fake_controller_play_frame=2750;aim_test_keys=3260;aim_pitch_deg=-0.5;aim_yaw_deg=0.25'
+if ($rate) { $aimSet = "$aimSet;$rate" }
 $aimSteps = 'point@2990+1 aimfar@3000+1 shot@3040+1 grip@3060+90 pull@3100+3 pull@3170+3 point@3200+1 a@3215+30 shot@3230+1'
 if ($save.pen) {
     & (Join-Path $sp 'aim_run.ps1') -Name "aim2$Tag" -Dll $Dll -Set "$aimSet;aim_test_touch=110" -Steps $aimSteps -Seconds 30 -Minutes 150 -Save $save.pen | Select-Object -Last 3
@@ -70,11 +91,11 @@ if ($save.pen) {
     & (Join-Path $sp 'aim_run.ps1') -Name "aim2$Tag" -Dll $Dll -Set "$aimSet;aim_test_touch=700" -Steps $aimSteps -Seconds 79 -Minutes 150 | Select-Object -Last 3
 }
 # tland keeps the first story, so it starts in a new game (-NewGame).
-& (Join-Path $sp 'throw_queue.ps1') -Dll $Dll -Runs land -Tag $Tag -Minutes 150 -More 'fake_controller_front=1' -NewGame | Select-Object -Last 3
+& (Join-Path $sp 'throw_queue.ps1') -Dll $Dll -Runs land -Tag $Tag -Minutes 150 -More 'fake_controller_front=1' -NewGame -Fps $Fps | Select-Object -Last 3
 if ($save.temple) {
-    & (Join-Path $sp 'creature_recipe.ps1') -Name "vc$Tag" -Dll $Dll -Minutes 150 -Seconds 42 -Save $save.temple | Select-Object -Last 4
+    & (Join-Path $sp 'creature_recipe.ps1') -Name "vc$Tag" -Dll $Dll -Minutes 150 -Seconds 42 -Save $save.temple -Set $rate | Select-Object -Last 4
 } else {
-    & (Join-Path $sp 'creature_recipe.ps1') -Name "vc$Tag" -Dll $Dll -Minutes 150 -NewGame | Select-Object -Last 4
+    & (Join-Path $sp 'creature_recipe.ps1') -Name "vc$Tag" -Dll $Dll -Minutes 150 -NewGame -Set $rate | Select-Object -Last 4
 }
 
 function Lines($run, $pattern, $first) {

@@ -10,6 +10,9 @@ Summary:
 - The game (`runblack.exe`, unofficial patch v1.42 only) draws with
   DirectDraw 7 and Direct3D 7. The mod is a `ddraw.dll` proxy. It loads
   dxwrapper (`Dd7to9`) as the backend, which turns Direct3D 7 into Direct3D 9Ex.
+  With `backend=vulkan` the mod makes DirectDraw 7 and Direct3D 7 itself and
+  draws with Vulkan alone: no dxwrapper, no Direct3D 9 and no Direct3D 11
+  ("The backend of the mod on Vulkan", "Only Vulkan").
 - The game transforms every vertex on the CPU and submits screen space
   vertices. The mod walks the scene twice per frame, once per eye, and changes
   the camera between the two walks.
@@ -37,6 +40,7 @@ Other docs: `software-tnl.md` (the CPU transform and the camera matrix),
 | `src/mod/frame_send.cpp` | The way of the eye pictures to the headset: when the mod waits for the GPU, and on which thread (`frame_send`) |
 | `src/mod/draw_merge.cpp` | One draw call for a row of draw calls of the game with one state (`draw_merge`) |
 | `src/mod/present_watch.cpp` | Skips the copy to the monitor |
+| `src/mod/file_read_ahead.cpp` | The read ahead of the files of `LHFile`: a small read comes from a copy of the file (`file_read_ahead`) |
 | `src/mod/stereo.cpp` | The scene walk twice, the hotkeys, the view setup |
 | `src/mod/head_camera.cpp`, `head_pose.cpp`, `eye_camera.cpp` | The head on the camera, the per eye matrix |
 | `src/mod/fov.cpp` | `LH3DTech::ChangeFov` hook |
@@ -53,6 +57,12 @@ Other docs: `software-tnl.md` (the CPU transform and the camera matrix),
 | `src/mod/spirit_anchor.cpp` | The advisors |
 | `src/mod/near_plane.cpp` | The near plane |
 | `src/mod/frame_timers.cpp`, `eye_capture.cpp`, `draw_probe.cpp` | Timing, eye pictures, draw probe |
+| `src/mod/render_thread.cpp`, `render_thread_ring.h` | The hooks of the Direct3D 9 device, and the render thread (`render_thread`) |
+| `src/mod/fast_transform.cpp`, `fast_transform_math.h` | The two vertex loops of the engine with SSE (`fast_transform`) |
+| `src/mod/scene_sample.cpp`, `scene_sample_math.h` | A test aid: samples of the code of the frame thread in the scene walks, by module (`profile_sample`) |
+| `src/mod/hang_watch.cpp` | A test aid: the place of the frame thread when it makes no frame for 8 s, and of a fault (`hang_watch`) |
+| `src/mod/vk_ddraw.cpp` | DirectDraw 7 and Direct3D 7 of the mod on Vulkan (`backend=vulkan`) |
+| `src/mod/vk_window.cpp` | The swapchain of Vulkan on the window of the game (`vk_window`) |
 | `src/common/exe_check.h`, `version.h` | The build check and the product name |
 
 ## How the game draws
@@ -315,7 +325,9 @@ holds the shipped values. The important ones:
 backend=                        ; the default: dxwrapper\ddraw.dll when it is beside the game
 backend=dxwrapper\ddraw.dll
 backend=system                  ; system DirectDraw
+backend=vulkan                  ; DirectDraw 7 and Direct3D 7 of the mod on Vulkan
 gpu_bridge=1                    ; use the GPU path when the backend allows it
+vulkan_only=1                   ; backend=vulkan uses only Vulkan ("Only Vulkan")
 ```
 
 A name with no path is searched beside the game first. If the chosen backend
@@ -424,10 +436,11 @@ the value 2 needs a Direct3D 9 device that permits calls from two threads
 (`gpu bridge   : the device permits calls from two threads`). With
 `frame_send=2` or `test_keys=1` in the ini, the mod adds that flag when the
 backend does not ask for it. On a device for one thread the value 2 acts as 1.
-The second thread asks the query about 20,000 times a second, and not without
-a stop: the device takes a lock for each call. Each call sends the queue to
-the GPU, as the wait on the frame thread does. After 100 ms with no answer the
-frame goes out as it is.
+The second thread sleeps until a short time before the GPU is done, and then
+it asks the query in short steps ("How the threads wait"). Each question
+takes the lock of the device and sends the queue to the GPU, as the wait on
+the frame thread does. After 100 ms with no answer the frame goes out as it
+is.
 
 For each 450 frames the log has the line `frame send   :`. It gives the mean
 time of the wait for the GPU, of the copies and of `xrEndFrame`, and how long
@@ -480,6 +493,52 @@ through Virtual Desktop. A desktop run sends no frame to a runtime. With
 `test_keys=1`, Ctrl, Shift and the slash key of the number pad step the value
 while the game runs.
 
+### The hold of the last frame
+
+`xr_hold_ms` (30 is the default, 0 is off, a test key: Shift W) keeps the
+headset fed while the game gives the runtime no frame: a load, a long game
+turn, or a stop of the game after the load of a saved game, when it loads
+the rest of the land. A frame age of 2183 ms after such a load came with
+black flicker in the headset. When no frame of the game came for
+`xr_hold_ms`, the second thread (`XrScreen::Impl::HoldFrames`) sends the
+layers of the last frame again in frames of its own, each after its own
+`xrWaitFrame`, so a run has the rate of the headset. The projection layer
+has the poses that its pictures were rendered with, so the runtime turns the
+old pictures with the head. The run ends when the frame thread begins a
+frame or makes its layers.
+
+A frame that the game began and that stays open for three times
+`xr_hold_ms` is ended by the second thread with the layers of the last
+frame (the frame is "taken"). `BuildFrame` then waits for a new frame of the
+runtime and sends the new pictures in it. A slow frame of the game that is
+shorter does not wait for a second frame of the runtime.
+
+The frame thread holds `hold_lock` while it reads the events, begins a frame
+and makes its layers. The second thread only tries to take the lock, so it
+never waits for the frame thread, and the frame thread waits at most for
+one frame of the hold. `frame_state_now` says who has the frame of the
+runtime. With the hold on, the second thread runs also with `frame_send` 0
+or 1.
+
+For each 450 frames the log has the line `hold         :` with the frames of
+the hold, the runs, the frames of the game that a hold took, the failed
+frames, the longest time with no frame of the game, and why no frame of the
+hold came after three times `xr_hold_ms` (the frame thread had the lock, or
+the frame of the game was in `SendFrame`). Each of the first 30 frames of
+more than 250 ms from `xrWaitFrame` to the end of `xrEndFrame` has a line
+`slow frame   :` with its parts: `BeginFrame` after the wait, the game,
+`BuildFrame`, the wait for the GPU and the copies, and `xrEndFrame`.
+
+Open: a headset session after the load of a saved game had a frame of
+2945 ms, and no frame of the hold took it. The line `slow frame` names the
+part of such a frame.
+
+Known limit: when the game copies a new eye picture into its swapchain image
+before it makes its layers (a flat frame or the intro in stereo with
+`backend=vulkan`), a frame of the hold in that time shows the new picture
+with the pose of the old one. Only a headset can show the hold: a desktop
+run has no runtime.
+
 ### The self test
 
 The bridge has a self test that needs no headset. It builds its own Direct3D 11
@@ -509,13 +568,22 @@ gives the thread of each part with `vr_start=1`, the default:
 | --- | --- | --- | --- |
 | `StartInstance` | `xrEnumerateInstanceExtensionProperties` and `xrCreateInstance`. The loader loads the DLL of the runtime here | The thread of the tries | It needs no device. It can fail (no runtime, or a broken API layer: `XR_ERROR_FILE_ACCESS_ERROR`) or wait for the runtime |
 | `StartSystem`, `LogSystem` | `xrGetSystem`, and the name and the size of the headset | The thread of the tries | With no headset it can only fail |
-| `StartSession` | The Direct3D 11 device on the adapter of the runtime, `xrCreateSession`, the spaces, the controllers and the swapchains | The frame thread | It runs one time, only when the runtime has a headset. The frame thread uses the session from the next frame on, and `GpuBridgeStart` opens the shared textures of the game on its device at once, on the frame thread |
+| `StartSession` | The device of the session on the adapter of the runtime (Direct3D 11, or Vulkan with `xr_vulkan=1` and `backend=vulkan`), `xrCreateSession`, the spaces, the controllers and the swapchains | The frame thread | It runs one time, only when the runtime has a headset. The frame thread uses the session from the next frame on, and `GpuBridgeStart` opens the shared textures of the game on its device at once, on the frame thread |
 | `Stop` after a try with no headset | `xrDestroyInstance`. The loader unloads the DLL of the runtime here | The thread of the tries | It can wait for the runtime |
 
 OpenXR lets each call come from any thread, when two threads do not use one
 handle at one time. The thread of the tries gives the screen to the frame
 thread when it finds the headset. After that only the frame thread uses the
 screen.
+
+The instance names the graphics API of the session. So the thread of the
+tries makes its screen with the choices of the frame thread
+(`VrStartOptions`): a session with Vulkan (`xr_vulkan=1`, and each
+`backend=vulkan`), with no Direct3D 11 device (`vulkan_only=1`, "Only
+Vulkan"), and eye tracking for foveated rendering. The frame thread gives
+`xr_vulkan_upload` and `xr_hold_ms` before `StartSession`. With
+`backend=vulkan` and no session after 3 tries, the renderer draws with a
+device of its own, as with the tries on the frame thread.
 
 ### One instance for all tries
 
@@ -666,6 +734,10 @@ OpenXR runtime. `xr_bridge=0` is the default and keeps the local runtime.
 The mod reads the key at the start of the game, so a change needs a
 restart. `bwvr/src/vr/bridge/README.md` tells a player how to install the
 Steam Frame add-on.
+
+The host takes the frames of Direct3D 11 only. A session with Vulkan
+(`backend=vulkan`, or `xr_vulkan=1`) uses the local runtime, also with
+`xr_bridge=1`, and the line `settings` of the log says so.
 
 The game keeps the XrScreen interface. Each call of XrScreen goes to the
 host, and the host runs the same `xr_screen.cpp` with its local runtime.
@@ -1119,7 +1191,12 @@ N: from frame 150 of the controllers the mod does not copy the picture to the
 monitor, and the call of the copy waits until the frame is 1/N s long. The
 window of the game then shows no new picture. The log has one line for each
 report window: the frames that waited, and the frames that were longer than
-1/N s. `throw_queue.ps1 -Fps 90` in `bwvr/tools/desk` uses the key.
+1/N s. The key acts with dxwrapper and with `backend=vulkan`: the copy to
+the primary surface goes through the hook of `Blt` with both. With Vulkan a
+desktop frame is 1.5 to 3 ms, and the key gives it 60 frames a second.
+`throw_queue.ps1 -Fps 90` in `bwvr/tools/desk` uses the key, and
+`verify_build.ps1` and `make_test_save.ps1` give it at 60 when `bwvr.ini` has
+`backend=vulkan`.
 
 **A copy between two textures.** For a `Blt` to or from a texture,
 `m_IDirectDrawSurfaceX::CopySurface` of dxwrapper calls
@@ -1380,6 +1457,106 @@ Scenes 3 to 5 have one write in each scene walk, and its `Lock` takes
 calls of `Lock` then take 0.6 ms together. That is 1.2 to 1.5 ms of a frame.
 The cause is not known (`roadmap.md`, N1).
 
+### Where the time of the scene walk goes
+
+`profile_sample=N` (a test key, 0 is off, 100 to 5000) splits the scene
+walks by module (`scene_sample.cpp`). A thread of its own stops the frame
+thread for a moment each N microseconds while the frame thread is in a
+scene walk, reads the address of its next instruction, and lets it go on.
+It keeps only that address, so it takes no lock that the stopped thread can
+hold. Each 450 frames the log has two lines:
+
+```
+scene sample : 18000 samples in the scene walks of 450 frames, 40 in a frame. The samples held the frame thread 0.400 ms in a frame, and 0 stops gave no address. The scene walks were 9.60 ms in a frame. By module: runblack.exe ..% (.. ms), dxwrapper.dll ..% (.. ms), ...
+scene sample : the code with the most samples, in pieces of 64 bytes: runblack.exe+0x... ..%, ...
+```
+
+The ms of a module is its share of the time of the scene walks. Each sample
+holds the frame thread, so the walks of such a run are that much longer. An
+address in `ntdll.dll` or `win32u.dll` is mostly a call of the kernel: the
+driver in the kernel, or a wait. A save of the launcher removes the key.
+
+Each sample also has a copy of the top 384 bytes of the stack. For the
+samples in `ntdll.dll` the log has two more lines: the return addresses with
+the most samples, first the first one outside the modules of the system,
+then the first one that is also outside `d3d9.dll` and the mod. So these
+lines name the code that waits, and the code of the game or of dxwrapper
+that called it. A return address is a value on the stack with a call just
+before it in its module (`scene_sample_math.h`). An old value on the stack
+can look like one.
+
+`profile_sample_thread=1` takes the samples from the render thread, and 2 from
+the D3D7 thread ("The thread of Direct3D 7"), in place
+of the frame thread (see "The render thread"). The render thread starts with
+its first walk, so the samples start with the walk after it. The ms of a
+module is then the time that the render thread was in it while the frame
+thread was in a scene walk.
+
+`profile_sample_outside=N` (100 to 5000, 0 is off) takes the samples each N
+microseconds while the frame thread is NOT in a scene walk: the game turn,
+the streaming of the land, the loads and the waits for the headset. The
+lines then say "outside the scene walks". It needs no `profile_sample`, so a
+save of the launcher, which removes `profile_sample`, keeps it.
+
+`profile_sample_dump=1` also writes each sample of a report, with the
+modules of the process, to `bwvr-samples.txt` beside `runblack.exe`: a line
+"W frames" starts a report, "M name base size" is a module, and each other
+line is the address of a sample. A script can then give the share of each
+function, with the names of bw1-decomp for the game and a PDB for the mod.
+
+**The watch of the frame thread.** `hang_watch=1` (a test key,
+`hang_watch.cpp`) starts a thread that looks at the count of the frames each
+second, also of the logos and the intro. When the count stays the same for
+8 s, it stops the frame thread for a moment, reads the address of its next
+instruction and the top 4 KiB of its stack, and writes them to the log by
+module, one time for each stop of the count. A long load also gives such a
+line. The names of the modules are read at the first frame, so the line
+needs no lock of the loader. `hang_watch=2` writes the place each 8 s, also
+while the frame thread makes frames. With each of the two values a fault
+that no handler takes writes its code, its place and the return addresses
+on the stack of its thread (a stack overflow shows the calls that repeat),
+and the frame thread keeps 64 KiB of its stack for that line.
+
+**The split in a headset.** SteamVR with a Steam Frame, Ryzen 9 7950X3D,
+Radeon RX 7900 XTX, a render of 3304 by 2644 with 4x multisampling,
+`one_walk=1`, `frame_send=2`, `profile_sample=250`. The ms are of one frame,
+with the time that the samples held the frame thread (0.2 ms near, 0.8 ms
+over the island):
+
+| Module | A view near the land (150 to 400 batches) | A view of the whole island (1500 to 1600 batches) |
+| --- | --- | --- |
+| `AMDXN32.DLL`, the Direct3D 9 driver of AMD | 0.5 to 1.0 ms | 3.3 to 3.8 ms |
+| `runblack.exe`, the game | 0.7 to 1.3 ms | 2.6 to 2.9 ms |
+| `ntdll.dll`, calls of the kernel and locks | 0.2 to 0.4 ms | 1.3 to 1.4 ms |
+| `d3d9.dll`, the Direct3D 9 runtime | 0.2 to 0.3 ms | 1.1 to 1.2 ms |
+| `ddraw.dll`, the mod | 0.3 to 0.7 ms | 0.7 ms |
+| `dxwrapper.dll` | 0.1 to 0.2 ms | 0.6 ms |
+| All the scene walks | 2.1 to 4.0 ms | 9.7 to 10.9 ms |
+
+So over the island about 6 ms of the scene walk are Direct3D 9, the driver
+and the kernel, and the game is less than 3 ms. dxwrapper is a small part. A
+render thread at the Direct3D 9 calls, after dxwrapper, can take those 6 ms
+off the frame thread.
+
+**The GPU after the scene walk.** With `frame_send=2` the frame thread does
+not wait for the GPU, but the frame goes to the runtime only when the GPU has
+done it. The second thread waits 2.5 to 3.2 ms for the GPU after the scene
+walks near the land and 3.7 to 4.2 ms over the island. That wait is not the
+work of the GPU: the driver gives most of the calls to the GPU only at the
+end of the walk. The timestamps of `profile_gpu` (see "The render thread")
+give the work: about 2.2 ms for both eyes in a desktop run of 2000 draws.
+From the end of `xrWaitFrame` to the end of
+`xrEndFrame` a frame takes 6 to 8 ms near the land and 15 to 16 ms (at most
+20 ms) over the island. Over 11.1 ms the runtime of SteamVR shows 45 frames a second. A lower
+anisotropic filtering (4 in place of 16) changed none of these numbers. The
+multisampling stayed at 4x in that run: `AntiAliasing = 0` in
+`dxwrapper.ini` did not change it.
+
+**DXVK.** With `gpu_bridge=0` (the pictures through the CPU) and two scene
+walks, Direct3D 9 and the kernel are about 2.9 ms of a frame over the island
+with DXVK, against about 6 ms for the driver of AMD with one walk. "DXVK under
+dxwrapper" has how the mod uses it.
+
 ### Draw calls with one state
 
 The cost of a frame follows the count of the draw calls. The mod can give two
@@ -1418,6 +1595,13 @@ scene walks in a frame (`one_walk=0`), for both eye passes of a frame:
   the place of a render thread.
 - The count does not see a texture that the game writes between two draw
   calls with the same texture.
+- The order of the draws of a walk cannot change much. In a desktop run at
+  the start of a new game, of about 1070 draws in a frame, about 690 have
+  the blend on with a texture that has an alpha channel, about 190 write no
+  depth, and 40 are no triangle list. Each of these keeps its place, so a
+  draw that could move (a Z buffer that it writes, no blend) has a draw
+  that keeps its place about each second draw. dxwrapper sets the depth
+  bias of each draw to -0.
 
 ### One draw call for a row of draw calls
 
@@ -1494,7 +1678,7 @@ order of their cost:
 | Cause | How long | How often | The part |
 | --- | --- | --- | --- |
 | The audio DLL calls `Sleep(20)` on the frame thread when it stops a sound that plays (`audio.md`, 7.6). `GAudio::ProcessAudioGameTurn` stops each positional sound that is out of range, in the game turn | 20.5 to 21 ms for each stop. Two stops in one turn are 41 ms, and three are 62 ms | With `audio_stop_wait=1`: 1 stop in 10 s at the door of the Temple with the head down, 4 to 8 at the village, and none at the far zooms. With `audio_stop_wait=0`, the default, only a sound that QMixer plays keeps the wait: 2 stops in a run of 110 s, and none in a scene of the measure | game turn |
-| The Creature reads an animation from the disk at its first use (`Creature::ProcessSubAction`, `Morphable::GetSetAnim` `0x00619690`, `CAnim::ReadBinary` `0x00860860`). One animation is 2400 to 5600 calls of `ReadFile` | The game turn takes 4.5 to 9.5 ms | 3 times in the first 20 s of play, and 3 times in the 60 s after them. The same animations load in each run, at about the same frames | game turn |
+| The Creature reads an animation from the disk at its first use (`Creature::ProcessSubAction`, `Morphable::GetSetAnim` `0x00619690`, `CAnim::ReadBinary` `0x00860860`). One animation is 1900 to 19,000 reads of `LHFile::ReadData` on a file that is open already | With `file_read_ahead=0` each read is a call of `ReadFile` (1.2 to 1.5 microseconds when Windows has the file in memory), and the game turn takes 4 to 34 ms. With `file_read_ahead=1`, the default, the reads come from a copy ("The read ahead of the files of the game"), and the game turn takes 7.2 ms at most | 3 times in the first 20 s of play, and 3 times in the 60 s after them. The same animations load in each run, at about the same frames | game turn |
 | The first use of a texture or of an effect file in a scene walk: 2 to 5 calls of `CreateFile`, and the load | The eye pass takes 8 to 15 ms more when Windows does not have the file in memory. When it has, the calls take 0.03 ms each | 8 times in the first minute of the first run of a row of runs, and no time in the runs after it | eye 0 |
 | Each 600 game turns the game writes the mind of the Creature and two more files to the disk, and the alignment of the player to the registry | The game turn takes 3 to 4 ms, with 2 ms in 10 calls of `CreateFile`. In the first run of a row of runs those calls took 28 ms | One time a minute | game turn |
 
@@ -1512,9 +1696,90 @@ about 12 times a frame, which is 0.005 ms in all.
 The runtime does not count a slow frame as a skipped frame. In a session in a
 headset its counter stayed at 28 skipped frames for 12,154 frames.
 
+**Frames of about 100 ms in a headset.** In the logs of sessions with a Quest 3
+through Virtual Desktop and `xr_vulkan=1`, with `backend=vulkan` and with
+`backend=dxwrapper`, the worst frame of many report windows is 94 to 108 ms.
+Some are 200 ms. In these windows the game turn is less than 1 ms, and the
+two scene walks are 2 to 5 ms. The time is in the calls of the runtime. Some
+of these frames have 94 to 98 ms in the wait for the runtime. The others have
+45 to 94 ms in "everything else" of the line `worst frame` (that part has
+`xrEndFrame`) and the rest in the wait. The line `frame age` has 100 to 102 ms
+at the most in the same windows. The runtime of Virtual Desktop (VDXR) sets
+no timeout in these calls. It waits in `ovr_WaitToBeginFrame` and in
+`ovr_EndFrame` of the Virtual Desktop Streamer. So the cause is in the
+streamer or in the link to the headset, and not in the files of the game.
+Not known: whether a session with Direct3D 11 (`xr_vulkan=0`) has these
+frames too, and whether a turn of the head starts them.
+
+For each 450 frames the log of a session has this line:
+
+```
+  runtime calls: the longest call of the window, ms: xrWaitFrame W, xrBeginFrame B, xrEndFrame E, the copies to the swapchains C. Calls of 20 ms or more: w, b, e, c
+```
+
+It gives the longest call of `xrWaitFrame`, of `xrBeginFrame`, of
+`xrEndFrame` and of the copies to the swapchain images (with their acquire and
+wait) in the window, and the count of the calls of 20 ms or more.
+
 Only a headset session can show what the wait, the copy to the bridge and the
 frame to the runtime cost in a slow frame. Only a person can say if a sound
 that stops sounds the same with `audio_stop_wait` 0 and 1.
+
+### The read ahead of the files of the game
+
+`LHFile` is the file class of the engine. `LHFile::ReadData` (`0x007BE120`)
+gives each read to `ReadFile`, with no buffer of its own. A load of an
+animation of the Creature makes thousands of reads of some bytes each in one
+game turn. With `file_read_ahead=1` (the default) the mod gives such a read
+from a copy of the file (`file_read_ahead.cpp`, `file_read_ahead_math.h`):
+
+- The mod changes the address in five instructions of `LHFile` that read
+  a function of Windows from the import table of the game: `CreateFileA` in
+  `LHFile::Open` (`0x007BD5BD`), `ReadFile` in `LHFile::ReadData`
+  (`0x007BE187`), `SetFilePointer` in `LHFile::SetLHFilePointer`
+  (`0x007BDD38`) and in `LHFile::VerifyFile` (`0x007BD804`), and
+  `CloseHandle` in `LHFile::Close` (`0x007BDBEE`). Each instruction then
+  reads a function of the mod. No other code of the game changes. The mod
+  first checks the bytes of each instruction, and with a byte that it does
+  not know it changes none.
+- Only a file that `LHFile::Open` opens with `GENERIC_READ` and
+  `FILE_SHARE_READ` gets a read ahead. That is the read mode of `LHFile`
+  (2). Nobody can write such a file while it is open, so the copy stays
+  true. A file that `LHFile` opens to write (the modes 0 and 3) goes to
+  Windows as before. `LHFile::WriteData` is not changed.
+- A read of less than 64 KB comes from a copy of the next 256 KB of the
+  file. The mod reads the copy with one call of `ReadFile`. A larger read
+  goes to Windows. A seek from the start or from the position only sets
+  the position that the game sees. Each other call first puts the file
+  pointer of Windows at that position. So the game gets the same bytes, the
+  same counts and the same results as from Windows. The checks in
+  `test/controller_math/read_ahead_checks.h` compare a row of 20,000 random
+  reads and seeks with a file that has no read ahead.
+- The parse of the file stays on the thread of the game, because the
+  engine is not safe for a second thread. Only the count of the calls into
+  the kernel changes.
+
+For each 450 frames in which the game read a file of `LHFile`, the log has
+this line:
+
+```
+read ahead   : file_read_ahead=1. In the window the game read 36445 times from files of LHFile. 36441 reads came from a copy, with 46 calls of ReadFile for the copies. 10 files opened since the start
+```
+
+Two desktop runs of one recipe (a new game, the first story and the
+Creature pens, `backend=vulkan`, `profile=1`), one with each value:
+
+| | `file_read_ahead=0` | `file_read_ahead=1` |
+| --- | --- | --- |
+| Frames with 2 ms or more in file calls, after the load of the start | 25 | 0 |
+| Report windows with a worst game turn of more than 8 ms, after the start | 11 | 0 |
+| The worst game turn after the start | 30.7 ms | 7.2 ms |
+| The game turn of the frame of the start with 35,287 reads | 69.3 ms | 29.5 ms |
+
+`file_read_ahead=0` gives each read to `ReadFile`, as the plain game does.
+With `test_keys=1`, Shift Q changes the value while the game runs. Each open
+file gives its position back to Windows at its next call. Not shown: a
+session in a headset, and a load of a saved game with the read ahead.
 
 ### The clock of the game and the hooks of dxwrapper
 
@@ -1540,7 +1805,15 @@ percent and the mod 7.3 percent.
 `tick_direct=1` gives the import slot of `GetTickCount` in `runblack.exe`
 (`0x008A91C4`) a function of the mod (`tick_direct.cpp`). It gives the low
 32 bits of `GetTickCount64`, which is the number of `GetTickCount`, and it
-makes no call into the kernel. The game does not wait for its clock in a
+makes no call into the kernel. `tick_direct=2` (the default) gives the
+milliseconds of the performance counter from the number of `GetTickCount64`
+at the start. `GetTickCount64` goes up in steps of the timer of Windows,
+15.6 ms by default: at 120 frames a second about one frame in two then has a
+time step of the game of 0 and the next one of 16 ms, so each move of the
+game goes in steps of 60 a second. A desktop run of a new game at
+`test_frame_rate=120`: with 1 the line `time step` has 209 to 210 of 450
+frames with a step of 0 and steps up to 16 ms, with 2 it has none and steps
+of 7 to 10 ms. The game does not wait for its clock in a
 loop, because the headset paces the frame. The other hooks of dxwrapper
 stay. The log has one line at the start and the count of the calls of each
 report window.
@@ -1612,6 +1885,61 @@ other. A change of the viewport costs much less than a change of the render
 target. dxwrapper binds the game's target again when its own record changes,
 and the interface panel puts back the target it found. The hook on
 `SetRenderTarget` turns the game's target into the wide one in the pass.
+
+### One draw for both eyes
+
+With the render thread (`render_thread` 1 or 2), `one_walk_merge=1` (the
+default) draws most batches in one draw for both eyes. A triangle list whose
+left copy ends at the right edge of the viewport of the left eye, and whose
+right copy starts at the left edge of the viewport of the right eye, needs
+no clip at the edge between the eyes (`one_walk_math::InOwnHalves`). Then one
+draw of both copies, with one viewport from the left edge of the left eye to
+the right edge of the right eye, gives the pixels of the two draws. The
+record of the queue has the left copy, then the right copy, and the indices
+of the right copy moved by the count of a copy
+(`RenderThreadOutDrawIndexedBoth`).
+
+The viewport over both eyes stays on the device while such draws follow each
+other. The render thread keeps the viewport of the game: `GetViewport`
+gives it, and a `SetViewport` of it changes nothing. A draw or a clear of
+one eye, a stop and the end of the walk put the viewport of the game back
+first, and a new render target sets its own (`render_thread.cpp`, "THE
+VIEWPORT OF BOTH EYES"). A batch with the scissor test, a strip or a fan,
+and a batch that crosses the edge between the eyes are drawn one eye at a
+time, as before.
+
+A desktop run of 961 batches in both eyes: 931 are one draw. The draws of a
+frame are 1096 in place of 2028, the calls of `SetViewport` 207 in place of
+2031. The render thread is 1.87 to 1.93 ms in place of 2.41 to 2.49 ms, the
+walks on the GPU 1.03 to 1.06 ms in place of 1.41 to 1.56 ms, and a frame
+7.6 to 7.8 ms in place of 8.1 to 8.4 ms. The pictures of the test frames
+with and with no render thread differ as much as two frames of one mode.
+`one_walk_merge=0` draws each batch one eye at a time. With `test_keys=1`,
+Shift and H turn it on and off.
+
+### The right eye on the render thread
+
+With `render_thread=1` and `one_walk_merge=1`, `render_thread_right_eye=1`
+(the default) makes the right copy of a batch on the render thread. The
+frame thread writes a record with the left copy, its indices, the viewport
+of the game, the width of an eye and the move of x for each unit of rhw
+(`RenderThreadOutDrawBothLater`). The record has room for the right copy.
+The render thread writes the right copy into that room
+(`one_walk_math::CopyForRightEye`), and finds if each copy is in its own
+half. If so, it writes the indices of the right copy, and the record is one
+draw for both eyes. If not, it draws each copy with the viewport of its eye
+and puts the viewport over both eyes back. It does this for the records in
+the queue before it copies them to its buffers (`CompleteBoth`). So the
+frame thread copies the vertices of the game one time, and does not read
+them again. `render_thread_right_eye=0` makes the right copy on the frame
+thread. With `test_keys=1`, Shift and K turn it off and on.
+
+A desktop run of 961 batches in both eyes: the work of the right eye on the
+frame thread is 0.21 to 0.24 ms in place of 0.40 to 0.42 ms, the scene walks
+on the frame thread 2.55 ms in place of 2.78 ms, and the render thread 2.17
+ms in place of 2.02 ms. 931 batches are one draw in both ways. The pictures
+of the test frames with and with no render thread differ as much as two
+frames of one mode.
 
 ### The cards and the marks of the mod
 
@@ -1738,6 +2066,1390 @@ walk. On such a frame the log has one line for a speech bubble in view
 one for the glow at the Hand's point (`hand glow`). Each
 line has the place of the thing in the right eye of its own walk and in the
 right eye of one walk.
+
+## The render thread
+
+`render_thread=1` gives the calls of each scene walk from dxwrapper to
+Direct3D 9 to a thread of their own (`render_thread.cpp`). The key is 0 by
+default. "Where the time of the scene walk goes" has why: over the whole
+island about 6 ms of the walk are Direct3D 9, the driver and the kernel.
+
+### How it works
+
+| Part | What |
+| --- | --- |
+| The hooks | `render_thread.cpp` has the hooks of the Direct3D 9 device. The seven calls of one walk come to its hooks first, and one walk gives its calls to the `RenderThreadOut` functions. So one walk runs on the frame thread, before the record |
+| The record | In a scene walk on the frame thread, a call that sets a state, binds a texture, a target, a buffer or a shader, clears, starts or ends a scene, or draws writes a record to a queue of 64 MiB and returns `D3D_OK`. A record has a copy of each array of the call (the vertices and the indices of a draw, the rects of a clear). A resource in a record has a reference until the call was made |
+| The render thread | It reads the queue in order and makes the calls. When the queue is empty it spins for a short time and then sleeps ("How the threads wait") |
+| The stops | Each other call of the device, a lock of a texture, a surface or a buffer of Direct3D 9, the issue of a query, a DirectDraw call of a surface that reads or writes pixels (`Blt`, `BltFast`, `GetDC`, `Lock`, `SetColorKey`, `SetPalette`), a new depth surface, and the end of the walk wait until the render thread made each call before them. A thunk of machine code on each other call of the device does that stop |
+| The reads | A read of the format, the viewport, the scissor rect, a render state, a texture, a stage state, a sampler state, a target or the depth surface gives the value that the walk set. The start of each walk reads each of these values one time, while the queue is empty |
+| The device | With `render_thread` 1 or 2 in the ini the mod asks for a device that permits calls from two threads, as for `frame_send=2` |
+| The install | The first walk puts in about 150 hooks. MinHook queues them, and one `MH_ApplyQueued` puts them in. Each `MH_EnableHook` stops each thread of the process for a moment, and over a hundred of them take seconds when the window of the game is not in front |
+
+So each call has the state and the place in the order that it has with no
+render thread, and the pictures are the same. The render thread waits for
+the hooks of the surface calls of `draw_merge.cpp`, so it needs
+`draw_merge=1`.
+
+`render_thread=2` is a test of the record and of the stops: the records go
+to Direct3D 9 on the frame thread at each stop and at the end of the walk.
+With `test_keys=1`, Shift and 8 turn the render thread off and on from the
+next scene walk. `render_thread_test_frame=N` gives the frames N and N+1
+the mode of the ini and N+2 and N+3 the mode 0, each with a picture of each
+eye. The run needs a scripted controller (`fake_controller=1`), because N is
+a frame of the controllers.
+
+### The lock of the device
+
+A device that permits calls from two threads has a lock. Each call of
+Direct3D 9 takes it, also a call of a resource: `GetType`, `QueryInterface`,
+`AddRef` and `Release`. The render thread holds the lock in each call that
+it makes. So a call of the frame thread that takes the lock waits for the
+call of the render thread to end, which is about one draw.
+
+At each `SetTexture` and in each loop over the stages, dxwrapper calls such
+calls on the texture. `render_thread_lock_free=1` (the default) gives these
+answers with no lock:
+
+| Call | Where dxwrapper calls it | What the mod does |
+| --- | --- | --- |
+| `GetType` | `dxwrapper.dll+0x21367`, `+0x23987` | The type of a class of texture is fixed. The mod knows the vtable of each class of texture from a texture of each kind that it makes, and gives the type of that class. An object of another class goes to Direct3D 9 |
+| `QueryInterface` for `IUnknown` | `+0x29203` | The `IUnknown` of a texture is the texture itself. The mod checks that on each class |
+| `QueryInterface`, then `Release` | `+0x29203`, `+0x2921A` | A pair with nothing between: no reference, no lock |
+| `AddRef`, then `Release` | `+0x292AF`, `+0x292B5` | A pair on one object: no reference, no lock. When the `Release` is of another object, the mod makes the `AddRef` first |
+| `GetTexture`, then `Release` | `+0x2396B`, `+0x23A8E` | The texture that the walk set, with no reference. The object of dxwrapper for the texture has a reference, so the texture lives between the two calls |
+
+The mod knows a pair by the return address of each call, on the same thread
+and object. Before the hooks go in, the mod compares the bytes of dxwrapper
+at each pair with the bytes of the pinned release of dxwrapper. When they
+are different, the pairs go to Direct3D 9. The count of references of each
+texture is the same as with Direct3D 9. One difference: `GetType` of
+Direct3D 9 gives 0 when the device is gone, and the hook gives the type.
+`render_thread_lock_free=0` gives each of these calls to Direct3D 9. With
+`test_keys=1`, Shift and 9 turn the answers on and off.
+
+### The calls that change nothing
+
+dxwrapper sets the transforms, the viewport, the format of the vertices and
+some render states again before each draw, mostly to the value that the
+device has already. In a desktop run of 2028 draws in a frame, 6523 calls of
+a frame are such calls: 3198 `SetTransform`, 1156 `SetRenderState`, 1066
+`SetViewport`, 1065 `SetFVF` and 38 `SetSamplerState`.
+`render_thread_filter=1` (the default) does not write such a call to the
+queue. The walk keeps the value of each state (see "The reads"), so a call
+with the value that the walk keeps does nothing in Direct3D 9. For a
+transform the walk keeps the view, the projection, the 8 texture matrices
+and the world matrices 0 to 3, from the first call of the walk that sets
+them. `render_thread_filter=0` gives each call to Direct3D 9. With
+`test_keys=1`, Shift and F turn the filter on and off.
+
+### The buffers of the render thread
+
+Each draw of a walk is a `DrawIndexedPrimitiveUP`. For each one, Direct3D 9
+copies the vertices and the indices to a buffer of its own, with a lock of
+that buffer for each draw. `render_thread_buffers=1` (the default) gives
+that work to the render thread. It has a dynamic vertex buffer of 16 MiB and
+a dynamic index buffer of 4 MiB. Before it plays a part of the queue, it
+copies the vertices and the 16-bit indices of all the draws of that part to
+the buffers, with one lock of each buffer, and marks each record. It then
+draws each marked record with `DrawIndexedPrimitive`. A vertex block starts
+at a multiple of its stride, so `BaseVertexIndex` finds it. A part with
+fewer than 8 draws, a draw with 32-bit indices and a draw that does not fit
+stay a `DrawIndexedPrimitiveUP`. A new part is prepared only when the part
+before it has played.
+
+After a `DrawIndexedPrimitiveUP` Direct3D 9 has no vertex buffer on stream 0
+and no index buffer. The render thread puts that state back before the
+queue is empty, so a stop never sees its buffers, and before a record that
+sets a stream or the indices or draws from a buffer. A `Reset` of the device
+needs each buffer of the default pool to be released, so a `Reset` releases
+the buffers first, and the render thread makes them again.
+`render_thread_buffers=0` gives each draw to Direct3D 9 as it is. With
+`test_keys=1`, Shift and G turn the buffers on and off.
+
+### The GPU time
+
+`profile_gpu=1` (a test key) puts a timestamp query at the start and at the
+end of each scene walk. With the render thread the queries are records of
+the queue, so they have their place in the order of the calls. The mod reads
+a pair four walks later, with no flush and no wait. Each 450 frames the log
+has the time of the walks on the GPU:
+
+```
+gpu time     : the scene walks took 2.165 ms in a frame on the GPU, from the first call of a walk to its last (2.165 ms for one walk). 450 walks measured, 0 not ready four walks later
+```
+
+The time is from the first call of a walk to its last on the GPU, so it
+does not count the copy of the eye pictures after the walk. A launcher save
+removes the key.
+
+`profile_gpu=1` also measures the wait for the GPU after the walk. In a
+headset the second thread of `frame_send=2` waits for the GPU after the walk,
+and a desktop run has no such thread. So after each walk, when each call of
+the walk went to Direct3D 9, the frame thread issues an event query with
+`D3DGETDATA_FLUSH`, and a thread of its own looks at it about each 50
+microseconds until the GPU is done:
+
+```
+gpu time     : the GPU was done 1.574 ms after the end of a walk (450 walks, 0 not measured). gpu_flush=128, 8.0 flushes in a frame
+```
+
+### The flush
+
+The driver keeps the calls of a walk and gives them to the GPU late, mostly
+at the end of the walk. So the GPU starts the picture late, and the frame
+waits for it after the walk. `gpu_flush=N` (128 by default) makes the thread
+that makes the draws issue an event query each N draws and ask for its data
+with `D3DGETDATA_FLUSH` and no wait. Then the driver gives the GPU the calls
+so far, and the GPU draws while the walk goes on. With the render thread the
+render thread does it, with no render thread the frame thread does it in the
+`RenderThreadOut` functions. `gpu_flush=0` leaves it to the driver. With
+`test_keys=1`, Shift and J turn it off and on.
+
+`ab_test=<key>` (a test key) gives each window of 450 frames the other value
+of the key, and the log says it at the end of each window (`ab test`), so a
+session in a headset compares the two with no key. The keys are `gpu_flush`
+(the value of the ini, or 128, and 0), `render_thread_right_eye` (1 and 0),
+`fast_transform` (1 and 0), `d3d7_thread` (1 and 0) and
+`render_thread_late_end` (1 and 0).
+
+A desktop run with `render_thread=1`, 1096 draws in a frame: the GPU is done
+2.98 ms after the walk with no flush, 1.57 ms with a flush each 64 or 128
+draws and 1.63 ms each 256 draws. The copy to the monitor waits for the GPU
+too, so a frame of the desktop run is 5.9 ms in place of 7.5 ms. In a
+headset the gain is in the wait of the second thread of `frame_send=2`. A
+session in a headset (SteamVR, Steam Frame) over the island, about 1500
+draws in a frame, with `ab_test=gpu_flush`: the wait for the GPU is 0.4 to
+0.5 ms with a flush each 128 draws and 2.7 ms with no flush, and the time
+from the end of `xrWaitFrame` to the end of `xrEndFrame` is 6.3 to 7.4 ms in
+place of 8.6 to 9.1 ms. The scene walks on the frame thread do not change.
+
+### The late end of a walk
+
+With `render_thread=1` the end of a walk waits until the render thread made
+each call of the walk, so that each call of the mod after the walk comes
+after them. In a headset that wait is most of the time of the render
+thread, because the render thread is the slowest step of a walk ("The
+thread of Direct3D 7"). `render_thread_late_end=1` (the default) does not
+wait. The queue stays open after the walk, and the calls of the mod after
+the walk go into it after the calls of the walk:
+
+- one walk puts the target of the game back (`SetRenderTarget`,
+  `SetDepthStencilSurface`),
+- `gpu_bridge.cpp` copies the eyes and the interface panel into the shared
+  textures (`StretchRect`, `ColorFill`, records of their own). Only a copy
+  from the code of the mod goes into the queue. A copy of dxwrapper stops:
+  dxwrapper reads the result of each copy and makes the texture in a
+  different way when Direct3D 9 refuses the copy, and a record gives
+  `D3D_OK` at once. With such records the buildings of a village had black
+  walls and no roofs (`village_run.ps1 -Kind store -NewGame` shows the
+  village up close),
+- with `frame_send=2` the render thread issues the event query of the end
+  of the frame with `D3DGETDATA_FLUSH` (`RenderThreadQueueFlush`). The
+  second thread of `frame_send.cpp` first waits until the render thread
+  issued it, and then for the GPU, so it never reads the query of the frame
+  before.
+
+A call that the queue does not take stops, as in a walk, and a lock of a
+surface or a query that the frame thread issues itself (`frame_send` 0 and
+1) waits for each call before it. The start of the next walk waits until
+the queue is empty. The render thread has the time of the game turn and of
+`xrWaitFrame` for it, so that wait is short. `GetTransform` stops, and the
+matrix that it reads becomes the kept matrix of the filter. The calls
+that only read the state of the device or of the adapter
+(`TestCooperativeLevel`, `GetAvailableTextureMem`, `GetDeviceCaps`,
+`GetDisplayMode`, `GetCreationParameters`, `CheckDeviceState`) need no stop,
+in a walk and after it. A session in a headset had 7 stops of
+`TestCooperativeLevel` in a frame.
+
+A desktop run copies each frame to the monitor (`GetBackBuffer`,
+`UpdateSurface`, `GetRenderTargetData`, `LockRect`, `PresentEx`), and those
+calls stop. So on the desktop the wait moves from the end of the walk to
+the copy (0.70 ms in place of 0.72 ms), and the pictures of the test frames
+differ as much as with no late end. In a headset the mod skips the copy to
+the monitor (`skip_desktop_present`). A session in a headset (SteamVR, Steam
+Frame) at 144 Hz with `ab_test=render_thread_late_end`, over the island with
+1250 to 1850 draws: the scene walks 2.6 to 3.0 ms in place of 3.2 to 3.9 ms,
+the wait at the start of the next walk 0.005 ms at the most, the wait of the
+second thread for the GPU 1.2 to 1.8 ms in place of 0.6 to 0.8 ms, the time
+from `xrWaitFrame` to the end of `xrEndFrame` 5.1 to 6.0 ms as with no late
+end, and no fault in the picture. `render_thread_late_end=0` waits at the
+end of the walk. With `test_keys=1`, Shift and N turn it off and on.
+
+### The time
+
+A desktop run at the start of a new game: a render of 3304 by 2644 with 4x
+multisampling, `one_walk=1`, `fake_controller=1`, `profile_sample=250`. The
+ms are of one frame, each the median of the windows of 450 frames of a run,
+in two runs of each column. The GPU time is from `profile_gpu=1`:
+
+| | `render_thread=0` | `render_thread=1`, each new key 0 | `render_thread=1`, the defaults |
+| --- | --- | --- | --- |
+| The scene walks on the frame thread | 5.5 to 5.8 ms | 3.0 to 3.1 ms | 2.5 to 2.55 ms |
+| The render thread busy | | 2.75 to 2.86 ms | 2.2 ms |
+| The scene walks on the GPU | 2.17 to 2.19 ms | 2.19 ms | 1.82 to 1.89 ms |
+| The frame time of the game | 11.0 to 11.4 ms | 8.7 ms | 7.8 to 7.9 ms |
+| The frame time with no `profile_sample` and no `profile_gpu` | 10.7 to 10.9 ms | | 7.5 to 7.7 ms |
+
+"Each new key 0" is `render_thread_lock_free=0`, `render_thread_filter=0`
+and `render_thread_buffers=0`. With `render_thread_lock_free=0` the frame
+thread waits about 1.5 ms in a frame for the lock of the device (see "The
+lock of the device"). With the defaults, most of the time of `ntdll.dll` on
+the frame thread is the wait at the end of the walk, until the render
+thread made each call. So the render thread, which is the driver, sets the
+time of the walk. On the render thread `AMDXN32.DLL` has about 69 percent of
+the samples, `d3d9.dll` 12 percent and `ntdll.dll` 15 percent
+(`profile_sample_thread=1`). The pictures of the test frames of the two
+modes differ as much as two frames of one mode (0.006 to 0.008 percent of
+the pixels).
+
+**In a headset.** SteamVR 2.18.3 with a Steam Frame, a render of 3304 by
+2644 with 4x multisampling, `one_walk=1`, `frame_send=2`,
+`profile_sample=250`. A view of the whole island has 3000 to 3350 draws in a
+frame. The ms are of one frame, each a mean of 450 frames, with the test
+keys in one session. The frame is the time from the end of `xrWaitFrame` to
+the end of `xrEndFrame`:
+
+| | `render_thread=0` | `render_thread=1`, `render_thread_lock_free=0` | `render_thread=1`, `render_thread_lock_free=1` |
+| --- | --- | --- | --- |
+| The scene walks on the frame thread | 11.3 to 11.4 ms | 8.8 ms | 5.5 to 5.9 ms |
+| The render thread busy | | 5.7 ms | 4.6 to 5.1 ms |
+| The frame | 16.4 to 19.9 ms | 13.9 ms | 10.9 to 11.5 ms |
+
+### The log
+
+Each 450 frames: the records, the draws and the KiB of a frame, the stops
+and their time, the wait at the end of the walks, the busy time of the
+render thread, the waits for room in the queue, the calls too large for the
+queue, and the calls that failed. More lines give the stops by the call
+that made them, the calls of a frame in the queue by kind, the calls that
+set the value that the device had already (see "The calls that change
+nothing"), and the draws from the buffers of the render thread with the
+locks of the buffers (see "The buffers of the render thread").
+
+## The vertex loops with SSE
+
+The engine transforms the vertices of each mesh on the frame thread, one at
+a time, on the x87 unit. Three functions do most of it: `fn_00856D40` (with
+the clip flags), `fn_0085AB10` (lit from the normal of each vertex) and
+`fn_0084BA90` (both). Each has a loop with one matrix for the mesh, and a
+loop with a matrix for each group of vertices. In `fn_00856D40` and
+`fn_0085AB10` the loop with one matrix is the hot one, in `fn_0084BA90`
+(the meshes of people and of the Creature) both loops are hot. Each vertex is a 3x4
+matrix, the clip flags (`fn_00856D40`), a division for `1/z`, the
+projection to the screen, the clamp to the screen, and the light of the
+normal (`fn_0085AB10`). Each comparison is an `fcomp` and an `fnstsw` with
+a branch.
+
+**Which meshes.** In a desktop run at the start of a new game with
+`one_walk=0`, `draw_probe=1` names the caller of each draw: 900 of about
+1190 draws of both eye passes come from `fn_00856D40` (`0x008573E8`), 242
+from `fn_0085AB10` (`0x0085B23D`) and 48 from `fn_0084BA90` (`0x0084C3A1`).
+The draws of `fn_00856D40` are about 870 draws of only 36 meshes in a frame,
+with 772 vertices together, so a mesh has about 21 vertices. After the loop
+`fn_00856D40` tests the back face of each triangle on the screen, clips a
+triangle with a clip flag (`fn_0081A760`), puts the triangles in
+`g_TriangleList`, sets the material (`0x00857367`), the tiling and the cull
+mode (`D3DRENDERSTATE_CULLMODE` from bit 0 of the byte at `+5` of the mesh),
+and calls `LH3DRender::DrawTriangle` through `0x00C386EC`. With such small
+meshes the cost of a mesh is its draw, not its vertices. In a profile of
+the frame thread the SSE loops and the code of `fn_00856D40` are together
+about 5 percent of the samples. A transform of these meshes on the GPU
+gives one draw or more for each mesh to the driver.
+
+`fast_transform=1` (the default) makes these four loops with SSE, four
+vertices at a time (`fast_transform_math.h`). The loops differ in the order
+of the additions of the matrix and in the order of the product of the y of
+the screen, and the SSE loop has each order. A jump at the start of
+each loop goes to a stub (`fast_transform.cpp`). The stub keeps each
+register, and goes on after the loop of the game when the SSE loop did the
+work.
+
+**The same bits.** Direct3D sets the x87 unit to a precision of 24 bits,
+so the game rounds the result of each operation to a float, as SSE does.
+The SSE loops make the operations of the game in the order of the game, and
+each comparison gives the result of the game for a NaN too. So the results
+have the same bits. The SSE loop runs only while the x87 control word has a
+precision of 24 bits and rounds to the nearest. Else the loop of the game
+runs, and the log says so (`fast transform` lines). In the game MXCSR has
+the flush to zero on (0x9FA3 in a desktop run), and the x87 unit has no such
+flush. So the SSE loop sets MXCSR to round to the nearest with no flush to
+zero while it runs, and puts the value of the game back after it. The checks of `bwvr/test/controller_math`
+make each of the four loops with the x87 code of the game, instruction for
+instruction, for 8 times 4099 vertices with each clip flag and for meshes of
+1 to 7 vertices, and compare the bits. The
+bits can differ only where a value between two operations is out of the
+range of a float, which the x87 unit keeps.
+
+A desktop run at the start of a new game has about 870 meshes of
+`fn_00856D40` and 250 of `fn_0085AB10` in a frame, with 21700 vertices. The
+scene walks are 2.28 to 2.36 ms in place of 2.50 to 2.65 ms: the game is 0.8
+ms in place of 1.2 ms, and the mod 0.1 ms more. The pictures of frame 3000
+of a run with SSE and of a run on the x87 unit differ as much as the
+pictures of two runs of one mode (0.007 to 0.017 percent of the pixels).
+With the loops of `fn_0084BA90` too (32 meshes and 113 groups a frame at
+the start of a new game): the scene walks 2.50 ms in place of 2.64 ms, and
+frame 3000 and 3001 of a run with SSE and of a run on the x87 unit have the
+same pixels.
+
+`fast_transform=0` runs the loops of the game. With `test_keys=1`, Shift
+and L turn it off and on.
+
+`fast_transform_check=1` (a test key) checks the SSE loops in the game: each
+hook makes the SSE loop into a copy of the output, and the loop of the game
+runs. A hook at the start of the code after each loop compares the copy with
+what the game wrote, and the log has the count of the meshes and of the
+vertices that differ (`fast transform: check` lines, and the first 12
+vertices that differ). A desktop run at the start of a new game compared 10.8
+million vertices in each window of 450 frames, and 0 differed.
+
+## The thread of Direct3D 7
+
+In a walk the frame thread calls the Direct3D 7 device of dxwrapper about
+4000 times a frame. dxwrapper makes each call into calls of Direct3D 9, and
+the hooks of the render thread and of one walk make records of those. With
+`render_thread=1`, `d3d7_thread=1` (the default, `d3d7_thread.cpp`) puts
+the calls of the device into a queue, and a thread of its own (the D3D7
+thread) gives them to dxwrapper. Then the D3D7 thread makes the records of
+the render thread, and the frame thread has only the game and the hooks of
+the mod on the methods.
+
+**The queue.** In a walk the game makes `SetRenderState` (about 1550 a
+frame), `DrawIndexedPrimitive` (1490), `SetTexture` (605),
+`SetTextureStageState` (354) and `SetLight` (61), and the hand and the
+overlay of the mod make `DrawPrimitive` ("The calls of Direct3D 7 in a
+walk"). A hook on the inner function of dxwrapper behind each of these six
+methods makes a record with a copy of the vertices, the indices or the light,
+and returns `D3D_OK`. The hooks of the mod on the methods
+(`draw_probe.cpp`, `texture_filter.cpp`, `draw_merge.cpp`, `eye_clean.cpp`)
+are on the methods themselves, so they run first, on the frame thread.
+
+**The stops.** Each other way of the frame thread into dxwrapper in a walk
+first waits until the D3D7 thread did each record:
+
+- dxwrapper makes a scoped lock of its own (`0x100096E0`) at the start of
+  most methods of the device and of the surfaces, also `Lock`, `Unlock`,
+  `Blt` and `Release`. A hook of that lock stops. So a texture that a record
+  names is never released before the record.
+- The methods of the device that take no such lock at their start (`Clear`,
+  `BeginScene`, `EndScene`, the Get methods and the others) have a hook on
+  their inner function that stops, and so do `SetPalette` and `Restore` of a
+  surface. Five methods have no inner function (`GetTexture`,
+  `EndStateBlock`, `PreLoad`, `Load`, `GetInfo`): their entries in the
+  table of methods stop.
+- A call of the frame thread to Direct3D 9 stops (`render_thread.cpp`,
+  `Taking`).
+
+A stop never waits while the frame thread holds the lock of dxwrapper. A
+call that comes from inside dxwrapper goes to dxwrapper at once, and then
+the queue is empty, because the way into dxwrapper stopped first. The places
+in dxwrapper are of the build that the mod ships. The mod checks the start of
+each function and the place of the table of methods of the device, and with
+a different build the calls stay on the frame thread.
+
+**One walk.** One walk reads its mode and the move of the right eye in its
+hooks of Direct3D 9, which then run on the D3D7 thread. So the D3D7 thread
+has its own copy of these. A change of the mode, of the move that
+`draw_merge.cpp` holds, or of the inputs of the move (the field of view,
+the size and the near plane of the engine) goes into the queue as a record
+in the order of the calls (`D3D7ThreadPost`).
+
+A desktop run at the start of a new game: the D3D7 thread is busy 0.8 ms in
+a frame, with about 4 stops. The pictures of frame 3000 with and with no
+D3D7 thread have the same pixels. The scene walks are 2.02 ms in place of
+2.14 ms. The work of the frame thread is much less, but the end of each walk
+waits for the render thread (1.9 ms), which is the slowest step on the
+desktop. A session in a headset (SteamVR, Steam Frame) at 144 Hz over the
+island, about 2000 draws, with `ab_test=d3d7_thread`: the scene walks 3.8
+to 4.2 ms in place of 4.1 to 4.4 ms, 143 to 144 frames a second in place of
+128 to 144, and 0 to 6 frames of 450 over 11.6 ms in place of 1 to 24. The
+D3D7 thread is busy 1.5 to 1.7 ms, the render thread 3.4 to 3.8 ms. The
+hand and the overlay of the mod draw through the queue, with no fault in
+the picture. With `test_keys=1`, Shift and M
+turn it on and off from the next walk.
+
+**The merge.** `draw_merge.cpp` gives a row of draws with one state to
+dxwrapper as one draw. With the D3D7 thread, `d3d7_thread_merge=1` (the
+default) makes that merge on the D3D7 thread: it looks at the records after
+a draw, and a row of draws of a triangle list with the same device, format,
+flags and version, and with no other record between them, goes to dxwrapper
+as one draw. A record that sets a state, a record of one walk and a stop end
+the row. The D3D7 thread is often just behind the frame thread, so at the
+end of the records that are there in a walk it waits up to 30 microseconds
+for the next record. The frame thread then copies the vertices of a draw one
+time, into the queue, and `draw_merge.cpp` takes no draw in such a walk. The
+queue also reads the count of the reader of the D3D7 thread only when the
+room that the last read showed is not enough, because each read moves its
+cache line between the cores.
+
+A desktop run at the start of a new game with `ab_test=d3d7_thread_merge`,
+the medians of 30 windows: the scene walks 1.27 ms in place of 1.42 ms, the
+CPU time of the frame thread 2.14 ms in place of 2.25 ms, the D3D7 thread
+busy 1.03 ms in place of 0.84 ms, and 1067 draws to Direct3D 9 with both
+values. 624 draws of a frame go to dxwrapper as 200 draws. The pictures of
+frame 3001 with both values differ in 1533 pixels of 8.7 million, as two runs
+with one value do. `d3d7_thread_merge=0` merges on the frame thread. With
+`test_keys=1`, Shift and V turn it on and off from the next walk.
+
+## DXVK under dxwrapper
+
+`d3d9_backend=1` (`d3d9_backend.cpp`) gives dxwrapper DXVK in place of the
+Direct3D 9 of Windows. DXVK makes the calls of Direct3D 9 into calls of
+Vulkan, and it gives its work to the driver on a thread of its own. The key
+is 0 by default.
+
+**The load.** dxwrapper loads `d3d9.dll` by its name, and the bridge loads it
+before dxwrapper (`GpuBridgeInstall`). Windows gives a module that is loaded
+already to a load by the same name. So the mod loads `dxvk\d3d9.dll` of the
+game folder first, before each other part, and dxwrapper and the bridge get
+DXVK. The mod sets the settings of DXVK in the environment of the process: no
+vertical sync (`d3d9.presentInterval = 0`), no OpenXR or OpenVR of DXVK
+(`DXVK_NO_VR`), and the log and the shader cache of DXVK in the folder
+`dxvk`.
+
+**When the PC can run it.** The mod uses DXVK only when each of these is
+true. Else it uses the Direct3D 9 of Windows, and the log says why:
+
+- the file `dxvk\d3d9.dll` is there,
+- `vulkan-1.dll` is there, its version is 1.3 or later, and a GPU has
+  Vulkan 1.3,
+- the start before did not fail. Before it loads DXVK, the mod writes
+  `dxvk\start-pending.txt`, and the first scene walk deletes it. When the
+  file is there at a start, the start before ended before its first walk.
+  Delete the file to try DXVK again.
+
+**The share of the eye pictures.** The Direct3D 9 of Windows makes each
+shared texture, and the Direct3D 11 of the OpenXR session opens it. DXVK
+cannot give such a texture to the Direct3D 11 of Windows: the game stops in
+the open. So with DXVK, Direct3D 11 makes each shared texture, and DXVK opens
+it with the handle of the kernel (`IDXGIResource::GetSharedHandle`), or else
+with an NT handle. DXVK writes "Failed to open shared D3DKMT handle" to its
+log for each such texture, but the share works. A backend can give `D3D_OK`
+for a share that it did not make, so the bridge checks each way one time:
+Direct3D 9 copies a color into the texture with `StretchRect`, as it copies
+the eye pictures, and Direct3D 11 reads one pixel back. A `ColorFill` does
+not do for the check: DXVK keeps a fill until it uses the texture itself, so
+Direct3D 11 reads the texture with no color. A way that does not carry the
+color is not used, and with no way the pictures go through the CPU. The log names the way (`gpu bridge   : Direct3D
+11 makes each shared texture`).
+
+**The numbers.** A desktop run at the start of a new game, about 1070 draws in
+a frame, `render_thread=1`, on a Radeon RX 7900 XTX:
+
+| | The Direct3D 9 of Windows | DXVK 3.1.1 |
+| --- | --- | --- |
+| The render thread busy in a frame | 2.11 ms | 0.92 to 1.03 ms |
+| The stops in a frame | 0.70 ms | 0.005 ms |
+| The frame (the frame thread sets it on the desktop) | 4.85 to 5.1 ms | 5.0 to 5.2 ms |
+
+The pictures of frame 3001 with DXVK and with Windows differ in 1.7 percent of
+the pixels, a little at edges and in the filter of textures. Not run: a
+session in a headset with DXVK, a PC with two GPUs, a GPU of NVIDIA or Intel.
+The share needs DXVK and the OpenXR session on the same GPU. DXVK takes a
+dedicated GPU before an integrated one.
+
+## The Vulkan renderer
+
+The mod has a renderer of its own for the scene walks, with Vulkan
+(`vk_core.cpp`, `vk_scene.cpp`). The goal: the draws of a walk go from the
+game to Vulkan with no dxwrapper and no Direct3D 9, on a PC and later on a
+headset with an ARM CPU (Steam Frame), where each layer of x86 code costs
+more. Now it is a test: `vk_scene=1` (0 is the default), and the source of
+the eye pictures in a session with Vulkan ("The session with Vulkan"). In
+a session with Vulkan a walk of one walk goes to the renderer alone ("The
+walk without Direct3D 9").
+
+**The shadow test.** With `d3d7_thread=1` the D3D7 thread gives each call
+of its queue to dxwrapper as before, and also to the Vulkan renderer. The
+renderer draws both eyes into an image of its own, with a layer for each
+eye. The picture of the game stays the one of dxwrapper.
+`vk_scene_test_frame=N` writes the images of the walk of frame N to
+`bwvr-vk-left-MMMMM.bmp` and `bwvr-vk-right-MMMMM.bmp` beside `runblack.exe`.
+Frame N is the frame that starts with the count N of the controllers, as for
+`render_thread_test_frame=N`. The controllers count the frame before its
+walk, so the walk itself starts with the count N + 1. M is the number of the
+eye captures of that frame. So a desktop run with the same N for both keys
+gives `bwvr-vk-left-MMMMM.bmp` and `bwvr-shared-left-MMMMM.bmp` of one walk.
+The next walk can differ: when the script of the controller ends, the Hand
+goes away, and an advisor that spoke can go away.
+
+**Both eyes.** In one walk the game draws the left eye. Each draw goes to
+both layers of the target at once (multiview, a feature of each GPU with
+Vulkan 1.1), and the vertex shader moves each vertex of the right eye by
+`per_rhw * rhw`, as one walk moves the copy of the right eye
+(`one_walk_math.h`). A batch where each vertex has an rhw of 1 (flat) or a z
+of 1 or more (at infinity) does not move. A batch of the interface for one
+eye only (`OneWalkModeNow`) goes to that layer only: the shader puts its
+vertices of the other eye outside the clip space. With no one walk the walk
+draws the left layer only. The hand, the halos and the overlays of the mod
+draw with `DrawPrimitive` of Direct3D 7 in the walk, in the format of the
+game, so they come to the renderer as the draws of the game do.
+
+**Vulkan.** The mod loads `vulkan-1.dll` at run time, so the DLL of the mod
+has no import of Vulkan. It needs Vulkan 1.3 (dynamic rendering,
+synchronization2, the extended dynamic state) and takes a dedicated GPU
+before an integrated one. It turns on the anisotropic filter of the GPU
+when the GPU has it, because the game asks for it (up to 16). The headers
+are in `third_party/Vulkan-Headers`. The shaders are GLSL
+(`vk_scene.vert`, `vk_scene.frag`), and their SPIR-V is in `vk_scene_vert.h`
+and `vk_scene_frag.h`, made with `glslang -V`. The build does not need
+glslang.
+
+**What it draws.** Most draws of a walk have the format 0x1C4: a place on
+the screen (XYZRHW), the diffuse and the specular color, and one set of
+texture coordinates. A draw in another format with XYZRHW is copied into
+that layout: a missing diffuse color is white, a missing specular color is
+black, and the texture coordinates are the set of `D3DTSS_TEXCOORDINDEX` of
+stage 0. A draw with no XYZRHW is not drawn, and the log has one line for
+each such format. The report of each 450 frames counts the draws that are
+not drawn, for each reason. The vertex shader gives the clip position of that pixel in the
+viewport of the walk, times `1 / rhw`, and moves it by half a pixel, because
+a pixel of Direct3D has its centre at the whole number and a pixel of Vulkan
+at the half. The fragment shader makes texture stage 0 (the operations and
+inputs of Direct3D 7), texture stage 1 ("The second stage"), the alpha test,
+the specular color and the fog of the vertices. The state that a walk does not set comes
+from the device at the start of the walk. In Direct3D 7 the state
+`D3DTSS_ADDRESS` sets the address mode of u and of v, and the game sets
+only this state (wrap or clamp), so the renderer copies it into
+`D3DTSS_ADDRESSU` and `D3DTSS_ADDRESSV`. A mip filter of `D3DTFP_NONE`
+uses level 0 only. Each pair of blend factors has a pipeline. The cull
+mode, the depth test, the depth write, the depth function and the
+primitive type are dynamic states. In one walk a batch of the
+interface for the right eye only does not go into the image of the left
+eye.
+
+**The target, the viewport and the clears** (`vk_scene_follow`, 1 is the
+default). In a walk the mod can bind a target of its own on the device of
+Direct3D 9. The interface panel does this for the help text and the
+Creature panel, which go to the subtitle card or to the layers of the
+interface (`ui-layer.md`). The draws of the game that follow go to that
+target and not to the eye pictures. So the renderer follows render target
+0 of Direct3D 9, as one walk does: the target at the start of the walk is
+the target of the eyes, and a draw or a clear while another target is
+bound does not go into the image. The renderer also follows the viewport
+of Direct3D 7 (a hook of `SetViewport` on the D3D7 thread) as the viewport
+and the scissor rect of Vulkan. It makes each clear of Direct3D 9 in the
+walk (`one_walk.cpp`, `h_Clear`) in that viewport, for the eyes of the mode
+of one walk. A clear for one eye ends the rendering of both layers, clears
+in a rendering of that layer alone, and starts the rendering of both again.
+A change on the frame thread goes into the queue of the D3D7 thread, so it
+comes in the order of the draws. Without one walk the target of the eyes
+is not known, and each draw goes into the image. With
+`vk_scene_follow=0` each draw goes into the image, in the viewport of the
+start of the walk, and the renderer makes no clear. With `test_keys=1`,
+Shift X changes it from the next walk. The report of each 450 frames
+counts the binds of the target, the viewports, the clears and the draws
+for another target. The game itself sets no viewport and no render target
+in a walk (`ddraw_census=1`, also while the Hand strokes the Creature).
+It makes one clear in each walk, before the sky (`eye_clean.cpp`).
+
+Desktop runs of the strokes of the Creature (`hand_run.ps1 -Kind old
+-NewGame` with `subtitle_card_test=1`, the route of the subtitle card with
+no headset). With `vk_scene_follow=0` the batches that go to the card are
+also in the image of the left eye, and not in the image of the right eye:
+the subtitle box (a dark band across the bottom) and, with the Hand on the
+Creature, the Creature panel (four bars with dark backgrounds) at the top
+left. At the first subtitle of a new game (frame 720) 4.69 percent of the
+pixels of the left eye differ from Direct3D 9 by more than 24 levels (20.9
+percent in the middle of the bottom third), and with the Hand on the
+Creature (frame 1400) 11.5 percent of the left third of the middle differ.
+With `vk_scene_follow=1` the image and the picture of one walk differ in
+0.06 percent of each eye at frame 710, 0.09 percent at frame 1400 and 0.10
+percent at frame 1560. Open: no comparison of one walk had an advisor in
+view. The advisors come at a different frame in each run of the strokes,
+so a run cannot ask for a frame with an advisor.
+
+**The panel** (`vk_panel`, 1 is the default). The panel target of Direct3D 9
+(`ui-layer.md`) has a panel image in the renderer, one for each target of
+the eyes, of their size, with a depth of its own. A draw while the panel
+target is bound goes into that image, for no eye: the rendering of the
+eyes ends, and a rendering of the panel starts. Its first rendering in a
+walk clears it to 0 and the depth to 1, as the first bind of the panel
+target clears that target. The alpha has the blend of the panel target
+(one and inverse source alpha), so the panel holds the color multiplied
+by the alpha. The next draw for the eyes ends the rendering of the panel
+and starts the rendering of the eyes again, with their pixels and depth.
+The subtitle card takes the part of the panel that drew at half the size
+(a blit with a linear filter, a copy to the CPU and a wait for the GPU, as
+with Direct3D 9). In a session with Vulkan with `ui_panel=1` the panel
+layer takes the panel image with one copy on the GPU. With 0 the renderer
+draws no draw for the panel target, and the card and the layer take the
+panel of Direct3D 9. Shift Y (`test_keys=1`) changes it from the next walk.
+A frame that saves pictures also saves the part of both panels for the
+card, with no fade, as `bwvr-subtitle-card-vk-N.bmp` and
+`bwvr-subtitle-card-d3d9-N.bmp`, and `vk_scene_test_frame=N` writes the
+whole panel as `bwvr-vk-panel-N.bmp`. The report of each 450 frames counts
+the walks with the panel, the draws into it and the copies.
+
+**The walk without Direct3D 9** (`vk_only`, 1 is the default). In a walk of
+one walk whose eye pictures come from the renderer, the D3D7 thread gives
+no draw to dxwrapper: the renderer alone draws each draw, also the hand
+and the overlays of the mod. The calls that set a state (render states,
+textures, stage states, lights) still go to dxwrapper, because the next
+walk reads its state from the device. So dxwrapper and Direct3D 9 make no
+draw of the walk, and the render thread has no draw to give to the driver.
+It is so in a session with Vulkan with the Vulkan eyes (`vk_eyes=1`), and
+on the desktop with the test key `vk_only_test=1`. It needs
+`vk_panel=1` and `vk_scene_follow=1`, so each draw has its place. A frame
+of two walks, a menu, a loading screen and a video still go to Direct3D 9.
+After a walk of another size than the swapchains, the walks go to Direct3D
+9 again until a walk has their size. The pictures of Direct3D 9 then have
+no scene: the window on the monitor, the eye pictures of F12 and the eye
+brightness test (`eye_test_luma`). Shift U (`test_keys=1`) changes it from
+the next walk. The report of the D3D7 thread counts the draws that went to
+the renderer alone, and the report of the renderer the walks.
+
+Desktop runs in the start dialog of a new game, `render_thread=1`,
+`d3d7_thread=1`, `one_walk=1`, a Radeon RX 7900 XTX, render 4080 by 3264,
+90 s each (`perf_ab.ps1`, the median of the windows of 450 frames):
+
+| | Direct3D 9 alone | The shadow test | `vk_only_test=1` |
+| --- | --- | --- | --- |
+| The frame | 6.6 ms | 6.7 ms | 2.7 ms |
+| The scene walks on the frame thread | 1.86 ms | 1.86 ms | 1.16 ms |
+| The render thread busy | 2.07 ms | 2.04 ms | 0.06 ms |
+| The D3D7 thread busy | 1.63 ms | 1.63 ms | 0.84 ms |
+| The draws of a frame for Direct3D 9 | 1067 | 1067 | 1 |
+
+The renderer drew each of the 1490 draws of a frame. At frame 421 of the
+start dialog with the hand in view, the images of the renderer alone and
+the images of the shadow test differ in 0.024 percent of the pixels of the
+left eye and 0.018 percent of the right eye by more than 24 levels, and
+the pictures of Direct3D 9 of that walk have no lit pixel.
+
+**The textures.** A texture of the game is a DirectDraw surface of
+dxwrapper. At its first use the renderer reads it with `Lock`, makes RGBA8
+of it, and makes its mip levels with linear blits (the textures of the
+game have no mip levels of their own). A format of 16 bits has a table of
+65536 RGBA values, made at its first texture, so a pixel takes one read of
+the table. A format of 24 or 32 bits takes the shift of each channel
+(`vk_texture_math.h`, with checks that each value is the value of the
+masks). A `Lock` for a write, a
+`Blt` or a `BltFast` of the game on a surface (`draw_merge.cpp`) marks it,
+and its next use reads it again. The game has 117 textures of 256 by 256 in
+A4R4G4B4 and 2 in X1R5G5B5 at the start of a new game. Some scenes write
+textures in each frame: in the cut scene after the rescue of the boy at
+the start of a new game the renderer reads about 3 textures a frame again
+(1350 reads in a window of 450 frames).
+
+**The uploads of a walk** (`vk_upload_queue`, 1 is the default). The copy
+of a texture to the GPU goes into a command buffer of the slot of the walk,
+and the end of the walk submits it before the buffer of the walk, in one
+submit. So the D3D7 thread does not wait for the GPU, and each copy is done
+before a draw reads its texture. The staging buffers stay until the fence
+of the slot says the GPU is done. With 0 each copy goes to the GPU at once,
+and the D3D7 thread waits until the GPU is done. Shift I (`test_keys=1`)
+changes it from the next walk. The old image of a texture that is read
+again, and its descriptor sets, go back when the fence of the slot says
+the GPU is done. The pool has room for 32768 sets, and the renderer asks
+for a set only while the pool has room. The report of each 450 frames has
+the reads in the submit of their walk, the reads that waited, and the sets
+in use. `vk_scene_reread_test=N` (a test key) reads N textures again in
+each walk, in turn.
+
+**A read with no allocation** (`vk_texture_reuse`, 1 is the default). A
+read of the walk puts its pixels into a ring of 32 MiB of the slot, which is
+empty again after the fence of the slot. A texture that the walk reads again
+with the same size goes into the image that it has, with its descriptor
+sets, when no draw of this walk drew with it yet: the uploads of the walk
+run before its draws, and the draws of the walks before it come first in
+the queue. A texture that a draw of this walk used gets a new image, as
+before. So a read makes no allocation of the GPU, which is a call of the
+kernel (`NtGdiDdDDICreateAllocation`, and `NtGdiDdDDIFreeGpuVirtualAddress`
+when it goes back). With 0 each read makes a new image and a staging buffer
+of its own. The report has the reads into their image, the reads in the
+ring, and the waits of a walk for the fence of its slot.
+
+**The states of the draws.** The log has one line for each new combination
+of the operations and the inputs of texture stages 0 and 1, the blend and a
+texture ("vk scene : states N"). A line with a texture on stage 1 says
+whether the renderer makes that stage ("The second stage"). A line with "A
+complement input" names a draw with an input of 1 minus a colour.
+
+**The second stage** (`vk_stage1`, 1 is the default). With `backend=vulkan`
+the game adds a second texture with texture stage 1 for some draws:
+`D3DTOP_MODULATE2X` (5) or `D3DTOP_ADD` (7) of the texture and the current
+colour, with the alpha of stage 0 (`fn_0082B680`). These are the light maps
+of the rooms of the Temple, with their light and their shadows, and of the
+land: 230 to 290 draws of a frame in the hall of the Temple, 1 to 11 on the
+land. At its start the game tests each mode with `ValidateDevice`
+(`fn_0082BF10`, "check additive", "check modulate 2x"), and the device of
+the mod says that each mode takes one pass. With dxwrapper the game puts no
+texture on stage 1, and the hall has draws with the blends `DESTCOLOR,
+SRCCOLOR` and `ONE, ONE` in place of them. Not known: which test gives
+that choice with dxwrapper. Such a draw comes in
+a format of XYZRHW with two sets of texture coordinates. The renderer binds
+the texture of stage 1 as descriptor set 1 (the layout of set 0, with the
+sampler of the states of stage 1), and puts the set of texture coordinates
+of `D3DTSS_TEXCOORDINDEX` of stage 1 into the ring after the vertices, 8
+bytes for each vertex, as vertex buffer 1. The fragment shader then makes
+stage 1 after stage 0, with the operations and the inputs of Direct3D 7 and
+the result of stage 0 as the current colour. A draw with no stage 1 binds
+the set of stage 0 as set 1 and its vertices as buffer 1. A draw with a
+color operation on stage 1 and no texture there keeps the result of stage
+0. With 0 the renderer makes stage 0 alone, and these draws have no light
+map: a room of the Temple is flat and has no shadows. Shift E
+(`test_keys=1`) changes it from the next walk. The report of each 450
+frames counts the draws with a texture on stage 1, and those that got it.
+
+Desktop runs in the hall of the Temple (`temple_run.ps1 -NewGame
+-EnterFrame 1400`, `backend=vulkan`, render 4080 by 3264, the pictures of
+the steps `shot@2600` and `shot@3400`). With `vk_stage1=1` each draw with a
+texture on stage 1 got it (233 to 290 of a frame), and the mean luma of the
+left eye is 29.6. The hall has the light of the chandeliers and dark
+corners, as the picture of Direct3D 9 of the same scene in a run with
+dxwrapper (mean luma 33.3, the shadow test at frame 2600). With
+`vk_stage1=0` the mean luma is 83.8: the walls and the floor have the full
+colour of their texture and no shadow. Not run: a headset session.
+
+A row of a locked surface goes into a buffer of the CPU with streaming
+loads of SSE4.1 (MOVNTDQA) before the conversion, because a `Lock` of
+dxwrapper gives memory that the CPU reads with no cache. Desktop runs in
+the start dialog with `vk_only_test=1` and `vk_scene_reread_test=3` (3
+reads in each walk, as in the cut scene after the rescue of the boy), a
+Radeon RX 7900 XTX (`perf_ab.ps1`, the median of the windows):
+
+| | The frame |
+| --- | --- |
+| No read in a walk | 2.7 ms |
+| 3 reads, each with a wait for the GPU, plain reads of the surface | 23.6 ms |
+| 3 reads in the submit of the walk, plain reads of the surface | 21.4 ms |
+| 3 reads in the submit of the walk, streaming loads | 7.0 ms |
+
+With the streaming loads the D3D7 thread has 57 percent of its samples in
+`win32u.dll` (the calls of the kernel in the `Lock` of dxwrapper) and 11
+percent in the conversion (`profile_sample_thread=2`). In a run of 150 s
+with `vk_scene_reread_test=10` the renderer made 78154 descriptor sets,
+had 150 to 190 in use, and the pool did not refuse one.
+
+**The numbers.** A desktop run at the start of a new game: the renderer draws
+each of the 1067 draws of a frame for both eyes, with 93 textures, 3
+pipelines and 3 samplers, and the frames stay at 4.7 to 5.0 ms with both
+renderers. The images of frame 3000 and the pictures of Direct3D 9 differ by
+more than 24 levels in 0.14 percent of the pixels of the left eye and 0.15
+percent of the right eye. These pixels are on the edges of the land and of
+the window of the dialog, on the line of the horizon, on the pointer of the
+mouse and in a line of one pixel at the border of the picture. The sea is
+the sky dome (the first draw of a walk, depth test always, no blend) and
+then the sea (22 vertices, the blend of source alpha, a texture that
+repeats 50 times, with the mode wrap), and it has the same mean color in
+both renderers. A run in the start dialog with the scripted controller
+(`hand_run.ps1 -Kind fixed -NewGame`, frame 420) has the hand of the mod in
+view: 0.18 percent of the pixels of the left eye and 0.20 percent of the
+right eye differ, and 0.3 percent in a box around the hand, on its edges.
+
+## The backend of the mod on Vulkan
+
+`backend=vulkan` (`vk_ddraw.cpp`) makes DirectDraw 7 and Direct3D 7 in the
+mod, in place of dxwrapper and Direct3D 9. The proxy then loads no backend
+DLL: system DirectDraw gives only the exports that the mod does not make
+(the enumeration of the displays). The two exports that make a DirectDraw
+object go to the mod (`ProxySetCreateHooks`, `ddraw_proxy.h`). The launcher
+row "Renderer" chooses Vulkan or Direct3D 9: it writes `backend=vulkan` only
+when the GPU has Vulkan 1.3, else dxwrapper. With no key the proxy takes
+dxwrapper.
+
+**What the game uses.** `ddraw_census=1` with `backend=system` counts each
+call from the start (dxwrapper puts a hot patch on `DirectDrawCreateEx`
+and `DirectDrawCreate` of each module named `ddraw.dll`, also of the mod,
+so with dxwrapper the count starts at the first walk). The game runs in a
+window (`SetCooperativeLevel` with `DDSCL_NORMAL`): a primary surface, an
+offscreen render target with a Z buffer D24X8, textures of 256 by 256 and
+32 by 32 with mip levels in A4R4G4B4 and X1R5G5B5, textures in the memory
+of the system in DXT1 and DXT3 that a `Blt` or `IDirect3DTexture2::Load`
+makes into textures of 16 bits, and one `Blt` a frame from the render
+target to the primary. It uses no `Flip`, no `GetDC`, no palette and no
+vertex buffer. `LHScreen::GetAvailableVidMem` asks for `IDirectDraw2` and
+calls it with no test of the result.
+
+**The objects.** A surface keeps its pixels in the memory of the CPU, so a
+`Lock` of the game and of the renderer reads and writes that memory. A
+`Blt` copies in that memory with a change of the format, decodes DXT1 to
+DXT5 block by block, and fills with a color. The `Blt` to the primary is
+the present: the picture of the last walk of the left eye goes to the
+window at the size of its client area, through a swapchain of Vulkan
+("The window with Vulkan"). With `vk_window=0`, or when the window cannot
+have a swapchain, it goes through the CPU (`VkScenePresentPixels`, a blit
+with a linear filter on the GPU, a copy to the CPU, `SetDIBitsToDevice`).
+That blit and that copy go to the GPU with no wait, and the window shows
+the copy of the present before (`vk_present_late=1`), so the frame thread
+does not wait for the walks of its own frame. With `vk_present_late=0`
+each present waits for its own copy. The
+device keeps each state for its Get methods, makes the state blocks, and
+gives each call to the Vulkan renderer on the frame thread
+(`VkSceneSetDirect`): each `BeginScene` and `EndScene` is a walk, and the
+render states, the textures, the viewport, the clears and the draws go to
+the renderer as they come. The caps of the device, the texture formats,
+the formats of the Z buffer and the DirectDraw caps are the answers of
+dxwrapper (the log of `ddraw_census=1` at the first walk), so the game makes
+the choices that it makes with dxwrapper. A method that the backend does
+not make gives an error and one line of the log at its first call, and the
+report of each 450 frames counts them. The merge of draw calls
+(`draw_merge.cpp`) does not merge with the backend: the renderer reads a
+texture with a `Lock` in a draw, and the hook of the `Lock` sends the row
+of the merge.
+
+**A desktop run** of a new game to the choice of the Creature (`hand_run.ps1
+-Kind fixed -NewGame`, a Radeon RX 7900 XTX, render 4080 by 3264, one walk):
+the game runs from the logos through the flight of the camera into the
+valley of the Creatures. The renderer draws each draw. A frame is 1.2 to 1.9
+ms in most windows of 450 frames, and 2.1 to 2.7 ms in the valley, where the
+worst frame of a window is 3.6 to 4.3 ms. With `vk_texture_reuse=0` a frame
+in the valley is 4.1 to 5.4 ms and the worst 9.7 ms, and the scene walks
+there are half calls of the kernel (`profile_sample`). With
+`vk_texture_reuse=0` and `vk_present_late=0` a frame is 2.9 to 3.2 ms, and 5.8
+to 7.5 ms in the valley. At frame 421 the images of the eyes and the images
+of the renderer with dxwrapper and one walk differ in 0.021 percent (the
+left eye) and 0.018 percent (the right eye) of the pixels by more than 24
+levels.
+
+**Points and lines.** The renderer draws triangles. So a draw of points or
+lines of XYZRHW vertices becomes a list of triangles (`vk_prim_math.h`): a
+point is a square of 1 by 1 pixels with its centre at the point, and a line
+is a rectangle of 1 pixel across from its first vertex to its second
+vertex. Each corner has the color, the depth and the texture coordinates
+of the vertex of its end. The draw has no cull, because Direct3D 7 culls no
+point and no line. `vk_lines=0` draws no point and no line.
+
+**One walk.** With the backend one walk has no wide target and no hook of
+Direct3D 9 (`OneWalkBeginPass`). The renderer draws each batch of the walk
+into both layers of its target and moves the vertices of the right layer by
+the move per rhw, as in a session with Vulkan with dxwrapper ("The Vulkan
+renderer", "Both eyes"). The game keeps half an eye more on the right, as
+with the wide target. A batch of the interface goes to one layer
+(`kOneWalkLeftOnly`, `kOneWalkRightOnly`). After the walk both layers go to
+the session with Vulkan. In the headset one walk needs a frame with no pose
+for each eye, as with dxwrapper.
+
+**The panel.** The panel target of the interface is the panel of the
+renderer ("The panel"). `GpuBridgePanelBind` and `GpuBridgePanelUnbind`
+give the bind to the renderer (`VkScenePanelBind`), so each batch for the
+panel goes into the panel of the walk, with the blend of the panel. The
+subtitle card and the panel layer take that panel (`vk_panel=1`). There is
+no check target (`ui_panel=2` draws no check picture).
+
+**A frame with no eye pass** (the logos, the splash screen, the loading
+screens, the menus): the walks of the game draw on the GPU, so the pixels
+of the render target in the memory of the CPU are not the picture. The
+path of a flat frame (`mod_main.cpp`) and the logo in stereo (`intro_vr.cpp`)
+send the image of the last walk to the session with a copy of the GPU
+(`VkSceneLastPicture`, `XrScreen::SubmitVulkan`, `SetEyeVulkan`). When the
+game wrote into the render target with the CPU after the last walk (a
+`Blt` or a `Lock`), the pixels of the CPU are the picture.
+
+**The picture of the walk before** (`vk_keep_picture=1`, the default, a test
+key: Shift T). A render target of Direct3D 7 keeps its pixels from one scene
+to the next, and the renderer has two targets in turn. So a walk with no
+clear of the color of the whole target before its first draw or its first
+clear of a part starts with a copy of both layers of the other target. A
+walk with no draw and no clear keeps the picture too. The logos and the
+menus draw with no clear. The walks of foveated resolution and the walk of
+the right eye of a pair do not copy. The intro in stereo takes a target for
+each eye (`intro.md`, "The trails"). The log has a line for each of the
+first 24 walks that copy, and the report of 450 frames counts them. With
+`vk_keep_picture=0` each walk starts black.
+
+**Test aids of a frame with no eye pass.** The log has a line for each of
+the first 48 writes of the CPU into the render target, with the caller in
+the game (`vk ddraw : write N of the CPU into the render target`), and a
+line for each of the first 24 frames that send the pixels of the CPU to the
+session. From frame 600 on, each of the first 400 frames with no eye pass
+that sends a picture of the renderer has a line `vr flat`: the time from the
+frame of this kind before, the time of the submit, and the walks, the
+draws, the clears and the copies since then.
+
+**Two walks for the eyes.** A frame with no walk of one walk has a walk for
+each eye (`one_walk=0`, or a pose for each eye). The walk of the left eye
+draws into layer 0 of its target. The walk of the
+right eye that comes just after it takes the same target: it keeps layer
+0, clears layer 1 and draws into it (the eyes of the push constants, and a
+clear of layer 1 alone). After the pass of the right eye both layers go to
+the session with Vulkan (`stereo.cpp`). `backend=vulkan` sets
+`xr_vulkan=1` and `vk_eyes=1`, because it has no Direct3D 11 for a
+session. The pass of the left eye sends no picture, and the pixels of the
+render target of the backend do not go to the headset, because they are
+not the picture of the walk.
+
+**The device of the session.** The images of the renderer go into the
+swapchains with a copy of the GPU, so the renderer must draw with the
+Vulkan device of the OpenXR session (`vk::UseExternal`). With a headset
+(`vr=1` and no `stereo_headless`) the renderer waits for that device from
+the first walk (`vk::WaitForExternal`): the log says "the renderer waits
+for the Vulkan of the OpenXR session", and the walks before the session
+draw nothing. When the start of VR fails three times (about 9 s), or VR is
+off, the renderer draws with a device of its own. A session that starts
+after that gets no picture of the renderer (`VkSceneEyesWanted`,
+`VkScenePanelFor` and `VkSceneLastPicture` are false), and the log says so.
+Then start the game with the headset ready.
+
+**Only a headset can show:** the colors and the flicker of the eye
+pictures with the device of the session.
+
+**Not run yet:** a video, the Main Menu, a saved game, the Temple.
+
+### Only Vulkan
+
+`vulkan_only=1` (the default) makes `backend=vulkan` a path with Vulkan
+alone. The proxy loads no dxwrapper ("The backend"), and the mod starts no
+part that gives calls to Direct3D 9 or that needs a Direct3D 11 device:
+
+| Part | With `vulkan_only=1` |
+| --- | --- |
+| DXVK under dxwrapper (`d3d9_backend`) | The mod does not load `dxvk\d3d9.dll` |
+| The GPU bridge (`gpu_bridge`) | No hook on `Direct3DCreate9` and `Direct3DCreate9Ex`, and no load of `d3d9.dll`. No interop probe |
+| The render thread (`render_thread`, `gpu_flush`, `render_thread_late_end`, `render_thread_right_eye`, `ab_test`) | Does not start |
+| The D3D7 thread (`d3d7_thread`, `d3d7_thread_merge`) | Does not start |
+| The merge of draw calls (`draw_merge`) and `one_walk_merge` | No merge and no hook |
+| The session with Vulkan | No Direct3D 11 device and no relay (`XrScreen::UseD3D11`). The pixels of the CPU go into the swapchains with Vulkan (`xr_vulkan_upload=1`) |
+| A session with Vulkan that does not start | No session with Direct3D 11 after it: the game stays on the monitor |
+| The x64 host for Steam Frame (`xr_bridge`) | Not used: the host takes the frames of Direct3D 11 only, so the session uses the local runtime |
+
+Their keys do nothing then, and their test keys (Shift 8, 9, F, G, H, J,
+K, M, N, V, C, Z and U) write a line of the log and change nothing. The
+keeps of the eye pictures of `eye_clean` need the Direct3D 9 device of the
+backend, so with `backend=vulkan` there are none. The clean of each eye
+pass goes on. The mod loads `d3d11.dll` and `dxgi.dll` at their first call
+(`/DELAYLOAD`), so a process with `vulkan_only=1` loads neither for the
+mod. The line `modules` of the log names each DLL of Direct3D and of
+dxwrapper that is in the process: at the first report of 450 frames, when
+the session runs, and at the shutdown. The OpenXR runtime and the driver
+can load some of them themselves. In desktop runs on a Radeon RX 7900 XTX
+the process has no `dxwrapper.dll`, no `d3d9.dll` and no `d3d11.dll`. The
+loader of Vulkan (`vulkan-1.dll`) loads `dxgi.dll`: it calls
+`CreateDXGIFactory1` and puts the GPUs in the order of DXGI. The Vulkan
+driver of AMD (`amdvlk32.dll`) loads `d3d12.dll` for the swapchain of the
+window: it has `D3D12CreateDevice` and `CreateDXGIFactory2` in it, and
+`d3d12.dll` is in the process only with `vk_window=1`. In a session in the
+headset (VirtualDesktopXR, a Quest 3) `d3d11.dll` and `dxgi.dll` are in the
+process, and the log of the session says that it has no Direct3D 11
+device. The runtime loads `d3d11.dll`: a desktop run with no runtime does
+not have it.
+
+`vulkan_only=0` starts these parts as with dxwrapper, with no Direct3D 9 to
+use, and a session with Vulkan has its Direct3D 11 device. There is no test
+key: the choice is made at the start of the process.
+
+`bwvr-xrtest 30 vulkan alone` shows the test pattern through a session with
+Vulkan and no Direct3D 11, as the session of `vulkan_only=1` has.
+
+**A session in the headset** (VirtualDesktopXR, a Quest 3, a Radeon RX 7900
+XTX, about 32500 frames): the session had no Direct3D 11 device, each eye
+picture of a frame of play came from the renderer (900 copies in each
+window of 450 frames), and the cards, the walls of the cut scene window and
+the pictures of the CPU went into the swapchains with Vulkan, 0.04 to 0.25
+ms a copy. The end of the session took 78 ms.
+
+### The window with Vulkan
+
+`vk_window=1` (the default, `vk_window.cpp`) gives the window of the game
+a swapchain of Vulkan with `backend=vulkan`. The present of the DirectDraw
+of the mod blits layer 0 of the image of the last walk (the left eye) with
+a linear filter to the size of the client area, in the queue of the
+renderer, and presents it. The picture does not go to the CPU. The frame
+thread takes the next free swapchain image with no wait: when no image is
+free, the window keeps the picture before, and the report counts it. Each
+of three presents in turn has a command buffer and a fence, so the frame
+thread does not wait for the GPU either.
+
+The swapchain has a format of 8 bits UNORM (BGRA first), because the
+picture of the game has its gamma already, and the present mode mailbox,
+else immediate: the frame rate of the game is the rate of the headset, and
+a present must not wait for the monitor. A window with only FIFO takes the
+way through the CPU. A change of the size of the client area makes a new
+swapchain, after the queue is idle.
+
+The swapchain needs `VK_KHR_surface` and `VK_KHR_win32_surface` on the
+instance and `VK_KHR_swapchain` on the device. The renderer turns them on
+for a device of its own, and the session with Vulkan for the instance and
+the device that the runtime makes, when the GPU has them. The log of the
+session says "A swapchain for the window of the game: yes". With no such
+extension, with a queue that cannot present to the window, or after an
+error of the swapchain, the window gets the picture through the CPU and
+GDI (`VkScenePresentPixels`), and the log says why one time.
+
+In desktop runs at the start of a new game (a Radeon RX 7900 XTX, the
+window 800 by 640, `vulkan_only=1`) each present went through the
+swapchain, with no present that had no free image, and a frame was 1.8 ms.
+With `vk_window=0` a frame was 2.3 ms.
+
+In a session in the headset the mod makes no copy to the monitor
+(`skip_desktop_present=1`, "The copy to the monitor"), so the window gets no
+present and no swapchain. Not run: a session in the headset with
+`skip_desktop_present=0`.
+
+`vk_window=0` is the way through the CPU and GDI. With `test_keys=1`,
+Shift D changes it from the next present: a change to 0 takes the
+swapchain and the surface away, so GDI can draw into the window again. The
+report of each 450 frames has the presents through the swapchain and the
+presents with no free image.
+
+## Foveated rendering
+
+`foveation` (0 is the default, a test key: Shift O, the launcher row "Fewer
+shades away from the middle" in the group "Foveated rendering", with the
+sliders "All shades within" and "One shade for 2 by 2 within" for
+`foveation_inner_deg` and `foveation_outer_deg`) gives the eye pictures of
+the Vulkan renderer
+fewer shades away from the centre of the fovea (`VK_KHR_fragment_shading_rate`
+with a shading rate attachment). The levels: 1 light, 2 medium, 3 strong.
+
+| Level | The full rate within | 2 by 2 within | Outside |
+| --- | --- | --- | --- |
+| 1 | 30 degrees | 45 degrees | 4 by 4 |
+| 2 | 22 degrees | 35 degrees | 4 by 4 |
+| 3 | 15 degrees | 25 degrees | 4 by 4 |
+
+A GPU with no rate of 4 by 4 has 2 by 2 outside too.
+`foveation_inner_deg` and `foveation_outer_deg` replace the degrees of the
+level.
+
+**The centre of the fovea.** With an eye tracker (`XR_EXT_eye_gaze_interaction`,
+for example Quest Pro) the centre is the gaze of the frame: the session reads
+the pose of the gaze in the space of the head at the display time of the
+frame (`XrScreen::EyeGaze`), and the renderer makes a new map when the centre
+goes to another texel of the map. With no eye tracker (for example Quest 3),
+or with `foveation_gaze=0`, the centre is straight ahead: the eye picture is
+the symmetric view of the game, so straight ahead is the middle of the
+picture. The log of the session says which of the two the headset has.
+
+**The map** (`foveation_math.h`, checks in `foveation_checks.h`) has one byte
+for each texel of the attachment (8 by 8 pixels on a Radeon RX 7900 XTX) and
+a layer for each eye. The angles of the picture come from the camera of the
+game (`InfoTransform::inv_half_tan_fov_x`). A texel takes the rate of its
+point that is nearest to the centre, so no part of the fovea gets a lower
+rate. Each rendering of the eyes has the map, and each pipeline of the eyes
+lets the rate of the map replace its own rate. The panel has no map.
+
+**The marks of the test** (`foveation_show=1`, or the second press of Shift
+O). The textures of the game are soft, so the parts with fewer shades look
+almost the same as with the full rate. The marks show where they are: at
+the end of each walk with the map the renderer draws a blue colour over the
+part with 2 by 2 pixels for one shade, and a red one over the part with 4 by
+4. Each mark is a ring of triangles between two edges of the cone around the
+centre of the fovea (`foveation_math::ConePoint`).
+
+**Where it works.** Only where the Vulkan renderer makes the eye pictures:
+`backend=vulkan`, or a session with Vulkan with `vk_eyes=1` in a frame of one
+walk. The eye pictures of Direct3D 9 have no shading rate, and the log says
+so. The report of each 450 frames has the walks with the map, the new maps,
+the frames with a gaze, and the time of the GPU for a walk (a timestamp at
+the start and at the end of the buffer of the walk, each after the commands
+before it, so the time has no wait for other work).
+
+**Desktop runs** of a new game to the choice of the Creature (Radeon RX
+7900 XTX, render 4080 by 3264, one walk, no rate of 4 by 4 on this GPU): the
+GPU takes 0.44 to 0.99 ms for a walk with `foveation=0`, and 0.43 to 1.03
+ms with 2, in the same windows of 450 frames. So on this GPU the time of a
+walk is in its draws and not in its shades, and foveated rendering takes no
+time off. A GPU that has less time for each pixel can gain. With 3 the
+image of the left eye at frame 421 has 99.0 percent of its blocks of 2 by 2
+pixels in one color at more than 30 percent of the width or of the height
+from the middle, and 48.9 percent with 0. With `foveation_show=1` the
+image has the clear circle of the fovea and the blue colour around it.
+
+**A known limit of the time of the GPU.** On the Radeon RX 7900 XTX the
+first stamp of a walk is sometimes 0 and marked as available: about a third
+of the walks at the start of the game, 1 to 4 percent later, and half of the
+walks in a headset session with dxwrapper. Such a time is not used, the
+report counts it, and the log has the stamps of the first four. A barrier
+between the reset of the queries and the first stamp does not change it.
+The cause is not known.
+
+In a headset session (`foveation=3`, dxwrapper with the eye
+pictures of the renderer) the map was in each walk, and the parts with 2 by
+2 looked the same as with the full rate. Not run: an eye tracker.
+
+## Foveated resolution
+
+`fovea_res=1` (0 is the default, a test key: Shift P, the launcher row
+"Fewer pixels away from the middle" in the group "Foveated rendering", with
+the sliders "Resolution of the whole view", "Resolution of the middle" and
+"Size of the middle") makes each eye picture of the
+Vulkan renderer from two images with their own resolutions:
+
+| Key | Default | The image |
+| --- | --- | --- |
+| `fovea_res_outer_pct` | 50 | The whole view, with this percentage of the pixels of the eye picture on each side (5 to 100) |
+| `fovea_res_center_pct` | 100 | A rect around the centre of the fovea, with this percentage of the pixels of the eye picture on each side (25 to 300) |
+| `fovea_res_center_deg` | 25 | The degrees of that rect on each side of the centre (5 to 80) |
+| `fovea_res_center_down_deg` | 0 | With no eye tracker, the centre is this many degrees below straight ahead (0 to 15). A centre that follows the gaze of an eye tracker does not move down |
+
+The centre of the fovea is the one of "Foveated rendering": the gaze of an
+eye tracker, or straight ahead (the middle of the picture). With no eye
+tracker, `fovea_res_center_down_deg` moves the centre down by that angle,
+for example to the land and the hands at the waist (`fovea_res_math::
+DownGaze`). The rect stays in the picture, and its size does not change
+with the gaze.
+
+**How.** The game gives each vertex in pixels of its render, so the same
+draws can go into an image of another size with another viewport: the
+pixel of an image is (the pixel of the game - an origin) times a scale
+(`fovea_res_math.h`, checks in `fovea_res_checks.h`). In a walk with
+foveated resolution a draw of the eyes is a record (its pipeline, its set,
+its states, its push constants, its vertices in the ring and its viewport),
+and so is a clear. The draws for the panel go into the panel as before. At
+the end of the walk the records go into the outer image and then into the
+centre image (two layers each, a layer for each eye), each with its own
+depth. Then the eye picture is made from the two: the outer image over the
+whole picture with a linear filter, and the centre image over its rect,
+with an edge of 8 percent of the rect where it goes from the outer image to
+the centre image. The present, the session and the pictures of a test take
+the eye picture as before. A smaller image gives a coarser mip level of a
+texture, as the game would at that resolution.
+
+**A test aid.** A walk that saves its pictures (F12)
+has a line `fovea_res walk N`: the layout, the records and the clears, what
+each pass drew, and each quad of the screen that covers half of the picture
+or more, with its blend, its stage operations and its first diffuse color.
+The first 40 walks with draws of which the outer image got none, or whose
+last record is a clear of the color, have the line too. Each walk of the
+game ends with a quad of the screen with z 1 that sets the depth, with an
+alpha of 0, and a fade of the game gives that quad a higher alpha.
+
+**The check for a black picture** (`vk_black_check=1`, the default, a test
+aid). At the end of each walk that finishes the eye picture, 16 by 16 points
+of each layer go into a buffer of the slot (a blit with the nearest pixel).
+After the fence of the slot the frame thread reads them. A layer with no
+point above 0 is a black picture, and the first picture of each run of black
+pictures gives the line `a black eye picture in walk N` with what the walk
+drew: the draws, the clears, what each pass drew, and the quads of the
+screen with their diffuse color. The report of 450 frames counts the black
+pictures. A fade of the game is black too: in a desktop run of a new game
+the story fades to black with a quad of the screen with diffuse 0xFF000000,
+and a run with Direct3D 9 has a black picture at the same place of the story.
+
+**A stage with no texture** (`vk_untextured=1`, the default, a test key:
+Shift R). Each frame of the game ends with a quad of the screen in
+`LH3DRender::FinishFrame` (the draw at `0x0082F614`): diffuse color 0, no
+texture, z 1 with the test always, and the blend SRCALPHA INVSRCALPHA. It
+sets the depth, and it sets no texture stage state, so it keeps the
+operations of the draw before it. When the alpha operation of that draw was
+D3DTOP_SELECTARG1 with D3DTA_TEXTURE, the white texel of a draw with no
+texture gave the quad an alpha of 1, and the eye picture was black. Direct3D
+shows no such quad, so for a stage 0 with no texture an operation with the
+texture as an argument gives the diffuse color. An operation that modulates
+the texture with the diffuse color gives the same color as before. In a
+headset session with `vk_untextured=0` the check for a black picture found
+runs of black pictures after the load of a saved game and near the Temple,
+each with this quad and the alpha operation 0x202. In a desktop run of a new
+game with `vk_untextured=1` the single black pictures are gone, and only
+the fade of the story is black. In a headset session with
+`vk_untextured=1`, the load of a saved game and a flight near the Temple,
+the player saw no black flicker, and the check found no black picture.
+
+Only a walk of the eyes has the two images: another walk of the game keeps
+the pixels of the render. The two images only grow: a smaller layout uses
+the top left part of them, so a change of the angle of the camera does not
+stop the GPU to make new images. The report counts how many times they
+were made. With `fovea_res=1` the walk has no map of "Foveated rendering". With
+`foveation_show=1` the outer image has a blue colour, so the edge of the
+middle shows. The log has the sizes of the two images and their share of
+the pixels of the picture at the first walk.
+
+**Desktop runs** (Radeon RX 7900 XTX, render 4080 by 3264, one walk, the
+flight to the choice of the Creature, the same windows of 450 frames): the
+GPU takes 0.44 to 0.99 ms for a walk with `fovea_res=0`, 0.60 to 1.67 ms with
+the defaults, and 0.44 to 1.18 ms with 35 percent outside and 20 degrees. A
+walk has about 640 draws in the outer image and 440 to 560 of them in the
+centre image: the pass of the centre image leaves out a draw whose rect of
+vertices is not in the centre. So on this GPU the second pass of the draws
+and the picture from the two images cost more than the pixels save. The
+camera of the game on the desktop has about 70 degrees across, so a centre
+of 25 degrees on each side is 2717 by 2717 pixels of the picture: in a
+headset of about 110 degrees it is 1332 by 1332. The picture at frame 421
+has no edge between the two images, and with `foveation_show=1` the rect of
+the centre with its soft edge shows. Not run: a headset session, an eye
+tracker, the test key.
+
+## The session with Vulkan
+
+`xr_vulkan=1` (0 is the default) makes the OpenXR session a session with
+Vulkan (`XR_KHR_vulkan_enable2`, `xr_screen.cpp`). The launcher has the row
+"Headset session with Vulkan", which is not in the table with the renderer
+Vulkan: `backend=vulkan` always has a session with Vulkan.
+
+**The device.** The runtime makes the Vulkan instance and the device, on
+the GPU that it names. The mod asks for Vulkan 1.3 with dynamic rendering,
+synchronization2 and multiview, the anisotropic filter when the GPU has it,
+and `VK_KHR_external_memory_win32`. The instance and the device stay until
+the end of the process. The Vulkan renderer (`vk_core.cpp`) takes them, so
+its images and the swapchains are on one device. Until the session starts,
+the renderer waits and draws nothing. The runtime uses the queue in
+`xrBeginFrame`, `xrEndFrame` and in the acquire and the release of a
+swapchain image, so each submit of the mod and each of these calls holds
+one lock (`XrScreen::LockQueue`). A Direct3D 11 device on the same GPU stays
+for the bridge of Direct3D 9 ("The GPU bridge"). With `backend=vulkan` and
+`vulkan_only=1` the session has no Direct3D 11 device ("Only Vulkan").
+
+**The swapchains.** The formats have the same order of choice as with
+Direct3D 11: BGRA with sRGB first. Each image of a swapchain has a relay: a
+Direct3D 11 texture with an NT handle, and a Vulkan image on its memory.
+Each write of Direct3D 11 for a swapchain image goes into its relay: the
+eye textures of the bridge, a menu, a loading screen and the interface
+panel. The release of the image copies the relay into it with Vulkan.
+Vulkan has no wait for the work of Direct3D 11, so before that copy the CPU
+waits for an event query of Direct3D 11.
+
+**The pixels of the CPU** (`xr_vulkan_upload`, 1 is the default). An eye
+picture of the CPU (`SetEyeImage`, `SubmitBgra`), the cards and the walls of
+the cut scene window do not go through a relay. The CPU writes the part
+that shows into a buffer of Vulkan, and Vulkan copies it into the
+swapchain image, in the queue of the session. So these writes have no wait
+for Direct3D 11. Each slot of the copies has its own buffer, and the fence
+of the slot says when the GPU has read it. With 0 they go into the relays,
+as the textures of the bridge do. Shift Z (`test_keys=1`) changes it from
+the next write. The report of the session has the count and the time of
+these copies. `bwvr-xrtest 30 vulkan` sends the test pattern this way, and
+`bwvr-xrtest 30 vulkan relay` through a relay.
+
+**The eyes of the Vulkan renderer** (`vk_eyes`, 1 is the default with
+`xr_vulkan=1`). In a frame of one walk the renderer draws both eyes, a
+layer for each, into the next of two targets in the UNORM format of the
+swapchains. The session copies each layer into its eye swapchain on the
+GPU, in the queue after the walk, with no copy of Direct3D 9 and no wait of
+the CPU. Direct3D 9 still draws each walk. A frame with no walk of one walk
+(a menu, a loading screen, a video, two walks) and a walk of another size
+than the swapchains get the pictures of Direct3D 9. Shift C
+(`test_keys=1`) changes `vk_eyes` in the session, for an A/B in the
+headset. The log has one line for each 450 frames with the count of the
+frames with the Vulkan eyes, and the report of the session has the count
+and the time of the copies.
+
+**When it cannot start.** A runtime or a GPU without what the session needs
+gives a line of the log, and the next try is a session with Direct3D 11,
+with the pictures of Direct3D 9.
+
+**A test without the game.** `bwvr-xrtest 30 vulkan` shows the test
+pattern for 30 seconds through a session with Vulkan: the device of the
+runtime, the relays and the copies. At the end it writes the time of a copy
+of a relay. With Virtual Desktop (VirtualDesktopXR 1.0.10, a Quest 3) on an
+AMD Radeon RX 7900 XTX the runtime takes Vulkan 1.1 to 2.0 and makes the
+device. The pattern shows in the headset, 2671 frames in 30 s (89 a
+second), with no frame that the runtime skipped. A copy of a relay takes
+0.56 ms with the wait for Direct3D 11.
+
+**A session of the game** with Virtual Desktop and a Quest 3: each frame
+of play had the Vulkan eyes, about 90 frames a second. From the end of
+`xrWaitFrame` to the end of `xrEndFrame` a frame took 5 to 8 ms in the mean
+with the Vulkan eyes and about 12.7 ms with the eyes of Direct3D 9. The
+longest frame of a window of 450 frames was 16 ms in most windows with the
+Vulkan eyes and 32 ms with the eyes of Direct3D 9. A window with a copy of
+a relay (a card, the panel, a menu) had 32 ms too.
+
+**Open: only a headset shows it.** Whether the eyes of the Creature have
+their eyeballs with the Vulkan eyes. In a session the renderer drew each
+draw of each window of 450 frames (0.0 not drawn, 3.5 to 12 draws a frame
+in another format of XYZRHW, "What it draws"). Whether a window with a card
+has no frames of 32 ms with `xr_vulkan_upload=1`. Whether the black flicker (at the start of a session, and while the Hand
+strokes the Creature) shows with `vk_scene_follow=1`. In desktop runs
+with 0 the left eye has the subtitle box and the Creature panel, and with
+1 it has neither ("The Vulkan renderer"). A session with Vulkan with
+SteamVR. The relays between Direct3D 11 and
+Vulkan on the drivers of NVIDIA and Intel. The frame time with the Vulkan
+eyes. The scenes that no desktop run compared yet: the
+story camera, the fades, the Temple and the game at night.
+
+## How the threads wait
+
+The render thread and the D3D7 thread read a queue that another thread
+writes, and the second thread of `frame_send` waits for the GPU
+(`thread_wait.cpp`). A thread that spins sees new work at once, but it holds
+a core. On a PC with few cores that core is missing for the game and the
+driver, a spin on one logical core slows the other logical core of the same
+physical core, and a laptop gives less clock to each core when one more core
+is busy. `thread_wait=1` (the default):
+
+| Thread | What it does when it has no work |
+| --- | --- |
+| The render thread, the D3D7 thread | It spins for a time that comes from the count of the logical cores that the process can use, and then it sleeps on an event. In a walk: 100 microseconds with 8 or more cores, 50 with 4 to 7, none with fewer. Outside a walk: 20, 10 and none. The writer wakes a thread that sleeps at each record (with fewer than 4 cores at each fourth record), at a stop and at the end of a walk |
+| The second thread of `frame_send` | It waits until the render thread issued the event query of the frame, with a sleep on an event. Then it sleeps with a timer of high resolution until 0.3 ms before the earliest end of the GPU in the last 8 frames. Then it asks the query each 50 microseconds for 0.5 ms, and after that each 100 microseconds with a sleep between. Windows 10 before version 1803 has no such timer: then the thread asks each 50 microseconds and spins between |
+
+The threads of the mod have a name for a debugger, and they tell Windows
+that they are not background work, so that a CPU with two kinds of cores
+does not give them only the cores for low power. With fewer than 4 logical
+cores the D3D7 thread does not start: there it took a core from the frame
+thread and made each frame slower.
+
+`thread_wait=0` spins for the whole walk, and the render thread spins also
+after a walk with `render_thread_late_end=1`. The second thread then asks
+each 50 microseconds and spins between. With `test_keys=1`, Shift and B turn
+it on and off. `ab_test=thread_wait` changes it at each window of 450
+frames.
+
+**The load.** For each 450 frames the line `thread load  :` gives the CPU time
+of a frame of the frame thread, the render thread, the D3D7 thread and the
+second thread of `frame_send`, and the count of the cores that the whole
+process used. The CPU time includes the spins.
+
+**The test of other PCs.** `test_cores=N` (a test key) runs the process on N
+physical cores with one logical core each, and `test_smt=1` adds the other
+logical cores of these physical cores. Desktop runs at the start of a new
+game, about 1070 draws in a frame, `ab_test=thread_wait`, the medians of 30
+windows:
+
+| Cores | Frame, `thread_wait` 0 and 1 | CPU of the render thread | Cores that the process used |
+| --- | --- | --- | --- |
+| 16, with 2 logical cores each | 4.85 and 4.85 ms | 4.77 and 2.13 ms | 1.76 and 1.26 |
+| 6 | 4.72 and 4.74 ms | 4.70 and 2.09 ms | 1.84 and 1.23 |
+| 4, with 2 logical cores each | 4.58 and 4.60 ms | 4.56 and 2.04 ms | 1.83 and 1.29 |
+| 4 | 4.63 and 4.62 ms | 4.62 and 2.08 ms | 1.80 and 1.24 |
+| 1, with 2 logical cores | 215.7 and 8.7 ms | 209.8 and 3.8 ms | 1.96 and 1.32 |
+
+With one physical core the spins of `thread_wait=0` take the cores from the
+frame thread. There the frames are 5.9 ms with no D3D7 thread and 8.7 ms with
+it. With 4, 6 and 16 cores the D3D7 thread makes each frame 0.05 to 0.14 ms
+shorter. Not run: a session in a headset with `thread_wait=1`, and the wait
+of the second thread for the GPU, which a desktop run does not have.
+
+## The calls of DirectDraw and Direct3D 7 in a session
+
+`ddraw_census=1` (a test key, `ddraw_census.cpp`) counts each call of each
+method of the objects of dxwrapper: `IDirectDraw7`, `IDirectDrawSurface7`,
+`IDirect3D7`, `IDirect3DDevice7`, `IDirectDrawPalette`,
+`IDirectDrawClipper` and `IDirect3DVertexBuffer7`. Their tables of methods
+go to counting thunks, as with `d3d7_count`, and hooks on the methods that
+make objects give the table of each new kind of object to the thunks. Each
+10th report has the calls since the start, with the calls in the scene walks
+in brackets, and each interface id that a `QueryInterface` asked for.
+
+A hook of `DirectDrawCreateEx` and `DirectDrawCreate` of the backend sees no
+call: the game makes its DirectDraw object another way. So the tables come
+from the device of the game at the first walk, and the count starts there.
+The calls of the start (the display mode, the cooperative level, the first
+surfaces and the device) are not counted.
+
+A desktop run of 120 s at the start of a new game, from the first walk on:
+
+| Object | Methods with calls |
+| --- | --- |
+| `IDirect3DDevice7` | `BeginScene`, `EndScene`, `Clear`, `SetTransform` (outside the walks only), `SetLight`, `SetRenderState`, `DrawIndexedPrimitive`, `SetTexture`, `GetTextureStageState`, `SetTextureStageState` |
+| `IDirectDraw7` | `CreateSurface` (89, each in a walk), `Release` |
+| `IDirectDrawSurface7` | `Blt` (about 4 in a frame, mostly outside the walks), `GetSurfaceDesc`, `IsLost`, `Lock` and `Unlock` (490, each in a walk), `Release`, and `QueryInterface` |
+| `IDirect3D7` | `Release` |
+
+Each 10th report also lists, for each render state and each state of a
+texture stage that a walk sets, each value with its count (the D3D7 thread
+counts them). At the start of a new game a walk sets the depth function
+(always, less or equal, equal), the depth write, the blend (source alpha
+and inverse source alpha, or one and one), the alpha test and its
+reference, the cull mode (none or counter-clockwise), the render states 4
+and 16, and for stages 0 and 1 the alpha operation, the address mode and
+the filters (anisotropic 16).
+
+The calls of `QueryInterface` are of dxwrapper itself: they ask for the two
+private interface ids of dxwrapper (`{11111111-1C77-4D40-B0CF-98FEFDFFFFFF}`
+and `{22222222-1C77-4D40-B0CF-98FEFDFFFFFF}`). The counts have each call
+through the tables, so the calls of the mod and of dxwrapper are in them.
+
+## The calls of Direct3D 7 in a walk
+
+`d3d7_count=1` (a test key, `d3d7_count.cpp`) counts each call of a method
+of the Direct3D 7 device and of the DirectDraw surfaces in the scene walks.
+Each entry of the two tables of methods of dxwrapper goes to a thunk that
+adds 1 to the count of its method and jumps to the function of the entry.
+The tables are shared by each object of the class, and a hook of MinHook in
+a function stays. The log gives the calls of a frame in the walks for each
+method with calls (`d3d7 count` lines).
 
 ## The world around you
 
@@ -2955,7 +4667,7 @@ in front. The mod reads the keys and never takes them from the game.
 | --- | --- | --- |
 | F11 | Everyone | The direction of the head becomes straight ahead |
 | Ctrl F11 | `play_mode` 3 or 4 | The table or the God view goes off and on (`tabletop.md`, `god-view.md`). Press it with the mouse at rest |
-| F12 | `test_keys=1` | Saves a picture of each eye beside `runblack.exe`, and one of the frame before either eye pass |
+| F12 | `test_keys=1` | Saves a picture of each eye beside `runblack.exe`, and one of the frame before either eye pass. With the Vulkan renderer also its images of the eyes (`bwvr-vk-left-N.bmp`, `bwvr-vk-right-N.bmp`), which are the pictures in the headset with `backend=vulkan`, and with foveated resolution its outer and centre image of the left eye. A file `bwvr-capture-now.txt` beside `runblack.exe` does the same for a player with no keyboard: the mod looks for it each 45 frames and deletes it. In a session with Vulkan the images of the eye swapchains are read back after their copy too (`bwvr-xr-left-N.bmp`, `bwvr-xr-right-N.bmp`, with the lowest and the highest alpha in the log): so a picture that differs in the headset shows where it changes |
 | Shift F12 | `test_keys=1` | The subtitles step through 25, 30, 35, 40 and 45 degrees below the middle of the view |
 | Ctrl F12 | `test_keys=1` | Who owns the pointer: automatic, the controllers only, or the mouse only (`controllers.md`) |
 | Ctrl Shift F12 | `test_keys=1` | The ears: the head, or the game camera (`audio.md`). Press it with the mouse at rest |
@@ -3002,6 +4714,31 @@ in front. The mod reads the keys and never takes them from the game.
 | Ctrl Shift Equals | `test_keys=1` | The ears decide the start of the loop of a bulk take, or the game camera decides and the take has no sound in the God view. A long pulse and a short pulse (`audio_take_loop`, `audio.md`, 6.4). The equals key is in the row of digits |
 | Ctrl Shift Minus | `test_keys=1` | The pieces of the stream of a take at a distance go on a curve from the top of the source to the Hand, or they are on the line of the game, from the land under the Hand. A long pulse and a short pulse (`take_stream`, `grab.md`, "The stream of a take at a distance"). The minus key is in the row of digits |
 | Ctrl Shift Left bracket | `test_keys=1` | What marks a target of the Hand steps from 1 to 0 to 2 and back: the glow on the mesh with a halo only for a target whose mesh does not glow, the halo, or the glow and the halo. A long pulse for 1, a short pulse for 0 and a longer pulse for 2 (`target_glow`, `hand-model.md`, "The glow on the mesh of a target"). The left square bracket key is right of the P key on a US keyboard |
+| Shift 8 | `test_keys=1` | The calls of each scene walk go to the render thread, or to Direct3D 9 as they come, from the next scene walk. A long pulse and a short pulse (`render_thread`, "The render thread"). The game uses Shift with 1 to 7 for its bookmarks. A hook of the messages of the game thread reads the key, so a key of a virtual keyboard that goes down and up between two frames counts. For F, G, H, J, K, L, M, N, B, V, C, X, Z, Y, U and I the capital letter alone (a `WM_CHAR` with no Shift) counts too, because a virtual keyboard can send it. A key that is held, and a key with its letter, count one time in 300 ms. Ctrl must be up |
+| Shift 9 | `test_keys=1` | The mod gives the answers of some calls of a texture with no lock of the device, or each call goes to Direct3D 9, from the next call. A long pulse and a short pulse (`render_thread_lock_free`, "The lock of the device"). It works only while `render_thread` is 1 or 2 in the ini. It is read as Shift 8. Ctrl must be up |
+| Shift F | `test_keys=1` | A call of a walk that sets the value that the device has already goes to Direct3D 9 or not. A long pulse and a short pulse (`render_thread_filter`, "The calls that change nothing"). It works only while `render_thread` is 1 or 2 in the ini. It is read as Shift 8. Ctrl must be up |
+| Shift G | `test_keys=1` | The render thread draws from buffers of its own, or gives each `DrawIndexedPrimitiveUP` to Direct3D 9. A long pulse and a short pulse (`render_thread_buffers`, "The buffers of the render thread"). It works only while `render_thread` is 1 in the ini. It is read as Shift 8. Ctrl must be up |
+| Shift H | `test_keys=1` | A batch of one walk is one draw for both eyes, or one draw for each eye, from the next draw. A long pulse and a short pulse (`one_walk_merge`, "One draw for both eyes"). It works only while `render_thread` is 1 or 2 in the ini. It is read as Shift 8. Ctrl must be up |
+| Shift J | `test_keys=1` | The driver gives the calls of a walk to the GPU each N draws, or when it wants. A long pulse and a short pulse (`gpu_flush`, "The flush"). Ctrl must be up |
+| Shift K | `test_keys=1` | The render thread or the frame thread makes the copy of a batch of one walk for the right eye, from the next draw. A long pulse and a short pulse (`render_thread_right_eye`, "The right eye on the render thread"). It works only while `render_thread` is 1 in the ini. Ctrl must be up |
+| Shift L | `test_keys=1` | The two vertex loops of the engine run with SSE or on the x87 unit, from the next mesh. A long pulse and a short pulse (`fast_transform`, "The vertex loops with SSE"). Ctrl must be up |
+| Shift M | `test_keys=1` | The calls of Direct3D 7 of a walk go to the D3D7 thread or to dxwrapper on the frame thread, from the next walk. A long pulse and a short pulse (`d3d7_thread`, "The thread of Direct3D 7"). It works only while `render_thread` is 1 in the ini. Ctrl must be up |
+| Shift N | `test_keys=1` | The end of a walk does not wait for the render thread, or it waits, from the next walk. A long pulse and a short pulse (`render_thread_late_end`, "The late end of a walk"). Ctrl must be up |
+| Shift V | `test_keys=1` | The D3D7 thread merges a row of draws with one state, or the frame thread does, from the next walk. A long pulse and a short pulse (`d3d7_thread_merge`, "The thread of Direct3D 7"). Ctrl must be up |
+| Shift B | `test_keys=1` | The threads of the mod spin for a short time and then sleep, or they spin. A long pulse and a short pulse (`thread_wait`, "How the threads wait"). Ctrl must be up |
+| Shift C | `test_keys=1` | In a session with Vulkan the eye pictures come from the Vulkan renderer, or from Direct3D 9, from the next frame. A long pulse and a short pulse (`vk_eyes`, "The session with Vulkan"). Ctrl must be up |
+| Shift X | `test_keys=1` | The Vulkan renderer follows the render target, the viewport and the clears of a walk, or it draws each draw into the eye pictures, from the next walk. A long pulse and a short pulse (`vk_scene_follow`, "The Vulkan renderer"). Ctrl must be up |
+| Shift Z | `test_keys=1` | In a session with Vulkan the pixels of the CPU (an eye picture of the CPU, a card, the walls of the cut scene window) go into the swapchains with a copy of Vulkan, or through the relays of Direct3D 11, from the next write. A long pulse and a short pulse (`xr_vulkan_upload`, "The session with Vulkan"). Ctrl must be up |
+| Shift W | `test_keys=1` | The hold of the last frame goes off, and on again with the value of the ini (30 ms when the ini has 0). A long pulse and a short pulse (`xr_hold_ms`, "The hold of the last frame"). Ctrl must be up |
+| Shift R | `test_keys=1` | A stage 0 of the Vulkan renderer with no texture gives the diffuse color for the texture argument, or a white texel, from the next draw. A long pulse and a short pulse (`vk_untextured`, "A stage with no texture"). Ctrl must be up |
+| Shift Y | `test_keys=1` | The Vulkan renderer draws the draws for the panel target into a panel of its own, and the subtitle card and the panel layer of a session with Vulkan take it, or they take the panel of Direct3D 9, from the next walk. A long pulse and a short pulse (`vk_panel`, "The Vulkan renderer"). Ctrl must be up |
+| Shift U | `test_keys=1` | A walk of one walk with the eyes of the Vulkan renderer goes to the renderer alone, with no draw for Direct3D 9, or Direct3D 9 draws it too, from the next walk. A long pulse and a short pulse (`vk_only`, "The Vulkan renderer"). Ctrl must be up |
+| Shift I | `test_keys=1` | A texture that a walk reads again goes to the GPU in the submit of the walk, with no wait, or at once with a wait for the GPU, from the next walk. A long pulse and a short pulse (`vk_upload_queue`, "The Vulkan renderer"). Ctrl must be up |
+| Shift O | `test_keys=1` | Foveated rendering goes on, then on with the colour over the coarse parts (`foveation_show`), then off, from the next walk. A long pulse when it is on, a short pulse when it is off (`foveation`, "Foveated rendering"). Ctrl must be up |
+| Shift P | `test_keys=1` | Foveated resolution goes on and off, from the next walk. A long pulse and a short pulse (`fovea_res`, "Foveated resolution"). Ctrl must be up |
+| Shift T | `test_keys=1` | With `backend=vulkan`: a walk with no clear of the whole target starts with the picture of the walk before, or black, from the next walk. A long pulse and a short pulse (`vk_keep_picture`, "The picture of the walk before"). Ctrl must be up |
+| Shift E | `test_keys=1` | With the Vulkan renderer: a draw with a texture on texture stage 1 gets that stage (the light maps of the Temple), or the renderer makes stage 0 alone, from the next walk. A long pulse and a short pulse (`vk_stage1`, "The second stage"). Ctrl must be up |
+| Shift Q | `test_keys=1` | The read ahead of the files of LHFile goes on and off, from the next call on each file. The log has the line `read ahead   : test key` (`file_read_ahead`, "The read ahead of the files of the game"). Ctrl must be up |
 | Ctrl Shift Semicolon | `test_keys=1` | The copy of the subtitle card is read at the start of a later frame with no wait, or after the eye passes of its frame with a wait for the GPU. A long pulse and a short pulse (`subtitle_read_ahead`, `ui-layer.md`, 17.2). The right square bracket key is right of the left one. `subtitle_read_ahead_test_seconds=N` makes the same change each N seconds |
 | Ctrl Shift Comma | `test_keys=1` | The press of A for the teleport keeps to the game's switch for the drag of the land, as the walk with the stick, or to the switch of the double click jump. A long pulse and a short pulse (`teleport_switch`, `god-view.md`, section 14.1) |
 | Ctrl Shift Period | `test_keys=1` | On the hint card, the lines of the walk with the stick and of A show only while they can move the player, or the card has no line for the walk and the line of A shows in each case. A long pulse and a short pulse (`prompt_moves`, `controller-hints.md`, 9.4) |
@@ -3059,11 +4796,12 @@ keys that the launcher sets.
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| `backend` | dxwrapper when installed | See "Settings" |
+| `backend` | dxwrapper when installed | The launcher row "Renderer": Vulkan writes `vulkan` when the GPU has Vulkan 1.3 (the launcher asks the Vulkan of Windows), Direct3D 9 writes `dxwrapperddraw.dll`. See "Settings" and "The backend of the mod on Vulkan" |
 | `gpu_bridge` | 1 | The GPU path |
 | `frame_send` | 0 | 0: the mod waits for the GPU after each eye pass. 1: one wait a frame. 2: one wait a frame on a second thread, which also gives the frame to the runtime. See "One wait a frame, and a second thread" |
+| `xr_hold_ms` | 30 | When the game gives the runtime no frame for this many ms, a second thread sends the layers of the last frame again, at the rate of the headset. 0 is off: the headset gets no frame while the game gives none. 0 to 1000. A test key: Shift W. See "The hold of the last frame" |
 | `draw_merge` | 1 | 1: in an eye pass of the scene, a row of draw calls of the game with one state goes to Direct3D as one draw call. 0: each draw call goes as it comes. See "One draw call for a row of draw calls" |
-| `tick_direct` | 1 | 1: the `GetTickCount` of the game goes past the check of busy waiting of dxwrapper. 0: the game calls it through the hooks of dxwrapper. See "The clock of the game and the hooks of dxwrapper" |
+| `tick_direct` | 2 | 2: the `GetTickCount` of the game gives the milliseconds of the performance counter, with no check of busy waiting of dxwrapper. 1: it gives `GetTickCount64`, in steps of the timer of Windows. 0: the game calls it through the hooks of dxwrapper. See "The clock of the game and the hooks of dxwrapper" |
 | `draw_merge_test`, `draw_merge_test_frame` | 0, 0 | Test keys of the desktop runs. See the same section |
 | `depth24` | 1 | A 24 bit Z buffer |
 | `near_plane_cm`, `near_plane_cm_16` | 5, 10 | The near plane in the room. 0 keeps the game's |
@@ -3112,6 +4850,52 @@ keys that the launcher sets.
 | `name_card` | 1 | 1: the name of a villager is one flat card at the depth of the villager. 0: it is drawn as the game and the interface depth make it in each eye pass. See `ui-layer.md`, section 18 |
 | `bubble_card_test`, `bubble_card_test_frame` | 0, 0 | Test keys of the desktop runs. See the same section |
 | `one_walk`, `one_walk_check` | 1, 0 | See "One walk for both eyes" |
+| `one_walk_merge` | 1 | 1: with the render thread, a batch whose two copies are in their own halves is one draw for both eyes. 0: one draw for each eye. See "One draw for both eyes" |
+| `render_thread`, `render_thread_test_frame` | 0, 0 | See "The render thread" |
+| `render_thread_lock_free` | 1 | 1: the frame thread gets the answers of some calls of a texture with no lock of the device. 0: each goes to Direct3D 9. See "The lock of the device" |
+| `render_thread_filter` | 1 | 1: a call of a walk that sets the value that the device has already does not go to Direct3D 9. 0: each goes. See "The calls that change nothing" |
+| `render_thread_buffers` | 1 | 1: the render thread draws the `DrawIndexedPrimitiveUP` of a walk from buffers of its own. 0: each goes to Direct3D 9 as it is. See "The buffers of the render thread" |
+| `gpu_flush` | 128 | N: each N draws of a walk the driver gives the calls so far to the GPU. 0: when the driver wants. See "The flush" |
+| `render_thread_right_eye` | 1 | 1: with the render thread, the render thread makes the copy of a batch of one walk for the right eye. 0: the frame thread makes it. See "The right eye on the render thread" |
+| `ab_test` | (empty) | A test key: `gpu_flush`, `render_thread_right_eye`, `fast_transform`, `d3d7_thread`, `render_thread_late_end`, `thread_wait` or `d3d7_thread_merge` changes at each window of 450 frames. See "The flush" |
+| `d3d9_backend` | 0 | 0: dxwrapper draws with the Direct3D 9 of Windows. 1: with DXVK from the folder `dxvk` of the game, when the PC can run it. There is no test key: the choice is made at the start. See "DXVK under dxwrapper" |
+| `thread_wait` | 1 | 1: a thread of the mod that waits spins for a short time that comes from the count of the cores, and then it sleeps, and the second thread of `frame_send` sleeps until the GPU is nearly done. 0: the render thread and the D3D7 thread spin for the whole walk, and the second thread asks the GPU each 50 microseconds. See "How the threads wait" |
+| `test_cores`, `test_smt` | 0, 0 | Test keys: the process runs on that count of physical cores, with one logical core each, or with each logical core (`test_smt=1`). See "How the threads wait" |
+| `render_thread_late_end` | 1 | 1: with `render_thread=1` the end of a walk does not wait for the render thread. 0: it waits. See "The late end of a walk" |
+| `d3d7_thread_merge` | 1 | 1: with `d3d7_thread=1` the D3D7 thread merges a row of draws with one state. 0: the frame thread merges them (`draw_merge`). See "The thread of Direct3D 7" |
+| `d3d7_thread` | 1 | 1: with `render_thread=1`, the calls of Direct3D 7 of a walk go to a thread of their own. 0: the frame thread gives them to dxwrapper. See "The thread of Direct3D 7" |
+| `fast_transform_check` | 0 | A test key. See "The vertex loops with SSE" |
+| `d3d7_count` | 0 | A test key. See "The calls of Direct3D 7 in a walk" |
+| `ddraw_census` | 0 | A test key. See "The calls of DirectDraw and Direct3D 7 in a session" |
+| `vk_scene`, `vk_scene_test_frame` | 0, 0 | Test keys: 1 draws each walk also with the Vulkan renderer, both eyes, and frame N writes its images to files. See "The Vulkan renderer" |
+| `xr_vulkan` | 0 | 0: the OpenXR session has Direct3D 11. 1: the session has Vulkan, and the Vulkan renderer draws with its device. When it cannot start, the next try has Direct3D 11. There is no test key: the choice is made at the start. See "The session with Vulkan" |
+| `vk_eyes` | 1 | With `xr_vulkan=1`: 1 the eye pictures of a frame of one walk come from the Vulkan renderer, 0 from Direct3D 9. `backend=vulkan` sets `xr_vulkan=1` and `vk_eyes=1`. A test key: Shift C. See "The session with Vulkan" |
+| `xr_vulkan_upload` | 1 | With `xr_vulkan=1`: 1 the pixels of the CPU (an eye picture of the CPU, a card, the walls of the cut scene window) go into the swapchain images with a copy of Vulkan. 0 they go into the relays of Direct3D 11, and the release of an image copies its relay. A test key: Shift Z. See "The session with Vulkan" |
+| `vk_scene_follow` | 1 | 1: in a walk of one walk the Vulkan renderer follows render target 0 of Direct3D 9, the viewport of Direct3D 7 and the clears, and a draw for another target does not go into the eye pictures. 0: each draw goes into the eye pictures, and the renderer makes no clear. A test key: Shift X. See "The Vulkan renderer" |
+| `vk_panel` | 1 | 1: the Vulkan renderer draws the draws for the panel target into a panel of its own, and the subtitle card and the panel layer of a session with Vulkan take it. 0: the renderer draws no draw for the panel target, and the card and the layer take the panel of Direct3D 9. A test key: Shift Y. See "The Vulkan renderer" |
+| `vk_only`, `vk_only_test` | 1, 0 | `vk_only=1`: in a session with Vulkan, a walk of one walk with the eyes of the Vulkan renderer goes to the renderer alone, and the D3D7 thread gives no draw of it to dxwrapper. 0: Direct3D 9 draws each walk too. A test key: Shift U. `vk_only_test=1` (a test key) does the same on the desktop. See "The Vulkan renderer" |
+| `vk_upload_queue`, `vk_scene_reread_test` | 1, 0 | `vk_upload_queue=1`: the copy of a texture that a walk reads again goes to the GPU in the submit of the walk, with no wait of the D3D7 thread. 0: each copy goes to the GPU at once with a wait. A test key: Shift I. `vk_scene_reread_test=N` (a test key) reads N textures again in each walk, in turn. See "The Vulkan renderer" |
+| `fast_transform` | 1 | 1: the two vertex loops of the engine run with SSE, with the bits of the game. 0: on the x87 unit. See "The vertex loops with SSE" |
+| `profile_gpu` | 0 | A test key. See "The GPU time" |
+| `hang_watch` | 0 | A test key: 1 the place of the frame thread when it makes no frame for 8 s, 2 each 8 s. With each of the two the place of a fault. See "The watch of the frame thread" |
+| `vk_lines` | 1 | With `backend=vulkan`: 1 a draw of points or lines becomes triangles of 1 pixel across, 0 it is not drawn. See "The backend of the mod on Vulkan" |
+| `vk_keep_picture` | 1 | With `backend=vulkan`: 1 a walk with no clear of the whole target before its first draw starts with the picture of the walk before, and the intro in stereo keeps the picture of each eye. 0 each walk starts black. A test key: Shift T. See "The picture of the walk before" |
+| `vk_black_check` | 1 | With `backend=vulkan`, a test aid: 1 checks 16 by 16 points of each eye picture, and a black picture gives a line of the log with what its walk drew. 0 no check. See "The check for a black picture" |
+| `vk_untextured` | 1 | With `backend=vulkan` or the Vulkan eyes: 1 a stage 0 with no texture gives the diffuse color for an operation with the texture as an argument, as Direct3D does. 0 it reads a white texel with an alpha of 1. A test key: Shift R. See "A stage with no texture" |
+| `vk_stage1` | 1 | With the Vulkan renderer: 1 a draw with a color operation and a texture on texture stage 1 gets that stage, for example the light maps of the Temple. 0 the renderer makes stage 0 alone. A test key: Shift E. See "The second stage" |
+| `vk_present_late` | 1 | With `backend=vulkan` and the way through the CPU (`vk_window=0`): 1 the window on the monitor shows the picture of the present before, with no wait for the GPU, 0 each present waits for its own picture. See "The backend of the mod on Vulkan" |
+| `vulkan_only` | 1 | With `backend=vulkan`: 1 no part for Direct3D 9 starts, and the session with Vulkan has no Direct3D 11 device. 0 these parts start, with no Direct3D 9 to use. There is no test key: the choice is made at the start. See "Only Vulkan" |
+| `vk_window` | 1 | With `backend=vulkan`: 1 the window of the game gets the picture through a swapchain of Vulkan, 0 through the CPU and GDI. A test key: Shift D. See "The window with Vulkan" |
+| `vk_texture_reuse` | 1 | 1 a texture that a walk reads again goes into the image it has when it can, and its pixels into a ring of the slot, so a read makes no allocation of the GPU. 0 each read makes a new image and a staging buffer. See "The Vulkan renderer" |
+| `foveation` | 0 | 0 each pixel of the eye pictures has the full rate. 1 light, 2 medium, 3 strong (the launcher writes 1 and the two degrees of its sliders): the part around the centre of the fovea has the full rate, and the rest fewer shades. Only the eye pictures of the Vulkan renderer. The launcher has the row "Foveated rendering (test)". A test key: Shift O. See "Foveated rendering" |
+| `foveation_inner_deg`, `foveation_outer_deg` | 0, 0 | The degrees of the full rate and of 2 by 2 around the centre of the fovea. 0 takes the degrees of the level. See "Foveated rendering" |
+| `foveation_show` | 0 | A test key: 1 a colour over the coarse parts of the eye pictures, blue for 2 by 2 and red for 4 by 4. Shift O goes to it too. See "Foveated rendering" |
+| `foveation_gaze` | 1 | 1 the centre of the fovea follows the gaze of an eye tracker when the headset has one (`XR_EXT_eye_gaze_interaction`), 0 it stays straight ahead. See "Foveated rendering" |
+| `fovea_res` | 0 | 1 each eye picture of the Vulkan renderer comes from an outer image and a centre image with their own resolutions. A test key: Shift P. See "Foveated resolution" |
+| `fovea_res_outer_pct`, `fovea_res_center_pct`, `fovea_res_center_deg` | 50, 100, 25 | The resolution of the outer image and of the centre image in percent on each side, and the degrees of the centre on each side. See "Foveated resolution" |
+| `profile_sample` | 0 | A test key. See "Where the time of the scene walk goes" |
+| `profile_sample_thread` | 0 | A test key: 1 takes the samples of `profile_sample` from the render thread, 2 from the D3D7 thread. See "Where the time of the scene walk goes" |
+| `profile_sample_dump` | 0 | A test key: 1 writes each sample of `profile_sample` with the modules to `bwvr-samples.txt` beside `runblack.exe`. See "Where the time of the scene walk goes" |
 | `one_walk_marks`, `one_walk_marks_test_frame` | 1, 0 | See "The cards and the marks of the mod" |
 | `skip_desktop_present` | 1 | See "The copy to the monitor" |
 | `blt_texture_copy` | 1 | 1: the mod makes a copy with a texture and no stretch itself. 0: each copy goes to dxwrapper. See "The copy to the monitor" |
@@ -3119,6 +4903,7 @@ keys that the launcher sets.
 | `anisotropy`, `force_mips` | 16, 1 | Texture filter. `force_mips` forces the mip filter |
 | `skip_snapshot` | 1 | |
 | `test_keys` | 0 | The test keys |
+| `file_read_ahead` | 1 | 1: a read of less than 64 KB from a file that LHFile opens to read comes from a copy of the next 256 KB of the file. 0: each read goes to `ReadFile`, as in the plain game. A test key: Shift Q. See "The read ahead of the files of the game" |
 | `profile` | 0 | A test key. 1 is the frame cost measure with a timer on each Direct3D draw call, 2 is the measure with no such timer. See "The frame cost measure" |
 | `draw_probe`, `capture_every_seconds` | 0 | Reports and eye pictures |
 | `eye_test_luma` | 0 | A test key. 1: the log names each run of frames with one dark eye and each run of black frames. See "Testing without a headset" |

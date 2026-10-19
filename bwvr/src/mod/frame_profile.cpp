@@ -64,6 +64,7 @@
 #include "../common/bw_addresses.h"
 #include "frame_profile.h"
 #include "frame_stats_math.h"
+#include "render_thread.h"
 
 extern void ModLog(const char* format, ...);
 // draw_merge.cpp: the batch of the merge of draw calls goes to Direct3D
@@ -645,6 +646,7 @@ SleepFn o_Sleep = nullptr;
 HRESULT WINAPI h_Lock(IDirectDrawSurface7* self, LPRECT rect,
                       LPDDSURFACEDESC2 desc, DWORD flags, HANDLE event) {
   DrawMergeFlush();
+  RenderThreadSync();
   if (!OnThread()) return o_Lock(self, rect, desc, flags, event);
   const uint64_t start = FrameProfileTicks();
   const HRESULT hr = o_Lock(self, rect, desc, flags, event);
@@ -675,6 +677,7 @@ HRESULT WINAPI h_BltFast(IDirectDrawSurface7* self, DWORD x, DWORD y,
                          IDirectDrawSurface7* source, LPRECT rect,
                          DWORD flags) {
   DrawMergeFlush();
+  RenderThreadSync();
   if (!OnThread()) return o_BltFast(self, x, y, source, rect, flags);
   const uint64_t start = FrameProfileTicks();
   const HRESULT hr = o_BltFast(self, x, y, source, rect, flags);

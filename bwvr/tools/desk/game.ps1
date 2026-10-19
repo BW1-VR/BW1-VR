@@ -135,18 +135,86 @@ function Get-BwvrSaveSeconds([string]$Steps, [int]$PlayFrame, [int]$Most = 0, [i
     return $seconds
 }
 
-# The folder of the profile that the game uses: Profiles\<folder> of the game
-# folder. The game keeps the name of that profile in the registry, which a
-# test only reads. The folder has the name with a "_" before each character.
-# Null when the name or the folder is not there.
-function Get-BwvrProfileFolder([string]$Game) {
+# The renderer of the player's bwvr.ini in the game folder: the value of the
+# key backend, or empty when the key is not there.
+function Get-BwvrBackend {
+    $ini = Join-Path (Get-BwvrGame) 'bwvr.ini'
+    if (-not (Test-Path -LiteralPath $ini)) { return '' }
+    $m = Select-String -LiteralPath $ini -Pattern '^\s*backend\s*=\s*(\S+)' | Select-Object -First 1
+    if ($m) { return $m.Matches[0].Groups[1].Value }
+    return ''
+}
+
+# True when this process has administrator rights (the mandatory label of
+# its token is high or more). A game that a test starts gets the same rights.
+function Test-BwvrElevated {
+    $text = (& (Join-Path $env:windir 'System32\whoami.exe') /groups /fo csv 2>$null) -join "`n"
+    if ($text -match '"S-1-16-(\d+)"') { return [int]$Matches[1] -ge 12288 }
+    return $false
+}
+
+# The folders of the files of the player: the Profiles folder,
+# Scripts\CreatureMind and MemoryLeaks.txt. The game names these files with a
+# path from its current folder (.\Profiles\...). In its start that folder is
+# the game folder: the game reads slot 20 there, and a new game writes its
+# first save there. Later the game changes its current folder to the folder of
+# the value GameDir of its key in the registry, which a test only reads, and
+# the writes of the exit path go there. On most PCs GameDir is the game
+# folder. A PC with a second install of the game can have the other install
+# there. When that folder is in Program Files, in ProgramData or in Windows,
+# and the game has no administrator rights, Windows puts each write of the
+# game into the VirtualStore of the user. A write that only truncates a file
+# of the install (SaveGame.inf of slot 20) then fails. The result:
+#   Folder  the folder that gets the writes of the game after its start
+#   Roots   each folder in which a test run must keep the files of the
+#           player: Folder and the game folder
+#   Why     one line that says where the writes go
+function Get-BwvrPlayerFolders([string]$Game) {
+    $gameFull = [System.IO.Path]::GetFullPath($Game).TrimEnd('\')
+    $dir = $gameFull
+    $key = Get-ItemProperty 'HKCU:\Software\Lionhead Studios Ltd\Black & White' -ErrorAction SilentlyContinue
+    if ($key -and $key.GameDir) {
+        $named = [System.IO.Path]::GetFullPath("$($key.GameDir)".Trim()).TrimEnd('\')
+        if (Test-Path -LiteralPath $named) { $dir = $named }
+    }
+    $folder = $dir
+    $why = "the game writes the files of the player in the game folder $dir"
+    if ($dir -ne $gameFull) {
+        $why = "after its start the game writes the files of the player in $dir, the folder of the value GameDir in the registry, and not in the game folder $gameFull"
+        $virtual = $false
+        foreach ($root in $env:ProgramFiles, ${env:ProgramFiles(x86)}, $env:ProgramData, $env:windir) {
+            if ($root -and $dir.StartsWith($root.TrimEnd('\') + '\', [System.StringComparison]::OrdinalIgnoreCase)) { $virtual = $true }
+        }
+        if ($virtual -and -not (Test-BwvrElevated)) {
+            $folder = Join-Path (Join-Path $env:LOCALAPPDATA 'VirtualStore') $dir.Substring(3)
+            $why = "after its start the game writes the files of the player in $folder, the VirtualStore of $dir (the folder of the value GameDir in the registry, in which a game with no administrator rights cannot write), and not in the game folder $gameFull"
+        }
+    }
+    $roots = @($folder)
+    if ($gameFull -ne $folder) { $roots += $gameFull }
+    return @{ Folder = $folder; Roots = $roots; Why = $why }
+}
+
+# The folder of the profile that the game uses: Profiles\<folder> of -Root.
+# The game reads slot 20 in the profile of the game folder in its start, and
+# it writes slot 20 on its exit path in the profile of the folder that
+# Get-BwvrPlayerFolders gives. The game keeps the name of the profile in the
+# registry, which a test only reads. The folder has the name with a "_"
+# before each character. Null when the name is not there, and when the
+# profile is not in -Root (with -Make, not in -Root and not in GameDir: the
+# VirtualStore can get the profile with the first write).
+function Get-BwvrProfileFolder([string]$Root, [switch]$Make) {
     $key = Get-ItemProperty 'HKCU:\Software\Lionhead Studios Ltd\Black & White\LHMultiplayer' -ErrorAction SilentlyContinue
     if (-not $key -or -not $key.Profile) { return $null }
     $name = [System.Text.Encoding]::Unicode.GetString([byte[]]$key.Profile).TrimEnd([char]0)
     if ($name -eq '') { return $null }
     $folder = -join ($name.ToCharArray() | ForEach-Object { "_$_" })
-    $path = Join-Path (Join-Path $Game 'Profiles') $folder
+    $path = Join-Path (Join-Path $Root 'Profiles') $folder
     if (Test-Path -LiteralPath $path) { return $path }
+    if ($Make) {
+        $key = Get-ItemProperty 'HKCU:\Software\Lionhead Studios Ltd\Black & White' -ErrorAction SilentlyContinue
+        if ($key -and $key.GameDir -and (Test-Path -LiteralPath (Join-Path (Join-Path "$($key.GameDir)".Trim() 'Profiles') $folder))) { return $path }
+    }
     return $null
 }
 

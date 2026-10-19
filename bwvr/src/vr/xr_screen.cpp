@@ -12,8 +12,13 @@
 #include <string>
 #include <vector>
 
+#define VK_NO_PROTOTYPES
+#define VK_USE_PLATFORM_WIN32_KHR
+#include <vulkan/vulkan.h>
+
 #define XR_USE_PLATFORM_WIN32
 #define XR_USE_GRAPHICS_API_D3D11
+#define XR_USE_GRAPHICS_API_VULKAN
 #include <openxr/openxr.h>
 #include <openxr/openxr_platform.h>
 
@@ -248,6 +253,121 @@ bool g_mask_failed = false;
 // The picture of the walls: one color, so it is small.
 const uint32_t kMaskSize = 16;
 
+// THE VULKAN OF A SESSION WITH VULKAN (XrScreen::UseVulkan). The runtime
+// makes the instance and the device at the first Start with Vulkan. They
+// stay until the end of the process: the renderer of the mod draws with
+// them, and a later Start uses them again.
+#define BWVR_XR_VK_INSTANCE(X)                \
+  X(vkGetDeviceProcAddr)                      \
+  X(vkGetPhysicalDeviceProperties)            \
+  X(vkGetPhysicalDeviceProperties2)           \
+  X(vkGetPhysicalDeviceFeatures2)             \
+  X(vkGetPhysicalDeviceQueueFamilyProperties) \
+  X(vkGetPhysicalDeviceMemoryProperties)      \
+  X(vkEnumerateDeviceExtensionProperties)
+
+#define BWVR_XR_VK_DEVICE(X)              \
+  X(vkGetDeviceQueue)                     \
+  X(vkDeviceWaitIdle)                     \
+  X(vkCreateCommandPool)                  \
+  X(vkDestroyCommandPool)                 \
+  X(vkAllocateCommandBuffers)             \
+  X(vkResetCommandBuffer)                 \
+  X(vkBeginCommandBuffer)                 \
+  X(vkEndCommandBuffer)                   \
+  X(vkCmdPipelineBarrier)                 \
+  X(vkCmdCopyImage)                       \
+  X(vkQueueSubmit)                        \
+  X(vkCreateFence)                        \
+  X(vkDestroyFence)                       \
+  X(vkWaitForFences)                      \
+  X(vkResetFences)                        \
+  X(vkCreateImage)                        \
+  X(vkDestroyImage)                       \
+  X(vkGetImageMemoryRequirements)         \
+  X(vkAllocateMemory)                     \
+  X(vkFreeMemory)                         \
+  X(vkBindImageMemory)                    \
+  X(vkGetMemoryWin32HandlePropertiesKHR)  \
+  X(vkCreateBuffer)                       \
+  X(vkDestroyBuffer)                      \
+  X(vkGetBufferMemoryRequirements)        \
+  X(vkBindBufferMemory)                   \
+  X(vkMapMemory)                          \
+  X(vkCmdCopyBufferToImage)               \
+  X(vkCmdCopyImageToBuffer)
+
+struct VulkanFunctions {
+  PFN_vkGetInstanceProcAddr vkGetInstanceProcAddr;
+#define BWVR_XR_VK_DECLARE(name) PFN_##name name;
+  BWVR_XR_VK_INSTANCE(BWVR_XR_VK_DECLARE)
+  BWVR_XR_VK_DEVICE(BWVR_XR_VK_DECLARE)
+#undef BWVR_XR_VK_DECLARE
+};
+VulkanFunctions vkf = {};
+
+struct VulkanState {
+  bool made;
+  bool shading_rate;  // VK_KHR_fragment_shading_rate is on the device
+  // VK_KHR_surface and VK_KHR_win32_surface are on the instance, and
+  // VK_KHR_swapchain on the device (XrVulkan::window_present).
+  bool window_present;
+  HMODULE library;
+  VkInstance instance;
+  VkPhysicalDevice physical;
+  VkDevice device;
+  uint32_t family;
+  VkQueue queue;
+  float max_anisotropy;
+  LUID luid;
+  VkPhysicalDeviceMemoryProperties memory;
+  char gpu[VK_MAX_PHYSICAL_DEVICE_NAME_SIZE];
+};
+VulkanState g_vk = {};
+
+// The lock of the queue (XrScreen::LockQueue).
+SRWLOCK g_queue_lock = SRWLOCK_INIT;
+
+// Holds the lock of the queue while it lives, in a session with Vulkan.
+class QueueGuard {
+ public:
+  explicit QueueGuard(bool on) : on_(on) {
+    if (on_) AcquireSRWLockExclusive(&g_queue_lock);
+  }
+  ~QueueGuard() {
+    if (on_) ReleaseSRWLockExclusive(&g_queue_lock);
+  }
+  QueueGuard(const QueueGuard&) = delete;
+  QueueGuard& operator=(const QueueGuard&) = delete;
+
+ private:
+  bool on_;
+};
+
+// The formats of a swapchain, in the order of choice. BGRA first, because
+// that is what DirectDraw hands us and it avoids a per pixel swizzle. sRGB
+// variants first, because the game's output is already gamma encoded and
+// the compositor should treat it that way. A RELAY (Impl::Relay) has the
+// UNORM format of the same order of bytes, so a copy of its bytes into the
+// swapchain image changes no pixel.
+struct FormatChoice {
+  DXGI_FORMAT dxgi;
+  VkFormat vk;
+  DXGI_FORMAT dxgi_unorm;
+  VkFormat vk_unorm;
+};
+const FormatChoice kFormats[] = {
+    {DXGI_FORMAT_B8G8R8A8_UNORM_SRGB, VK_FORMAT_B8G8R8A8_SRGB,
+     DXGI_FORMAT_B8G8R8A8_UNORM, VK_FORMAT_B8G8R8A8_UNORM},
+    {DXGI_FORMAT_R8G8B8A8_UNORM_SRGB, VK_FORMAT_R8G8B8A8_SRGB,
+     DXGI_FORMAT_R8G8B8A8_UNORM, VK_FORMAT_R8G8B8A8_UNORM},
+    {DXGI_FORMAT_B8G8R8A8_UNORM, VK_FORMAT_B8G8R8A8_UNORM,
+     DXGI_FORMAT_B8G8R8A8_UNORM, VK_FORMAT_B8G8R8A8_UNORM},
+    {DXGI_FORMAT_R8G8B8A8_UNORM, VK_FORMAT_R8G8B8A8_UNORM,
+     DXGI_FORMAT_R8G8B8A8_UNORM, VK_FORMAT_R8G8B8A8_UNORM},
+};
+const int kFormatCount = 4;
+
 }  // namespace
 
 struct XrScreen::Impl {
@@ -289,6 +409,68 @@ struct XrScreen::Impl {
   uint32_t width = 0;
   uint32_t height = 0;
   DXGI_FORMAT format = DXGI_FORMAT_UNKNOWN;
+  int format_index = -1;  // in kFormats
+
+  // A SESSION WITH VULKAN (XrScreen::UseVulkan). The swapchains have Vulkan
+  // images. Each image has a RELAY: a Direct3D 11 texture that Vulkan shares
+  // through an NT handle. Each write of Direct3D 11 into a swapchain image
+  // goes into its relay, and the release of the image (Release) copies the
+  // relay into the image with Vulkan. So the textures of the bridge take the
+  // way of a session with Direct3D 11. The pixels of the CPU go into the
+  // image with a copy of Vulkan (THE PIXELS OF THE CPU), or with
+  // xr_vulkan_upload=0 into the relay too.
+  bool vulkan = false;
+  bool vk_failed = false;  // XrScreen::VulkanFailed
+  // XrScreen::UseD3D11. false: no Direct3D 11 device and no relays, and the
+  // pixels of the CPU always go with Vulkan.
+  bool d3d11 = true;
+  struct Relay {
+    ID3D11Texture2D* texture;
+    HANDLE handle;
+    VkImage image;
+    VkDeviceMemory memory;
+  };
+  struct VkChain {
+    XrSwapchain chain;
+    uint32_t count;
+    uint32_t width;
+    uint32_t height;
+    uint32_t acquired;
+    VkImage* images;
+    Relay* relays;
+  };
+  static const int kVkChains = 16;
+  VkChain vk_chains[kVkChains] = {};
+  static const int kVkSlots = 8;
+  VkCommandPool vk_pool = VK_NULL_HANDLE;
+  VkCommandBuffer vk_cb[kVkSlots] = {};
+  VkFence vk_fence[kVkSlots] = {};
+  int vk_slot = 0;
+  ID3D11Query* d3d11_done = nullptr;
+  // THE PIXELS OF THE CPU (XrScreen::SetVulkanUpload). Each slot of the
+  // copies has a buffer that the CPU can write. The fence of the slot says
+  // when the GPU has read it.
+  bool vk_upload = true;
+  struct Stage {
+    VkBuffer buffer;
+    VkDeviceMemory memory;
+    uint8_t* mapped;
+    VkDeviceSize size;
+  };
+  Stage vk_stage[kVkSlots] = {};
+  // XrScreen::CaptureSwapchainNext: the eye copies that are still to be
+  // read back, and the number of their files.
+  int capture_left = 0;
+  uint64_t capture_name = 0;
+  void SaveChainPicture(VkChain* c, uint32_t index, int eye);
+  // For the report.
+  uint64_t vk_pushes = 0;
+  uint64_t vk_copies = 0;
+  uint64_t vk_push_ticks = 0;
+  uint64_t vk_uploads = 0;
+  uint64_t vk_upload_ticks = 0;
+  bool vk_said_push_failed = false;
+  bool vk_said_upload_failed = false;
 
   float distance = 2.0f;
   float quad_width = 2.6f;
@@ -355,6 +537,14 @@ struct XrScreen::Impl {
   XrSpace aim_space[2] = {XR_NULL_HANDLE, XR_NULL_HANDLE};
   bool input_ready = false;
   bool focused = false;
+  // EYE TRACKING (XR_EXT_eye_gaze_interaction).
+  bool gaze_wanted = false;
+  bool gaze_extension = false;  // the instance has the extension
+  bool gaze_supported = false;  // and the headset has an eye tracker
+  XrAction gaze_action = XR_NULL_HANDLE;
+  XrSpace gaze_space = XR_NULL_HANDLE;
+  bool gaze_valid = false;
+  float gaze_direction[3] = {0.0f, 0.0f, -1.0f};
   bool profiles_logged = false;
   char profile[2][XR_MAX_PATH_LENGTH] = {{0}, {0}};
 
@@ -376,6 +566,7 @@ struct XrScreen::Impl {
     bool with_card[kCards];
     bool with_subtitles;      // a screen with the subtitle card
     LARGE_INTEGER waited_at;  // the end of xrWaitFrame of this frame
+    LARGE_INTEGER begun_at;   // the end of BeginFrame of this frame
     LARGE_INTEGER before;     // the start of BuildFrame
     LARGE_INTEGER built;      // its end
     LARGE_INTEGER end_start;  // the start of xrEndFrame
@@ -415,14 +606,121 @@ struct XrScreen::Impl {
   uint64_t age_ticks = 0;
   uint64_t age_worst = 0;
   uint64_t age_frames = 0;
+  // THE LONGEST CALLS OF THE RUNTIME in a report window. A frame of 100 ms
+  // in a headset can wait inside the runtime: in xrWaitFrame, in
+  // xrBeginFrame, in xrEndFrame or at a swapchain image. The report of
+  // stereo.cpp puts xrEndFrame and the copies in "everything else", so these
+  // numbers say which call held the frame. Only the frame thread writes them.
+  enum RuntimeCall { kCallWait, kCallBegin, kCallEnd, kCallCopies, kCalls };
+  uint64_t call_worst[kCalls] = {};
+  uint64_t call_slow[kCalls] = {};  // calls of 20 ms or more
+  void CountCall(int call, uint64_t ticks) {
+    if (frequency.QuadPart == 0) QueryPerformanceFrequency(&frequency);
+    if (ticks > call_worst[call]) call_worst[call] = ticks;
+    if (ticks * 50 >= static_cast<uint64_t>(frequency.QuadPart)) {
+      ++call_slow[call];
+    }
+  }
+
+  // THE HOLD (xr_hold_ms, XrScreen::SetHoldMs). When the game gives the
+  // runtime no frame for hold_ms (a load, a long game turn), the second
+  // thread sends the layers of the last frame again in frames of its own.
+  // They carry the poses that the pictures were rendered with, so the
+  // runtime turns them with the head, and the headset shows no black. A
+  // frame that the frame thread has open for three times as long is ended
+  // with those layers too (the frame is "taken"). BuildFrame then begins a
+  // new frame of the runtime for the pictures of the frame thread.
+  //
+  // frame_state_now says who has the frame of the runtime. The frame thread
+  // changes it under hold_lock (BeginFrame, BuildFrame), SendFrame changes
+  // kFrameSending to kFrameNone with no lock, and the second thread changes
+  // it under hold_lock, which it only tries to take, so it never waits for
+  // the frame thread.
+  enum { kFrameNone = 0, kFrameGame, kFrameSending, kFrameTaken };
+  volatile LONG frame_state_now = kFrameNone;
+  SRWLOCK hold_lock = SRWLOCK_INIT;
+  volatile LONG hold_ms = 0;
+  volatile LONG frame_wants = 0;   // the frame thread waits for hold_lock
+  volatile LONG hold_live = 0;     // the session runs
+  volatile LONGLONG last_end = 0;  // the end of the last frame of the game
+  volatile LONGLONG game_open_at = 0;  // the start of its open frame
+  // For the report (the second thread writes them).
+  uint64_t hold_frames = 0;
+  uint64_t hold_taken = 0;
+  uint64_t hold_runs = 0;
+  uint64_t hold_failed = 0;
+  uint64_t hold_worst = 0;  // ticks: the longest time with no frame of the game
+  // The predicted display time of the frame of the last BeginFrame (the
+  // frame thread writes it). XrScreen::DisplaySeconds.
+  XrTime display_seconds_ns = 0;
+  // A long time with no frame of the game, and no frame of the hold: why.
+  uint64_t hold_lock_busy = 0;  // the frame thread had hold_lock
+  uint64_t hold_sending = 0;    // the frame of the game was in SendFrame
+  LARGE_INTEGER begun_at = {};  // the end of BeginFrame of the open frame
+  int slow_lines = 0;           // the lines of slow frames in the log
+  // On the frame thread: hold_lock for a scope, with frame_wants, so the
+  // second thread ends a run of the hold.
+  class HoldGuard {
+   public:
+    explicit HoldGuard(Impl& s) : s_(s) {
+      InterlockedExchange(&s_.frame_wants, 1);
+      AcquireSRWLockExclusive(&s_.hold_lock);
+    }
+    ~HoldGuard() {
+      ReleaseSRWLockExclusive(&s_.hold_lock);
+      InterlockedExchange(&s_.frame_wants, 0);
+    }
+    HoldGuard(const HoldGuard&) = delete;
+    HoldGuard& operator=(const HoldGuard&) = delete;
+
+   private:
+    Impl& s_;
+  };
 
   static DWORD WINAPI SendThreadMain(void* param);
+  void HoldFrames();
+  bool HoldOne(LONG state);
   bool StartSendThread();
   void StopSendThread();
   XrResult CopyLate(XrSwapchain chain, ID3D11Texture2D** chain_images,
                     void* texture);
   void RunLate();
   void SendFrame();
+
+  bool MakeD3D11(const LUID& luid);    // Start: the device on that adapter
+  bool StartVulkan();                  // Start, with Vulkan
+  void StopVulkan();                   // Stop, before the Direct3D 11 device
+  int64_t ChainFormat() const;         // for xrCreateSwapchain
+  XrSwapchainUsageFlags ChainUsage() const;
+  // The images of a new swapchain as Direct3D 11 textures: its own images,
+  // or with Vulkan its relays. Null when they cannot be made.
+  ID3D11Texture2D** ChainImages(XrSwapchain chain, uint32_t chain_width,
+                                uint32_t chain_height, uint32_t* count);
+  void DestroyChain(XrSwapchain* chain);
+  VkChain* FindChain(XrSwapchain chain);
+  bool MakeRelay(uint32_t relay_width, uint32_t relay_height, Relay* relay);
+  void FreeRelay(Relay* relay);
+  // The acquire and the release of a swapchain image. With Vulkan the
+  // release first copies the relay of the image into it (push).
+  XrResult AcquireImage(XrSwapchain chain, uint32_t* image);
+  XrResult ReleaseImage(XrSwapchain chain, bool push = true);
+  bool Push(VkChain& chain, uint32_t image);
+  VkCommandBuffer BeginCopy();
+  bool EndCopy(VkCommandBuffer cb);
+  XrResult CopyVulkan(XrSwapchain chain, uint64_t image, uint32_t layer);
+  // True when a write of the CPU into this swapchain goes with Vulkan
+  // (THE PIXELS OF THE CPU).
+  bool UploadsWithVulkan(XrSwapchain chain) {
+    return vulkan && (vk_upload || device == nullptr) &&
+           FindChain(chain) != nullptr;
+  }
+  // The rect x, y, w, h of `pixels` (rows of `pitch` bytes, 4 bytes for each
+  // pixel) into the acquired image `image` of the swapchain, at the same
+  // place. swap_red_blue swaps bytes 0 and 2 of each pixel.
+  bool UploadVulkan(XrSwapchain chain, uint32_t image, const uint8_t* pixels,
+                    uint32_t pitch, int32_t x, int32_t y, int32_t w,
+                    int32_t h, bool swap_red_blue);
+  void FreeStages();
 
   bool CreateInput();                  // Start, after the LOCAL space
   void SuggestProfile(const Profile& info);
@@ -482,6 +780,37 @@ bool XrScreen::Impl::CreateInput() {
   // skipped, and never fails the session.
   for (const Profile& p : kProfiles) SuggestProfile(p);
 
+  // EYE TRACKING: a pose action with the profile of the eye tracker. A
+  // failure only leaves the fovea straight ahead.
+  if (gaze_supported) {
+    XrActionCreateInfo info = {XR_TYPE_ACTION_CREATE_INFO};
+    strcpy_s(info.actionName, "eye_gaze");
+    strcpy_s(info.localizedActionName, "Eye gaze");
+    info.actionType = XR_ACTION_TYPE_POSE_INPUT;
+    XrPath profile_path = XR_NULL_PATH, gaze_path = XR_NULL_PATH;
+    bool ok =
+        Check(xrCreateAction(action_set, &info, &gaze_action),
+              "xrCreateAction(eye_gaze)") &&
+        Check(xrStringToPath(instance,
+                             "/interaction_profiles/ext/eye_gaze_interaction",
+                             &profile_path),
+              "xrStringToPath(eye gaze profile)") &&
+        Check(xrStringToPath(instance, "/user/eyes_ext/input/gaze_ext/pose",
+                             &gaze_path),
+              "xrStringToPath(eye gaze)");
+    if (ok) {
+      XrActionSuggestedBinding binding = {gaze_action, gaze_path};
+      XrInteractionProfileSuggestedBinding suggested = {
+          XR_TYPE_INTERACTION_PROFILE_SUGGESTED_BINDING};
+      suggested.interactionProfile = profile_path;
+      suggested.suggestedBindings = &binding;
+      suggested.countSuggestedBindings = 1;
+      ok = Check(xrSuggestInteractionProfileBindings(instance, &suggested),
+                 "xrSuggestInteractionProfileBindings(eye gaze)");
+    }
+    if (!ok) gaze_supported = false;
+  }
+
   XrSessionActionSetsAttachInfo attach = {
       XR_TYPE_SESSION_ACTION_SETS_ATTACH_INFO};
   attach.countActionSets = 1;
@@ -504,6 +833,15 @@ bool XrScreen::Impl::CreateInput() {
     if (!Check(xrCreateActionSpace(session, &space_info, &aim_space[h]),
                "xrCreateActionSpace(aim)")) {
       return false;
+    }
+  }
+  if (gaze_supported) {
+    XrActionSpaceCreateInfo space_info = {XR_TYPE_ACTION_SPACE_CREATE_INFO};
+    space_info.action = gaze_action;
+    space_info.poseInActionSpace.orientation.w = 1.0f;
+    if (!Check(xrCreateActionSpace(session, &space_info, &gaze_space),
+               "xrCreateActionSpace(eye gaze)")) {
+      gaze_supported = false;
     }
   }
   input_ready = true;
@@ -605,6 +943,32 @@ void XrScreen::Impl::SyncInput(HandInput* hands, XrTime when) {
     LogProfiles();
   }
 
+  // EYE TRACKING: the gaze in the space of the head, at the display time.
+  gaze_valid = false;
+  if (gaze_supported && gaze_space != XR_NULL_HANDLE &&
+      view_space != XR_NULL_HANDLE) {
+    XrActionStateGetInfo gaze_get = {XR_TYPE_ACTION_STATE_GET_INFO};
+    gaze_get.action = gaze_action;
+    XrActionStatePose gaze_state = {XR_TYPE_ACTION_STATE_POSE};
+    XrSpaceLocation gaze_location = {XR_TYPE_SPACE_LOCATION};
+    if (XR_SUCCEEDED(xrGetActionStatePose(session, &gaze_get, &gaze_state)) &&
+        gaze_state.isActive &&
+        XR_SUCCEEDED(
+            xrLocateSpace(gaze_space, view_space, when, &gaze_location))) {
+      const XrSpaceLocationFlags need =
+          XR_SPACE_LOCATION_ORIENTATION_VALID_BIT |
+          XR_SPACE_LOCATION_ORIENTATION_TRACKED_BIT;
+      if ((gaze_location.locationFlags & need) == need) {
+        // The forward of the pose (0, 0, -1) turned by its orientation.
+        const XrQuaternionf& q = gaze_location.pose.orientation;
+        gaze_direction[0] = -2.0f * (q.x * q.z + q.w * q.y);
+        gaze_direction[1] = -2.0f * (q.y * q.z - q.w * q.x);
+        gaze_direction[2] = -(1.0f - 2.0f * (q.x * q.x + q.y * q.y));
+        gaze_valid = true;
+      }
+    }
+  }
+
   for (int h = 0; h < 2; ++h) {
     HandInput& out = hands[h];
     const uint64_t serial = out.serial + 1;
@@ -699,6 +1063,10 @@ void XrScreen::Impl::SyncInput(HandInput* hands, XrTime when) {
 }
 
 void XrScreen::Impl::DestroyInput() {
+  if (gaze_space != XR_NULL_HANDLE) xrDestroySpace(gaze_space);
+  gaze_space = XR_NULL_HANDLE;
+  gaze_action = XR_NULL_HANDLE;
+  gaze_valid = false;
   for (int h = 0; h < 2; ++h) {
     if (grip_space[h] != XR_NULL_HANDLE) xrDestroySpace(grip_space[h]);
     if (aim_space[h] != XR_NULL_HANDLE) xrDestroySpace(aim_space[h]);
@@ -813,7 +1181,9 @@ bool XrScreen::has_instance() const {
 }
 
 bool XrScreen::StartInstance(LogFn log) {
-  if (g_bridge_enabled || remote_) {
+  // The bridge gives the frames of Direct3D 11 to the host, so a session
+  // with Vulkan does not use it.
+  if ((g_bridge_enabled && !impl_->vulkan) || remote_) {
     impl_->log = log ? log : NoLog;
     if (!remote_) {
       remote_ = new RemoteScreen(log ? log : NoLog);
@@ -847,6 +1217,10 @@ bool XrScreen::StartInstance(LogFn log) {
             s.log("  hints        : extensions: %s", names.c_str());
             names.clear();
           }
+          if (strcmp(list[i].extensionName,
+                     XR_EXT_EYE_GAZE_INTERACTION_EXTENSION_NAME) == 0) {
+            s.gaze_extension = s.gaze_wanted;
+          }
           if (strcmp(list[i].extensionName, "XR_MSFT_controller_model") == 0 ||
               strcmp(list[i].extensionName, "XR_FB_render_model") == 0) {
             model = true;
@@ -858,10 +1232,12 @@ bool XrScreen::StartInstance(LogFn log) {
       }
     }
   }
-  const char* extensions[] = {XR_KHR_D3D11_ENABLE_EXTENSION_NAME};
+  const char* extensions[] = {s.vulkan ? XR_KHR_VULKAN_ENABLE2_EXTENSION_NAME
+                                       : XR_KHR_D3D11_ENABLE_EXTENSION_NAME,
+                              XR_EXT_EYE_GAZE_INTERACTION_EXTENSION_NAME};
 
   XrInstanceCreateInfo create = {XR_TYPE_INSTANCE_CREATE_INFO};
-  create.enabledExtensionCount = 1;
+  create.enabledExtensionCount = s.gaze_extension ? 2 : 1;
   create.enabledExtensionNames = extensions;
   strcpy_s(create.applicationInfo.applicationName, BWVR_PRODUCT_NAME);
   // A uint32_t, so not XR_MAKE_VERSION, which is 64 bit.
@@ -948,9 +1324,23 @@ int XrScreen::StartSystem() {
 
   XrSystemProperties system_properties = {XR_TYPE_SYSTEM_PROPERTIES};
   s.system_name[0] = 0;
+  XrSystemEyeGazeInteractionPropertiesEXT gaze_properties = {
+      XR_TYPE_SYSTEM_EYE_GAZE_INTERACTION_PROPERTIES_EXT};
+  if (s.gaze_extension) system_properties.next = &gaze_properties;
   if (XR_SUCCEEDED(
           xrGetSystemProperties(s.instance, s.system, &system_properties))) {
     strcpy_s(s.system_name, system_properties.systemName);
+  }
+  s.gaze_supported =
+      s.gaze_extension && gaze_properties.supportsEyeGazeInteraction == XR_TRUE;
+  if (s.gaze_wanted) {
+    s.log("  openxr: eye tracking for foveated rendering: %s",
+          s.gaze_supported ? "the headset has an eye tracker"
+          : s.gaze_extension
+              ? "the runtime has XR_EXT_eye_gaze_interaction, but the headset "
+                "has no eye tracker, so the fovea is straight ahead"
+              : "the runtime has no XR_EXT_eye_gaze_interaction, so the fovea "
+                "is straight ahead");
   }
 
   // What the headset would like each eye rendered at. This needs no session
@@ -1006,72 +1396,44 @@ bool XrScreen::StartSession(uint32_t width, uint32_t height, int eyes) {
   s.width = width;
   s.height = height;
 
-  // --- Direct3D 11 on the adapter the runtime wants ------------------------
-  if (!s.Check(xrGetInstanceProcAddr(
-                   s.instance, "xrGetD3D11GraphicsRequirementsKHR",
-                   reinterpret_cast<PFN_xrVoidFunction*>(&s.get_requirements)),
-               "xrGetInstanceProcAddr(D3D11 requirements)")) {
-    return false;
-  }
-
-  XrGraphicsRequirementsD3D11KHR requirements = {
-      XR_TYPE_GRAPHICS_REQUIREMENTS_D3D11_KHR};
-  if (!s.Check(s.get_requirements(s.instance, s.system, &requirements),
-               "xrGetD3D11GraphicsRequirementsKHR")) {
-    return false;
-  }
-
-  // The runtime names the adapter by LUID. Using a different one would make
-  // every present a cross adapter copy, if it worked at all.
-  IDXGIFactory1* factory = nullptr;
-  if (FAILED(CreateDXGIFactory1(__uuidof(IDXGIFactory1),
-                                reinterpret_cast<void**>(&factory)))) {
-    s.log("  openxr: CreateDXGIFactory1 failed");
-    return false;
-  }
-
-  IDXGIAdapter1* adapter = nullptr;
-  for (UINT index = 0;; ++index) {
-    IDXGIAdapter1* candidate = nullptr;
-    if (factory->EnumAdapters1(index, &candidate) == DXGI_ERROR_NOT_FOUND) break;
-    DXGI_ADAPTER_DESC1 description;
-    if (SUCCEEDED(candidate->GetDesc1(&description)) &&
-        memcmp(&description.AdapterLuid, &requirements.adapterLuid,
-               sizeof(LUID)) == 0) {
-      adapter = candidate;
-      char name[128];
-      WideCharToMultiByte(CP_ACP, 0, description.Description, -1, name,
-                          sizeof(name), nullptr, nullptr);
-      s.log("  openxr: adapter \"%s\"", name);
-      break;
+  if (s.vulkan) {
+    // --- Vulkan through the runtime, and Direct3D 11 on its GPU when the
+    // session has it (UseD3D11) ------------------------------------------
+    if (!s.StartVulkan()) {
+      s.vk_failed = true;
+      return false;
     }
-    candidate->Release();
-  }
-  factory->Release();
-
-  if (adapter == nullptr) {
-    s.log("  openxr: the runtime asked for an adapter this process cannot see");
-    return false;
-  }
-
-  const D3D_FEATURE_LEVEL levels[] = {D3D_FEATURE_LEVEL_11_1,
-                                      D3D_FEATURE_LEVEL_11_0};
-  HRESULT created = D3D11CreateDevice(
-      adapter, D3D_DRIVER_TYPE_UNKNOWN, nullptr, 0, levels,
-      sizeof(levels) / sizeof(levels[0]), D3D11_SDK_VERSION, &s.device, nullptr,
-      &s.context);
-  adapter->Release();
-  if (FAILED(created)) {
-    s.log("  openxr: D3D11CreateDevice failed (0x%08X)", created);
-    return false;
+  } else {
+    // --- Direct3D 11 on the adapter the runtime wants ----------------------
+    if (!s.Check(xrGetInstanceProcAddr(
+                     s.instance, "xrGetD3D11GraphicsRequirementsKHR",
+                     reinterpret_cast<PFN_xrVoidFunction*>(&s.get_requirements)),
+                 "xrGetInstanceProcAddr(D3D11 requirements)")) {
+      return false;
+    }
+    XrGraphicsRequirementsD3D11KHR requirements = {
+        XR_TYPE_GRAPHICS_REQUIREMENTS_D3D11_KHR};
+    if (!s.Check(s.get_requirements(s.instance, s.system, &requirements),
+                 "xrGetD3D11GraphicsRequirementsKHR")) {
+      return false;
+    }
+    if (!s.MakeD3D11(requirements.adapterLuid)) return false;
   }
 
   // --- session ------------------------------------------------------------
   XrGraphicsBindingD3D11KHR binding = {XR_TYPE_GRAPHICS_BINDING_D3D11_KHR};
   binding.device = s.device;
+  XrGraphicsBindingVulkan2KHR vk_binding = {
+      XR_TYPE_GRAPHICS_BINDING_VULKAN2_KHR};
+  vk_binding.instance = g_vk.instance;
+  vk_binding.physicalDevice = g_vk.physical;
+  vk_binding.device = g_vk.device;
+  vk_binding.queueFamilyIndex = g_vk.family;
+  vk_binding.queueIndex = 0;
 
   XrSessionCreateInfo session_info = {XR_TYPE_SESSION_CREATE_INFO};
-  session_info.next = &binding;
+  session_info.next = s.vulkan ? static_cast<const void*>(&vk_binding)
+                               : static_cast<const void*>(&binding);
   session_info.systemId = s.system;
   if (!s.Check(xrCreateSession(s.instance, &session_info, &s.session),
                "xrCreateSession")) {
@@ -1113,16 +1475,18 @@ bool XrScreen::StartSession(uint32_t width, uint32_t height, int eyes) {
   int64_t* formats = new int64_t[format_count ? format_count : 1];
   xrEnumerateSwapchainFormats(s.session, format_count, &format_count, formats);
 
-  // BGRA first, because that is what DirectDraw hands us and it avoids a
-  // per pixel swizzle. sRGB variants first, because the game's output is
-  // already gamma encoded and the compositor should treat it that way.
-  const DXGI_FORMAT wanted[] = {
-      DXGI_FORMAT_B8G8R8A8_UNORM_SRGB, DXGI_FORMAT_R8G8B8A8_UNORM_SRGB,
-      DXGI_FORMAT_B8G8R8A8_UNORM, DXGI_FORMAT_R8G8B8A8_UNORM};
-  for (int want = 0; want < 4 && s.format == DXGI_FORMAT_UNKNOWN; ++want) {
+  // The order of choice is in kFormats. A session with Vulkan lists the
+  // VkFormat of each format, and one with Direct3D 11 its DXGI_FORMAT.
+  s.format = DXGI_FORMAT_UNKNOWN;
+  s.format_index = -1;
+  for (int want = 0; want < kFormatCount && s.format_index < 0; ++want) {
+    const int64_t value =
+        s.vulkan ? static_cast<int64_t>(kFormats[want].vk)
+                 : static_cast<int64_t>(kFormats[want].dxgi);
     for (uint32_t i = 0; i < format_count; ++i) {
-      if (formats[i] == static_cast<int64_t>(wanted[want])) {
-        s.format = wanted[want];
+      if (formats[i] == value) {
+        s.format_index = want;
+        s.format = kFormats[want].dxgi;
         break;
       }
     }
@@ -1137,9 +1501,8 @@ bool XrScreen::StartSession(uint32_t width, uint32_t height, int eyes) {
         s.width, s.height);
 
   XrSwapchainCreateInfo swapchain_info = {XR_TYPE_SWAPCHAIN_CREATE_INFO};
-  swapchain_info.usageFlags = XR_SWAPCHAIN_USAGE_TRANSFER_DST_BIT |
-                              XR_SWAPCHAIN_USAGE_SAMPLED_BIT;
-  swapchain_info.format = static_cast<int64_t>(s.format);
+  swapchain_info.usageFlags = s.ChainUsage();
+  swapchain_info.format = s.ChainFormat();
   swapchain_info.sampleCount = 1;
   swapchain_info.width = s.width;
   swapchain_info.height = s.height;
@@ -1154,22 +1517,12 @@ bool XrScreen::StartSession(uint32_t width, uint32_t height, int eyes) {
       return false;
     }
 
-    xrEnumerateSwapchainImages(s.swapchain[eye], 0, &s.image_count[eye],
-                               nullptr);
-    const uint32_t count = s.image_count[eye] ? s.image_count[eye] : 1;
-    XrSwapchainImageD3D11KHR* raw = new XrSwapchainImageD3D11KHR[count];
-    for (uint32_t i = 0; i < count; ++i) {
-      raw[i] = {XR_TYPE_SWAPCHAIN_IMAGE_D3D11_KHR};
+    s.images[eye] = s.ChainImages(s.swapchain[eye], s.width, s.height,
+                                  &s.image_count[eye]);
+    if (s.images[eye] == nullptr) {
+      if (s.vulkan) s.vk_failed = true;
+      return false;
     }
-    xrEnumerateSwapchainImages(
-        s.swapchain[eye], s.image_count[eye], &s.image_count[eye],
-        reinterpret_cast<XrSwapchainImageBaseHeader*>(raw));
-
-    s.images[eye] = new ID3D11Texture2D*[count];
-    for (uint32_t i = 0; i < s.image_count[eye]; ++i) {
-      s.images[eye][i] = raw[i].texture;
-    }
-    delete[] raw;
   }
 
   // The interface panel. The same format and size as the eyes, because the
@@ -1177,25 +1530,13 @@ bool XrScreen::StartSession(uint32_t width, uint32_t height, int eyes) {
   // eyes. The screen works without it, so a failure is only logged.
   if (s.panel_wanted && eyes_ == 2) {
     if (XR_SUCCEEDED(xrCreateSwapchain(s.session, &swapchain_info,
-                                       &s.panel_swapchain))) {
-      xrEnumerateSwapchainImages(s.panel_swapchain, 0, &s.panel_image_count,
-                                 nullptr);
-      const uint32_t count = s.panel_image_count ? s.panel_image_count : 1;
-      XrSwapchainImageD3D11KHR* raw = new XrSwapchainImageD3D11KHR[count];
-      for (uint32_t i = 0; i < count; ++i) {
-        raw[i] = {XR_TYPE_SWAPCHAIN_IMAGE_D3D11_KHR};
-      }
-      xrEnumerateSwapchainImages(
-          s.panel_swapchain, s.panel_image_count, &s.panel_image_count,
-          reinterpret_cast<XrSwapchainImageBaseHeader*>(raw));
-      s.panel_images = new ID3D11Texture2D*[count];
-      for (uint32_t i = 0; i < s.panel_image_count; ++i) {
-        s.panel_images[i] = raw[i].texture;
-      }
-      delete[] raw;
+                                       &s.panel_swapchain)) &&
+        (s.panel_images = s.ChainImages(s.panel_swapchain, s.width, s.height,
+                                        &s.panel_image_count)) != nullptr) {
       s.log("  openxr: the interface panel has its own swapchain, %u images",
             s.panel_image_count);
     } else {
+      s.DestroyChain(&s.panel_swapchain);
       s.panel_swapchain = XR_NULL_HANDLE;
       s.log("  openxr: no swapchain for the interface panel, so the interface "
             "stays in the eye pictures");
@@ -1204,24 +1545,27 @@ bool XrScreen::StartSession(uint32_t width, uint32_t height, int eyes) {
 
   // A dynamic texture is the cheap way to get CPU pixels onto the GPU: map,
   // copy the rows, unmap, then let the GPU do the copy into the swapchain.
-  D3D11_TEXTURE2D_DESC staging_desc;
-  ZeroMemory(&staging_desc, sizeof(staging_desc));
-  staging_desc.Width = s.width;
-  staging_desc.Height = s.height;
-  staging_desc.MipLevels = 1;
-  staging_desc.ArraySize = 1;
-  staging_desc.Format = s.format;
-  staging_desc.SampleDesc.Count = 1;
-  staging_desc.Usage = D3D11_USAGE_DYNAMIC;
-  staging_desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-  staging_desc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
-  if (FAILED(s.device->CreateTexture2D(&staging_desc, nullptr, &s.staging))) {
-    s.log("  openxr: could not create the upload texture");
-    return false;
+  // A session with no Direct3D 11 copies them with Vulkan.
+  if (s.device != nullptr) {
+    D3D11_TEXTURE2D_DESC staging_desc;
+    ZeroMemory(&staging_desc, sizeof(staging_desc));
+    staging_desc.Width = s.width;
+    staging_desc.Height = s.height;
+    staging_desc.MipLevels = 1;
+    staging_desc.ArraySize = 1;
+    staging_desc.Format = s.format;
+    staging_desc.SampleDesc.Count = 1;
+    staging_desc.Usage = D3D11_USAGE_DYNAMIC;
+    staging_desc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+    staging_desc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
+    if (FAILED(s.device->CreateTexture2D(&staging_desc, nullptr, &s.staging))) {
+      s.log("  openxr: could not create the upload texture");
+      return false;
+    }
   }
 
-  s.log("  openxr: ready, %d eye(s), %u swapchain images each", eyes_,
-        s.image_count[0]);
+  s.log("  openxr: ready, %d eye(s), %u swapchain images each%s", eyes_,
+        s.image_count[0], s.device == nullptr ? ", with no Direct3D 11" : "");
   // A layer that was staged before the session is not for its first frame.
   for (int i = 0; i < kCards; ++i) g_have_staged_card[i] = false;
   g_have_staged_window = false;
@@ -1242,6 +1586,9 @@ bool XrScreen::BeginFrame() {
   Impl& s = *impl_;
   should_render_ = false;
   if (!running_ || s.session == XR_NULL_HANDLE) return false;
+  // The second thread sends no frame of the hold while this one reads the
+  // events and begins a frame.
+  Impl::HoldGuard hold(s);
 
   // --- events -------------------------------------------------------------
   for (;;) {
@@ -1306,22 +1653,39 @@ bool XrScreen::BeginFrame() {
 
   // A sleeping headset must not leave a button held.
   if (!s.session_running) {
+    InterlockedExchange(&s.hold_live, 0);
     Join();
     s.ClearInput(hands_);
     return true;  // alive, just not presenting yet
   }
 
   // --- wait and begin -----------------------------------------------------
+  InterlockedExchange(&s.hold_live, 1);
+  if (s.hold_ms > 0) s.StartSendThread();
+  // A frame of the game that a hold took, and that the caller did not end:
+  // the runtime has no frame open for it.
+  if (s.frame_open &&
+      InterlockedCompareExchange(&s.frame_state_now, Impl::kFrameNone,
+                                 Impl::kFrameTaken) == Impl::kFrameTaken) {
+    s.frame_open = false;
+  }
   XrFrameWaitInfo wait_info = {XR_TYPE_FRAME_WAIT_INFO};
   s.frame_state = {XR_TYPE_FRAME_STATE};
+  LARGE_INTEGER wait_start;
+  QueryPerformanceCounter(&wait_start);
   const XrResult waited = xrWaitFrame(s.session, &wait_info, &s.frame_state);
   LARGE_INTEGER waited_at;
   QueryPerformanceCounter(&waited_at);
+  s.CountCall(Impl::kCallWait,
+              static_cast<uint64_t>(waited_at.QuadPart - wait_start.QuadPart));
   // xrWaitFrame can run while the second thread sends the frame before.
   // xrBeginFrame cannot: the runtime must have that frame first. Join reads
   // the time of that frame, so the time of this frame is set after it.
   Join();
   s.waited_at = waited_at;
+  if (XR_SUCCEEDED(waited)) {
+    s.display_seconds_ns = s.frame_state.predictedDisplayTime;
+  }
   if (!s.Check(waited, "xrWaitFrame")) {
     s.ClearInput(hands_);
     return true;
@@ -1338,8 +1702,26 @@ bool XrScreen::BeginFrame() {
   s.SyncInput(hands_, s.frame_state.predictedDisplayTime);
 
   XrFrameBeginInfo begin_info = {XR_TYPE_FRAME_BEGIN_INFO};
-  if (!s.Check(xrBeginFrame(s.session, &begin_info), "xrBeginFrame")) {
+  XrResult begun;
+  LARGE_INTEGER begin_start, begin_done;
+  QueryPerformanceCounter(&begin_start);
+  {
+    QueueGuard guard(s.vulkan);
+    begun = xrBeginFrame(s.session, &begin_info);
+  }
+  QueryPerformanceCounter(&begin_done);
+  s.CountCall(Impl::kCallBegin, static_cast<uint64_t>(begin_done.QuadPart -
+                                                      begin_start.QuadPart));
+  if (!s.Check(begun, "xrBeginFrame")) {
     return true;
+  }
+  {
+    LARGE_INTEGER now;
+    QueryPerformanceCounter(&now);
+    InterlockedExchange64(&s.game_open_at, now.QuadPart);
+    // xrBeginFrame comes after the end of the frame before (Join).
+    InterlockedExchange(&s.frame_state_now, Impl::kFrameGame);
+    s.begun_at = now;
   }
   s.frame_open = true;
   should_render_ = (s.frame_state.shouldRender == XR_TRUE);
@@ -1414,8 +1796,7 @@ void XrScreen::SetEyeImage(int index, const void* pixels, int pitch) {
   QueryPerformanceCounter(&t0);
 
   uint32_t image = 0;
-  XrSwapchainImageAcquireInfo acquire = {XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
-  if (!s.Check(xrAcquireSwapchainImage(s.swapchain[eye], &acquire, &image),
+  if (!s.Check(s.AcquireImage(s.swapchain[eye], &image),
                "xrAcquireSwapchainImage")) {
     return;
   }
@@ -1429,6 +1810,27 @@ void XrScreen::SetEyeImage(int index, const void* pixels, int pitch) {
   QueryPerformanceCounter(&t1);
 
   D3D11_MAPPED_SUBRESOURCE mapped;
+  if (s.UploadsWithVulkan(s.swapchain[eye])) {
+    // THE PIXELS OF THE CPU: the bytes as they are, as into the staging
+    // texture of Direct3D 11.
+    s.UploadVulkan(s.swapchain[eye], image, static_cast<const uint8_t*>(pixels),
+                   static_cast<uint32_t>(pitch), 0, 0,
+                   static_cast<int32_t>(s.width),
+                   static_cast<int32_t>(s.height), false);
+    QueryPerformanceCounter(&t2);
+    s.ReleaseImage(s.swapchain[eye], false);
+    s.acquired[eye] = static_cast<int>(image);
+    QueryPerformanceCounter(&t3);
+    s.wait_ticks += t1.QuadPart - t0.QuadPart;
+    s.copy_ticks += t2.QuadPart - t1.QuadPart;
+    s.submit_ticks += t3.QuadPart - t2.QuadPart;
+    ++s.uploads;
+    return;
+  }
+  if (s.context == nullptr) {
+    s.ReleaseImage(s.swapchain[eye], false);
+    return;
+  }
   if (SUCCEEDED(s.context->Map(s.staging, 0, D3D11_MAP_WRITE_DISCARD, 0,
                                &mapped))) {
     const uint8_t* source = static_cast<const uint8_t*>(pixels);
@@ -1452,8 +1854,7 @@ void XrScreen::SetEyeImage(int index, const void* pixels, int pitch) {
     QueryPerformanceCounter(&t2);
   }
 
-  XrSwapchainImageReleaseInfo release = {XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
-  xrReleaseSwapchainImage(s.swapchain[eye], &release);
+  s.ReleaseImage(s.swapchain[eye]);
   s.acquired[eye] = static_cast<int>(image);
 
   QueryPerformanceCounter(&t3);
@@ -1473,7 +1874,10 @@ uint32_t XrScreen::SwapchainFormat() const {
 void XrScreen::SetEyeTexture(int index, void* texture) {
   if (remote_) { if (impl_->frame_open && should_render_) remote_->Texture(texture, (index >= 1 && eyes_ > 1) ? 1 : 0, false); return; }
   Impl& s = *impl_;
-  if (!s.frame_open || !should_render_ || texture == nullptr) return;
+  if (!s.frame_open || !should_render_ || texture == nullptr ||
+      s.context == nullptr) {
+    return;
+  }
   const int eye = (index >= 1 && eyes_ > 1) ? 1 : 0;
   if (s.swapchain[eye] == XR_NULL_HANDLE) return;
 
@@ -1482,8 +1886,7 @@ void XrScreen::SetEyeTexture(int index, void* texture) {
   QueryPerformanceCounter(&t0);
 
   uint32_t image = 0;
-  XrSwapchainImageAcquireInfo acquire = {XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
-  if (!s.Check(xrAcquireSwapchainImage(s.swapchain[eye], &acquire, &image),
+  if (!s.Check(s.AcquireImage(s.swapchain[eye], &image),
                "xrAcquireSwapchainImage")) {
     return;
   }
@@ -1500,8 +1903,7 @@ void XrScreen::SetEyeTexture(int index, void* texture) {
   s.context->CopyResource(s.images[eye][image],
                           static_cast<ID3D11Texture2D*>(texture));
 
-  XrSwapchainImageReleaseInfo release = {XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
-  xrReleaseSwapchainImage(s.swapchain[eye], &release);
+  s.ReleaseImage(s.swapchain[eye]);
   s.acquired[eye] = static_cast<int>(image);
 
   QueryPerformanceCounter(&t3);
@@ -1524,10 +1926,7 @@ bool XrScreen::CardFailed(int card) {
 
 void XrScreen::Impl::DestroyCard(int index) {
   CardChain& chain = cards[index];
-  if (chain.swapchain != XR_NULL_HANDLE) {
-    xrDestroySwapchain(chain.swapchain);
-    chain.swapchain = XR_NULL_HANDLE;
-  }
+  DestroyChain(&chain.swapchain);
   delete[] chain.images;
   chain.images = nullptr;
   chain.image_count = 0;
@@ -1564,9 +1963,8 @@ bool XrScreen::Impl::SendCard(int index, const CardLayer& card,
   }
   if (chain.swapchain == XR_NULL_HANDLE) {
     XrSwapchainCreateInfo info = {XR_TYPE_SWAPCHAIN_CREATE_INFO};
-    info.usageFlags = XR_SWAPCHAIN_USAGE_TRANSFER_DST_BIT |
-                      XR_SWAPCHAIN_USAGE_SAMPLED_BIT;
-    info.format = static_cast<int64_t>(format);
+    info.usageFlags = ChainUsage();
+    info.format = ChainFormat();
     info.sampleCount = 1;
     info.width = card.texture_width;
     info.height = card.texture_height;
@@ -1581,21 +1979,15 @@ bool XrScreen::Impl::SendCard(int index, const CardLayer& card,
           "pictures", kCardName[index], kCardHolds[index]);
       return false;
     }
-    xrEnumerateSwapchainImages(chain.swapchain, 0, &chain.image_count,
-                               nullptr);
-    const uint32_t count = chain.image_count ? chain.image_count : 1;
-    XrSwapchainImageD3D11KHR* raw = new XrSwapchainImageD3D11KHR[count];
-    for (uint32_t i = 0; i < count; ++i) {
-      raw[i] = {XR_TYPE_SWAPCHAIN_IMAGE_D3D11_KHR};
+    chain.images = ChainImages(chain.swapchain, card.texture_width,
+                               card.texture_height, &chain.image_count);
+    if (chain.images == nullptr) {
+      DestroyChain(&chain.swapchain);
+      g_card_failed[index] = true;
+      log("  openxr: no images for the swapchain of the %s, so the %s stay "
+          "in the eye pictures", kCardName[index], kCardHolds[index]);
+      return false;
     }
-    xrEnumerateSwapchainImages(
-        chain.swapchain, chain.image_count, &chain.image_count,
-        reinterpret_cast<XrSwapchainImageBaseHeader*>(raw));
-    chain.images = new ID3D11Texture2D*[count];
-    for (uint32_t i = 0; i < chain.image_count; ++i) {
-      chain.images[i] = raw[i].texture;
-    }
-    delete[] raw;
     chain.width = card.texture_width;
     chain.height = card.texture_height;
     log("  openxr: the %s has its own swapchain, %u by %u, %u images",
@@ -1613,8 +2005,7 @@ bool XrScreen::Impl::SendCard(int index, const CardLayer& card,
     return false;
   };
   uint32_t image = 0;
-  XrSwapchainImageAcquireInfo acquire = {XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
-  if (!Check(xrAcquireSwapchainImage(chain.swapchain, &acquire, &image),
+  if (!Check(AcquireImage(chain.swapchain, &image),
              "xrAcquireSwapchainImage(card)")) {
     return miss();
   }
@@ -1622,12 +2013,17 @@ bool XrScreen::Impl::SendCard(int index, const CardLayer& card,
   image_wait.timeout = XR_INFINITE_DURATION;
   const bool waited = Check(xrWaitSwapchainImage(chain.swapchain, &image_wait),
                             "xrWaitSwapchainImage(card)");
-  if (waited && image < chain.image_count) {
+  // The card is BGRA. A swapchain with red first needs the two swapped.
+  const bool red_first = format == DXGI_FORMAT_R8G8B8A8_UNORM_SRGB ||
+                         format == DXGI_FORMAT_R8G8B8A8_UNORM;
+  const bool with_vulkan = UploadsWithVulkan(chain.swapchain);
+  if (waited && image < chain.image_count && with_vulkan) {
+    UploadVulkan(chain.swapchain, image, card.pixels, chain.width * 4, x, y, w,
+                 h, red_first);
+  } else if (waited && image < chain.image_count && context != nullptr) {
     const uint32_t pitch = chain.width * 4;
     const uint8_t* source = card.pixels;
-    // The card is BGRA. A swapchain with red first needs the two swapped.
-    if (format == DXGI_FORMAT_R8G8B8A8_UNORM_SRGB ||
-        format == DXGI_FORMAT_R8G8B8A8_UNORM) {
+    if (red_first) {
       if (chain.swizzle == nullptr) {
         chain.swizzle = new uint8_t[pitch * chain.height];
       }
@@ -1653,8 +2049,7 @@ bool XrScreen::Impl::SendCard(int index, const CardLayer& card,
     context->UpdateSubresource(chain.images[image], 0, &box,
                                source + y * pitch + x * 4, pitch, 0);
   }
-  XrSwapchainImageReleaseInfo release = {XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
-  xrReleaseSwapchainImage(chain.swapchain, &release);
+  ReleaseImage(chain.swapchain, !with_vulkan);
   if (!waited || image >= chain.image_count) return miss();
   chain.misses = 0;
 
@@ -1687,10 +2082,7 @@ void XrScreen::StageWindow(const WindowLayer& layer) {
 }
 
 void XrScreen::Impl::DestroyMask() {
-  if (mask_swapchain != XR_NULL_HANDLE) {
-    xrDestroySwapchain(mask_swapchain);
-    mask_swapchain = XR_NULL_HANDLE;
-  }
+  DestroyChain(&mask_swapchain);
   delete[] mask_images;
   mask_images = nullptr;
   mask_image_count = 0;
@@ -1709,9 +2101,8 @@ bool XrScreen::Impl::SendMask(const WindowLayer& window,
   }
   if (mask_swapchain == XR_NULL_HANDLE) {
     XrSwapchainCreateInfo info = {XR_TYPE_SWAPCHAIN_CREATE_INFO};
-    info.usageFlags = XR_SWAPCHAIN_USAGE_TRANSFER_DST_BIT |
-                      XR_SWAPCHAIN_USAGE_SAMPLED_BIT;
-    info.format = static_cast<int64_t>(format);
+    info.usageFlags = ChainUsage();
+    info.format = ChainFormat();
     info.sampleCount = 1;
     info.width = kMaskSize;
     info.height = kMaskSize;
@@ -1726,25 +2117,19 @@ bool XrScreen::Impl::SendMask(const WindowLayer& window,
           "the view changes to the window with no walls");
       return false;
     }
-    xrEnumerateSwapchainImages(mask_swapchain, 0, &mask_image_count, nullptr);
-    const uint32_t count = mask_image_count ? mask_image_count : 1;
-    XrSwapchainImageD3D11KHR* raw = new XrSwapchainImageD3D11KHR[count];
-    for (uint32_t i = 0; i < count; ++i) {
-      raw[i] = {XR_TYPE_SWAPCHAIN_IMAGE_D3D11_KHR};
+    mask_images =
+        ChainImages(mask_swapchain, kMaskSize, kMaskSize, &mask_image_count);
+    if (mask_images == nullptr) {
+      DestroyChain(&mask_swapchain);
+      g_mask_failed = true;
+      log("  openxr: no images for the swapchain of the walls of the cut "
+          "scene window, so the view changes to the window with no walls");
+      return false;
     }
-    xrEnumerateSwapchainImages(
-        mask_swapchain, mask_image_count, &mask_image_count,
-        reinterpret_cast<XrSwapchainImageBaseHeader*>(raw));
-    mask_images = new ID3D11Texture2D*[count];
-    for (uint32_t i = 0; i < mask_image_count; ++i) {
-      mask_images[i] = raw[i].texture;
-    }
-    delete[] raw;
   }
 
   uint32_t image = 0;
-  XrSwapchainImageAcquireInfo acquire = {XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
-  if (!Check(xrAcquireSwapchainImage(mask_swapchain, &acquire, &image),
+  if (!Check(AcquireImage(mask_swapchain, &image),
              "xrAcquireSwapchainImage(walls)")) {
     return false;
   }
@@ -1752,6 +2137,7 @@ bool XrScreen::Impl::SendMask(const WindowLayer& window,
   image_wait.timeout = XR_INFINITE_DURATION;
   const bool waited = Check(xrWaitSwapchainImage(mask_swapchain, &image_wait),
                             "xrWaitSwapchainImage(walls)");
+  const bool with_vulkan = UploadsWithVulkan(mask_swapchain);
   if (waited && image < mask_image_count) {
     // Black has no color to multiply, so only the alpha changes. It is the
     // last byte of a pixel in each format the swapchain can have.
@@ -1763,11 +2149,16 @@ bool XrScreen::Impl::SendMask(const WindowLayer& window,
       pixels[i * 4 + 2] = 0;
       pixels[i * 4 + 3] = static_cast<uint8_t>(alpha * 255.0f + 0.5f);
     }
-    context->UpdateSubresource(mask_images[image], 0, nullptr, pixels,
-                               kMaskSize * 4, 0);
+    if (with_vulkan) {
+      UploadVulkan(mask_swapchain, image, pixels, kMaskSize * 4, 0, 0,
+                   static_cast<int32_t>(kMaskSize),
+                   static_cast<int32_t>(kMaskSize), false);
+    } else if (context != nullptr) {
+      context->UpdateSubresource(mask_images[image], 0, nullptr, pixels,
+                                 kMaskSize * 4, 0);
+    }
   }
-  XrSwapchainImageReleaseInfo release = {XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
-  xrReleaseSwapchainImage(mask_swapchain, &release);
+  ReleaseImage(mask_swapchain, !with_vulkan);
   if (!waited || image >= mask_image_count) return false;
 
   for (int k = 0; k < 4; ++k) {
@@ -1811,12 +2202,11 @@ void XrScreen::SetPanelTexture(void* texture) {
   Impl& s = *impl_;
   s.panel_acquired = -1;
   if (!s.frame_open || !should_render_ || texture == nullptr ||
-      s.panel_swapchain == XR_NULL_HANDLE) {
+      s.panel_swapchain == XR_NULL_HANDLE || s.context == nullptr) {
     return;
   }
   uint32_t image = 0;
-  XrSwapchainImageAcquireInfo acquire = {XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
-  if (!s.Check(xrAcquireSwapchainImage(s.panel_swapchain, &acquire, &image),
+  if (!s.Check(s.AcquireImage(s.panel_swapchain, &image),
                "xrAcquireSwapchainImage(panel)")) {
     return;
   }
@@ -1828,9 +2218,21 @@ void XrScreen::SetPanelTexture(void* texture) {
   }
   s.context->CopyResource(s.panel_images[image],
                           static_cast<ID3D11Texture2D*>(texture));
-  XrSwapchainImageReleaseInfo release = {XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
-  xrReleaseSwapchainImage(s.panel_swapchain, &release);
+  s.ReleaseImage(s.panel_swapchain);
   s.panel_acquired = static_cast<int>(image);
+}
+
+void XrScreen::SetPanelVulkan(uint64_t image) {
+  Impl& s = *impl_;
+  s.panel_acquired = -1;
+  if (!s.vulkan || !s.frame_open || !should_render_ || image == 0 ||
+      s.panel_swapchain == XR_NULL_HANDLE) {
+    return;
+  }
+  if (s.Check(s.CopyVulkan(s.panel_swapchain, image, 0),
+              "the copy of a Vulkan panel")) {
+    s.panel_acquired = 0;
+  }
 }
 
 void XrScreen::SetPanelQuads(const PanelQuad quads[2]) {
@@ -1856,6 +2258,35 @@ void XrScreen::StagePanelQuad(const PanelQuad& quad) {
 void XrScreen::ReportUpload(uint64_t frames) {
   if (remote_) return;
   Impl& s = *impl_;
+  if (s.vulkan && (s.vk_pushes > 0 || s.vk_copies > 0 || s.vk_uploads > 0)) {
+    LARGE_INTEGER hz_now;
+    QueryPerformanceFrequency(&hz_now);
+    const double hz = static_cast<double>(hz_now.QuadPart);
+    if (s.device == nullptr) {
+      s.log("  openxr: Vulkan with no Direct3D 11: %llu copies of a Vulkan eye "
+            "picture, and %llu copies of pixels of the CPU, %.3f ms each",
+            s.vk_copies, s.vk_uploads,
+            s.vk_uploads > 0 ? s.vk_upload_ticks * 1000.0 / hz / s.vk_uploads
+                             : 0.0);
+    } else {
+      s.log("  openxr: Vulkan: %llu copies of a relay, %.3f ms each with the "
+            "wait for Direct3D 11, %llu copies of a Vulkan eye picture, and "
+            "%llu copies of pixels of the CPU, %.3f ms each "
+            "(xr_vulkan_upload=%d)",
+            s.vk_pushes,
+            s.vk_pushes > 0 ? s.vk_push_ticks * 1000.0 / hz / s.vk_pushes
+                            : 0.0,
+            s.vk_copies, s.vk_uploads,
+            s.vk_uploads > 0 ? s.vk_upload_ticks * 1000.0 / hz / s.vk_uploads
+                             : 0.0,
+            s.vk_upload ? 1 : 0);
+    }
+    s.vk_pushes = 0;
+    s.vk_copies = 0;
+    s.vk_push_ticks = 0;
+    s.vk_uploads = 0;
+    s.vk_upload_ticks = 0;
+  }
   if (s.panel_frames > 0) {
     s.log("  ui panel     : %llu menu and %llu help quad layers over the "
           "projection in %llu frames, and %llu Creature panel quad "
@@ -1895,6 +2326,37 @@ void XrScreen::ReportUpload(uint64_t frames) {
     s.age_ticks = 0;
     s.age_worst = 0;
     s.age_frames = 0;
+  }
+  if (s.hold_ms > 0 && s.frequency.QuadPart != 0) {
+    s.log("  hold         : xr_hold_ms=%ld. %llu frames of the hold in %llu runs "
+          "(%llu frames of the game taken, %llu failed). The longest time "
+          "with no frame of the game was %.1f ms. No frame of the hold after "
+          "%ld ms: %llu times the frame thread had the lock, %llu times the "
+          "frame of the game was in SendFrame",
+          static_cast<long>(s.hold_ms), s.hold_frames, s.hold_runs,
+          s.hold_taken, s.hold_failed,
+          static_cast<double>(s.hold_worst) * 1000.0 /
+              static_cast<double>(s.frequency.QuadPart),
+          static_cast<long>(3 * s.hold_ms), s.hold_lock_busy, s.hold_sending);
+    s.hold_frames = s.hold_runs = s.hold_taken = s.hold_failed = 0;
+    s.hold_worst = 0;
+    s.hold_lock_busy = s.hold_sending = 0;
+  }
+  if (s.frequency.QuadPart != 0) {
+    const double to_ms = 1000.0 / static_cast<double>(s.frequency.QuadPart);
+    s.log("  runtime calls: the longest call of the window, ms: xrWaitFrame "
+          "%.2f, xrBeginFrame %.2f, xrEndFrame %.2f, the copies to the "
+          "swapchains %.2f. Calls of 20 ms or more: %llu, %llu, %llu, %llu",
+          static_cast<double>(s.call_worst[Impl::kCallWait]) * to_ms,
+          static_cast<double>(s.call_worst[Impl::kCallBegin]) * to_ms,
+          static_cast<double>(s.call_worst[Impl::kCallEnd]) * to_ms,
+          static_cast<double>(s.call_worst[Impl::kCallCopies]) * to_ms,
+          s.call_slow[Impl::kCallWait], s.call_slow[Impl::kCallBegin],
+          s.call_slow[Impl::kCallEnd], s.call_slow[Impl::kCallCopies]);
+    for (int c = 0; c < Impl::kCalls; ++c) {
+      s.call_worst[c] = 0;
+      s.call_slow[c] = 0;
+    }
   }
   if (s.late_frames > 0 && s.frequency.QuadPart != 0) {
     const double to_ms = 1000.0 / static_cast<double>(s.frequency.QuadPart);
@@ -1971,6 +2433,9 @@ void XrScreen::EndFrame() {
     for (int i = 0; i < kCards; ++i) g_card_failed[i] = p.state.card_failed[i] != 0;
     impl_->frame_open = false; return;
   }
+  // A frame with no wait for the GPU and no copies of a late frame.
+  impl_->late_gpu = 0;
+  impl_->late_copy = 0;
   if (!BuildFrame()) return;
   impl_->SendFrame();
   FinishFrame();
@@ -1982,10 +2447,35 @@ void XrScreen::EndFrame() {
 bool XrScreen::BuildFrame() {
   Impl& s = *impl_;
   if (!s.frame_open) return false;
+  // The second thread sends no frame of the hold while this one makes its
+  // layers. When a hold took the frame, the pictures go in a new frame.
+  Impl::HoldGuard hold(s);
+  if (s.frame_state_now == Impl::kFrameTaken) {
+    XrFrameWaitInfo wait_info = {XR_TYPE_FRAME_WAIT_INFO};
+    XrFrameState wait_state = {XR_TYPE_FRAME_STATE};
+    XrResult result = xrWaitFrame(s.session, &wait_info, &wait_state);
+    QueryPerformanceCounter(&s.waited_at);
+    if (XR_SUCCEEDED(result)) {
+      XrFrameBeginInfo begin_info = {XR_TYPE_FRAME_BEGIN_INFO};
+      QueueGuard guard(s.vulkan);
+      result = xrBeginFrame(s.session, &begin_info);
+    }
+    if (XR_FAILED(result)) {
+      s.frame_open = false;
+      InterlockedExchange(&s.frame_state_now, Impl::kFrameNone);
+      for (int eye = 0; eye < 2; ++eye) s.acquired[eye] = -1;
+      s.panel_acquired = -1;
+      return false;
+    }
+    s.frame_state.predictedDisplayTime = wait_state.predictedDisplayTime;
+  }
+  // SendFrame comes after this, on this thread or on the second thread.
+  InterlockedExchange(&s.frame_state_now, Impl::kFrameSending);
   if (s.frequency.QuadPart == 0) QueryPerformanceFrequency(&s.frequency);
   Impl::Built& b = s.built;
   QueryPerformanceCounter(&b.before);
   b.waited_at = s.waited_at;
+  b.begun_at = s.begun_at;
   s.frame_open = false;
   b.layer_count = 0;
   b.display_time = s.frame_state.predictedDisplayTime;
@@ -2272,8 +2762,13 @@ void XrScreen::Impl::SendFrame() {
   end.layerCount = b.layer_count;
   end.layers = b.layer_count ? b.layers : nullptr;
   QueryPerformanceCounter(&b.end_start);
-  b.result = xrEndFrame(session, &end);
+  {
+    QueueGuard guard(vulkan);
+    b.result = xrEndFrame(session, &end);
+  }
   QueryPerformanceCounter(&b.end_done);
+  InterlockedExchange64(&last_end, b.end_done.QuadPart);
+  InterlockedCompareExchange(&frame_state_now, kFrameNone, kFrameSending);
 }
 
 // After SendFrame, on the frame thread: the result of xrEndFrame, and the
@@ -2315,12 +2810,42 @@ void XrScreen::FinishFrame() {
       static_cast<uint64_t>(b.built.QuadPart - b.before.QuadPart) +
       static_cast<uint64_t>(b.end_done.QuadPart - b.end_start.QuadPart);
   ++s.ends;
+  s.CountCall(Impl::kCallEnd, static_cast<uint64_t>(b.end_done.QuadPart -
+                                                    b.end_start.QuadPart));
   if (b.layer_count > 0 && b.waited_at.QuadPart != 0) {
     const uint64_t age =
         static_cast<uint64_t>(b.end_done.QuadPart - b.waited_at.QuadPart);
     s.age_ticks += age;
     if (age > s.age_worst) s.age_worst = age;
     ++s.age_frames;
+    // A frame of more than 250 ms, in its parts (the first 30).
+    const double to_ms =
+        s.frequency.QuadPart != 0
+            ? 1000.0 / static_cast<double>(s.frequency.QuadPart)
+            : 0.0;
+    if (age * to_ms > 250.0 && s.slow_lines < 30) {
+      ++s.slow_lines;
+      const double begin =
+          b.begun_at.QuadPart > b.waited_at.QuadPart
+              ? (b.begun_at.QuadPart - b.waited_at.QuadPart) * to_ms
+              : 0.0;
+      const double game =
+          b.begun_at.QuadPart != 0 && b.before.QuadPart > b.begun_at.QuadPart
+              ? (b.before.QuadPart - b.begun_at.QuadPart) * to_ms
+              : 0.0;
+      const double between =
+          (b.end_start.QuadPart - b.built.QuadPart) * to_ms;
+      s.log("  slow frame   : %.1f ms from xrWaitFrame to the end of "
+            "xrEndFrame: BeginFrame after the wait %.1f, the game %.1f, "
+            "BuildFrame %.1f, from BuildFrame to xrEndFrame %.1f (the wait "
+            "for the GPU %.1f, the copies %.1f), xrEndFrame %.1f. Frames of "
+            "the hold so far: %llu, %llu taken",
+            age * to_ms, begin, game,
+            (b.built.QuadPart - b.before.QuadPart) * to_ms, between,
+            s.late_gpu * to_ms, s.late_copy * to_ms,
+            (b.end_done.QuadPart - b.end_start.QuadPart) * to_ms,
+            s.hold_frames, s.hold_taken);
+    }
   }
 }
 
@@ -2343,13 +2868,20 @@ void XrScreen::EndFrameLate(const LateFrame& frame, bool on_thread) {
     if (!should_render_ || eye >= eyes_ ||
         s.swapchain[eye] == XR_NULL_HANDLE) {
       s.late.eye_texture[eye] = nullptr;
+      s.late.eye_vulkan[eye] = 0;
     }
-    if (s.late.eye_texture[eye] != nullptr) s.acquired[eye] = 0;
+    if (!s.vulkan) s.late.eye_vulkan[eye] = 0;
+    if (s.late.eye_texture[eye] != nullptr || s.late.eye_vulkan[eye] != 0) {
+      s.acquired[eye] = 0;
+    }
   }
   if (!should_render_ || s.panel_swapchain == XR_NULL_HANDLE) {
     s.late.panel_texture = nullptr;
+    s.late.panel_vulkan = 0;
   }
-  s.panel_acquired = s.late.panel_texture != nullptr ? 0 : -1;
+  if (!s.vulkan) s.late.panel_vulkan = 0;
+  s.panel_acquired =
+      s.late.panel_texture != nullptr || s.late.panel_vulkan != 0 ? 0 : -1;
   if (!BuildFrame()) return;
   ++s.late_frames;
   if (on_thread && s.StartSendThread()) {
@@ -2409,6 +2941,7 @@ void XrScreen::FinishLate() {
   for (int i = 0; i < 3; ++i) s.Check(s.late_result[i], what[i]);
   s.late_gpu_ticks += s.late_gpu;
   s.late_copy_ticks += s.late_copy;
+  s.CountCall(Impl::kCallCopies, s.late_copy);
   s.late_end_ticks += static_cast<uint64_t>(s.built.end_done.QuadPart -
                                             s.built.end_start.QuadPart);
 }
@@ -2418,9 +2951,9 @@ void XrScreen::FinishLate() {
 XrResult XrScreen::Impl::CopyLate(XrSwapchain chain,
                                   ID3D11Texture2D** chain_images,
                                   void* texture) {
+  if (context == nullptr) return XR_SUCCESS;
   uint32_t image = 0;
-  XrSwapchainImageAcquireInfo acquire = {XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
-  XrResult result = xrAcquireSwapchainImage(chain, &acquire, &image);
+  XrResult result = AcquireImage(chain, &image);
   if (XR_FAILED(result)) return result;
   XrSwapchainImageWaitInfo image_wait = {XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO};
   image_wait.timeout = XR_INFINITE_DURATION;
@@ -2428,8 +2961,7 @@ XrResult XrScreen::Impl::CopyLate(XrSwapchain chain,
   if (XR_FAILED(result)) return result;
   context->CopyResource(chain_images[image],
                         static_cast<ID3D11Texture2D*>(texture));
-  XrSwapchainImageReleaseInfo release = {XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
-  return xrReleaseSwapchainImage(chain, &release);
+  return ReleaseImage(chain);
 }
 
 // The wait for the GPU, and then the copies. The other device must not read
@@ -2441,12 +2973,17 @@ void XrScreen::Impl::RunLate() {
   QueryPerformanceCounter(&waited);
   for (int eye = 0; eye < 2; ++eye) {
     late_result[eye] =
-        late.eye_texture[eye] != nullptr
+        late.eye_vulkan[eye] != 0
+            ? CopyVulkan(swapchain[eye], late.eye_vulkan[eye],
+                         late.eye_layer[eye])
+        : late.eye_texture[eye] != nullptr
             ? CopyLate(swapchain[eye], images[eye], late.eye_texture[eye])
             : XR_SUCCESS;
   }
   late_result[2] =
-      late.panel_texture != nullptr
+      late.panel_vulkan != 0
+          ? CopyVulkan(panel_swapchain, late.panel_vulkan, 0)
+      : late.panel_texture != nullptr
           ? CopyLate(panel_swapchain, panel_images, late.panel_texture)
           : XR_SUCCESS;
   QueryPerformanceCounter(&copied);
@@ -2459,13 +2996,116 @@ void XrScreen::Impl::RunLate() {
 DWORD WINAPI XrScreen::Impl::SendThreadMain(void* param) {
   Impl* s = static_cast<Impl*>(param);
   for (;;) {
-    WaitForSingleObject(s->send_go, INFINITE);
+    // With the hold on, the thread also looks for a frame of the game that
+    // does not come.
+    const LONG hold = s->hold_ms;
+    const DWORD got = WaitForSingleObject(
+        s->send_go, hold > 0 ? static_cast<DWORD>(hold) / 2 + 1 : INFINITE);
     if (s->send_quit) break;
+    if (got == WAIT_TIMEOUT) {
+      s->HoldFrames();
+      continue;
+    }
     s->RunLate();
     s->SendFrame();
     SetEvent(s->send_done);
   }
   return 0;
+}
+
+// THE HOLD, on the second thread: frames with the layers of the last frame
+// of the game while the game gives none. Each frame waits for the runtime
+// (xrWaitFrame), so a run has the rate of the headset. The run ends when
+// the frame thread wants hold_lock, or when the game sent a frame.
+void XrScreen::Impl::HoldFrames() {
+  LARGE_INTEGER hz;
+  QueryPerformanceFrequency(&hz);
+  bool in_run = false;
+  for (;;) {
+    const LONG ms = hold_ms;
+    if (send_quit || ms <= 0 || frame_wants != 0 || hold_live == 0) return;
+    LARGE_INTEGER now;
+    QueryPerformanceCounter(&now);
+    const LONGLONG last = InterlockedCompareExchange64(&last_end, 0, 0);
+    const LONGLONG limit = hz.QuadPart * ms / 1000;
+    if (last == 0 || now.QuadPart - last < limit) return;
+    if (!TryAcquireSRWLockExclusive(&hold_lock)) {
+      if (now.QuadPart - last >= 3 * limit) ++hold_lock_busy;
+      return;
+    }
+    const LONG owner = frame_state_now;
+    if (owner == kFrameSending && now.QuadPart - last >= 3 * limit) {
+      ++hold_sending;
+    }
+    bool ok = false;
+    bool tried = false;
+    if (frame_wants == 0 && built.layer_count > 0 && session_running) {
+      if (owner == kFrameNone || owner == kFrameTaken) {
+        tried = true;
+        ok = HoldOne(owner);
+      } else if (owner == kFrameGame &&
+                 now.QuadPart -
+                         InterlockedCompareExchange64(&game_open_at, 0, 0) >=
+                     3 * limit) {
+        // A frame of the game is taken only after three times the time:
+        // a slow frame of the game must not wait for a second frame of the
+        // runtime.
+        tried = true;
+        ok = HoldOne(owner);
+      }
+    }
+    ReleaseSRWLockExclusive(&hold_lock);
+    if (!tried) return;
+    if (!ok) {
+      ++hold_failed;
+      return;
+    }
+    if (!in_run) {
+      in_run = true;
+      ++hold_runs;
+    }
+    QueryPerformanceCounter(&now);
+    const uint64_t gap = static_cast<uint64_t>(now.QuadPart - last);
+    if (gap > hold_worst) hold_worst = gap;
+  }
+}
+
+// One frame of the hold, under hold_lock. With the frame of the game open
+// (kFrameGame) it ends that frame with the layers of the last frame, and
+// the frame is then taken. Else it waits for a frame of its own, begins it
+// and ends it. The layers carry the poses of their pictures.
+bool XrScreen::Impl::HoldOne(LONG owner) {
+  XrTime display = frame_state.predictedDisplayTime;
+  if (owner != kFrameGame) {
+    XrFrameWaitInfo wait_info = {XR_TYPE_FRAME_WAIT_INFO};
+    XrFrameState wait_state = {XR_TYPE_FRAME_STATE};
+    if (XR_FAILED(xrWaitFrame(session, &wait_info, &wait_state))) return false;
+    XrFrameBeginInfo begin_info = {XR_TYPE_FRAME_BEGIN_INFO};
+    XrResult begun;
+    {
+      QueueGuard guard(vulkan);
+      begun = xrBeginFrame(session, &begin_info);
+    }
+    if (XR_FAILED(begun)) return false;
+    display = wait_state.predictedDisplayTime;
+  }
+  XrFrameEndInfo end = {XR_TYPE_FRAME_END_INFO};
+  end.displayTime = display;
+  end.environmentBlendMode = XR_ENVIRONMENT_BLEND_MODE_OPAQUE;
+  end.layerCount = built.layer_count;
+  end.layers = built.layers;
+  XrResult ended;
+  {
+    QueueGuard guard(vulkan);
+    ended = xrEndFrame(session, &end);
+  }
+  if (owner == kFrameGame) {
+    InterlockedExchange(&frame_state_now, kFrameTaken);
+    ++hold_taken;
+  }
+  if (XR_FAILED(ended)) return false;
+  ++hold_frames;
+  return true;
 }
 
 // Starts the second thread at the first frame that needs it. False when it
@@ -2522,6 +3162,13 @@ bool XrScreen::SubmitTexture(void* texture) {
   return true;
 }
 
+bool XrScreen::SubmitVulkan(uint64_t image, uint32_t layer) {
+  if (!BeginFrame()) return false;
+  for (int eye = 0; eye < eyes_; ++eye) SetEyeVulkan(eye, image, layer);
+  EndFrame();
+  return true;
+}
+
 bool XrScreen::SubmitBgra(const void* pixels, int pitch) {
   if (!BeginFrame()) return false;
   // Give both eyes the same picture. With a stereo session configured, an eye
@@ -2564,6 +3211,12 @@ void XrScreen::Stop() {
   // it does not touch the staged layers, which belong to the frame thread.
   const bool was_started = s.session_started;
   running_ = false;
+  // No more frames of the hold.
+  InterlockedExchange(&s.hold_ms, 0);
+  InterlockedExchange(&s.hold_live, 0);
+  {
+    Impl::HoldGuard hold(s);
+  }
   // The second thread gives its frame to the runtime, and then it ends.
   Join();
   s.StopSendThread();
@@ -2604,16 +3257,8 @@ void XrScreen::Stop() {
           static_cast<int>(ended), StopMs(part));
     QueryPerformanceCounter(&part);
   }
-  for (int eye = 0; eye < 2; ++eye) {
-    if (s.swapchain[eye] != XR_NULL_HANDLE) {
-      xrDestroySwapchain(s.swapchain[eye]);
-      s.swapchain[eye] = XR_NULL_HANDLE;
-    }
-  }
-  if (s.panel_swapchain != XR_NULL_HANDLE) {
-    xrDestroySwapchain(s.panel_swapchain);
-    s.panel_swapchain = XR_NULL_HANDLE;
-  }
+  for (int eye = 0; eye < 2; ++eye) s.DestroyChain(&s.swapchain[eye]);
+  s.DestroyChain(&s.panel_swapchain);
   delete[] s.panel_images;
   s.panel_images = nullptr;
   s.panel_image_count = 0;
@@ -2651,10 +3296,12 @@ void XrScreen::Stop() {
     s.images[eye] = nullptr;
     s.image_count[eye] = 0;
   }
+  s.StopVulkan();
+  const bool had_d3d11 = s.device != nullptr;
   Release(s.staging);
   Release(s.context);
   Release(s.device);
-  if (had_session) {
+  if (had_session && had_d3d11) {
     s.log("  openxr: the Direct3D 11 objects of the session are released, "
           "%.1f ms", StopMs(part));
     QueryPerformanceCounter(&part);
@@ -2666,6 +3313,1245 @@ void XrScreen::Stop() {
     if (had_session) {
       s.log("  openxr: the instance is destroyed, %.1f ms", StopMs(part));
     }
+  }
+}
+
+// --- Direct3D 11 and Vulkan ---------------------------------------------------
+
+// The Direct3D 11 device on the adapter with this LUID. The runtime names the
+// adapter by LUID. Using a different one would make every present a cross
+// adapter copy, if it worked at all.
+bool XrScreen::Impl::MakeD3D11(const LUID& luid) {
+  IDXGIFactory1* factory = nullptr;
+  if (FAILED(CreateDXGIFactory1(__uuidof(IDXGIFactory1),
+                                reinterpret_cast<void**>(&factory)))) {
+    log("  openxr: CreateDXGIFactory1 failed");
+    return false;
+  }
+
+  IDXGIAdapter1* adapter = nullptr;
+  for (UINT index = 0;; ++index) {
+    IDXGIAdapter1* candidate = nullptr;
+    if (factory->EnumAdapters1(index, &candidate) == DXGI_ERROR_NOT_FOUND) break;
+    DXGI_ADAPTER_DESC1 description;
+    if (SUCCEEDED(candidate->GetDesc1(&description)) &&
+        memcmp(&description.AdapterLuid, &luid, sizeof(LUID)) == 0) {
+      adapter = candidate;
+      char name[128];
+      WideCharToMultiByte(CP_ACP, 0, description.Description, -1, name,
+                          sizeof(name), nullptr, nullptr);
+      log("  openxr: adapter \"%s\"", name);
+      break;
+    }
+    candidate->Release();
+  }
+  factory->Release();
+
+  if (adapter == nullptr) {
+    log("  openxr: the runtime asked for an adapter this process cannot see");
+    return false;
+  }
+
+  const D3D_FEATURE_LEVEL levels[] = {D3D_FEATURE_LEVEL_11_1,
+                                      D3D_FEATURE_LEVEL_11_0};
+  HRESULT created = D3D11CreateDevice(
+      adapter, D3D_DRIVER_TYPE_UNKNOWN, nullptr, 0, levels,
+      sizeof(levels) / sizeof(levels[0]), D3D11_SDK_VERSION, &device, nullptr,
+      &context);
+  adapter->Release();
+  if (FAILED(created)) {
+    log("  openxr: D3D11CreateDevice failed (0x%08X)", created);
+    return false;
+  }
+  return true;
+}
+
+// A SESSION WITH VULKAN. The runtime makes the Vulkan instance and the
+// device (XR_KHR_vulkan_enable2) with what the renderer of the mod needs:
+// Vulkan 1.3 with dynamic rendering and synchronization2, multiview, the
+// anisotropic filter when the GPU has it, and VK_KHR_external_memory_win32
+// for the relays. Then comes a Direct3D 11 device on the same GPU, for the
+// bridge and for the relays, when the session has Direct3D 11 (d3d11).
+bool XrScreen::Impl::StartVulkan() {
+  PFN_xrGetVulkanGraphicsRequirements2KHR get_requirements2 = nullptr;
+  PFN_xrCreateVulkanInstanceKHR create_instance = nullptr;
+  PFN_xrGetVulkanGraphicsDevice2KHR get_device = nullptr;
+  PFN_xrCreateVulkanDeviceKHR create_device = nullptr;
+  if (!Check(xrGetInstanceProcAddr(
+                 instance, "xrGetVulkanGraphicsRequirements2KHR",
+                 reinterpret_cast<PFN_xrVoidFunction*>(&get_requirements2)),
+             "xrGetInstanceProcAddr(Vulkan requirements)") ||
+      !Check(xrGetInstanceProcAddr(
+                 instance, "xrCreateVulkanInstanceKHR",
+                 reinterpret_cast<PFN_xrVoidFunction*>(&create_instance)),
+             "xrGetInstanceProcAddr(xrCreateVulkanInstanceKHR)") ||
+      !Check(xrGetInstanceProcAddr(
+                 instance, "xrGetVulkanGraphicsDevice2KHR",
+                 reinterpret_cast<PFN_xrVoidFunction*>(&get_device)),
+             "xrGetInstanceProcAddr(xrGetVulkanGraphicsDevice2KHR)") ||
+      !Check(xrGetInstanceProcAddr(
+                 instance, "xrCreateVulkanDeviceKHR",
+                 reinterpret_cast<PFN_xrVoidFunction*>(&create_device)),
+             "xrGetInstanceProcAddr(xrCreateVulkanDeviceKHR)")) {
+    return false;
+  }
+  XrGraphicsRequirementsVulkan2KHR requirements = {
+      XR_TYPE_GRAPHICS_REQUIREMENTS_VULKAN2_KHR};
+  if (!Check(get_requirements2(instance, system, &requirements),
+             "xrGetVulkanGraphicsRequirements2KHR")) {
+    return false;
+  }
+  log("  openxr: the runtime takes Vulkan %u.%u to %u.%u",
+      static_cast<unsigned>(XR_VERSION_MAJOR(requirements.minApiVersionSupported)),
+      static_cast<unsigned>(XR_VERSION_MINOR(requirements.minApiVersionSupported)),
+      static_cast<unsigned>(XR_VERSION_MAJOR(requirements.maxApiVersionSupported)),
+      static_cast<unsigned>(XR_VERSION_MINOR(requirements.maxApiVersionSupported)));
+  if (requirements.minApiVersionSupported > XR_MAKE_VERSION(1, 3, 0)) {
+    log("  openxr: the runtime needs a Vulkan newer than 1.3");
+    return false;
+  }
+
+  if (g_vk.made) {
+    // A later Start: the runtime must ask for the GPU of the device.
+    VkPhysicalDevice physical = VK_NULL_HANDLE;
+    XrVulkanGraphicsDeviceGetInfoKHR get_info = {
+        XR_TYPE_VULKAN_GRAPHICS_DEVICE_GET_INFO_KHR};
+    get_info.systemId = system;
+    get_info.vulkanInstance = g_vk.instance;
+    if (!Check(get_device(instance, &get_info, &physical),
+               "xrGetVulkanGraphicsDevice2KHR")) {
+      return false;
+    }
+    if (physical != g_vk.physical) {
+      log("  openxr: the runtime asks for another GPU than the Vulkan device "
+          "of the first session");
+      return false;
+    }
+    log("  openxr: the Vulkan device of the first session, on %s", g_vk.gpu);
+  } else {
+    if (g_vk.library == nullptr) g_vk.library = LoadLibraryA("vulkan-1.dll");
+    if (g_vk.library == nullptr) {
+      log("  openxr: there is no vulkan-1.dll, so a session with Vulkan "
+          "cannot start");
+      return false;
+    }
+    vkf.vkGetInstanceProcAddr = reinterpret_cast<PFN_vkGetInstanceProcAddr>(
+        GetProcAddress(g_vk.library, "vkGetInstanceProcAddr"));
+    if (vkf.vkGetInstanceProcAddr == nullptr) {
+      log("  openxr: vulkan-1.dll has no vkGetInstanceProcAddr");
+      return false;
+    }
+
+    VkApplicationInfo app = {VK_STRUCTURE_TYPE_APPLICATION_INFO};
+    app.pApplicationName = BWVR_PRODUCT_NAME;
+    app.pEngineName = "bwvr";
+    app.apiVersion = VK_API_VERSION_1_3;
+    VkInstanceCreateInfo instance_info = {
+        VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
+    instance_info.pApplicationInfo = &app;
+    // THE WINDOW OF THE GAME: the renderer of the mod can present to it
+    // with a swapchain of this instance, when the loader has a surface of
+    // Win32.
+    const char* surface_extensions[2] = {VK_KHR_SURFACE_EXTENSION_NAME,
+                                         "VK_KHR_win32_surface"};
+    bool surface = false;
+    {
+      PFN_vkEnumerateInstanceExtensionProperties enumerate =
+          reinterpret_cast<PFN_vkEnumerateInstanceExtensionProperties>(
+              vkf.vkGetInstanceProcAddr(
+                  nullptr, "vkEnumerateInstanceExtensionProperties"));
+      uint32_t count = 0;
+      if (enumerate != nullptr && enumerate(nullptr, &count, nullptr) >= 0) {
+        std::vector<VkExtensionProperties> list(count);
+        if (enumerate(nullptr, &count, list.data()) >= 0) {
+          int found = 0;
+          for (uint32_t i = 0; i < count; ++i) {
+            for (const char* name : surface_extensions) {
+              if (strcmp(list[i].extensionName, name) == 0) ++found;
+            }
+          }
+          surface = found == 2;
+        }
+      }
+    }
+    if (surface) {
+      instance_info.enabledExtensionCount = 2;
+      instance_info.ppEnabledExtensionNames = surface_extensions;
+    }
+    XrVulkanInstanceCreateInfoKHR xr_instance_info = {
+        XR_TYPE_VULKAN_INSTANCE_CREATE_INFO_KHR};
+    xr_instance_info.systemId = system;
+    xr_instance_info.pfnGetInstanceProcAddr = vkf.vkGetInstanceProcAddr;
+    xr_instance_info.vulkanCreateInfo = &instance_info;
+    VkResult vk_result = VK_SUCCESS;
+    if (!Check(create_instance(instance, &xr_instance_info, &g_vk.instance,
+                               &vk_result),
+               "xrCreateVulkanInstanceKHR")) {
+      return false;
+    }
+    if (vk_result != VK_SUCCESS) {
+      log("  openxr: vkCreateInstance failed (%d)", static_cast<int>(vk_result));
+      return false;
+    }
+#define BWVR_XR_VK_LOAD_INSTANCE(name)                                     \
+  vkf.name = reinterpret_cast<PFN_##name>(                                 \
+      vkf.vkGetInstanceProcAddr(g_vk.instance, #name));                    \
+  if (vkf.name == nullptr) {                                               \
+    log("  openxr: the Vulkan instance has no " #name);                    \
+    return false;                                                          \
+  }
+    BWVR_XR_VK_INSTANCE(BWVR_XR_VK_LOAD_INSTANCE)
+#undef BWVR_XR_VK_LOAD_INSTANCE
+
+    XrVulkanGraphicsDeviceGetInfoKHR get_info = {
+        XR_TYPE_VULKAN_GRAPHICS_DEVICE_GET_INFO_KHR};
+    get_info.systemId = system;
+    get_info.vulkanInstance = g_vk.instance;
+    if (!Check(get_device(instance, &get_info, &g_vk.physical),
+               "xrGetVulkanGraphicsDevice2KHR")) {
+      return false;
+    }
+
+    // What the GPU of the runtime has.
+    VkPhysicalDeviceIDProperties id = {
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ID_PROPERTIES};
+    VkPhysicalDeviceProperties2 properties = {
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2};
+    properties.pNext = &id;
+    vkf.vkGetPhysicalDeviceProperties2(g_vk.physical, &properties);
+    strncpy_s(g_vk.gpu, properties.properties.deviceName, _TRUNCATE);
+    if (properties.properties.apiVersion < VK_API_VERSION_1_3) {
+      log("  openxr: the GPU of the runtime (%s) has no Vulkan 1.3", g_vk.gpu);
+      return false;
+    }
+    if (!id.deviceLUIDValid && d3d11) {
+      log("  openxr: the GPU of the runtime (%s) gives no LUID, so Direct3D "
+          "11 cannot find it", g_vk.gpu);
+      return false;
+    }
+    memcpy(&g_vk.luid, id.deviceLUID, sizeof(LUID));
+    VkPhysicalDeviceVulkan13Features v13 = {
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES};
+    VkPhysicalDeviceVulkan11Features v11 = {
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES};
+    v13.pNext = &v11;
+    VkPhysicalDeviceFeatures2 features = {
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
+    features.pNext = &v13;
+    vkf.vkGetPhysicalDeviceFeatures2(g_vk.physical, &features);
+    if (!v13.dynamicRendering || !v13.synchronization2 || !v11.multiview) {
+      log("  openxr: the GPU of the runtime (%s) has no dynamic rendering, "
+          "synchronization2 or multiview", g_vk.gpu);
+      return false;
+    }
+    g_vk.max_anisotropy = features.features.samplerAnisotropy
+                              ? properties.properties.limits.maxSamplerAnisotropy
+                              : 0.0f;
+    bool external = false;
+    bool has_swapchain = false;
+    uint32_t extension_count = 0;
+    vkf.vkEnumerateDeviceExtensionProperties(g_vk.physical, nullptr,
+                                             &extension_count, nullptr);
+    std::vector<VkExtensionProperties> extension_list(extension_count);
+    vkf.vkEnumerateDeviceExtensionProperties(
+        g_vk.physical, nullptr, &extension_count, extension_list.data());
+    for (uint32_t i = 0; i < extension_count; ++i) {
+      if (strcmp(extension_list[i].extensionName,
+                 VK_KHR_EXTERNAL_MEMORY_WIN32_EXTENSION_NAME) == 0) {
+        external = true;
+      }
+      if (strcmp(extension_list[i].extensionName,
+                 VK_KHR_SWAPCHAIN_EXTENSION_NAME) == 0) {
+        has_swapchain = true;
+      }
+    }
+    g_vk.window_present = surface && has_swapchain;
+    // FOVEATED RENDERING: a shading rate attachment, when the GPU has it.
+    bool rate_extension = false;
+    for (uint32_t i = 0; i < extension_count; ++i) {
+      if (strcmp(extension_list[i].extensionName,
+                 VK_KHR_FRAGMENT_SHADING_RATE_EXTENSION_NAME) == 0) {
+        rate_extension = true;
+      }
+    }
+    VkPhysicalDeviceFragmentShadingRateFeaturesKHR rate_features = {
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADING_RATE_FEATURES_KHR};
+    if (rate_extension) {
+      VkPhysicalDeviceFeatures2 rate_query = {
+          VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
+      rate_query.pNext = &rate_features;
+      vkf.vkGetPhysicalDeviceFeatures2(g_vk.physical, &rate_query);
+    }
+    g_vk.shading_rate =
+        rate_extension && rate_features.attachmentFragmentShadingRate;
+    if (!external) {
+      log("  openxr: the GPU of the runtime (%s) has no %s", g_vk.gpu,
+          VK_KHR_EXTERNAL_MEMORY_WIN32_EXTENSION_NAME);
+      return false;
+    }
+    VkQueueFamilyProperties families[16];
+    uint32_t family_count = 16;
+    vkf.vkGetPhysicalDeviceQueueFamilyProperties(g_vk.physical, &family_count,
+                                                 families);
+    g_vk.family = UINT32_MAX;
+    for (uint32_t q = 0; q < family_count && q < 16; ++q) {
+      if (families[q].queueFlags & VK_QUEUE_GRAPHICS_BIT) {
+        g_vk.family = q;
+        break;
+      }
+    }
+    if (g_vk.family == UINT32_MAX) {
+      log("  openxr: the GPU of the runtime (%s) has no queue for graphics",
+          g_vk.gpu);
+      return false;
+    }
+
+    const float priority = 1.0f;
+    VkDeviceQueueCreateInfo queue_info = {
+        VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
+    queue_info.queueFamilyIndex = g_vk.family;
+    queue_info.queueCount = 1;
+    queue_info.pQueuePriorities = &priority;
+    VkPhysicalDeviceVulkan13Features want13 = {
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES};
+    want13.dynamicRendering = VK_TRUE;
+    want13.synchronization2 = VK_TRUE;
+    VkPhysicalDeviceVulkan11Features want11 = {
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES};
+    want11.multiview = VK_TRUE;
+    want13.pNext = &want11;
+    VkPhysicalDeviceFeatures2 want = {
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
+    want.pNext = &want13;
+    // The game asks for an anisotropic filter (D3DTSS_MAXANISOTROPY 16).
+    want.features.samplerAnisotropy =
+        g_vk.max_anisotropy > 0.0f ? VK_TRUE : VK_FALSE;
+    VkPhysicalDeviceFragmentShadingRateFeaturesKHR want_rate = {
+        VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FRAGMENT_SHADING_RATE_FEATURES_KHR};
+    want_rate.attachmentFragmentShadingRate = VK_TRUE;
+    if (g_vk.shading_rate) want11.pNext = &want_rate;
+    const char* device_extensions[3] = {
+        VK_KHR_EXTERNAL_MEMORY_WIN32_EXTENSION_NAME};
+    uint32_t device_extension_count = 1;
+    if (g_vk.shading_rate) {
+      device_extensions[device_extension_count++] =
+          VK_KHR_FRAGMENT_SHADING_RATE_EXTENSION_NAME;
+    }
+    if (g_vk.window_present) {
+      device_extensions[device_extension_count++] =
+          VK_KHR_SWAPCHAIN_EXTENSION_NAME;
+    }
+    VkDeviceCreateInfo device_info = {VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
+    device_info.pNext = &want;
+    device_info.queueCreateInfoCount = 1;
+    device_info.pQueueCreateInfos = &queue_info;
+    device_info.enabledExtensionCount = device_extension_count;
+    device_info.ppEnabledExtensionNames = device_extensions;
+    XrVulkanDeviceCreateInfoKHR xr_device_info = {
+        XR_TYPE_VULKAN_DEVICE_CREATE_INFO_KHR};
+    xr_device_info.systemId = system;
+    xr_device_info.pfnGetInstanceProcAddr = vkf.vkGetInstanceProcAddr;
+    xr_device_info.vulkanPhysicalDevice = g_vk.physical;
+    xr_device_info.vulkanCreateInfo = &device_info;
+    if (!Check(create_device(instance, &xr_device_info, &g_vk.device,
+                             &vk_result),
+               "xrCreateVulkanDeviceKHR")) {
+      return false;
+    }
+    if (vk_result != VK_SUCCESS) {
+      log("  openxr: vkCreateDevice failed (%d)", static_cast<int>(vk_result));
+      return false;
+    }
+#define BWVR_XR_VK_LOAD_DEVICE(name)                                       \
+  vkf.name = reinterpret_cast<PFN_##name>(                                 \
+      vkf.vkGetDeviceProcAddr(g_vk.device, #name));                        \
+  if (vkf.name == nullptr) {                                               \
+    log("  openxr: the Vulkan device has no " #name);                      \
+    return false;                                                          \
+  }
+    BWVR_XR_VK_DEVICE(BWVR_XR_VK_LOAD_DEVICE)
+#undef BWVR_XR_VK_LOAD_DEVICE
+    vkf.vkGetDeviceQueue(g_vk.device, g_vk.family, 0, &g_vk.queue);
+    vkf.vkGetPhysicalDeviceMemoryProperties(g_vk.physical, &g_vk.memory);
+    g_vk.made = true;
+    log("  openxr: Vulkan 1.3 on %s, made by the runtime. The anisotropic "
+        "filter: up to %.0f. A shading rate attachment: %s. A swapchain for "
+        "the window of the game: %s", g_vk.gpu, g_vk.max_anisotropy,
+        g_vk.shading_rate ? "yes" : "no", g_vk.window_present ? "yes" : "no");
+  }
+
+  if (d3d11) {
+    if (!MakeD3D11(g_vk.luid)) return false;
+  } else {
+    log("  openxr: the session has no Direct3D 11 device. Each picture goes "
+        "into the swapchains with Vulkan");
+  }
+  if (frequency.QuadPart == 0) QueryPerformanceFrequency(&frequency);
+
+  // The objects of this session: the copies and the wait for Direct3D 11.
+  VkCommandPoolCreateInfo pool_info = {
+      VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO};
+  pool_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+  pool_info.queueFamilyIndex = g_vk.family;
+  if (vkf.vkCreateCommandPool(g_vk.device, &pool_info, nullptr, &vk_pool) !=
+      VK_SUCCESS) {
+    log("  openxr: vkCreateCommandPool failed");
+    return false;
+  }
+  VkCommandBufferAllocateInfo cb_info = {
+      VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
+  cb_info.commandPool = vk_pool;
+  cb_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+  cb_info.commandBufferCount = kVkSlots;
+  if (vkf.vkAllocateCommandBuffers(g_vk.device, &cb_info, vk_cb) !=
+      VK_SUCCESS) {
+    log("  openxr: vkAllocateCommandBuffers failed");
+    return false;
+  }
+  for (int i = 0; i < kVkSlots; ++i) {
+    VkFenceCreateInfo fence_info = {VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
+    fence_info.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+    if (vkf.vkCreateFence(g_vk.device, &fence_info, nullptr, &vk_fence[i]) !=
+        VK_SUCCESS) {
+      log("  openxr: vkCreateFence failed");
+      return false;
+    }
+  }
+  vk_slot = 0;
+  if (device == nullptr) return true;
+  D3D11_QUERY_DESC query = {D3D11_QUERY_EVENT, 0};
+  if (FAILED(device->CreateQuery(&query, &d3d11_done))) {
+    log("  openxr: the event query of Direct3D 11 could not be made");
+    return false;
+  }
+  return true;
+}
+
+// The objects of a session with Vulkan. The instance and the device stay.
+void XrScreen::Impl::StopVulkan() {
+  if (!vulkan || !g_vk.made) return;
+  for (int i = 0; i < kVkChains; ++i) {
+    if (vk_chains[i].chain != XR_NULL_HANDLE) DestroyChain(&vk_chains[i].chain);
+  }
+  for (int i = 0; i < kVkSlots; ++i) {
+    if (vk_fence[i] != VK_NULL_HANDLE) {
+      vkf.vkWaitForFences(g_vk.device, 1, &vk_fence[i], VK_TRUE, UINT64_MAX);
+      vkf.vkDestroyFence(g_vk.device, vk_fence[i], nullptr);
+      vk_fence[i] = VK_NULL_HANDLE;
+    }
+    vk_cb[i] = VK_NULL_HANDLE;
+  }
+  FreeStages();
+  if (vk_pool != VK_NULL_HANDLE) {
+    vkf.vkDestroyCommandPool(g_vk.device, vk_pool, nullptr);
+    vk_pool = VK_NULL_HANDLE;
+  }
+  Release(d3d11_done);
+}
+
+int64_t XrScreen::Impl::ChainFormat() const {
+  if (format_index < 0) return static_cast<int64_t>(format);
+  return vulkan ? static_cast<int64_t>(kFormats[format_index].vk)
+                : static_cast<int64_t>(kFormats[format_index].dxgi);
+}
+
+// A swapchain of Vulkan gets the layout of a color attachment at each
+// acquire, and its image must have it again at the release.
+XrSwapchainUsageFlags XrScreen::Impl::ChainUsage() const {
+  XrSwapchainUsageFlags usage =
+      XR_SWAPCHAIN_USAGE_TRANSFER_DST_BIT | XR_SWAPCHAIN_USAGE_SAMPLED_BIT;
+  if (vulkan) usage |= XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT;
+  return usage;
+}
+
+XrScreen::Impl::VkChain* XrScreen::Impl::FindChain(XrSwapchain chain) {
+  if (chain == XR_NULL_HANDLE) return nullptr;
+  for (int i = 0; i < kVkChains; ++i) {
+    if (vk_chains[i].chain == chain) return &vk_chains[i];
+  }
+  return nullptr;
+}
+
+ID3D11Texture2D** XrScreen::Impl::ChainImages(XrSwapchain chain,
+                                              uint32_t chain_width,
+                                              uint32_t chain_height,
+                                              uint32_t* count) {
+  *count = 0;
+  if (XR_FAILED(xrEnumerateSwapchainImages(chain, 0, count, nullptr)) ||
+      *count == 0 || *count > 64) {
+    log("  openxr: xrEnumerateSwapchainImages gave no images");
+    *count = 0;
+    return nullptr;
+  }
+  const uint32_t n = *count;
+  ID3D11Texture2D** out = new ID3D11Texture2D*[n];
+  memset(out, 0, sizeof(*out) * n);
+  if (!vulkan) {
+    std::vector<XrSwapchainImageD3D11KHR> raw(
+        n, XrSwapchainImageD3D11KHR{XR_TYPE_SWAPCHAIN_IMAGE_D3D11_KHR});
+    xrEnumerateSwapchainImages(
+        chain, n, count, reinterpret_cast<XrSwapchainImageBaseHeader*>(raw.data()));
+    for (uint32_t i = 0; i < *count && i < n; ++i) out[i] = raw[i].texture;
+    return out;
+  }
+  std::vector<XrSwapchainImageVulkan2KHR> raw(
+      n, XrSwapchainImageVulkan2KHR{XR_TYPE_SWAPCHAIN_IMAGE_VULKAN2_KHR});
+  xrEnumerateSwapchainImages(
+      chain, n, count, reinterpret_cast<XrSwapchainImageBaseHeader*>(raw.data()));
+  VkChain* slot = nullptr;
+  for (int i = 0; i < kVkChains && slot == nullptr; ++i) {
+    if (vk_chains[i].chain == XR_NULL_HANDLE) slot = &vk_chains[i];
+  }
+  if (slot == nullptr) {
+    log("  openxr: no room for one more swapchain of Vulkan");
+    delete[] out;
+    *count = 0;
+    return nullptr;
+  }
+  VkChain& c = *slot;
+  memset(&c, 0, sizeof(c));
+  c.chain = chain;
+  c.count = *count;
+  c.width = chain_width;
+  c.height = chain_height;
+  c.acquired = UINT32_MAX;
+  c.images = new VkImage[n];
+  c.relays = new Relay[n];
+  memset(c.relays, 0, sizeof(Relay) * n);
+  for (uint32_t i = 0; i < c.count; ++i) {
+    c.images[i] = raw[i].image;
+    // With no Direct3D 11 an image has no relay, and its entry is null.
+    if (device == nullptr) continue;
+    if (!MakeRelay(chain_width, chain_height, &c.relays[i])) {
+      log("  openxr: the relay %u of a swapchain of %u by %u could not be "
+          "made", i, chain_width, chain_height);
+      for (uint32_t k = 0; k <= i; ++k) FreeRelay(&c.relays[k]);
+      delete[] c.images;
+      delete[] c.relays;
+      memset(&c, 0, sizeof(c));
+      delete[] out;
+      *count = 0;
+      return nullptr;
+    }
+    out[i] = c.relays[i].texture;
+  }
+  return out;
+}
+
+void XrScreen::Impl::DestroyChain(XrSwapchain* chain) {
+  const XrSwapchain handle = *chain;
+  if (handle == XR_NULL_HANDLE) return;
+  VkChain* c = vulkan ? FindChain(handle) : nullptr;
+  if (c != nullptr) {
+    // No copy of the GPU may still read a relay or write an image.
+    for (int i = 0; i < kVkSlots; ++i) {
+      if (vk_fence[i] != VK_NULL_HANDLE) {
+        vkf.vkWaitForFences(g_vk.device, 1, &vk_fence[i], VK_TRUE, UINT64_MAX);
+      }
+    }
+    for (uint32_t i = 0; i < c->count; ++i) FreeRelay(&c->relays[i]);
+    delete[] c->images;
+    delete[] c->relays;
+    memset(c, 0, sizeof(*c));
+  }
+  xrDestroySwapchain(handle);
+  *chain = XR_NULL_HANDLE;
+}
+
+// A RELAY: a Direct3D 11 texture with an NT handle, and a Vulkan image on
+// its memory. The image stays in the layout GENERAL, and the queue of the
+// session takes it from the external owner (Direct3D 11) for each copy and
+// gives it back after it.
+bool XrScreen::Impl::MakeRelay(uint32_t relay_width, uint32_t relay_height,
+                               Relay* relay) {
+  const FormatChoice& choice = kFormats[format_index < 0 ? 0 : format_index];
+  D3D11_TEXTURE2D_DESC desc;
+  ZeroMemory(&desc, sizeof(desc));
+  desc.Width = relay_width;
+  desc.Height = relay_height;
+  desc.MipLevels = 1;
+  desc.ArraySize = 1;
+  desc.Format = choice.dxgi_unorm;
+  desc.SampleDesc.Count = 1;
+  desc.Usage = D3D11_USAGE_DEFAULT;
+  desc.BindFlags = D3D11_BIND_SHADER_RESOURCE | D3D11_BIND_RENDER_TARGET;
+  desc.MiscFlags =
+      D3D11_RESOURCE_MISC_SHARED | D3D11_RESOURCE_MISC_SHARED_NTHANDLE;
+  if (FAILED(device->CreateTexture2D(&desc, nullptr, &relay->texture))) {
+    log("  openxr: the Direct3D 11 texture of a relay could not be made");
+    return false;
+  }
+  IDXGIResource1* resource = nullptr;
+  if (FAILED(relay->texture->QueryInterface(
+          __uuidof(IDXGIResource1), reinterpret_cast<void**>(&resource)))) {
+    log("  openxr: the texture of a relay has no IDXGIResource1");
+    return false;
+  }
+  const HRESULT shared = resource->CreateSharedHandle(
+      nullptr, DXGI_SHARED_RESOURCE_READ | DXGI_SHARED_RESOURCE_WRITE, nullptr,
+      &relay->handle);
+  resource->Release();
+  if (FAILED(shared)) {
+    log("  openxr: the NT handle of a relay could not be made (0x%08X)",
+        shared);
+    relay->handle = nullptr;
+    return false;
+  }
+
+  VkExternalMemoryImageCreateInfo external = {
+      VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO};
+  external.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_D3D11_TEXTURE_BIT;
+  VkImageCreateInfo info = {VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
+  info.pNext = &external;
+  info.imageType = VK_IMAGE_TYPE_2D;
+  info.format = choice.vk_unorm;
+  info.extent = {relay_width, relay_height, 1};
+  info.mipLevels = 1;
+  info.arrayLayers = 1;
+  info.samples = VK_SAMPLE_COUNT_1_BIT;
+  info.tiling = VK_IMAGE_TILING_OPTIMAL;
+  info.usage = VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+  info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+  info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+  if (vkf.vkCreateImage(g_vk.device, &info, nullptr, &relay->image) !=
+      VK_SUCCESS) {
+    log("  openxr: the Vulkan image of a relay could not be made");
+    return false;
+  }
+  VkMemoryRequirements req;
+  vkf.vkGetImageMemoryRequirements(g_vk.device, relay->image, &req);
+  VkMemoryWin32HandlePropertiesKHR handle_properties = {
+      VK_STRUCTURE_TYPE_MEMORY_WIN32_HANDLE_PROPERTIES_KHR};
+  uint32_t bits = req.memoryTypeBits;
+  if (vkf.vkGetMemoryWin32HandlePropertiesKHR(
+          g_vk.device, VK_EXTERNAL_MEMORY_HANDLE_TYPE_D3D11_TEXTURE_BIT,
+          relay->handle, &handle_properties) == VK_SUCCESS &&
+      (bits & handle_properties.memoryTypeBits) != 0) {
+    bits &= handle_properties.memoryTypeBits;
+  }
+  uint32_t type = UINT32_MAX;
+  for (uint32_t i = 0; i < g_vk.memory.memoryTypeCount && type == UINT32_MAX;
+       ++i) {
+    if ((bits & (1u << i)) != 0 &&
+        (g_vk.memory.memoryTypes[i].propertyFlags &
+         VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) != 0) {
+      type = i;
+    }
+  }
+  for (uint32_t i = 0; i < g_vk.memory.memoryTypeCount && type == UINT32_MAX;
+       ++i) {
+    if ((bits & (1u << i)) != 0) type = i;
+  }
+  VkMemoryDedicatedAllocateInfo dedicated = {
+      VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO};
+  dedicated.image = relay->image;
+  VkImportMemoryWin32HandleInfoKHR import = {
+      VK_STRUCTURE_TYPE_IMPORT_MEMORY_WIN32_HANDLE_INFO_KHR};
+  import.pNext = &dedicated;
+  import.handleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_D3D11_TEXTURE_BIT;
+  import.handle = relay->handle;
+  VkMemoryAllocateInfo allocate = {VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
+  allocate.pNext = &import;
+  allocate.allocationSize = req.size;
+  allocate.memoryTypeIndex = type;
+  if (type == UINT32_MAX ||
+      vkf.vkAllocateMemory(g_vk.device, &allocate, nullptr, &relay->memory) !=
+          VK_SUCCESS) {
+    log("  openxr: the memory of a relay could not be imported into Vulkan");
+    relay->memory = VK_NULL_HANDLE;
+    return false;
+  }
+  if (vkf.vkBindImageMemory(g_vk.device, relay->image, relay->memory, 0) !=
+      VK_SUCCESS) {
+    log("  openxr: the memory of a relay could not be bound");
+    return false;
+  }
+  // The first layout, and the image goes to its external owner.
+  VkCommandBuffer cb = BeginCopy();
+  if (cb == VK_NULL_HANDLE) return false;
+  VkImageMemoryBarrier barrier = {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
+  barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+  barrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+  barrier.srcQueueFamilyIndex = g_vk.family;
+  barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_EXTERNAL;
+  barrier.image = relay->image;
+  barrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+  vkf.vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                           VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0, 0, nullptr,
+                           0, nullptr, 1, &barrier);
+  return EndCopy(cb);
+}
+
+void XrScreen::Impl::FreeRelay(Relay* relay) {
+  if (relay->image != VK_NULL_HANDLE) {
+    vkf.vkDestroyImage(g_vk.device, relay->image, nullptr);
+  }
+  if (relay->memory != VK_NULL_HANDLE) {
+    vkf.vkFreeMemory(g_vk.device, relay->memory, nullptr);
+  }
+  if (relay->handle != nullptr) CloseHandle(relay->handle);
+  Release(relay->texture);
+  memset(relay, 0, sizeof(*relay));
+}
+
+XrResult XrScreen::Impl::AcquireImage(XrSwapchain chain, uint32_t* image) {
+  XrSwapchainImageAcquireInfo acquire = {XR_TYPE_SWAPCHAIN_IMAGE_ACQUIRE_INFO};
+  XrResult result;
+  {
+    QueueGuard guard(vulkan);
+    result = xrAcquireSwapchainImage(chain, &acquire, image);
+  }
+  if (XR_SUCCEEDED(result) && vulkan) {
+    VkChain* c = FindChain(chain);
+    if (c != nullptr) c->acquired = *image;
+  }
+  return result;
+}
+
+XrResult XrScreen::Impl::ReleaseImage(XrSwapchain chain, bool push) {
+  if (vulkan) {
+    VkChain* c = FindChain(chain);
+    if (c != nullptr && push && device != nullptr &&
+        c->acquired < c->count) {
+      if (!Push(*c, c->acquired) && !vk_said_push_failed) {
+        vk_said_push_failed = true;
+        log("  openxr: a copy of a relay into its swapchain image failed");
+      }
+    }
+    if (c != nullptr) c->acquired = UINT32_MAX;
+  }
+  XrSwapchainImageReleaseInfo release = {XR_TYPE_SWAPCHAIN_IMAGE_RELEASE_INFO};
+  QueueGuard guard(vulkan);
+  return xrReleaseSwapchainImage(chain, &release);
+}
+
+VkCommandBuffer XrScreen::Impl::BeginCopy() {
+  if (vk_pool == VK_NULL_HANDLE) return VK_NULL_HANDLE;
+  const int slot = vk_slot;
+  vkf.vkWaitForFences(g_vk.device, 1, &vk_fence[slot], VK_TRUE, UINT64_MAX);
+  vkf.vkResetFences(g_vk.device, 1, &vk_fence[slot]);
+  vkf.vkResetCommandBuffer(vk_cb[slot], 0);
+  VkCommandBufferBeginInfo begin = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
+  begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+  if (vkf.vkBeginCommandBuffer(vk_cb[slot], &begin) != VK_SUCCESS) {
+    return VK_NULL_HANDLE;
+  }
+  return vk_cb[slot];
+}
+
+// Submits the command buffer of BeginCopy with the fence of its slot. The
+// next BeginCopy takes the next slot.
+bool XrScreen::Impl::EndCopy(VkCommandBuffer cb) {
+  const int slot = vk_slot;
+  vk_slot = (vk_slot + 1) % kVkSlots;
+  if (vkf.vkEndCommandBuffer(cb) != VK_SUCCESS) {
+    // The fence must be signaled again for the next use of the slot.
+    VkSubmitInfo empty = {VK_STRUCTURE_TYPE_SUBMIT_INFO};
+    QueueGuard guard(true);
+    vkf.vkQueueSubmit(g_vk.queue, 1, &empty, vk_fence[slot]);
+    return false;
+  }
+  VkSubmitInfo submit = {VK_STRUCTURE_TYPE_SUBMIT_INFO};
+  submit.commandBufferCount = 1;
+  submit.pCommandBuffers = &cb;
+  QueueGuard guard(true);
+  return vkf.vkQueueSubmit(g_vk.queue, 1, &submit, vk_fence[slot]) ==
+         VK_SUCCESS;
+}
+
+// The relay of `image` into the image. Vulkan has no wait for the work of
+// Direct3D 11, so the CPU waits until Direct3D 11 has written the relay.
+bool XrScreen::Impl::Push(VkChain& chain, uint32_t image) {
+  LARGE_INTEGER start, done;
+  QueryPerformanceCounter(&start);
+  if (d3d11_done == nullptr) return false;
+  context->End(d3d11_done);
+  context->Flush();
+  BOOL finished = FALSE;
+  while (context->GetData(d3d11_done, &finished, sizeof(finished), 0) ==
+         S_FALSE) {
+    SwitchToThread();
+  }
+  VkCommandBuffer cb = BeginCopy();
+  if (cb == VK_NULL_HANDLE) return false;
+  const Relay& relay = chain.relays[image];
+  VkImageMemoryBarrier before[2] = {{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER},
+                                    {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER}};
+  before[0].dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+  before[0].oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+  before[0].newLayout = VK_IMAGE_LAYOUT_GENERAL;
+  before[0].srcQueueFamilyIndex = VK_QUEUE_FAMILY_EXTERNAL;
+  before[0].dstQueueFamilyIndex = g_vk.family;
+  before[0].image = relay.image;
+  before[0].subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+  before[1].dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+  before[1].oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+  before[1].newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+  before[1].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+  before[1].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+  before[1].image = chain.images[image];
+  before[1].subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+  vkf.vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                           VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0,
+                           nullptr, 2, before);
+  VkImageCopy region = {};
+  region.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+  region.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+  region.extent = {chain.width, chain.height, 1};
+  vkf.vkCmdCopyImage(cb, relay.image, VK_IMAGE_LAYOUT_GENERAL,
+                     chain.images[image], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                     1, &region);
+  VkImageMemoryBarrier after[2] = {{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER},
+                                   {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER}};
+  after[0].srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+  after[0].oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+  after[0].newLayout = VK_IMAGE_LAYOUT_GENERAL;
+  after[0].srcQueueFamilyIndex = g_vk.family;
+  after[0].dstQueueFamilyIndex = VK_QUEUE_FAMILY_EXTERNAL;
+  after[0].image = relay.image;
+  after[0].subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+  after[1].srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+  after[1].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT |
+                           VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+  after[1].oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+  after[1].newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+  after[1].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+  after[1].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+  after[1].image = chain.images[image];
+  after[1].subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+  vkf.vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                           VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 0, nullptr, 0,
+                           nullptr, 2, after);
+  const bool ok = EndCopy(cb);
+  QueryPerformanceCounter(&done);
+  vk_push_ticks += static_cast<uint64_t>(done.QuadPart - start.QuadPart);
+  ++vk_pushes;
+  return ok;
+}
+
+void XrScreen::Impl::FreeStages() {
+  for (int i = 0; i < kVkSlots; ++i) {
+    Stage& stage = vk_stage[i];
+    if (stage.buffer != VK_NULL_HANDLE) {
+      vkf.vkDestroyBuffer(g_vk.device, stage.buffer, nullptr);
+    }
+    // The free of the memory also ends its map.
+    if (stage.memory != VK_NULL_HANDLE) {
+      vkf.vkFreeMemory(g_vk.device, stage.memory, nullptr);
+    }
+    memset(&stage, 0, sizeof(stage));
+  }
+}
+
+// THE PIXELS OF THE CPU. The CPU writes the rect into the buffer of the slot
+// of this copy, and the GPU copies the buffer into the image. The image is
+// in the layout of a color attachment after the acquire, and it has that
+// layout again before the release. The rest of the image keeps its pixels.
+bool XrScreen::Impl::UploadVulkan(XrSwapchain chain, uint32_t image,
+                                  const uint8_t* pixels, uint32_t pitch,
+                                  int32_t x, int32_t y, int32_t w, int32_t h,
+                                  bool swap_red_blue) {
+  LARGE_INTEGER start, done;
+  QueryPerformanceCounter(&start);
+  VkChain* c = FindChain(chain);
+  if (c == nullptr || image >= c->count || pixels == nullptr || w <= 0 ||
+      h <= 0) {
+    return false;
+  }
+  // BeginCopy waits for the fence of this slot, so the GPU does not read
+  // its buffer any more.
+  const int slot = vk_slot;
+  VkCommandBuffer cb = BeginCopy();
+  if (cb == VK_NULL_HANDLE) return false;
+  Stage& stage = vk_stage[slot];
+  const VkDeviceSize bytes = static_cast<VkDeviceSize>(w) * h * 4;
+  if (stage.size < bytes) {
+    if (stage.buffer != VK_NULL_HANDLE) {
+      vkf.vkDestroyBuffer(g_vk.device, stage.buffer, nullptr);
+    }
+    if (stage.memory != VK_NULL_HANDLE) {
+      vkf.vkFreeMemory(g_vk.device, stage.memory, nullptr);
+    }
+    memset(&stage, 0, sizeof(stage));
+    VkBufferCreateInfo info = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+    info.size = bytes;
+    info.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+    info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    bool ok = vkf.vkCreateBuffer(g_vk.device, &info, nullptr, &stage.buffer) ==
+              VK_SUCCESS;
+    VkMemoryRequirements req = {};
+    if (ok) vkf.vkGetBufferMemoryRequirements(g_vk.device, stage.buffer, &req);
+    uint32_t type = UINT32_MAX;
+    const VkMemoryPropertyFlags want = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                                       VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+    for (uint32_t i = 0; ok && i < g_vk.memory.memoryTypeCount; ++i) {
+      if ((req.memoryTypeBits & (1u << i)) != 0 &&
+          (g_vk.memory.memoryTypes[i].propertyFlags & want) == want) {
+        type = i;
+        break;
+      }
+    }
+    VkMemoryAllocateInfo allocate = {VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
+    allocate.allocationSize = req.size;
+    allocate.memoryTypeIndex = type;
+    ok = ok && type != UINT32_MAX &&
+         vkf.vkAllocateMemory(g_vk.device, &allocate, nullptr,
+                              &stage.memory) == VK_SUCCESS &&
+         vkf.vkBindBufferMemory(g_vk.device, stage.buffer, stage.memory, 0) ==
+             VK_SUCCESS;
+    void* mapped = nullptr;
+    ok = ok && vkf.vkMapMemory(g_vk.device, stage.memory, 0, VK_WHOLE_SIZE, 0,
+                               &mapped) == VK_SUCCESS;
+    if (!ok) {
+      if (stage.buffer != VK_NULL_HANDLE) {
+        vkf.vkDestroyBuffer(g_vk.device, stage.buffer, nullptr);
+      }
+      if (stage.memory != VK_NULL_HANDLE) {
+        vkf.vkFreeMemory(g_vk.device, stage.memory, nullptr);
+      }
+      memset(&stage, 0, sizeof(stage));
+      EndCopy(cb);
+      return false;
+    }
+    stage.mapped = static_cast<uint8_t*>(mapped);
+    stage.size = bytes;
+  }
+  const size_t row_bytes = static_cast<size_t>(w) * 4;
+  for (int32_t row = 0; row < h; ++row) {
+    const uint8_t* in = pixels + static_cast<size_t>(y + row) * pitch +
+                        static_cast<size_t>(x) * 4;
+    uint8_t* out = stage.mapped + static_cast<size_t>(row) * row_bytes;
+    if (!swap_red_blue) {
+      memcpy(out, in, row_bytes);
+      continue;
+    }
+    for (int32_t i = 0; i < w; ++i, in += 4, out += 4) {
+      out[0] = in[2];
+      out[1] = in[1];
+      out[2] = in[0];
+      out[3] = in[3];
+    }
+  }
+  VkImageMemoryBarrier before = {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
+  before.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+  before.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+  before.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+  before.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+  before.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+  before.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+  before.image = c->images[image];
+  before.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+  vkf.vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+                           VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0,
+                           nullptr, 1, &before);
+  VkBufferImageCopy region = {};
+  region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+  region.imageOffset = {x, y, 0};
+  region.imageExtent = {static_cast<uint32_t>(w), static_cast<uint32_t>(h), 1};
+  vkf.vkCmdCopyBufferToImage(cb, stage.buffer, c->images[image],
+                             VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+  VkImageMemoryBarrier after = before;
+  after.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+  after.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT |
+                        VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+  after.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+  after.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+  vkf.vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                           VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 0, nullptr, 0,
+                           nullptr, 1, &after);
+  const bool ok = EndCopy(cb);
+  QueryPerformanceCounter(&done);
+  vk_upload_ticks += static_cast<uint64_t>(done.QuadPart - start.QuadPart);
+  ++vk_uploads;
+  if (!ok && !vk_said_upload_failed) {
+    vk_said_upload_failed = true;
+    log("  openxr: a copy of the pixels of the CPU into a swapchain image "
+        "failed");
+  }
+  return ok;
+}
+
+// One layer of a Vulkan image into the next image of a swapchain: acquire,
+// wait, one copy on the GPU, release. The work that drew the image is in the
+// queue before this copy, and the barrier waits for it.
+XrResult XrScreen::Impl::CopyVulkan(XrSwapchain chain, uint64_t image,
+                                    uint32_t layer) {
+  VkChain* c = FindChain(chain);
+  if (c == nullptr || image == 0) return XR_ERROR_VALIDATION_FAILURE;
+  uint32_t index = 0;
+  XrResult result = AcquireImage(chain, &index);
+  if (XR_FAILED(result)) return result;
+  XrSwapchainImageWaitInfo image_wait = {XR_TYPE_SWAPCHAIN_IMAGE_WAIT_INFO};
+  image_wait.timeout = XR_INFINITE_DURATION;
+  result = xrWaitSwapchainImage(chain, &image_wait);
+  if (XR_FAILED(result)) return result;
+  VkCommandBuffer cb = index < c->count ? BeginCopy() : VK_NULL_HANDLE;
+  if (cb != VK_NULL_HANDLE) {
+    const VkImage source = (VkImage)image;  // a handle of 64 bits
+    VkImageMemoryBarrier before[2] = {{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER},
+                                      {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER}};
+    before[0].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    before[0].dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+    before[0].oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    before[0].newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+    before[0].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    before[0].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    before[0].image = source;
+    before[0].subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, layer, 1};
+    before[1].dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    before[1].oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    before[1].newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    before[1].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    before[1].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    before[1].image = c->images[index];
+    before[1].subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    vkf.vkCmdPipelineBarrier(cb,
+                             VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT |
+                                 VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                             VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0,
+                             nullptr, 2, before);
+    VkImageCopy region = {};
+    region.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, layer, 1};
+    region.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+    region.extent = {c->width, c->height, 1};
+    vkf.vkCmdCopyImage(cb, source, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                       c->images[index], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                       1, &region);
+    const int eye = chain == swapchain[0] ? 0 : chain == swapchain[1] ? 1 : -1;
+    const bool capture = capture_left > 0 && eye >= 0;
+    VkImageMemoryBarrier after[2] = {{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER},
+                                     {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER}};
+    after[0].srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+    after[0].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    after[0].oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+    after[0].newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    after[0].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    after[0].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    after[0].image = source;
+    after[0].subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, layer, 1};
+    after[1].srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+    after[1].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT |
+                             VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    after[1].oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    after[1].newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    after[1].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    after[1].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    after[1].image = c->images[index];
+    after[1].subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    vkf.vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                             VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 0, nullptr,
+                             0, nullptr, 2, after);
+    const int slot = vk_slot;
+    if (EndCopy(cb)) ++vk_copies;
+    if (capture) {
+      vkf.vkWaitForFences(g_vk.device, 1, &vk_fence[slot], VK_TRUE,
+                          UINT64_MAX);
+      SaveChainPicture(c, index, eye);
+      --capture_left;
+    }
+  }
+  return ReleaseImage(chain, false);
+}
+
+// THE TEST AID of CaptureSwapchainNext: the swapchain image `index`, after
+// its copy, into a buffer of the CPU and into a BMP file. With a wait for
+// the GPU.
+void XrScreen::Impl::SaveChainPicture(VkChain* c, uint32_t index, int eye) {
+  const VkDeviceSize bytes = static_cast<VkDeviceSize>(c->width) * c->height * 4;
+  VkBuffer buffer = VK_NULL_HANDLE;
+  VkDeviceMemory memory = VK_NULL_HANDLE;
+  VkBufferCreateInfo info = {VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO};
+  info.size = bytes;
+  info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+  info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+  if (vkf.vkCreateBuffer(g_vk.device, &info, nullptr, &buffer) != VK_SUCCESS) {
+    return;
+  }
+  VkMemoryRequirements req = {};
+  vkf.vkGetBufferMemoryRequirements(g_vk.device, buffer, &req);
+  uint32_t type = UINT32_MAX;
+  const VkMemoryPropertyFlags want = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                                     VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
+  for (uint32_t i = 0; i < g_vk.memory.memoryTypeCount; ++i) {
+    if ((req.memoryTypeBits & (1u << i)) != 0 &&
+        (g_vk.memory.memoryTypes[i].propertyFlags & want) == want) {
+      type = i;
+      break;
+    }
+  }
+  VkMemoryAllocateInfo allocate = {VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO};
+  allocate.allocationSize = req.size;
+  allocate.memoryTypeIndex = type;
+  void* mapped = nullptr;
+  const bool made =
+      type != UINT32_MAX &&
+      vkf.vkAllocateMemory(g_vk.device, &allocate, nullptr, &memory) ==
+          VK_SUCCESS &&
+      vkf.vkBindBufferMemory(g_vk.device, buffer, memory, 0) == VK_SUCCESS &&
+      vkf.vkMapMemory(g_vk.device, memory, 0, VK_WHOLE_SIZE, 0, &mapped) ==
+          VK_SUCCESS;
+  VkCommandBuffer cb = made ? BeginCopy() : VK_NULL_HANDLE;
+  if (cb != VK_NULL_HANDLE) {
+    // The image is in the layout of a color attachment after the copy.
+    VkImageMemoryBarrier to_read = {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER};
+    to_read.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT |
+                            VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    to_read.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+    to_read.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    to_read.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+    to_read.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    to_read.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    to_read.image = c->images[index];
+    to_read.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    vkf.vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
+                             VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0,
+                             nullptr, 1, &to_read);
+    VkBufferImageCopy copy = {};
+    copy.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+    copy.imageExtent = {c->width, c->height, 1};
+    vkf.vkCmdCopyImageToBuffer(cb, c->images[index],
+                               VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, buffer, 1,
+                               &copy);
+    VkImageMemoryBarrier back = to_read;
+    back.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+    back.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT |
+                         VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    back.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+    back.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    vkf.vkCmdPipelineBarrier(cb, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                             VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 0, nullptr,
+                             0, nullptr, 1, &back);
+    const int slot = vk_slot;
+    if (EndCopy(cb)) {
+      vkf.vkWaitForFences(g_vk.device, 1, &vk_fence[slot], VK_TRUE,
+                          UINT64_MAX);
+      const VkFormat chain_format =
+          kFormats[format_index < 0 ? 0 : format_index].vk_unorm;
+      const bool bgra = chain_format == VK_FORMAT_B8G8R8A8_UNORM;
+      char path[MAX_PATH];
+      GetModuleFileNameA(nullptr, path, MAX_PATH);
+      char* slash = strrchr(path, '\\');
+      if (slash != nullptr) slash[1] = 0;
+      char name[64];
+      _snprintf_s(name, sizeof(name), _TRUNCATE, "bwvr-xr-%s-%05llu.bmp",
+                  eye == 0 ? "left" : "right", capture_name);
+      strcat_s(path, name);
+      const uint8_t* src = static_cast<const uint8_t*>(mapped);
+      int low = 255, high = 0;
+      FILE* out = nullptr;
+      if (fopen_s(&out, path, "wb") == 0 && out != nullptr) {
+        const uint32_t w = c->width, h = c->height;
+        const uint32_t row = (w * 3 + 3) & ~3u;
+        const uint32_t data = row * h;
+        uint8_t header[54] = {'B', 'M'};
+        const uint32_t file = 54 + data, offset = 54, size40 = 40;
+        const uint32_t planes_bits = 1 | (24 << 16);
+        memcpy(header + 2, &file, 4);
+        memcpy(header + 10, &offset, 4);
+        memcpy(header + 14, &size40, 4);
+        memcpy(header + 18, &w, 4);
+        memcpy(header + 22, &h, 4);
+        memcpy(header + 26, &planes_bits, 4);
+        memcpy(header + 34, &data, 4);
+        fwrite(header, 1, 54, out);
+        std::vector<uint8_t> line(row, 0);
+        for (uint32_t y = 0; y < h; ++y) {
+          const uint8_t* p = src + static_cast<size_t>(h - 1 - y) * w * 4;
+          for (uint32_t x = 0; x < w; ++x) {
+            line[x * 3 + 0] = p[x * 4 + (bgra ? 0 : 2)];
+            line[x * 3 + 1] = p[x * 4 + 1];
+            line[x * 3 + 2] = p[x * 4 + (bgra ? 2 : 0)];
+            const int a = p[x * 4 + 3];
+            if (a < low) low = a;
+            if (a > high) high = a;
+          }
+          fwrite(line.data(), 1, row, out);
+        }
+        fclose(out);
+        log("  openxr: the swapchain image of the %s eye is in %s (format %d, "
+            "alpha %d to %d)",
+            eye == 0 ? "left" : "right", path, static_cast<int>(chain_format), low,
+            high);
+      }
+    }
+  }
+  if (memory != VK_NULL_HANDLE) vkf.vkFreeMemory(g_vk.device, memory, nullptr);
+  if (buffer != VK_NULL_HANDLE) vkf.vkDestroyBuffer(g_vk.device, buffer, nullptr);
+}
+
+void XrScreen::UseVulkan(bool on) { impl_->vulkan = on; }
+
+void XrScreen::UseD3D11(bool on) { impl_->d3d11 = on; }
+
+void XrScreen::CaptureSwapchainNext(uint64_t name) {
+  impl_->capture_left = eyes_ > 1 ? 2 : 1;
+  impl_->capture_name = name;
+}
+
+void XrScreen::WantEyeGaze(bool on) { impl_->gaze_wanted = on; }
+
+bool XrScreen::EyeGazeSupported() const { return impl_->gaze_supported; }
+
+bool XrScreen::EyeGaze(float direction[3]) const {
+  if (!impl_->gaze_valid) return false;
+  for (int i = 0; i < 3; ++i) direction[i] = impl_->gaze_direction[i];
+  return true;
+}
+
+void XrScreen::SetVulkanUpload(bool on) { impl_->vk_upload = on; }
+
+void XrScreen::SetHoldMs(int ms) {
+  InterlockedExchange(&impl_->hold_ms, ms > 0 ? (ms < 1000 ? ms : 1000) : 0);
+}
+
+int XrScreen::HoldMs() const { return static_cast<int>(impl_->hold_ms); }
+
+double XrScreen::DisplaySeconds() const {
+  return static_cast<double>(impl_->display_seconds_ns) * 1e-9;
+}
+
+bool XrScreen::vulkan_upload() const {
+  return impl_->vk_upload || (impl_->vulkan && impl_->device == nullptr);
+}
+
+bool XrScreen::vulkan() const { return impl_->vulkan; }
+
+bool XrScreen::VulkanFailed() const { return impl_->vk_failed; }
+
+bool XrScreen::VulkanInfo(XrVulkan* out) const {
+  const Impl& s = *impl_;
+  if (!s.vulkan || !g_vk.made || !running_) return false;
+  out->get_instance_proc_addr =
+      reinterpret_cast<void*>(vkf.vkGetInstanceProcAddr);
+  out->instance = g_vk.instance;
+  out->physical = g_vk.physical;
+  out->device = g_vk.device;
+  out->queue_family = g_vk.family;
+  out->queue_index = 0;
+  out->max_anisotropy = g_vk.max_anisotropy;
+  out->eye_format = static_cast<uint32_t>(
+      kFormats[s.format_index < 0 ? 0 : s.format_index].vk_unorm);
+  out->shading_rate = g_vk.shading_rate;
+  out->window_present = g_vk.window_present;
+  return true;
+}
+
+void XrScreen::LockQueue() { AcquireSRWLockExclusive(&g_queue_lock); }
+
+void XrScreen::UnlockQueue() { ReleaseSRWLockExclusive(&g_queue_lock); }
+
+uint32_t XrScreen::width() const { return impl_->width; }
+
+uint32_t XrScreen::height() const { return impl_->height; }
+
+void XrScreen::SetEyeVulkan(int index, uint64_t image, uint32_t layer) {
+  Impl& s = *impl_;
+  if (!s.vulkan || !s.frame_open || !should_render_ || image == 0) return;
+  const int eye = (index >= 1 && eyes_ > 1) ? 1 : 0;
+  if (s.swapchain[eye] == XR_NULL_HANDLE) return;
+  if (s.Check(s.CopyVulkan(s.swapchain[eye], image, layer),
+              "the copy of a Vulkan eye picture")) {
+    s.acquired[eye] = 0;
   }
 }
 

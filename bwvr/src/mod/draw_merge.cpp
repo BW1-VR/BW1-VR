@@ -55,6 +55,10 @@
 #include "MinHook.h"
 #include "../common/bw_addresses.h"
 #include "draw_merge_math.h"
+#include "d3d7_thread.h"
+#include "vk_scene.h"
+#include "render_thread.h"
+#include "thread_id.h"
 
 extern void ModLog(const char* format, ...);
 // draw_probe.cpp: the hooks of the device, and the draw call of a batch.
@@ -101,6 +105,7 @@ uint64_t g_passes = 0;
 uint64_t g_taken = 0;   // draw calls of the game that went into a batch
 uint64_t g_sent = 0;    // draw calls that went out for them
 uint64_t g_passed = 0;  // draw calls in an eye pass that the merge did not take
+uint64_t g_to_d3d7 = 0;  // draw calls that the D3D7 thread merges
 // The check of the triangles.
 uint64_t g_hash_in = draw_merge::kHashStart;
 uint64_t g_hash_out = draw_merge::kHashStart;
@@ -144,11 +149,14 @@ void DrawMergeFlush();
 namespace {
 
 // The calls of a surface that read or write pixels, or that change how a
-// texture draws. The batch goes out before each of them.
+// texture draws. The batch goes out before each of them, and the render
+// thread makes each call of the walk before them (render_thread.cpp).
 HRESULT WINAPI h_Blt(IDirectDrawSurface7* self, LPRECT destination,
                      IDirectDrawSurface7* source, LPRECT source_rect,
                      DWORD flags, LPDDBLTFX fx) {
   DrawMergeFlush();
+  RenderThreadSync();
+  VkSceneSurfaceWritten(self);
   return o_Blt(self, destination, source, source_rect, flags, fx);
 }
 
@@ -156,29 +164,36 @@ HRESULT WINAPI h_BltFast(IDirectDrawSurface7* self, DWORD x, DWORD y,
                          IDirectDrawSurface7* source, LPRECT source_rect,
                          DWORD flags) {
   DrawMergeFlush();
+  RenderThreadSync();
+  VkSceneSurfaceWritten(self);
   return o_BltFast(self, x, y, source, source_rect, flags);
 }
 
 HRESULT WINAPI h_GetDC(IDirectDrawSurface7* self, HDC* dc) {
   DrawMergeFlush();
+  RenderThreadSync();
   return o_GetDC(self, dc);
 }
 
 HRESULT WINAPI h_Lock(IDirectDrawSurface7* self, LPRECT rect,
                       LPDDSURFACEDESC2 desc, DWORD flags, HANDLE event) {
   DrawMergeFlush();
+  RenderThreadSync();
+  if ((flags & DDLOCK_READONLY) == 0) VkSceneSurfaceWritten(self);
   return o_Lock(self, rect, desc, flags, event);
 }
 
 HRESULT WINAPI h_SetColorKey(IDirectDrawSurface7* self, DWORD flags,
                              LPDDCOLORKEY key) {
   DrawMergeFlush();
+  RenderThreadSync();
   return o_SetColorKey(self, flags, key);
 }
 
 HRESULT WINAPI h_SetPalette(IDirectDrawSurface7* self,
                             LPDIRECTDRAWPALETTE palette) {
   DrawMergeFlush();
+  RenderThreadSync();
   return o_SetPalette(self, palette);
 }
 
@@ -299,6 +314,13 @@ void DrawMergeSetOptions(int key, int test, int test_frame) {
   }
 }
 
+// vulkan_only=1: no merge and no hook, with no line of the log.
+void DrawMergeOff() {
+  g_key = 0;
+  g_test = 0;
+  g_test_frame = 0;
+}
+
 // Each frame of the scene, before the eye passes. `frame` is the frame of
 // the controllers. True when the test of the pictures wants a picture of
 // each eye of this frame.
@@ -355,11 +377,23 @@ bool DrawMergeTake(void* self, D3DPRIMITIVETYPE type, DWORD fvf,
                    const WORD* indices, DWORD index_count, DWORD flags,
                    const void* caller) {
   if (!g_inside) return false;
+  // The backend of the mod on Vulkan (vk_ddraw.cpp) gives each draw to the
+  // Vulkan renderer: a merge saves no call there. The renderer reads a
+  // texture with a Lock in the draw, and the hook of the Lock sends the row
+  // of the merge, so a merge would draw inside its own draw.
+  if (VkSceneDirect()) return false;
+  // The D3D7 thread merges the draws of this walk (d3d7_thread.cpp, THE
+  // MERGE).
+  if (D3D7ThreadMerging()) {
+    DrawMergeFlush();
+    ++g_to_d3d7;
+    return false;
+  }
   const uintptr_t from = reinterpret_cast<uintptr_t>(caller);
   const uint32_t stride = draw_merge::Stride(fvf);
   const uint32_t corners = draw_merge::WholeTriangles(
       indices != nullptr ? index_count : vertex_count);
-  if (GetCurrentThreadId() != g_thread || from < g_game_first ||
+  if (ThisThreadId() != g_thread || from < g_game_first ||
       from >= g_game_last || type != D3DPT_TRIANGLELIST ||
       vertices == nullptr || stride == 0 || corners == 0) {
     DrawMergeFlush();
@@ -396,6 +430,10 @@ bool DrawMergeTake(void* self, D3DPRIMITIVETYPE type, DWORD fvf,
   return true;
 }
 
+// True when the hooks of the surface calls are in (render_thread.cpp needs
+// their stops).
+bool DrawMergeSurfaceHooked() { return g_installed; }
+
 // Gives the batch to Direct3D as one draw call. Each hook of a call that
 // changes what a draw call does calls this first.
 void DrawMergeFlush() {
@@ -418,12 +456,13 @@ void DrawMergeReport() {
   if (!g_installed || g_passes == 0) return;
   ModLog("draw merge   : draw_merge=%d. In %llu eye passes the merge took "
          "%llu draw calls of the game, and they went to Direct3D as %llu "
-         "draw calls (%.1f percent fewer). %llu draw calls went as they came",
+         "draw calls (%.1f percent fewer). %llu draw calls went as they came, "
+         "%llu went to the merge of the D3D7 thread",
          g_key, g_passes, g_taken, g_sent,
          g_taken > 0 ? 100.0 * (1.0 - static_cast<double>(g_sent) /
                                           static_cast<double>(g_taken))
                      : 0.0,
-         g_passed);
+         g_passed, g_to_d3d7);
   if (g_test != 0) {
     ModLog("draw merge   : the check of the triangles (draw_merge_test=1): "
            "%llu eye passes with %llu triangles, and %llu of the eye passes "
@@ -437,4 +476,5 @@ void DrawMergeReport() {
   g_taken = 0;
   g_sent = 0;
   g_passed = 0;
+  g_to_d3d7 = 0;
 }

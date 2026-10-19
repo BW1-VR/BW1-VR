@@ -106,9 +106,29 @@ void FrameSendCycle(const char* cause) {
 // passes. Returns the ticks that this thread waited for the GPU.
 uint64_t FrameSendEnd(const bwvr::LateFrame& pictures, int mode) {
   if (g_screen == nullptr) return 0;
+  // Eye pictures of the Vulkan renderer and no texture of the bridge: the
+  // queue of Vulkan orders the copies, so no wait for the GPU of Direct3D 9.
+  if (pictures.eye_texture[0] == nullptr &&
+      pictures.eye_texture[1] == nullptr &&
+      pictures.panel_texture == nullptr &&
+      (pictures.eye_vulkan[0] != 0 || pictures.eye_vulkan[1] != 0)) {
+    bwvr::LateFrame frame = pictures;
+    frame.wait = nullptr;
+    g_screen->EndFrameLate(frame, mode == kSecondThread);
+    return 0;
+  }
   // The bridge can stop in an eye pass. It freed the textures then, so the
   // frame goes out with the pictures that it has.
   if (!GpuBridgeReady()) {
+    // The Vulkan eyes need no bridge.
+    if (pictures.eye_vulkan[0] != 0 || pictures.eye_vulkan[1] != 0) {
+      bwvr::LateFrame frame = pictures;
+      frame.eye_texture[0] = frame.eye_texture[1] = nullptr;
+      frame.panel_texture = nullptr;
+      frame.wait = nullptr;
+      g_screen->EndFrameLate(frame, false);
+      return 0;
+    }
     g_screen->EndFrame();
     return 0;
   }

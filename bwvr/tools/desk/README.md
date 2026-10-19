@@ -31,6 +31,14 @@ take about 190 s. The script ends with `VERIFIED`, or it names the run that
 failed. The log and the pictures of each run are in a folder `desk-<run>`
 beside the scripts. Those folders are not tracked.
 
+With `backend=vulkan` in `bwvr.ini` of the game folder, each run of
+`verify_build.ps1` has the test key `test_frame_rate=60`, also the runs that
+make a test save. The recipes count frames for a game at about 60 to 150
+frames a second, and a desktop frame with Vulkan is 1.5 to 3 ms. With the key
+the mod does not copy the picture to the monitor, and each frame lasts 1/60 s
+at the least, so the window of the game shows no new picture. `-Fps 60` gives
+the key with each backend, and `-Fps 0` gives no key.
+
 ## What a run does to your PC
 
 `desk_run.ps1` is the only script that starts the game. Each other script
@@ -66,6 +74,15 @@ calls it. It keeps these rules, and a new script must keep them too:
   with the Creature of the profile, the game also writes it by itself in
   play, with `creature.lhp` of the profile. That write comes 65 s to 118 s
   after the start of the game, so a run of a minute or more can have it.
+- The game reads and writes `Profiles`, `Scripts\CreatureMind` and
+  `MemoryLeaks.txt` with a path from its current folder. In its start that
+  folder is the game folder. After the start it is the folder of the value
+  `GameDir` of its key in the registry. A PC with a second install can have
+  that install there. When it is in Program Files and the game has no
+  administrator rights, Windows puts each write into the VirtualStore of the
+  user (`%LOCALAPPDATA%\VirtualStore\Program Files (x86)\...`). The guards
+  keep the files of that folder and of the game folder, and the first lines
+  of a run say where the writes go (`Get-BwvrPlayerFolders` in `game.ps1`).
 - The mod keeps the counts of the hint cards (`hint_learn=1`) in
   `bwvr-hint-counts.ini` beside `bwvr.ini`. `desk_test.ps1` gives each run
   the test key `hint_counts_test_file` with a file in the folder of the run,
@@ -103,6 +120,7 @@ calls it. It keeps these rules, and a new script must keep them too:
 | `hand_run.ps1`, `village_run.ps1`, `temple_run.ps1`, `miracle_run.ps1` | Runs for the near hand, the village, the Temple and miracles. See "The scripts of one area" |
 | `intro_run.ps1` | The Lionhead logo in stereo, with a picture of each eye each few seconds. The run does not skip the logos. See "The logos" |
 | `bench_run.ps1` | The frame cost measure: six still scenes, the numbers of each scene, the spread of some runs, and the comparison of two builds or of two sets of keys. See "The frame cost measure" |
+| `perf_ab.ps1` | Some sets of ini keys with one build: a table of the frame time, the render thread, the GPU time and, with `-Pictures`, the pictures of two modes. See "A comparison of sets of keys" |
 
 The scripted controller is driven by ini keys: `fake_controller_script` (words
 such as `point@400+1`, `grip@3100+101`, `trigger@440+8`: the word, the frame
@@ -147,7 +165,7 @@ that `-NewGame` uses, and the length of a run in the test save.
 | `creature_recipe.ps1` | `temple`, "Keep your old Creature" | `state`: the Creature state, strokes and a slap. `leash`: the leash on and off. `stay`: the stay from a distance. `tie`: the leash tied to an object, and the walk of the Creature to it. `click`: a text of the game that waits for a click, with the leash on and with the Hand off the view (`text_click`). `walk`: a held press of the trigger on an object while the aim goes to the land and comes back, a tap and a press that ends on the object (`creature_command_rule`). `gift`: the leash goes on, the Hand takes an object and opens the grip at the Creature, two times (`creature_gift`). `giftfree`: the same with no leash | 42 to 62 s |
 | `village_run.ps1` | `temple`, "Keep your old Creature" | `miracle`: a miracle from an icon of the Worship Site (`-Icon 3` is Food). `totem`, `charge`. `store`, `tree` and `job`: wood, a tree and a villager at the Village Store. `throw`: a thrown villager. `scaffold`, `build`, `site`, `probe`, `workshop`. `choice`: the aim steps from a villager to the tree nearest to him, past the tree, and back, and the log has each far target with its reason (`far_grab_choice`, `far_grab_stay`). `fartake`: a take at a distance from a pile of the Village Store with the grip closed, which the test key `far_test_take_gone` ends at its game turn 30 as the game ends the take of a pile that it deletes. The log shows who has the bundle then (`far_take_carry`), and with `audio_trace=1` the loop of the take (`audio_take_loop`). The lines `take stream` have the start and the end of the stream of the take (`take_stream`) | 31 to 63 s |
 | `miracle_run.ps1` | `temple`, "Keep your old Creature" | `creature`, `throw`, `cancel`, `place`, `shield`: a miracle from a seed that the test key `miracle_test_seeds` makes. `-Seeds` gives other seed types, and `-Steps` other steps | 44 to 57 s |
-| `temple_run.ps1` | `temple`, "Keep your old Creature" | The ring item `enter`, then the items of `-Rooms` on the ring of the Temple (`-Rooms "room_save@3400 leave@5600"`), and the steps of `-Steps`. Each choice of the ring holds Y of the left hand and steps the left hand to the item (`Get-BwvrRingChoice` in `game.ps1`). With `button_layout=0` in `-Set` it holds X. `-NoEnter` stays on the land. `-SaveTest` makes a save, and starts only when the profile has no saved game in the slots 0 to 13. It always starts in a new game | 180 s, or `-Seconds` |
+| `temple_run.ps1` | `temple`, "Keep your old Creature" | The ring item `enter`, then the items of `-Rooms` on the ring of the Temple (`-Rooms "room_save@3400 leave@5600"`), and the steps of `-Steps`. Each choice of the ring holds Y of the left hand and steps the left hand to the item (`Get-BwvrRingChoice` in `game.ps1`). With `button_layout=0` in `-Set` it holds X. `-NoEnter` stays on the land. `-EnterFrame N` presses Y for `enter` at frame N and not at frame 820 (1400 for a new game with `backend=vulkan`). `-SaveTest` makes a save, and starts only when the profile has no saved game in the slots 0 to 13. It always starts in a new game | 180 s, or `-Seconds` |
 
 What these scripts need:
 
@@ -164,6 +182,21 @@ What these scripts need:
 
 Known limits of the recipes:
 
+- The recipes count frames, for a game at about 60 to 150 frames a second.
+  With `backend=vulkan` a desktop frame is 1.5 to 3 ms (400 to 650 frames
+  a second), so each step comes seconds too early. `verify_build.ps1` and
+  `make_test_save.ps1` give each run the test key `test_frame_rate=60` for
+  that renderer. The other scripts of one area do not: give them
+  `-Set 'test_frame_rate=60'` (`throw_queue.ps1 -Fps 60`), or the renderer
+  Direct3D 9 (`backend=dxwrapper\ddraw.dll` in `bwvr.ini`).
+- With the renderer Direct3D 9 a run has no pace, and a fast PC has 90 to
+  180 frames a second. Then `tland` of `verify_build.ps1`, which plays the
+  first story of a new game, can miss its landing, for example with
+  `cutscene_immersive=1` in `bwvr.ini`. `verify_build.ps1 -Fps 60` paces
+  each run to 60 frames a second with each renderer.
+- A run with `test_frame_rate` shows no new picture in the window of the
+  game. The key acts from frame 150 of the controllers, so a step of a
+  recipe before that frame comes at the frame rate of the renderer.
 - No recipe chooses a Creature at the Creature select. A Creature in a pen
   has no player, so a grip on it starts no Creature state. A press of the
   trigger there starts a drag of the land, and the double click of A makes
@@ -313,6 +346,31 @@ Rules for a measure:
 The last line is `BENCH DONE`, or `BENCH STOPPED at <run>` when a run was not
 made.
 
+## A comparison of sets of keys
+
+`perf_ab.ps1` runs one build with some sets of ini keys, one desktop run for
+each set, and prints a table of the median of the windows of 450 frames of
+each run: the frame time, the scene walks on the frame thread, the render
+thread, the GPU time, the calls that change nothing, the draws, the draws
+from the buffers of the render thread, the calls that failed. It needs no
+test save: each run is the start of a new game. The default base keys are
+`one_walk=1`, `fake_controller=1`, `test_keys=0`, `profile_sample=250` and
+`profile_gpu=1` (`docs/backend.md`, "The render thread").
+
+```powershell
+.\bwvr\tools\desk\perf_ab.ps1 -Name rt -Dll .\bwvr\build\src\mod\Release\ddraw.dll -Repeat 2 -Configs @(
+    @{ name = 'off'; keys = @{ render_thread = 0 } },
+    @{ name = 'on';  keys = @{ render_thread = 1 } })
+```
+
+`-Pictures` adds `render_thread_test_frame=3000` to each run. Then only the
+windows before frame 3000 count, and the table also has the percent of the
+pixels that differ in the left eye: between frames 3000 and 3001 (one
+mode), and between frames 3001 and 3002 (the mode of the ini and mode 0).
+When the two numbers are close, the two modes give the same picture. Each
+run goes through `desk_run.ps1`, so it waits for the idle time as each run
+does. The table is also in `desk-perf-<Name>\summary.txt`.
+
 ## A fast start
 
 A run must not wait for a thing that it does not test. The table has what
@@ -412,11 +470,17 @@ player ends the game. That is a whole saved game of that moment. `desk_run.ps1`
 copies the files of slot 20 that the game wrote in the run to the folder of
 the test saves, and only then does it put the profile back. A file of the
 slot that is older than the run is a file of the player, and the script does
-not copy it. The guards of such a run are in "A run in which the game ends by
-itself". The last line is `SAVE MADE` or `SAVE NOT MADE`.
+not copy it. The slot is in the folder that gets the writes of the game
+after its start (the folder of `GameDir`, or its VirtualStore). In the
+VirtualStore the game cannot write `SaveGame.inf`, so a test save made there
+has no `SaveGame.inf`, and the game loads it all the same. The guards of such
+a run are in "A run in which the game ends by itself". The last line is `SAVE MADE` or `SAVE NOT MADE`.
 
 A different name makes a save of your own: give `-Choice` (a row of the start
-dialog), `-Frame` and, for script words before the save, `-Steps`.
+dialog), `-Frame` and, for script words before the save, `-Steps`. With
+`backend=vulkan` in `bwvr.ini` the run has the test key `test_frame_rate=60`,
+so the frame of the save comes at the same time of the game as with
+dxwrapper (see "The check before a merge").
 
 `verify_build.ps1` and each script of one area make `pen` or `temple` when
 the save that they start in is not there (`Confirm-BwvrTestSave` in
@@ -434,7 +498,10 @@ starts in its test save by default. Such a run does this:
    other run.
 2. It takes the files of slot 20 out of the profile (the profile guard has
    them), and it puts the files of the test save in. It compares each file
-   with the test save. When one is not the same, no game starts.
+   with the test save. When one is not the same, no game starts. The game
+   reads `20.sav` in the profile of the game folder, and the other files of
+   the slot in the folder of `GameDir` (see "What a run does to your PC").
+   When the two folders are not the same, the test save goes into both.
 3. It starts the game with no `-NEWGAME`. The game then loads the saved game
    of slot 20 by itself. The game has no word of the command line that loads
    a saved game (`docs/backend.md`, "A test save").
@@ -632,7 +699,8 @@ Two guards keep the player's state:
 
 - `desk_run.ps1` puts each file of the `Profiles` folder back, as for each
   run. It does the same for each file of `Scripts\CreatureMind` and for
-  `MemoryLeaks.txt`.
+  `MemoryLeaks.txt`. It does this in the folder that gets the writes of the
+  game (the folder of `GameDir`, or its VirtualStore) and in the game folder.
 - From frame N to the end of the process, the mod drops each write of the
   game process to the registry. The log names each one (lines `exit test`),
   and each file that the process opens for a write. If a guard cannot be

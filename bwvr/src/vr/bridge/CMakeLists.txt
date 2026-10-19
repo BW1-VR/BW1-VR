@@ -28,7 +28,10 @@ if(NOT EXISTS "${OPENXR_LOADER}")
   message(FATAL_ERROR "Build the x64 OpenXR loader first. See README.md.")
 endif()
 add_executable(bwvr-xr-host host.cpp ../xr_screen.cpp client.cpp)
-target_include_directories(bwvr-xr-host PRIVATE "${OPENXR_SDK}/include")
+# xr_screen.cpp also has the session with Vulkan (XR_KHR_vulkan_enable2), so
+# it needs the Vulkan headers of the repo. The host loads no Vulkan library.
+target_include_directories(bwvr-xr-host PRIVATE "${OPENXR_SDK}/include"
+  "${CMAKE_CURRENT_SOURCE_DIR}/../../../../third_party/Vulkan-Headers/include")
 target_link_libraries(bwvr-xr-host PRIVATE
   "${OPENXR_BUILD}/src/loader/Release/openxr_loader.lib" d3d11 dxgi)
 if(MSVC)

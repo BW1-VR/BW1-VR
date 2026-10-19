@@ -5,6 +5,8 @@
 #include <math.h>
 #include <stdint.h>
 
+#include <limits>
+
 #include "../../src/mod/one_walk_math.h"
 
 namespace one_walk_checks {
@@ -176,6 +178,31 @@ inline void OneWalkChecks() {
   Check(ShiftPerRhw(scale, separation, half, 0.0f) == 0.0f,
         "no near plane gives no move", 0, 0);
 
+  // The two copies of a batch in their own halves of a target of 2 x 2208.
+  V lcopy[2] = {{-30.0f, 0.0f, 0.5f, 0.5f, 0, 0, 0, 0},
+               {2208.0f, 0.0f, 0.5f, 0.5f, 0, 0, 0, 0}};
+  V rcopy[2] = {{2208.0f, 0.0f, 0.5f, 0.5f, 0, 0, 0, 0},
+                {4500.0f, 0.0f, 0.5f, 0.5f, 0, 0, 0, 0}};
+  const uint8_t* l8 = reinterpret_cast<const uint8_t*>(lcopy);
+  const uint8_t* r8 = reinterpret_cast<const uint8_t*>(rcopy);
+  Check(InOwnHalves(l8, r8, 2, sizeof(V), 2208.0f, 2208.0f),
+        "a batch that ends at the edge of each eye is in its own halves", 0, 0);
+  rcopy[0].x = 2207.5f;
+  Check(!InOwnHalves(l8, r8, 2, sizeof(V), 2208.0f, 2208.0f),
+        "a right copy over the edge into the left eye is not", 0, 0);
+  rcopy[0].x = 2208.0f;
+  lcopy[1].x = 2208.5f;
+  Check(!InOwnHalves(l8, r8, 2, sizeof(V), 2208.0f, 2208.0f),
+        "a left copy over the edge into the right eye is not", 0, 0);
+  lcopy[1].x = 1000.0f;
+  Check(!InOwnHalves(l8, r8, 2, sizeof(V), 900.0f, 2208.0f),
+        "a viewport narrower than the eye ends the left copy at its edge", 0,
+        0);
+  lcopy[1].x = std::numeric_limits<float>::quiet_NaN();
+  Check(!InOwnHalves(l8, r8, 2, sizeof(V), 2208.0f, 2208.0f),
+        "a NaN is not in its half", 0, 0);
+  Check(!InOwnHalves(l8, r8, 0, sizeof(V), 2208.0f, 2208.0f),
+        "no vertex gives no merge", 0, 0);
   // THE CARDS AND THE MARKS OF THE MOD (one_walk_marks). The God view at 100
   // units for each meter: the eyes 6.4 units apart, and a head roll.
   const float wide = 6.4f;

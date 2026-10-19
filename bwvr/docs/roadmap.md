@@ -598,6 +598,16 @@ that moves while the Hand takes it.
     compositor and no encoder. The lines `frame cost   : window` of the log
     say what these cost. They also say what a slow frame is made of when it
     is not a game turn. Set the key after the last save of the launcher.
+  - **Frames of about 100 ms in a headset.** The worst frame of many report
+    windows of a session through Virtual Desktop is 94 to 108 ms, with
+    `backend=vulkan` and with `backend=dxwrapper`. The time is in the calls
+    of the runtime, not in the game turn, the scene walks or the files
+    (`backend.md`, "The slow frames"). The line `runtime calls:` names the
+    call. Next steps: a session that reads that line while the player turns
+    the head and while the player keeps the head still, with the performance
+    overlay of Virtual Desktop on (the latency of the network and the frames
+    that the headset drops), and a session with `xr_vulkan=0` and
+    `backend=dxwrapper` for a comparison.
   - **The wait at the stop of a sound.** The mod skips the 20 ms that
     the audio DLL waits on the frame thread at the stop of a sound
     (`audio_stop_wait=0`, `audio.md`, 7.6). In a desktop run the worst frame
@@ -606,13 +616,17 @@ that moves while the Hand takes it.
     the sounds. With `test_keys=1`, Ctrl and Pause change the
     key while the game runs. A sound that QMixer plays (an advisor, the
     speech of a story) keeps the wait.
-  - **Slow frames that stay.** The Creature reads an animation from the disk
-    at its first use, and the game turn then takes 4.5 to 9.5 ms. The first
+  - **Slow frames that stay.** The first
     use of a texture or of an effect file makes an eye pass 8 to 15 ms
     longer, when Windows does not have the file in memory. One time a minute
     the game writes the alignment of the player and the mind of the Creature.
     Its file calls take 2 ms most times, and they took 28 ms one time. A load
     of these files before the game needs them is not built.
+  - **The read ahead of the files in a headset** (`file_read_ahead=1`,
+    `backend.md`, "The read ahead of the files of the game"). On the desktop
+    the worst game turn after the start is 7.2 ms in place of 30.7 ms. Not
+    shown: a session in a headset, and the load of a saved game with the
+    read ahead. With `test_keys=1`, Shift Q changes the key in play.
   - **The texture of 32 by 32 that the land draw writes.** With two writes
     in one scene walk, its two locks take 0.6 ms for each eye pass. That is
     1.2 to 1.5 ms of a frame of 8.7 to 10 ms at the door of the Temple. With
@@ -656,17 +670,108 @@ that moves while the Hand takes it.
     calls the device from a second thread. If it does not, a test that takes
     `D3DCREATE_MULTITHREADED` off at the creation of the device when
     `frame_send` is not 2, and a benchmark of it.
-  - **A render thread for the Direct3D calls.** To do. The Direct3D draw
-    calls are 3.3 to 4.8 ms of a frame in scenes 1 to 5, and with one walk
-    the game makes 1580 to 2610 state calls in a frame. In the sampling profile with one
-    walk, the driver, `d3d9.dll` and the calls into the kernel under them
-    were about 45 percent of the frame thread, and the code of the game 23
-    percent. A thread that gets a record of these calls and gives them to
-    Direct3D takes that time off the frame thread. This is the largest gain
-    that is left. Not built, and not planned in detail. The hard parts: a texture that the game writes in the
-    middle of a scene walk, a state that the game reads back, the draws of
-    the mod itself, and the order of each call. With the merge of draw calls
-    the thread has less work.
+  - **A render thread for the Direct3D calls.** The Direct3D draw calls are
+    3.3 to 4.8 ms of a frame in scenes 1 to 5, and the game makes 3200 to 5400
+    state calls in a frame. A thread that gets a record of these calls and
+    gives them to Direct3D takes that time off the frame thread. The thread
+    is built as a test key (`render_thread`, `backend.md`, "The render
+    thread"). In a desktop run it takes the driver off the frame thread.
+    With the answers of the calls of a texture that take no lock, the drop
+    of the calls that change nothing and the buffers of the render thread,
+    a frame is 7.5 to 7.7 ms in place of 10.7 to 10.9 ms. In a headset over
+    the whole island (with the lock answers only) the scene walk is 5.5 to
+    5.9 ms in place of 11.3 ms, and a frame 11 ms in place of 16 to 20 ms.
+    The render thread, which is the driver, sets the time of the walk. In a
+    headset (SteamVR, Steam Frame) over the island with the filter, the
+    buffers and one draw for both eyes, the scene walks are 4.5 to 5 ms, and
+    the flush (`gpu_flush`) makes the time from `xrWaitFrame` to the end of
+    `xrEndFrame` 6.3 to 7.4 ms in place of 8.6 to 9.1 ms. Open: more
+    sessions in a headset (the Temple, a story, a load of a saved game), one
+    start that stopped at the logos with `gpu_flush=128` (`hang_watch=1`
+    shows the place if it comes again), then the default value of
+    `render_thread`. The two vertex loops of the engine run with SSE, with
+    the bits of the game (`fast_transform`, `backend.md`, "The vertex loops
+    with SSE"): 0.25 ms less of the scene walks in a desktop run. Not run: a
+    headset session with it. The calls of Direct3D 7 of a walk can go to a
+    thread of their own (`d3d7_thread`, `backend.md`, "The thread of
+    Direct3D 7", on by default), with the same pixels in a desktop run and
+    no fault in a headset at 144 Hz. The end of a walk does not wait for
+    the render thread (`render_thread_late_end`, `backend.md`, "The late
+    end of a walk"): the scene walks over the island are 2.6 to 3.0 ms in
+    a headset at 144 Hz. The threads of the mod spin only for a short time
+    and then sleep (`thread_wait`, `backend.md`, "How the threads wait"):
+    in desktop runs with 4 to 16 cores the frames are as fast, and the
+    process uses about 0.5 cores less. Not run: a headset session with it.
+    The D3D7 thread merges the rows of draws with one state
+    (`d3d7_thread_merge`), so the frame thread copies the vertices of a
+    draw one time. **The goal of a port to the Steam Frame and the Quest 3
+    standalone** needs fewer layers of x86 code for each draw. The plan,
+    in steps that a desktop run can check: (A) a Vulkan renderer of the
+    scene walks in place of dxwrapper and Direct3D 9 (`backend.md`, "The
+    Vulkan renderer"; the same picture as Direct3D 9, with the hand and the
+    overlays of the mod and both eyes in one pass). Its eye pictures go
+    straight into an OpenXR session with Vulkan (`xr_vulkan=1`, "The
+    session with Vulkan"), and so do the pixels of the CPU: the cards, the
+    walls of the cut scene window and an eye picture of the CPU
+    (`xr_vulkan_upload`). The draws for the panel target go into a panel
+    of the renderer, which the subtitle card and the panel layer take
+    (`vk_panel`). In a session with Vulkan a walk of one walk goes to the
+    renderer alone, and the D3D7 thread gives no draw of it to dxwrapper
+    (`vk_only`, "The walk without Direct3D 9"; on the desktop the render
+    thread then has 1 draw of a frame in place of 773). Not run in a
+    headset: `xr_vulkan_upload`, `vk_panel` in a session, `vk_only`. Still
+    on Direct3D 9: a menu, a loading screen, a video and a frame of two
+    walks, which go through the GPU bridge and a relay of Direct3D 11, and
+    the calls that set a state. (A2) A backend of the mod makes DirectDraw
+    7 and Direct3D 7 on Vulkan in place of dxwrapper (`backend=vulkan`,
+    `backend.md`, "The backend of the mod on Vulkan"): on the desktop the
+    game runs from the logos to the start dialog of a new game with no
+    Direct3D 9, and the renderer draws each draw. One walk, or the two
+    walks of the eyes, give one image with both eyes for a session with
+    Vulkan, and the help text goes into the panel of the renderer for the
+    subtitle card. `ddraw_census=1` with `backend=system` lists the calls
+    that the game makes. With `backend=vulkan` the mod uses only Vulkan
+    (`vulkan_only`, `backend.md`, "Only Vulkan"): no part for Direct3D 9
+    starts, the session has no Direct3D 11 device, and the window of the
+    game has a swapchain of Vulkan (`vk_window`, "The window with
+    Vulkan"). A session in the headset ran with no Direct3D 11 device.
+    The installer keeps dxwrapper: it is the renderer Direct3D 9 for a PC
+    with no Vulkan 1.3, and the renderer of "Play, no VR". Next for the
+    backend: check the light maps of the
+    rooms of the Temple in the headset (`vk_stage1`, Shift E, `backend.md`,
+    "The second stage"), and find the part of the long frames after the load
+    of a saved game that the hold of the last frame does not take
+    (`xr_hold_ms`, the line `slow frame`, `backend.md`, "The hold of the
+    last frame"). Foveated
+    rendering (`foveation`, `backend.md`, "Foveated rendering") gives the eye
+    pictures of the renderer fewer shades away from the gaze of an eye
+    tracker, or from straight ahead, and foveated resolution
+    (`fovea_res`, "Foveated resolution") makes each eye picture from an outer
+    image with fewer pixels and a centre image with more. On a Radeon RX
+    7900 XTX neither takes time off the GPU, because the time is in the
+    draws. Not run in a headset, and not run with an eye tracker. (B) one draw
+    for many copies of a mesh (about 870 draws of a frame are 36 meshes);
+    (C) a new renderer of the land, after a count of its draws. The Quest 3
+    cannot run `runblack.exe`; a port there needs an x86 emulator with Wine
+    or a new engine.
+    With the render
+    thread, one walk draws most batches in one draw for both eyes (`one_walk_merge`, `backend.md`, "One
+    draw for both eyes"). Before the thread, with one walk, a view of the
+    whole island has about 1500 batches and a scene walk of 9.5 to 11 ms,
+    and the runtime then shows 45 frames a second. Of that walk about 6 ms
+    are Direct3D 9, the driver of AMD and the kernel, and less than 3 ms are
+    the game (`profile_sample`, `backend.md`, "Where the time of the scene
+    walk goes"). So the thread takes the calls of dxwrapper to Direct3D 9,
+    not the calls of the game to dxwrapper. For 90 frames a second the scene
+    walk must be under about 6 ms, because the frame waits 3 to 4 ms for the
+    GPU after it. Most of that wait is the driver, which gives the calls to
+    the GPU late: the GPU works about 2 ms on the walks of a frame
+    (`profile_gpu`).
+    DXVK can take the place of the Direct3D 9 of Windows (`d3d9_backend=1`,
+    `backend.md`, "DXVK under dxwrapper"): the render thread is busy 0.95 ms
+    in place of 2.1 ms in a desktop run, with the same picture. Open: a
+    headset session with it, a GPU of NVIDIA or Intel, a PC with two GPUs,
+    and then the default value. The installer does not ship DXVK yet.
   - **The other render ideas have a small gain.** A projection off the centre
     for each eye: a view of 70 to 98 degrees changes the walk by 4 percent
     (`backend.md`, "A wide view is nearly free"). So a narrower cull saves

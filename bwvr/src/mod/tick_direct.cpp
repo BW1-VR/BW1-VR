@@ -37,6 +37,26 @@ DWORD WINAPI h_GetTickCount() {
   return static_cast<DWORD>(GetTickCount64());
 }
 
+// tick_direct=2: the milliseconds of the performance counter, from the
+// number of GetTickCount64 at the install. GetTickCount64 goes up in steps
+// of the timer of Windows (15.6 ms by default), so at 120 frames a second
+// about one frame in two had a time step of 0 and the next one of 16 ms, and
+// each move of the game went in steps of 60 a second. This clock goes up 1
+// ms at a time.
+LARGE_INTEGER g_fine_start = {};
+LARGE_INTEGER g_fine_frequency = {};
+uint64_t g_fine_base = 0;
+
+DWORD WINAPI h_GetTickCountFine() {
+  ++g_calls;
+  LARGE_INTEGER now;
+  QueryPerformanceCounter(&now);
+  const uint64_t ms =
+      static_cast<uint64_t>(now.QuadPart - g_fine_start.QuadPart) * 1000ull /
+      static_cast<uint64_t>(g_fine_frequency.QuadPart);
+  return static_cast<DWORD>(g_fine_base + ms);
+}
+
 }  // namespace
 
 // True when the address is in the code of dxwrapper.dll.
@@ -57,7 +77,14 @@ static bool InDxwrapper(const void* address) {
 // (dxwrapper changes the code of that function, a detour, and not the slot)
 // or a hook of dxwrapper. A slot with anything else is not the slot of this
 // build, or a different program changed it, so it stays.
-void TickDirectInstall(bool on) {
+void TickDirectInstall(int mode) {
+  const bool on = mode != 0;
+  const bool fine = mode == 2 && QueryPerformanceFrequency(&g_fine_frequency) &&
+                    g_fine_frequency.QuadPart > 0;
+  if (fine) {
+    QueryPerformanceCounter(&g_fine_start);
+    g_fine_base = GetTickCount64();
+  }
   if (!on) {
     ModLog("tick direct  : tick_direct=0. The game calls GetTickCount through "
            "the hooks of dxwrapper, with its check of busy waiting");
@@ -73,14 +100,17 @@ void TickDirectInstall(bool on) {
                   (*slot == real || InDxwrapper(*slot)) &&
                   VirtualProtect(slot, sizeof(void*), PAGE_READWRITE, &old);
   if (ok) {
-    *slot = reinterpret_cast<void*>(&h_GetTickCount);
+    *slot = fine ? reinterpret_cast<void*>(&h_GetTickCountFine)
+                 : reinterpret_cast<void*>(&h_GetTickCount);
     VirtualProtect(slot, sizeof(void*), old, &old);
   }
-  ModLog("tick direct  : tick_direct=1. The GetTickCount import of the game "
-         "(0x%08X) %s", static_cast<unsigned>(kGetTickCountSlot),
-         ok ? "reads the clock with no check of busy waiting"
-            : "FAILED: the slot does not hold GetTickCount, so the game keeps "
-              "the hooks of dxwrapper");
+  ModLog("tick direct  : tick_direct=%d. The GetTickCount import of the game "
+         "(0x%08X) %s", fine ? 2 : 1, static_cast<unsigned>(kGetTickCountSlot),
+         !ok   ? "FAILED: the slot does not hold GetTickCount, so the game "
+                 "keeps the hooks of dxwrapper"
+         : fine ? "reads the milliseconds of the performance counter, with no "
+                  "check of busy waiting"
+                : "reads the clock with no check of busy waiting");
 }
 
 void TickDirectReport() {

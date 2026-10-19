@@ -28,6 +28,18 @@ add_library(bwvr_mod SHARED
     frame_timers.cpp
     tick_direct.cpp
     frame_profile.cpp
+    scene_sample.cpp
+    render_thread.cpp
+    fast_transform.cpp
+    d3d7_count.cpp
+    d3d7_thread.cpp
+    thread_wait.cpp
+    d3d9_backend.cpp
+    ddraw_census.cpp
+    vk_ddraw.cpp
+    vk_core.cpp
+    vk_scene.cpp
+    vk_window.cpp
     frame_time.cpp
     fov.cpp
     input_watch.cpp
@@ -75,6 +87,9 @@ add_library(bwvr_mod SHARED
     tabletop.cpp
     near_plane.cpp
     net_check.cpp
+    dx_check.cpp
+    file_read_ahead.cpp
+    hang_watch.cpp
     gesture_air.cpp
     audio_listener.cpp
     audio_rolloff.cpp
@@ -94,6 +109,22 @@ set_target_properties(bwvr_mod PROPERTIES
 )
 
 target_link_libraries(bwvr_mod PRIVATE minhook bwvr_vr d3d9 d3d11)
+
+# Windows loads d3d11.dll and dxgi.dll at the first call of the mod, and not
+# at the start of the game. So backend=vulkan with vulkan_only=1 loads no
+# Direct3D of the mod (docs/backend.md, "Only Vulkan").
+target_link_options(bwvr_mod PRIVATE /DELAYLOAD:d3d11.dll /DELAYLOAD:dxgi.dll)
+target_link_libraries(bwvr_mod PRIVATE delayimp)
+
+# The C headers of Vulkan (vk_core.cpp). The mod loads vulkan-1.dll at run
+# time, so there is no library to link.
+set(VULKAN_HEADERS_DIR "${BWVR_THIRD_PARTY}/Vulkan-Headers/include")
+if(NOT EXISTS "${VULKAN_HEADERS_DIR}/vulkan/vulkan.h")
+  message(FATAL_ERROR
+      "The Vulkan headers are not at ${VULKAN_HEADERS_DIR}. They are part of "
+      "the repo, in the folder third_party. Check that the clone is complete.")
+endif()
+target_include_directories(bwvr_mod PRIVATE "${VULKAN_HEADERS_DIR}")
 
 # The reader of a hand that the player edited (hand_model_file.cpp) uses
 # cgltf, one header with the MIT license. With no clone of it the mod builds

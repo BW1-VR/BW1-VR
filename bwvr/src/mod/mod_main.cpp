@@ -26,6 +26,17 @@
 #include "../vr/xr_screen.h"
 #include "controllers.h"
 #include "frame_profile.h"
+#include "d3d7_count.h"
+#include "d3d7_thread.h"
+#include "fast_transform.h"
+#include "thread_wait.h"
+#include "ddraw_census.h"
+#include "vk_core.h"
+#include "vk_scene.h"
+#include "vk_ddraw.h"
+#include "vk_window.h"
+#include "../proxy/ddraw_proxy.h"
+#include "render_thread.h"
 #include "tabletop.h"
 #include "far_grab.h"
 #include "take_stream.h"
@@ -63,11 +74,16 @@ void StereoSetCaptureInterval(int seconds);
 void StereoSetHeadlessGrab(bool on);
 void StereoSetUiDepth(bool adaptive, float ceiling_pixels);
 void StereoSetScreen(bwvr::XrScreen* screen);
+// controllers.cpp
+void ControllersGesturePulse(float amplitude, float seconds);
 // frame_send.cpp: the way of the eye pictures to the headset.
 void FrameSendSetOptions(int key);
 void FrameSendSetScreen(bwvr::XrScreen* screen);
 // draw_merge.cpp: the merge of draw calls with one state.
 void DrawMergeSetOptions(int key, int test, int test_frame);
+void DrawMergeOff();
+// A line of the log with the DLLs of Direct3D in the process.
+void LogDirect3DModules(const char* when);
 // gpu_bridge.cpp: with frame_send=2 a second thread makes calls on the
 // device of the backend.
 void GpuBridgeWantTwoThreads(bool on);
@@ -89,6 +105,8 @@ void BubbleCardInstall();
 // intro_skip.cpp: a press of a controller button skips the logos at the
 // start of the game. `caller` is the address that called FinishFrame.
 void IntroSkipFrame(uintptr_t caller, bwvr::XrScreen* screen);
+// hang_watch.cpp: the watch of the frame thread (hang_watch, a test key).
+void HangWatchFrame();
 // controllers.cpp
 void ControllerHintsSetOptions(bool on, const char* forced_profile);
 bool ControllerHintsInstall();
@@ -128,7 +146,7 @@ void PassGuardSetSkipPrepare(bool on);
 void PassGuardInstall();
 void FrameTimersInstall();
 // tick_direct.cpp: the clock of the game with no check of busy waiting.
-void TickDirectInstall(bool on);
+void TickDirectInstall(int mode);
 void FovInstall();
 void InputWatchInstall();
 void HeadCameraInstall();
@@ -222,12 +240,19 @@ void Depth24SetWanted(bool on);
 void Depth24Install();
 // net_check.cpp: the game's check for an internet connection.
 void NetCheckInstall(bool own_answer);
+// dx_check.cpp: the game's check for DirectX 7.
+void DxCheckInstall(bool own_answer);
+// file_read_ahead.cpp: the read ahead of the files of LHFile.
+void FileReadAheadInstall(bool on, bool test_keys);
 // near_plane.cpp: the near plane of the game camera.
 void NearPlaneSetOptions(int cm_24, int cm_16);
 void NearPlaneInstall();
 // proxy/ddraw_proxy.cpp
 void ProxyForceSystemDDraw();
+void ProxyCreateStarts(unsigned char ex[2], unsigned char old[2]);
 void GpuBridgeInstall();
+// d3d9_backend.cpp
+void D3D9BackendLoad(const char* dir, const char* ini);
 void GpuBridgeProbeInterop();
 bool GpuBridgeHasDevice();
 bool GpuBridgeFullScreen();
@@ -279,6 +304,7 @@ bool g_freeze_time = true;
 // time for each eye.
 bool g_one_walk = true;
 bool g_one_walk_check = false;
+bool g_one_walk_merge = true;
 // In one walk a speech bubble or the name of a villager as a card, the glow
 // at the Hand's point and a halo are drawn for each eye by itself. 0 gives them to the right eye as
 // each other batch. The test key one_walk_marks_test_frame changes the value
@@ -290,7 +316,9 @@ bool g_move_camera_point = false;
 // frame time. 0 gives the number from before the passes. The three test keys
 // are for desktop runs. See frame_time.cpp.
 int g_frame_time_real = 1;
-bool g_tick_direct = true;
+// tick_direct: 0 GetTickCount through dxwrapper, 1 GetTickCount64, 2 the
+// milliseconds of the performance counter (tick_direct.cpp).
+int g_tick_direct = 2;
 int g_frame_time_test_frame = 0;
 int g_frame_time_test_readers = 0;
 int g_frame_time_test_readers_frames = 600;
@@ -475,6 +503,8 @@ float g_head_units_per_meter = 7.5f;
 int g_near_plane_cm = 5;
 // The mod answers the game's check for an internet connection (net_check.cpp).
 bool g_net_check_own = true;
+// The mod answers the game's check for DirectX 7 (dx_check.cpp).
+bool g_dx_check_own = true;
 int g_near_plane_cm_16 = 10;
 bool g_skip_prepare = false;
 bool g_filter_survey = false;
@@ -510,6 +540,66 @@ int g_frame_send = 0;
 int g_draw_merge = 1;
 int g_draw_merge_test = 0;
 int g_draw_merge_test_frame = 0;
+// The render thread (render_thread.cpp), and its test key for desktop runs.
+int g_render_thread = 0;
+int g_render_thread_test_frame = 0;
+int g_render_thread_lock_free = 1;
+int g_render_thread_filter = 1;
+int g_render_thread_buffers = 1;
+int g_render_thread_right_eye = 1;
+int g_fast_transform = 1;
+int g_fast_transform_check = 0;
+int g_d3d7_count = 0;
+int g_d3d7_thread = 1;
+int g_d3d7_thread_merge = 1;
+int g_vk_scene = 0;
+int g_vk_scene_test_frame = 0;
+int g_vk_scene_follow = 1;
+int g_vk_panel = 1;
+int g_vk_only = 1;
+int g_vk_only_test = 0;
+int g_vk_upload_queue = 1;
+int g_vk_present_late = 1;
+int g_vk_texture_reuse = 1;
+int g_vk_keep_picture = 1;
+int g_vk_black_check = 1;
+int g_vk_untextured = 1;
+int g_vk_stage1 = 1;
+// Foveated rendering (docs/backend.md, "Foveated rendering").
+int g_foveation = 0;
+int g_foveation_inner_deg = 0;
+int g_foveation_outer_deg = 0;
+int g_foveation_gaze = 1;
+int g_foveation_show = 0;
+// Foveated resolution (docs/backend.md, "Foveated resolution").
+int g_fovea_res = 0;
+int g_fovea_res_outer_pct = 50;
+int g_fovea_res_center_pct = 100;
+int g_fovea_res_center_deg = 25;
+int g_fovea_res_center_down_deg = 0;
+int g_vk_scene_reread_test = 0;
+// The OpenXR session with Vulkan, and the eye pictures of the Vulkan
+// renderer in it (docs/backend.md, "The session with Vulkan").
+int g_xr_vulkan = 0;
+int g_vk_eyes = 1;
+// The pixels of the CPU in a session with Vulkan (XrScreen::SetVulkanUpload).
+int g_xr_vulkan_upload = 1;
+// backend=vulkan with vulkan_only=1 (docs/backend.md, "Only Vulkan"). Set in
+// EarlyHooks, before each other part reads it.
+bool g_vulkan_only = false;
+
+// xr_hold_ms: the hold of the last frame (XrScreen::SetHoldMs).
+int g_xr_hold_ms = 30;
+int g_render_thread_late_end = 1;
+int g_thread_wait = 1;
+int g_test_cores = 0;
+int g_test_smt = 0;
+int g_test_spin_walk_us = -1;
+int g_test_spin_idle_us = -1;
+int g_test_wake_records = -1;
+int g_gpu_flush = 128;
+char g_ab_test[64] = "";
+int g_profile_gpu = 0;
 // A speech bubble of the game as one card (bubble_card.cpp), and its test
 // keys for desktop runs. The name of a villager as one card (name_card).
 int g_bubble_card = 1;
@@ -609,7 +699,7 @@ void ReadSettings() {
   g_frame_time_real =
       GetPrivateProfileIntA("bwvr", "frame_time_real", 1, path) != 0 ? 1 : 0;
   g_tick_direct =
-      GetPrivateProfileIntA("bwvr", "tick_direct", 1, path) != 0;
+      static_cast<int>(GetPrivateProfileIntA("bwvr", "tick_direct", 2, path));
   g_frame_time_test_frame = static_cast<int>(
       GetPrivateProfileIntA("bwvr", "frame_time_test_frame", 0, path));
   g_frame_time_test_readers = static_cast<int>(
@@ -619,6 +709,8 @@ void ReadSettings() {
   g_one_walk = GetPrivateProfileIntA("bwvr", "one_walk", 1, path) != 0;
   g_one_walk_check =
       GetPrivateProfileIntA("bwvr", "one_walk_check", 0, path) != 0;
+  g_one_walk_merge =
+      GetPrivateProfileIntA("bwvr", "one_walk_merge", 1, path) != 0;
   g_one_walk_marks =
       GetPrivateProfileIntA("bwvr", "one_walk_marks", 1, path) != 0;
   g_one_walk_marks_test_frame = static_cast<int>(
@@ -766,6 +858,11 @@ void ReadSettings() {
     // with the stick").
     t.move_stick = number("move_stick", 1);
     t.move_stick_speed_cm = number("move_stick_speed_cm", 150);
+    // The time of a frame for the walk and the smooth zoom: the time between
+    // the display times of two frames of the headset (1), or the time of
+    // the CPU between two main camera calls (0). docs/god-view.md, "The time
+    // of a frame".
+    t.god_display_time = number("god_display_time", 1);
     // While the stick walks, 1: the height of the view follows the land
     // under the head through a smooth filter, and 0: the view keeps its
     // height. move_stick_trace=N logs the first N frames of each walk, for
@@ -1010,10 +1107,22 @@ void ReadSettings() {
   // The launcher's "Test keys" box. F12 saves both eye pictures and
   // Shift F12 steps the subtitles. Off for players.
   g_test_keys = GetPrivateProfileIntA("bwvr", "test_keys", 0, path) != 0;
-  const bool xr_bridge = GetPrivateProfileIntA("bwvr", "xr_bridge", 0, path) == 1;
+  const bool xr_bridge_key =
+      GetPrivateProfileIntA("bwvr", "xr_bridge", 0, path) == 1;
+  // The bridge to the x64 host gives the frames of Direct3D 11 to the host.
+  // backend=vulkan and xr_vulkan=1 have a session with Vulkan, so they use
+  // the local runtime (docs/backend.md, "Only Vulkan").
+  const bool vulkan_session =
+      ProxyBackendVulkan() ||
+      GetPrivateProfileIntA("bwvr", "xr_vulkan", 0, path) != 0;
+  const bool xr_bridge = xr_bridge_key && !vulkan_session;
   bwvr::XrScreen::ConfigureBridge(xr_bridge);
-  ModLog("settings     : xr_bridge=%d, %s", xr_bridge ? 1 : 0,
-         xr_bridge ? "experimental x64 OpenXR host" : "local OpenXR runtime");
+  ModLog("settings     : xr_bridge=%d, %s", xr_bridge_key ? 1 : 0,
+         xr_bridge ? "experimental x64 OpenXR host"
+         : xr_bridge_key
+             ? "but the session has Vulkan (backend=vulkan or xr_vulkan=1), "
+               "and the bridge needs Direct3D 11. The local OpenXR runtime"
+             : "local OpenXR runtime");
   // Not in the launcher. Off only to test the fault it fixes.
   g_game_camera_rebuild =
       GetPrivateProfileIntA("bwvr", "game_camera_rebuild", 1, path) != 0;
@@ -1323,6 +1432,114 @@ void ReadSettings() {
       GetPrivateProfileIntA("bwvr", "draw_merge_test", 0, path));
   g_draw_merge_test_frame = static_cast<int>(
       GetPrivateProfileIntA("bwvr", "draw_merge_test_frame", 0, path));
+  g_render_thread = static_cast<int>(
+      GetPrivateProfileIntA("bwvr", "render_thread", 0, path));
+  g_render_thread_test_frame = static_cast<int>(
+      GetPrivateProfileIntA("bwvr", "render_thread_test_frame", 0, path));
+  g_render_thread_lock_free =
+      GetPrivateProfileIntA("bwvr", "render_thread_lock_free", 1, path) != 0
+          ? 1
+          : 0;
+  g_render_thread_filter =
+      GetPrivateProfileIntA("bwvr", "render_thread_filter", 1, path) != 0
+          ? 1
+          : 0;
+  g_render_thread_buffers =
+      GetPrivateProfileIntA("bwvr", "render_thread_buffers", 1, path) != 0
+          ? 1
+          : 0;
+  g_gpu_flush = static_cast<int>(
+      GetPrivateProfileIntA("bwvr", "gpu_flush", 128, path));
+  g_render_thread_right_eye =
+      GetPrivateProfileIntA("bwvr", "render_thread_right_eye", 1, path) != 0
+          ? 1
+          : 0;
+  g_fast_transform =
+      GetPrivateProfileIntA("bwvr", "fast_transform", 1, path) != 0 ? 1 : 0;
+  g_fast_transform_check =
+      GetPrivateProfileIntA("bwvr", "fast_transform_check", 0, path) != 0 ? 1
+                                                                        : 0;
+  g_d3d7_count =
+      GetPrivateProfileIntA("bwvr", "d3d7_count", 0, path) != 0 ? 1 : 0;
+  g_d3d7_thread =
+      GetPrivateProfileIntA("bwvr", "d3d7_thread", 1, path) != 0 ? 1 : 0;
+  g_d3d7_thread_merge =
+      GetPrivateProfileIntA("bwvr", "d3d7_thread_merge", 1, path) != 0 ? 1
+                                                                       : 0;
+  g_vk_scene =
+      static_cast<int>(GetPrivateProfileIntA("bwvr", "vk_scene", 0, path));
+  g_vk_scene_test_frame = static_cast<int>(
+      GetPrivateProfileIntA("bwvr", "vk_scene_test_frame", 0, path));
+  g_vk_scene_follow =
+      GetPrivateProfileIntA("bwvr", "vk_scene_follow", 1, path) != 0 ? 1 : 0;
+  g_vk_panel = GetPrivateProfileIntA("bwvr", "vk_panel", 1, path) != 0 ? 1 : 0;
+  g_vk_only = GetPrivateProfileIntA("bwvr", "vk_only", 1, path) != 0 ? 1 : 0;
+  g_vk_only_test =
+      GetPrivateProfileIntA("bwvr", "vk_only_test", 0, path) != 0 ? 1 : 0;
+  g_vk_upload_queue =
+      GetPrivateProfileIntA("bwvr", "vk_upload_queue", 1, path) != 0 ? 1 : 0;
+  g_vk_present_late =
+      GetPrivateProfileIntA("bwvr", "vk_present_late", 1, path) != 0 ? 1 : 0;
+  g_vk_texture_reuse =
+      GetPrivateProfileIntA("bwvr", "vk_texture_reuse", 1, path) != 0 ? 1 : 0;
+  g_vk_keep_picture =
+      GetPrivateProfileIntA("bwvr", "vk_keep_picture", 1, path) != 0 ? 1 : 0;
+  g_vk_black_check =
+      GetPrivateProfileIntA("bwvr", "vk_black_check", 1, path) != 0 ? 1 : 0;
+  g_vk_untextured =
+      GetPrivateProfileIntA("bwvr", "vk_untextured", 1, path) != 0 ? 1 : 0;
+  g_vk_stage1 =
+      GetPrivateProfileIntA("bwvr", "vk_stage1", 1, path) != 0 ? 1 : 0;
+  g_foveation =
+      static_cast<int>(GetPrivateProfileIntA("bwvr", "foveation", 0, path));
+  g_foveation_inner_deg = static_cast<int>(
+      GetPrivateProfileIntA("bwvr", "foveation_inner_deg", 0, path));
+  g_foveation_outer_deg = static_cast<int>(
+      GetPrivateProfileIntA("bwvr", "foveation_outer_deg", 0, path));
+  g_foveation_gaze =
+      GetPrivateProfileIntA("bwvr", "foveation_gaze", 1, path) != 0 ? 1 : 0;
+  g_foveation_show =
+      GetPrivateProfileIntA("bwvr", "foveation_show", 0, path) != 0 ? 1 : 0;
+  g_fovea_res =
+      GetPrivateProfileIntA("bwvr", "fovea_res", 0, path) != 0 ? 1 : 0;
+  g_fovea_res_outer_pct = static_cast<int>(
+      GetPrivateProfileIntA("bwvr", "fovea_res_outer_pct", 50, path));
+  g_fovea_res_center_pct = static_cast<int>(
+      GetPrivateProfileIntA("bwvr", "fovea_res_center_pct", 100, path));
+  g_fovea_res_center_deg = static_cast<int>(
+      GetPrivateProfileIntA("bwvr", "fovea_res_center_deg", 25, path));
+  g_fovea_res_center_down_deg = static_cast<int>(
+      GetPrivateProfileIntA("bwvr", "fovea_res_center_down_deg", 0, path));
+  g_vk_scene_reread_test =
+      static_cast<int>(GetPrivateProfileIntA("bwvr", "vk_scene_reread_test", 0,
+                                             path));
+  g_xr_vulkan =
+      GetPrivateProfileIntA("bwvr", "xr_vulkan", 0, path) != 0 ? 1 : 0;
+  g_vk_eyes = GetPrivateProfileIntA("bwvr", "vk_eyes", 1, path) != 0 ? 1 : 0;
+  g_xr_vulkan_upload =
+      GetPrivateProfileIntA("bwvr", "xr_vulkan_upload", 1, path) != 0 ? 1 : 0;
+  g_xr_hold_ms = static_cast<int>(
+      GetPrivateProfileIntA("bwvr", "xr_hold_ms", 30, path));
+  g_render_thread_late_end =
+      GetPrivateProfileIntA("bwvr", "render_thread_late_end", 1, path) != 0
+          ? 1
+          : 0;
+  g_thread_wait =
+      GetPrivateProfileIntA("bwvr", "thread_wait", 1, path) != 0 ? 1 : 0;
+  g_test_cores =
+      static_cast<int>(GetPrivateProfileIntA("bwvr", "test_cores", 0, path));
+  g_test_smt =
+      static_cast<int>(GetPrivateProfileIntA("bwvr", "test_smt", 0, path));
+  g_test_spin_walk_us = static_cast<int>(
+      GetPrivateProfileIntA("bwvr", "test_spin_walk_us", -1, path));
+  g_test_spin_idle_us = static_cast<int>(
+      GetPrivateProfileIntA("bwvr", "test_spin_idle_us", -1, path));
+  g_test_wake_records = static_cast<int>(
+      GetPrivateProfileIntA("bwvr", "test_wake_records", -1, path));
+  GetPrivateProfileStringA("bwvr", "ab_test", "", g_ab_test,
+                           sizeof(g_ab_test), path);
+  g_profile_gpu =
+      static_cast<int>(GetPrivateProfileIntA("bwvr", "profile_gpu", 0, path));
   g_bubble_card =
       GetPrivateProfileIntA("bwvr", "bubble_card", 1, path) != 0 ? 1 : 0;
   g_name_card =
@@ -1465,7 +1682,7 @@ void StartVrStep() {
     PresentWatchInstall();
     FrameProfileSetLevel(g_profile);
     FrameProfileInstall();
-    GpuBridgeProbeInterop();
+    if (!g_vulkan_only) GpuBridgeProbeInterop();
     ModLog("vr           : game renders at %ux%u", width, height);
     // The pointer is scaled onto this, so the window may be any size.
     PointerMapSetRenderSize(static_cast<int>(width),
@@ -1578,6 +1795,8 @@ void StartVrStep() {
                         g_frame_time_test_readers,
                         g_frame_time_test_readers_frames);
     OneWalkSetCheck(g_one_walk_check);
+    // one_walk_merge is a part of the render thread.
+    if (!g_vulkan_only) OneWalkSetMerge(g_one_walk_merge);
     OneWalkSetMarks(g_one_walk_marks, g_one_walk_marks_test_frame);
     if (g_one_walk) OneWalkSetWanted(true);
     StereoSetHeadless(g_stereo_headless);
@@ -1602,8 +1821,81 @@ void StartVrStep() {
     EyeCleanSetOptions(g_eye_clean, g_eye_clean_test, g_eye_clean_test_frame);
     EyeCleanInstall();
     FrameSendSetOptions(g_frame_send);
-    DrawMergeSetOptions(g_draw_merge, g_draw_merge_test,
-                        g_draw_merge_test_frame);
+    ThreadWaitLimitCores(g_test_cores, g_test_smt);
+    ThreadWaitSetOptions(g_thread_wait, g_test_spin_walk_us,
+                         g_test_spin_idle_us, g_test_wake_records);
+    // The merge of draw calls, the render thread, gpu_flush and the D3D7
+    // thread give the calls of a walk to Direct3D 9. With vulkan_only=1 they
+    // do not start, and their keys and test keys do nothing.
+    if (g_vulkan_only) {
+      DrawMergeOff();
+    } else {
+      DrawMergeSetOptions(g_draw_merge, g_draw_merge_test,
+                          g_draw_merge_test_frame);
+      RenderThreadSetOptions(g_render_thread, g_render_thread_test_frame,
+                             g_render_thread_lock_free, g_render_thread_filter,
+                             g_render_thread_buffers, g_gpu_flush,
+                             g_profile_gpu);
+      RenderThreadSetRightEye(g_render_thread_right_eye != 0);
+      RenderThreadSetAbTest(g_ab_test);
+    }
+    FastTransformSetOptions(g_fast_transform);
+    FastTransformSetCheck(g_fast_transform_check);
+    FastTransformInstall();
+    D3D7CountSetOptions(g_d3d7_count);
+    if (!g_vulkan_only) {
+      D3D7ThreadSetOptions(g_d3d7_thread);
+      D3D7ThreadSetMerge(g_d3d7_thread_merge);
+    }
+    // backend=vulkan has no Direct3D 9 and no Direct3D 11, so the session
+    // is a session with Vulkan, and the eye pictures come from the renderer.
+    const bool direct = VkSceneDirect();
+    if (direct && (g_xr_vulkan == 0 || g_vk_eyes == 0)) {
+      g_xr_vulkan = 1;
+      g_vk_eyes = 1;
+      ModLog("vr           : backend=vulkan, so xr_vulkan=1 and vk_eyes=1");
+    }
+    // With no Direct3D 11 there is no relay, so the pixels of the CPU go
+    // into the swapchains with Vulkan.
+    if (g_vulkan_only && g_xr_vulkan_upload == 0) {
+      g_xr_vulkan_upload = 1;
+      ModLog("vr           : vulkan_only=1, so xr_vulkan_upload=1");
+    }
+    // The eye pictures of the Vulkan renderer need the renderer.
+    const bool vk_eyes = g_xr_vulkan != 0 && g_vk_eyes != 0;
+    VkSceneSetOptions(g_vk_scene != 0 || vk_eyes || direct ? 1 : 0,
+                      g_vk_scene_test_frame);
+    VkSceneSetEyes(vk_eyes);
+    VkSceneSetFollow(g_vk_scene_follow);
+    VkSceneSetPanel(g_vk_panel);
+    VkSceneSetOnly(g_vk_only, g_vk_only_test);
+    VkSceneSetUploads(g_vk_upload_queue, g_vk_scene_reread_test);
+    VkSceneSetPresentLate(g_vk_present_late);
+    VkSceneSetTextureReuse(g_vk_texture_reuse);
+    VkSceneSetKeepPicture(g_vk_keep_picture);
+    VkSceneSetBlackCheck(g_vk_black_check);
+    VkSceneSetUntextured(g_vk_untextured);
+    VkSceneSetStage1(g_vk_stage1);
+    VkSceneSetFoveation(g_foveation, g_foveation_inner_deg,
+                        g_foveation_outer_deg, g_foveation_show);
+    VkSceneSetFoveaRes(g_fovea_res, g_fovea_res_outer_pct,
+                       g_fovea_res_center_pct, g_fovea_res_center_deg,
+                       g_fovea_res_center_down_deg);
+    if ((g_foveation != 0 || g_fovea_res != 0) && g_vk_scene == 0 &&
+        !vk_eyes && !direct) {
+      ModLog("vk scene     : foveation=%d and fovea_res=%d, but the eye "
+             "pictures come from Direct3D 9. Both need backend=vulkan, or "
+             "xr_vulkan=1 with vk_eyes=1",
+             g_foveation, g_fovea_res);
+    }
+    // With a session with Vulkan the renderer takes its device, so it waits
+    // for the session.
+    if (g_xr_vulkan != 0 && g_vr_enabled && !g_stereo_headless) {
+      vk::WaitForExternal(true);
+    }
+    if (!g_vulkan_only) {
+      RenderThreadSetLateEnd(g_render_thread_late_end != 0);
+    }
     BubbleCardSetOptions(g_bubble_card, g_name_card, g_bubble_card_test,
                          g_bubble_card_test_frame);
     BubbleCardInstall();
@@ -1614,6 +1906,7 @@ void StartVrStep() {
   // session keeps a measuring run to one command on the desktop.
   if (g_stereo_headless) {
     g_vr_gave_up = true;
+    vk::WaitForExternal(false);
     return;
   }
 
@@ -1623,6 +1916,7 @@ void StartVrStep() {
   // starts one.
   if (!g_vr_full_screen && GpuBridgeFullScreen()) {
     g_vr_gave_up = true;
+    vk::WaitForExternal(false);
     ModLog("vr           : vr_full_screen=0. The game is full screen, so the "
            "mod does not use the headset. Start the game from the launcher");
     return;
@@ -1636,6 +1930,9 @@ void StartVrStep() {
     options.max_tries = kMaxVrTries;
     options.test_hang_try = g_vr_start_test_hang_try;
     options.test_hang_ms = g_vr_start_test_hang_ms;
+    options.vulkan = g_xr_vulkan != 0;
+    options.d3d11 = !g_vulkan_only;
+    options.eye_gaze = g_foveation != 0 && g_foveation_gaze != 0;
     if (VrStartBegin(options)) {
       g_vr_thread = true;
       return;
@@ -1647,6 +1944,11 @@ void StartVrStep() {
   LARGE_INTEGER try_start;
   QueryPerformanceCounter(&try_start);
   bwvr::XrScreen* screen = new bwvr::XrScreen();
+  screen->UseVulkan(g_xr_vulkan != 0);
+  screen->UseD3D11(!g_vulkan_only);
+  screen->WantEyeGaze(g_foveation != 0 && g_foveation_gaze != 0);
+  screen->SetVulkanUpload(g_xr_vulkan_upload != 0);
+  screen->SetHoldMs(g_xr_hold_ms);
   screen->SetPlacement(g_distance, g_width);
   screen->EnablePanel(g_stereo && g_ui_panel.mode == kUiPanelLayer);
   // Only the first failure and every tenth after it reach the log. A message
@@ -1655,6 +1957,27 @@ void StartVrStep() {
       !g_vr_fallback_try && (g_vr_tries > 0) && (g_vr_tries % 10 != 0);
   if (!screen->Start(width, height, g_stereo ? 2 : 1,
                      quiet ? &ModLogNowhere : &ModLog)) {
+    // A session with Vulkan that the GPU or the runtime cannot have. With
+    // vulkan_only=1 there is no session with Direct3D 11, so the game stays
+    // on the monitor.
+    if (screen->VulkanFailed() && g_vulkan_only) {
+      delete screen;
+      g_vr_gave_up = true;
+      vk::WaitForExternal(false);
+      ModLog("vr           : the session with Vulkan did not start, and "
+             "vulkan_only=1 has no session with Direct3D 11. The game stays "
+             "on the monitor");
+      return;
+    }
+    // Else the next try is a session with Direct3D 11, with the eye pictures
+    // of Direct3D 9.
+    if (screen->VulkanFailed()) {
+      g_xr_vulkan = 0;
+      vk::WaitForExternal(false);
+      VkSceneSetEyes(false);
+      ModLog("vr           : xr_vulkan=1, but the session with Vulkan did "
+             "not start. The next try is a session with Direct3D 11");
+    }
     delete screen;
     g_vr_code_ms += MsSince(try_start);
     ++g_vr_tries;
@@ -1664,6 +1987,15 @@ void StartVrStep() {
              "%d. The tries go on to the end of the 2 minutes (vr_start=0)",
              g_vr_tries);
     }
+    // backend=vulkan: the window of the game needs the renderer. After three
+    // tries (about 9 s) it draws with a device of its own, and a session
+    // that starts later gets no image of it (VkSceneEyesWanted).
+    if (g_vr_tries >= 3 && VkSceneDirect() && vk::Pending()) {
+      vk::WaitForExternal(false);
+      ModLog("vr           : no session after 3 tries, so the Vulkan renderer "
+             "draws with a device of its own. A session that starts later "
+             "gets no picture of it: start the game with the headset ready");
+    }
     if (g_vr_tries == 1) {
       ModLog("vr           : waiting for the headset, will keep trying for "
              "%d seconds. The tries run on the frame thread, with a new "
@@ -1672,6 +2004,7 @@ void StartVrStep() {
     }
     if (g_vr_tries >= kMaxVrTries) {
       g_vr_gave_up = true;
+      vk::WaitForExternal(false);
       ModLog("vr           : no headset arrived, the game stays on the "
              "monitor");
     }
@@ -1688,6 +2021,7 @@ void StartVrFromThread() {
   if (!g_vr_full_screen && GpuBridgeFullScreen()) {
     VrStartCancel();
     g_vr_gave_up = true;
+    vk::WaitForExternal(false);
     ModLog("vr           : vr_full_screen=0. The game is full screen, so the "
            "mod does not use the headset. Start the game from the launcher");
     return;
@@ -1707,7 +2041,17 @@ void StartVrFromThread() {
       return;
     }
     g_vr_gave_up = true;
+    vk::WaitForExternal(false);
     return;
+  }
+  // backend=vulkan: the window of the game needs the renderer, as with the
+  // tries on the frame thread.
+  if (screen == nullptr && VrStartTries() >= 3 && VkSceneDirect() &&
+      vk::Pending()) {
+    vk::WaitForExternal(false);
+    ModLog("vr           : no session after 3 tries, so the Vulkan renderer "
+           "draws with a device of its own. A session that starts later "
+           "gets no picture of it: start the game with the headset ready");
   }
   if (screen == nullptr) return;
 
@@ -1723,6 +2067,8 @@ void StartVrFromThread() {
   } else if (!FrameSourceSize(&width, &height)) {
     failed = "the size of the render target, before StartSession";
   } else {
+    screen->SetVulkanUpload(g_xr_vulkan_upload != 0);
+    screen->SetHoldMs(g_xr_hold_ms);
     screen->SetPlacement(g_distance, g_width);
     screen->EnablePanel(g_stereo && g_ui_panel.mode == kUiPanelLayer);
     screen->SetLog(&ModLog);
@@ -1755,6 +2101,32 @@ void VrSessionRuns(bwvr::XrScreen* screen, uint32_t width, uint32_t height) {
   // separation, and the size the headset asks for.
   screen->SetLog(&ModLog);
 
+  // The Vulkan renderer draws with the device of a session with Vulkan.
+  bwvr::XrVulkan session_vulkan;
+  if (screen->VulkanInfo(&session_vulkan)) {
+    vk::External external = {};
+    external.get_instance_proc_addr = reinterpret_cast<PFN_vkGetInstanceProcAddr>(
+        session_vulkan.get_instance_proc_addr);
+    external.instance = static_cast<VkInstance>(session_vulkan.instance);
+    external.physical = static_cast<VkPhysicalDevice>(session_vulkan.physical);
+    external.device = static_cast<VkDevice>(session_vulkan.device);
+    external.queue_family = session_vulkan.queue_family;
+    external.queue_index = session_vulkan.queue_index;
+    external.max_anisotropy = session_vulkan.max_anisotropy;
+    external.color_format = static_cast<VkFormat>(session_vulkan.eye_format);
+    external.shading_rate = session_vulkan.shading_rate;
+    external.window_present = session_vulkan.window_present;
+    external.lock = &bwvr::XrScreen::LockQueue;
+    external.unlock = &bwvr::XrScreen::UnlockQueue;
+    vk::UseExternal(external);
+    ModLog("vr           : xr_vulkan=1. A session with Vulkan. The Vulkan "
+           "renderer takes its device. xr_vulkan_upload=%d: %s",
+           g_xr_vulkan_upload,
+           g_xr_vulkan_upload != 0
+               ? "the pixels of the CPU go into the swapchains with Vulkan"
+               : "the pixels of the CPU go through the relays of Direct3D 11");
+  }
+
   // WRITE THE HEADSET'S OWN SIZE BACK TO THE SETTINGS.
   //
   // The launcher runs before the game and cannot ask the headset without
@@ -1780,6 +2152,12 @@ void VrSessionRuns(bwvr::XrScreen* screen, uint32_t width, uint32_t height) {
   IntroSetScreen(g_screen);
   ControllersSetScreen(g_screen);
 
+  if (g_vulkan_only) {
+    ModLog("vr           : running, the frame reaches the headset with Vulkan, "
+           "with no readback");
+    LogDirect3DModules("the session runs");
+    return;
+  }
   // With a backend that keeps the frame on the GPU, the readback can go.
   // This is allowed to fail: the CPU path stays available underneath it.
   if (GpuBridgeHasDevice()) {
@@ -1808,6 +2186,42 @@ void StartVrOnce() {
 
 // A log sink that throws the line away, for the quiet retries.
 void ModLogNowhere(const char*, ...) {}
+
+// A TEST AID for a frame with no eye pass with backend=vulkan (a menu, a
+// load): one line for each such frame after the first 600 frames, at most
+// 400 lines. It gives the time from the frame of this kind before, the
+// time of the submit, and what the walks since then did.
+void FlatFrameLine(uint64_t image, LARGE_INTEGER t0, LARGE_INTEGER t1) {
+  static int s_lines = 0;
+  static LARGE_INTEGER s_last = {};
+  static uint64_t s_count[5] = {};
+  static uint64_t s_image = 0;
+  uint64_t now[5] = {};
+  VkSceneCounts(&now[0], &now[1], &now[2], &now[3], &now[4]);
+  uint64_t delta[5] = {};
+  for (int i = 0; i < 5; ++i) {
+    // The report of 450 frames sets the counts back to 0.
+    delta[i] = now[i] >= s_count[i] ? now[i] - s_count[i] : now[i];
+    s_count[i] = now[i];
+  }
+  LARGE_INTEGER hz;
+  QueryPerformanceFrequency(&hz);
+  const double ms_hz = 1000.0 / static_cast<double>(hz.QuadPart);
+  const double gap =
+      s_last.QuadPart != 0 ? (t0.QuadPart - s_last.QuadPart) * ms_hz : 0.0;
+  s_last = t0;
+  const bool same = image == s_image;
+  s_image = image;
+  if (g_frame < 600 || s_lines >= 400) return;
+  ++s_lines;
+  ModLog("vr flat      : frame %llu, %.1f ms after the flat frame before, the "
+         "submit %.1f ms. Since then %llu walks, %llu draws, %llu clears, "
+         "%llu walks with the picture before, %llu walks with a clear of the "
+         "whole target. The image is %s",
+         g_frame, gap, (t1.QuadPart - t0.QuadPart) * ms_hz, delta[0],
+         delta[1], delta[2], delta[3], delta[4],
+         same ? "the same as before" : "the other target");
+}
 
 void __cdecl h_FinishFrame() {
   // After the shutdown the game draws for itself.
@@ -1842,7 +2256,10 @@ void __cdecl h_FinishFrame() {
   if (g_filter_survey && (g_frame % 1800) == 0) TextureFilterReport();
   if ((g_frame % 1800) == 0) GdiWatchReport();
 
-  if (!g_vr_enabled && !g_stereo_headless) return;
+  if (!g_vr_enabled && !g_stereo_headless) {
+    vk::WaitForExternal(false);
+    return;
+  }
   StartVrOnce();
   // The backend can replace its device while the game runs, for example when
   // the game goes full screen. This starts the GPU path again on the new one.
@@ -1856,6 +2273,10 @@ void __cdecl h_FinishFrame() {
   // and make the game look hung with no way back.
   PresentWatchSkipDesktop(g_skip_desktop && g_screen != nullptr &&
                           g_screen->running());
+
+  // The watch of the frame thread counts each frame, also of the logos
+  // (hang_watch, a test key).
+  HangWatchFrame();
 
   // The logos at the start of the game end on a press of a controller
   // button. The caller of FinishFrame says which logo plays.
@@ -1880,6 +2301,25 @@ void __cdecl h_FinishFrame() {
   // costs 18.98 ms a frame just to read the picture back, and the readback is
   // worse on this backend than on system DirectDraw, because the render
   // target lives in graphics memory.
+  // backend=vulkan: the picture of the last walk goes to the session with a
+  // copy of the GPU (the logos and the loading screens are walks too). A
+  // picture that the game wrote with the CPU keeps the path of the CPU.
+  {
+    uint64_t image = 0;
+    uint32_t layer = 0, width = 0, height = 0;
+    if (g_screen->vulkan() &&
+        VkSceneLastPicture(&image, &layer, &width, &height) &&
+        width >= g_screen->width() && height >= g_screen->height()) {
+      LARGE_INTEGER t0, t1;
+      QueryPerformanceCounter(&t0);
+      if (!g_screen->SubmitVulkan(image, layer)) {
+        ModLog("vr           : the session ended at frame %llu", g_frame);
+      }
+      QueryPerformanceCounter(&t1);
+      FlatFrameLine(image, t0, t1);
+      return;
+    }
+  }
   if (GpuBridgeReady()) {
     void* texture = GpuBridgeCaptureEye(0);
     if (texture != nullptr) {
@@ -1894,6 +2334,18 @@ void __cdecl h_FinishFrame() {
     }
   }
 
+  // backend=vulkan: the pixels of the CPU are the picture only where the
+  // game wrote them. The first frames of this kind go into the log.
+  if (VkSceneDirect()) {
+    static int s_said = 0;
+    if (s_said < 24) {
+      ++s_said;
+      ModLog("vr           : frame %llu sends the pixels of the CPU of the "
+             "render target, with no eye pass and no picture of a walk after "
+             "the last write of the CPU",
+             g_frame);
+    }
+  }
   int pitch = 0;
   const void* pixels = FrameSourceGrab(&pitch);
   if (pixels == nullptr) return;
@@ -2067,13 +2519,40 @@ void EarlyHooks() {
   // turned off too.
   g_net_check_own = GetPrivateProfileIntA("bwvr", "net_check", 0, path) == 0;
   NetCheckInstall(g_net_check_own);
+  // The check of the game for DirectX 7 stops the game with no administrator
+  // rights. It comes before the backend loads.
+  g_dx_check_own = GetPrivateProfileIntA("bwvr", "dx_check", 0, path) == 0;
+  DxCheckInstall(g_dx_check_own);
+  // Before the game opens its first file with LHFile. It works with vr
+  // turned off too.
+  FileReadAheadInstall(
+      GetPrivateProfileIntA("bwvr", "file_read_ahead", 1, path) != 0,
+      GetPrivateProfileIntA("bwvr", "test_keys", 0, path) != 0);
+  // On by default from version 1.1.0. Read here because the device hooks of
+  // the bridge need it.
+  Depth24SetWanted(GetPrivateProfileIntA("bwvr", "depth24", 1, path) != 0);
+  // backend=vulkan with vulkan_only=1: no DXVK, no hook on Direct3D 9 and no
+  // load of d3d9.dll.
+  g_vulkan_only = ProxyBackendVulkan() &&
+                  GetPrivateProfileIntA("bwvr", "vulkan_only", 1, path) != 0;
+  if (ProxyBackendVulkan()) {
+    ModLog("vulkan only  : vulkan_only=%d. %s", g_vulkan_only ? 1 : 0,
+           g_vulkan_only
+               ? "With backend=vulkan the mod uses only Vulkan: no "
+                 "dxwrapper, no Direct3D 9, no DXVK and no Direct3D 11. The "
+                 "parts for Direct3D 9 do not start"
+               : "The parts for Direct3D 9 and the Direct3D 11 device of the "
+                 "session start as with dxwrapper, with no Direct3D 9 to "
+                 "use");
+  }
+  if (g_vulkan_only) return;
+  // Before anything loads d3d9.dll: DXVK in place of the Direct3D 9 of
+  // Windows, when it is wanted and the PC can run it.
+  D3D9BackendLoad(g_dir, path);
   // On by default: it is the tested path, and it falls back to the readback
   // on its own if the device cannot share a texture.
   const bool wanted =
       GetPrivateProfileIntA("bwvr", "gpu_bridge", 1, path) != 0;
-  // On by default from version 1.1.0. Read here because the device hooks of
-  // the bridge need it.
-  Depth24SetWanted(GetPrivateProfileIntA("bwvr", "depth24", 1, path) != 0);
   if (!wanted) return;
   // With vr=0 the mod does nothing, so the bridge stays out of the backend. A
   // headless run has vr=0 too, and it needs the bridge.
@@ -2087,10 +2566,13 @@ void EarlyHooks() {
     ModLog("gpu bridge   : MinHook would not start, staying on the CPU path");
     return;
   }
+
   // With frame_send=2 a second thread makes calls on the device of the
-  // backend. The test key can choose that value in a session.
+  // backend, and the render thread is a second thread too. A test key can
+  // choose each of them in a session.
   GpuBridgeWantTwoThreads(
       GetPrivateProfileIntA("bwvr", "frame_send", 0, path) == 2 ||
+      GetPrivateProfileIntA("bwvr", "render_thread", 0, path) != 0 ||
       GetPrivateProfileIntA("bwvr", "test_keys", 0, path) != 0);
   GpuBridgeSetEnabled(true);
   GpuBridgeInstall();
@@ -2103,6 +2585,7 @@ void Startup() {
   ModLog("");
   // A second try, if LHMultiplayerR.dll was not loaded at the first one.
   NetCheckInstall(g_net_check_own);
+  DxCheckInstall(g_dx_check_own);
 
   ReadSettings();
   // Headless measuring still needs the hooks, even with vr turned off.
@@ -2195,6 +2678,7 @@ void Shutdown(const char* path) {
   QueryPerformanceCounter(&start);
   ModLog("");
   ModLog("shutdown     : the shutdown starts, %s, frame %llu", path, g_frame);
+  LogDirect3DModules("the shutdown starts");
   // Let the cursor go before anything else. A clipped cursor outlives the
   // process that clipped it, so a crash here would leave the pointer trapped
   // in a rectangle on a dead window.
@@ -2210,7 +2694,9 @@ void Shutdown(const char* path) {
     StereoReport();
     UiDepthReport();
     TextureFilterReport();
-    ShutdownPart("the OpenXR session and its Direct3D 11 device", [] {
+    ShutdownPart(g_vulkan_only ? "the OpenXR session"
+                               : "the OpenXR session and its Direct3D 11 device",
+                 [] {
       // Each file that holds the screen lets it go first: the game can call
       // a hook after this.
       StereoSetScreen(nullptr);
@@ -2231,7 +2717,9 @@ void Shutdown(const char* path) {
     ShutdownPart("the thread of the tries to start the headset session",
                  [] { VrStartShutdown(500); });
   }
-  ShutdownPart("the GPU bridge", [] { GpuBridgeShutdown(); });
+  if (!g_vulkan_only) {
+    ShutdownPart("the GPU bridge", [] { GpuBridgeShutdown(); });
+  }
   ShutdownPart("the frame source", [] { FrameSourceShutdown(); });
   ModLog("shutdown     : all parts are done, %.1f ms", MsSince(start));
 }
@@ -2310,6 +2798,57 @@ void EndOfDll(bool process_ends) {
 
 }  // namespace
 
+// The test key of xr_vulkan_upload (stereo.cpp, Shift Z). It changes the
+// key for the next session too.
+void XrVulkanUploadToggle(const char* keys) {
+  g_xr_vulkan_upload = g_xr_vulkan_upload != 0 ? 0 : 1;
+  if (g_screen != nullptr) g_screen->SetVulkanUpload(g_xr_vulkan_upload != 0);
+  ControllersGesturePulse(0.5f, g_xr_vulkan_upload != 0 ? 0.30f : 0.08f);
+  ModLog("test key     : %s, xr_vulkan_upload is %d now: the pixels of the "
+         "CPU go %s from the next write",
+         keys, g_xr_vulkan_upload,
+         g_xr_vulkan_upload != 0 ? "into the swapchains with Vulkan"
+                                 : "through the relays of Direct3D 11");
+}
+
+// backend=vulkan with vulkan_only=1 (docs/backend.md, "Only Vulkan").
+bool VulkanOnly() { return g_vulkan_only; }
+
+// A TEST AID for vulkan_only: which DLLs of Direct3D and of dxwrapper are in
+// the process. The OpenXR runtime and the driver can load some of them
+// themselves.
+void LogDirect3DModules(const char* when) {
+  static const char* const kNames[] = {"dxwrapper.dll", "d3d9.dll",
+                                       "d3d11.dll", "dxgi.dll", "d3d12.dll"};
+  char loaded[160] = "";
+  char absent[160] = "";
+  for (const char* name : kNames) {
+    char* list = GetModuleHandleA(name) != nullptr ? loaded : absent;
+    if (list[0] != 0) strcat_s(list, 160, ", ");
+    strcat_s(list, 160, name);
+  }
+  ModLog("modules      : %s. In the process: %s. Not in the process: %s", when,
+         loaded[0] != 0 ? loaded : "none", absent[0] != 0 ? absent : "none");
+}
+
+// For tabletop.cpp: the predicted display time of the frame of the headset
+// that is open, in seconds, or 0 with no session.
+double ModDisplaySeconds() {
+  if (g_screen == nullptr || !g_screen->running()) return 0.0;
+  return g_screen->DisplaySeconds();
+}
+
+// The test key of xr_hold_ms (stereo.cpp, Shift W): the hold goes off, and
+// on again with the value of the ini (30 ms when the ini has 0).
+void XrHoldToggle(const char* keys) {
+  if (g_screen == nullptr) return;
+  const int now =
+      g_screen->HoldMs() > 0 ? 0 : (g_xr_hold_ms > 0 ? g_xr_hold_ms : 30);
+  g_screen->SetHoldMs(now);
+  ControllersGesturePulse(0.5f, now > 0 ? 0.30f : 0.08f);
+  ModLog("test key     : %s, xr_hold_ms is %d now", keys, now);
+}
+
 void ModLog(const char* format, ...) {
   if (g_log == nullptr) return;
   // The frame cost measure counts the time of a line, with the wait for the
@@ -2347,7 +2886,59 @@ BOOL WINAPI DllMain(HINSTANCE instance, DWORD reason, LPVOID reserved) {
     } else {
       ProxyForceSystemDDraw();
     }
+    // The first bytes of the two exports that make a DirectDraw object,
+    // before the backend can put its hot patch on them (ProxyCreateStarts).
+    unsigned char start_ex[2], start_old[2];
+    ProxyCreateStarts(start_ex, start_old);
     if (!ProxyLoadRealDDraw()) return FALSE;
+    // A test key: the count of each call of DirectDraw and Direct3D 7. After
+    // the backend loads, and before the game makes its DirectDraw object.
+    if (game_ok) {
+      char ini[MAX_PATH];
+      lstrcpynA(ini, g_dir, MAX_PATH);
+      lstrcatA(ini, "bwvr.ini");
+      // backend=vulkan: the DirectDraw of the mod. The count needs the
+      // objects of another backend, so it does not run then.
+      const bool vulkan = ProxyBackendVulkan();
+      if (vulkan) {
+        VkDdrawInstall(static_cast<int>(
+            GetPrivateProfileIntA("bwvr", "vk_lines", 1, ini)));
+        // Before the first present of the game.
+        VkWindowSetOptions(static_cast<int>(
+            GetPrivateProfileIntA("bwvr", "vk_window", 1, ini)));
+        // With a headset the renderer draws with the Vulkan device of the
+        // session, so its images can go into the swapchains. It waits for
+        // the session from the first walk (StartVrOnce lets it go when no
+        // session comes).
+        if (GetPrivateProfileIntA("bwvr", "vr", 1, ini) != 0 &&
+            GetPrivateProfileIntA("bwvr", "stereo_headless", 0, ini) == 0) {
+          vk::WaitForExternal(true);
+        }
+      }
+      const int census =
+          vulkan ? 0
+                 : static_cast<int>(
+                       GetPrivateProfileIntA("bwvr", "ddraw_census", 0, ini));
+      DdrawCensusInstall(census);
+      // dxwrapper puts a hot patch on the two exports of the mod that make a
+      // DirectDraw object, so the count sees the calls of the start only
+      // with another backend (backend=system).
+      if (census != 0) {
+        unsigned char now_ex[2], now_old[2];
+        ProxyCreateStarts(now_ex, now_old);
+        const bool patched = now_ex[0] != start_ex[0] ||
+                             now_ex[1] != start_ex[1] ||
+                             now_old[0] != start_old[0] ||
+                             now_old[1] != start_old[1];
+        ModLog("ddraw census : %s",
+               patched ? "the backend put a hot patch on DirectDrawCreateEx "
+                         "and DirectDrawCreate of the mod, so the count starts "
+                         "at the first walk. backend=system counts the start"
+                       : "the exports of the mod have no hot patch of the "
+                         "backend, so the count starts with the first "
+                         "DirectDraw object");
+      }
+    }
     if (game_ok) Startup();
   } else if (reason == DLL_PROCESS_DETACH) {
     // The third parameter is not null when the process ends.

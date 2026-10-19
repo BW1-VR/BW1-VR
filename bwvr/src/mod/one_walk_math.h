@@ -93,6 +93,25 @@ inline BatchKind CopyForRightEye(const uint8_t* src, uint8_t* dst,
   return kind;
 }
 
+// True when each vertex of the left copy has an x of at most left_end and
+// each vertex of the right copy an x of at least right_start. left_end is the
+// right edge of the viewport of the left eye, right_start the left edge of
+// the viewport of the right eye. Then no viewport clips a triangle at the
+// edge between the eyes, and one viewport from the left edge of the left eye
+// to the right edge of the right eye gives the same pixels for both copies.
+// A NaN fails.
+inline bool InOwnHalves(const uint8_t* left, const uint8_t* right,
+                        uint32_t count, uint32_t stride, float left_end,
+                        float right_start) {
+  if (count == 0 || stride < 4) return false;
+  for (uint32_t i = 0; i < count; ++i) {
+    const float l = *reinterpret_cast<const float*>(left + i * stride);
+    const float r = *reinterpret_cast<const float*>(right + i * stride);
+    if (!(l <= left_end) || !(r >= right_start)) return false;
+  }
+  return true;
+}
+
 // Copies count vertices and moves each by offset only. For a batch that
 // already has the place of the right eye.
 inline void CopyMoved(const uint8_t* src, uint8_t* dst, uint32_t count,

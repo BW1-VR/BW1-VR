@@ -72,6 +72,11 @@ $rowText = @{
     skip = 'Skip all of the Creature tutorial'; keep = 'Keep your old Creature'
 }
 $story = $Choice -ne 'keep'
+# The frame of a recipe fits a game at about 60 to 150 frames a second. With
+# backend=vulkan a desktop frame is 1.5 to 3 ms, so the run has the test key
+# test_frame_rate=60 (README.md, "The check before a merge"), when -Set does
+# not give the key.
+if ((Get-BwvrBackend) -eq 'vulkan' -and $Set -notmatch '(^|;)\s*test_frame_rate\s*=') { $Set = "test_frame_rate=60;$Set".TrimEnd(';') }
 $keys = $Set
 if ($story) { $keys = ("fake_controller_play_frame=$playFrame;$Set").TrimEnd(';') }
 if ($Seconds -le 0) {
@@ -117,6 +122,7 @@ $text = @(
     "The state: $state"
     "The frame of the save: $asked$(if ($story) { " (frame $Frame of the script, with frame $playFrame as the frame at which the player got the Hand)" })"
     "The steps before the save: $(if ($Steps -eq '') { 'none' } else { $Steps })"
+    "The keys of -Set: $(if ($Set -eq '') { 'none' } else { $Set })"
     "The render size: $(if ($size) { "$($size[0]) by $($size[1])" } else { '?' })"
     "The DLL: $build"
     "The files: the folder 20, $($files.Count) files, $([int](($files | Measure-Object Length -Sum).Sum / 1024)) KB (the files of Saved Games\20 of the profile that the game wrote in the run)"

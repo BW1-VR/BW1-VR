@@ -41,6 +41,8 @@
 
 #include <windows.h>
 
+#include "ddraw_proxy.h"
+
 namespace {
 
 HMODULE g_real = nullptr;
@@ -50,8 +52,9 @@ HMODULE g_system = nullptr;
 // leaves a note for Startup to print.
 char g_note[256] = "backend      : system DirectDraw";
 
-// One slot per forwarded export, filled at load time.
-#define DDRAW_EXPORTS(X)            \
+// One slot per export, filled at load time. The exports that go to the
+// backend with a naked thunk:
+#define DDRAW_FORWARDED(X)          \
   X(AcquireDDThreadLock)            \
   X(CompleteCreateSysmemSurface)    \
   X(D3DParseUnknownCommand)         \
@@ -59,9 +62,7 @@ char g_note[256] = "backend      : system DirectDraw";
   X(DDInternalLock)                 \
   X(DDInternalUnlock)               \
   X(DSoundHelp)                     \
-  X(DirectDrawCreate)               \
   X(DirectDrawCreateClipper)        \
-  X(DirectDrawCreateEx)             \
   X(DirectDrawEnumerateA)           \
   X(DirectDrawEnumerateExA)         \
   X(DirectDrawEnumerateExW)         \
@@ -74,6 +75,13 @@ char g_note[256] = "backend      : system DirectDraw";
   X(RegisterSpecialCase)            \
   X(ReleaseDDThreadLock)            \
   X(SetAppCompatData)
+
+// Each export. The two that make a DirectDraw object go through a function
+// (Proxy_DirectDrawCreateEx, Proxy_DirectDrawCreate).
+#define DDRAW_EXPORTS(X) \
+  DDRAW_FORWARDED(X)     \
+  X(DirectDrawCreate)    \
+  X(DirectDrawCreateEx)
 
 #define DECLARE_SLOT(name) FARPROC real_##name = nullptr;
 DDRAW_EXPORTS(DECLARE_SLOT)
@@ -96,6 +104,9 @@ void GameFolder(char* out, size_t size) {
 // Set when the game is a build the mod does not fit. Then nothing of the mod
 // runs, and the game gets the DirectDraw it would have had on its own.
 bool g_force_system = false;
+
+// backend=vulkan (ReadBackendSetting).
+bool g_vulkan = false;
 
 // Reads the backend name from bwvr.ini. Returns false when the setting names
 // the system implementation, or when there is nothing to load.
@@ -130,6 +141,12 @@ bool ReadBackendSetting(char* out, size_t size) {
     return true;
   }
   if (lstrcmpiA(out, "system") == 0) return false;
+  // backend=vulkan: the mod makes DirectDraw itself (vk_ddraw.cpp). System
+  // DirectDraw gives only the exports that the mod does not make.
+  if (lstrcmpiA(out, "vulkan") == 0) {
+    g_vulkan = true;
+    return false;
+  }
   return true;
 }
 
@@ -154,6 +171,18 @@ HMODULE SystemDDraw() {
 // mod fits. See CheckGameBuild in mod_main.cpp.
 void ProxyForceSystemDDraw() { g_force_system = true; }
 
+// The mod asks before ProxyLoadRealDDraw too (EarlyHooks), so the first call
+// reads the setting.
+bool ProxyBackendVulkan() {
+  static bool read = false;
+  if (!read) {
+    read = true;
+    char backend[MAX_PATH];
+    ReadBackendSetting(backend, MAX_PATH);
+  }
+  return g_vulkan;
+}
+
 bool ProxyLoadRealDDraw() {
   char backend[MAX_PATH];
   if (ReadBackendSetting(backend, MAX_PATH)) {
@@ -176,6 +205,11 @@ bool ProxyLoadRealDDraw() {
     }
   }
 
+  if (g_vulkan) {
+    lstrcpynA(g_note,
+              "backend      : vulkan, DirectDraw of the mod (vk_ddraw.cpp)",
+              sizeof(g_note));
+  }
   if (g_real == nullptr) g_real = SystemDDraw();
   if (g_real == nullptr) return false;
 
@@ -195,6 +229,13 @@ bool ProxyLoadRealDDraw() {
          real_DirectDrawEnumerateA != nullptr;
 }
 
+// An export of the backend that ProxyLoadRealDDraw loaded, or null.
+void* ProxyRealExport(const char* name) {
+  return g_real != nullptr
+             ? reinterpret_cast<void*>(GetProcAddress(g_real, name))
+             : nullptr;
+}
+
 // What ProxyLoadRealDDraw did, ready to log.
 const char* ProxyBackendNote() { return g_note; }
 
@@ -205,5 +246,54 @@ const char* ProxyBackendNote() { return g_note; }
     __asm { jmp dword ptr[real_##name] }                 \
   }
 
-DDRAW_EXPORTS(FORWARD)
+DDRAW_FORWARDED(FORWARD)
 #undef FORWARD
+
+namespace {
+ProxyCreateHooks g_hooks = {};
+}  // namespace
+
+void ProxySetCreateHooks(const ProxyCreateHooks& hooks) { g_hooks = hooks; }
+
+extern "C" HRESULT WINAPI Proxy_DirectDrawCreateEx(GUID* driver, void** out,
+                                                   REFIID id, IUnknown* outer);
+extern "C" HRESULT WINAPI Proxy_DirectDrawCreate(GUID* driver, void** out,
+                                                 IUnknown* outer);
+
+// The first two bytes of the two exports that make a DirectDraw object.
+// dxwrapper puts a hot patch on these exports of each module named ddraw.dll
+// that is loaded, also of the mod: a short jump back into the bytes before
+// the function. A change of these bytes shows it.
+void ProxyCreateStarts(unsigned char ex[2], unsigned char old[2]) {
+  const unsigned char* a =
+      reinterpret_cast<const unsigned char*>(&Proxy_DirectDrawCreateEx);
+  const unsigned char* b =
+      reinterpret_cast<const unsigned char*>(&Proxy_DirectDrawCreate);
+  ex[0] = a[0];
+  ex[1] = a[1];
+  old[0] = b[0];
+  old[1] = b[1];
+}
+
+// The two exports that make a DirectDraw object, with the function of the
+// mod when one is set (ddraw_proxy.h).
+extern "C" HRESULT WINAPI Proxy_DirectDrawCreateEx(GUID* driver, void** out,
+                                                   REFIID id,
+                                                   IUnknown* outer) {
+  const ProxyCreateExFn real =
+      reinterpret_cast<ProxyCreateExFn>(real_DirectDrawCreateEx);
+  if (g_hooks.create_ex != nullptr) {
+    return g_hooks.create_ex(real, driver, out, id, outer);
+  }
+  return real(driver, out, id, outer);
+}
+
+extern "C" HRESULT WINAPI Proxy_DirectDrawCreate(GUID* driver, void** out,
+                                                 IUnknown* outer) {
+  const ProxyCreateFn real =
+      reinterpret_cast<ProxyCreateFn>(real_DirectDrawCreate);
+  if (g_hooks.create != nullptr) {
+    return g_hooks.create(real, driver, out, outer);
+  }
+  return real(driver, out, outer);
+}

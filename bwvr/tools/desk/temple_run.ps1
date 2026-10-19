@@ -22,6 +22,11 @@
 # guide. The guide has a length in seconds, so the frame of its end depends
 # on the frame rate: between frame 2700 and frame 3250. The ring does not
 # open while a guide plays, so put the first step of -Steps after frame 3350.
+# -EnterFrame N moves the press of Y for "enter" to frame N (the choice
+# comes 30 frames later), and the guide and the frames above move with it.
+# A run of a new game with backend=vulkan needs a later frame, for example
+# 1400: the game saves the new game near frame 830, and the long frame of
+# that save closes the ring with no choice.
 # The script waits for an idle PC (10 minutes, no game) and then makes one
 # run through spawn_run.ps1 and desk_run.ps1. It reads the settings of the
 # game in the registry before and after the run, and it says if a value
@@ -61,6 +66,7 @@ param(
     [int]$Minutes = 170,
     [string]$Pattern = '',
     [switch]$NoEnter,
+    [int]$EnterFrame = 820,
     [switch]$SaveTest,
     [string]$Save = 'temple',
     [switch]$NewGame
@@ -76,7 +82,7 @@ $button = if ($Set -match '(^|;)\s*button_layout\s*=\s*0') { 'x' } else { 'y' }
 $slots = @{ hall = 0; room_creature = 1; room_challenge = 2; room_save = 3; leave = 4; room_options = 5; room_library = 6 }
 $choices = @()
 # -NoEnter: the run stays on the land (the taps on the door and the posts).
-if (-not $NoEnter) { $choices += , @(820, 7) }
+if (-not $NoEnter) { $choices += , @($EnterFrame, 7) }
 foreach ($word in ($Rooms -split '\s+' | Where-Object { $_ })) {
     if ($word -notmatch '^([a-z_]+)@(\d+)$' -or -not $slots.ContainsKey($Matches[1])) {
         "no item of the ring of the Temple in '$word'. Use item@frame with one of: $(($slots.Keys | Sort-Object) -join ', ')"
@@ -104,8 +110,9 @@ if ($Set -ne '') { $keys = "$keys;$Set" }
 # run starts only when the profile has none of those slots, and the list of
 # the slots must be the same after the run (the profile guard of
 # desk_run.ps1 puts the files back).
-# The first profile of the game folder that has saved games.
-$saves = Get-ChildItem -LiteralPath (Join-Path (Get-BwvrGame) 'Profiles') -Directory |
+# The first profile that has saved games, in the folder that gets the writes
+# of the game (Get-BwvrPlayerFolders in game.ps1).
+$saves = Get-ChildItem -LiteralPath (Join-Path (Get-BwvrPlayerFolders (Get-BwvrGame)).Folder 'Profiles') -Directory |
     ForEach-Object { Join-Path $_.FullName 'Saved Games' } |
     Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
 if (-not $saves) { 'NOT RUN: no profile with saved games in the game folder'; exit 7 }

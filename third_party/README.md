@@ -11,6 +11,7 @@ The full license texts that go out with the mod are in
 | `OpenXR-SDK/include/` | The OpenXR headers | release 1.1.43 | Apache-2.0 (`LICENSE`) | https://github.com/KhronosGroup/OpenXR-SDK |
 | `OpenXR-SDK/build32/src/loader/Release/` | The 32 bit OpenXR loader, `openxr_loader.dll` and its import library | release 1.1.43 | Apache-2.0 | built from the SDK, see below |
 | `backends/dx7.games/` | dxwrapper: `dxwrapper.dll` and its `ddraw.dll` stub. It turns the DirectX 7 of the game into Direct3D 9 | release 1.8.8600.25 | see `bwvr/installer/Notices.txt`, section 4 | https://github.com/elishacloud/dxwrapper |
+| `Vulkan-Headers/include/` | The C headers of Vulkan (`vulkan/*.h`, `vk_video/*.h`), no C++ headers | tag `vulkan-sdk-1.4.357.0` | Apache-2.0 or MIT (`LICENSE.md`, `LICENSES/`) | https://github.com/KhronosGroup/Vulkan-Headers |
 | `cgltf/` | cgltf, the glTF reader for a hand model file (`cgltf.h`) | v1.14 | MIT (`LICENSE`) | https://github.com/jkuhlmann/cgltf |
 
 ## The binaries are pinned

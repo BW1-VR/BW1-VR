@@ -47,7 +47,7 @@ wide as its fields. When a column before the last is taller, the block is at
 the bottom of the window. The status line is below the table and the buttons,
 over the whole window, and has room for two lines of text.
 
-There are six kinds of row:
+There are eight kinds of row:
 
 | Kind | Control | Stored in the ini as |
 | --- | --- | --- |
@@ -57,19 +57,23 @@ There are six kinds of row:
 | `kChoice` | A list. | The index of the choice. |
 | `kValues` | A list of `label=value` pairs. | The value, not the index. |
 | `kScale` | A slider, in percent of what the headset asks for. | The percent. It also writes `ScreenW` and `ScreenH` to the registry. |
+| `kSlider` | A slider with a value of its own. Its spec is the low value, the high value, the step and the unit, with a bar between them. Its label says the value and the unit. | The value, on the step. |
+| `kRenderer` | A list: Vulkan, Direct3D 9. | `backend` as text: `vulkan` or `dxwrapper\ddraw.dll` (see "Performance"). |
 
 ## What it does besides editing
 
 Every save also writes these:
 
-- The five keys that have only one right answer: `backend`
-  (`dxwrapper\ddraw.dll`), `gpu_bridge`, `vr`, `stereo` and `head_camera`, all
-  set to 1 except the backend.
+- The keys that have only one right answer: `vr`, `stereo` and
+  `head_camera`, all set to 1, and `gpu_bridge=1` with the renderer
+  Direct3D 9. With the renderer Vulkan the save removes `gpu_bridge`,
+  because Vulkan has no bridge of Direct3D 9.
 - `FullScreen` 0 and `ScreenD` 32 in the registry of the game. If they are
   missing, the game starts full screen at the size of the desktop, in 16 bit
   color. The mod needs a window at the size that the launcher sets. The game
   does not read `WindowedMode`. Only the `Setup.exe` of the game uses it.
-- `AnisotropicFiltering` in `dxwrapper\dxwrapper.ini` (see "Picture").
+- With the renderer Direct3D 9: `AnisotropicFiltering` in
+  `dxwrapper\dxwrapper.ini` (see "Picture").
 - The game's own `ScreenW`, `ScreenH`, `FullScreen` and `ScreenD`, once, in a
   `[game_before]` section of `bwvr.ini`, with -1 for a value that the game did
   not have. The uninstaller puts them back, so the plain game does not open in
@@ -84,11 +88,12 @@ Files fails), the status line says so and not "Saved.".
 "Play, no VR" starts the game on the monitor, for a look at what the plain
 game does. It saves the settings as each other button does. Then it writes
 `vr=0`, so the mod does nothing in that game (it only answers the check for an
-internet connection, and the backend stays dxwrapper). It writes `FullScreen`
+internet connection, and the backend is dxwrapper for that game, also with
+the renderer Vulkan). It writes `FullScreen`
 1, and the size of the main monitor as `ScreenW` and `ScreenH`.
 
 These values are for one game. The launcher closes its window and stays until
-the game ends. Then it writes `vr=1`, `FullScreen` 0 and the size for the
+the game ends. Then it writes `vr=1`, the `backend` of the renderer, `FullScreen` 0 and the size for the
 headset again, so a start of `runblack.exe` without the launcher and a desktop
 test find the values for the headset. It writes them after the end of the
 game, because the game can write its display values when it ends. If the
@@ -157,9 +162,41 @@ does not delete them, so a value that a person writes in `bwvr.ini` is kept.
 | One scene walk for both eyes (prototype) | On | Key `one_walk`. On also makes the render a quarter wider (`one_walk_guard_pct`, 25), see `backend.md`, "One walk for both eyes". It is before the resolution in the table, because a save writes the rows in order and the size reads it |
 | Margin around the view | None | Key `fov_margin_pct`, 0 to 30 in steps of 5. The game draws that many percent more on each side of the view of the headset, and the render has that many percent more pixels each way, so a degree keeps its pixels (`backend.md`, "A margin around the view"). It is before the resolution in the table for the same reason as the row above |
 | Resolution scale | 100% | A slider from 50 to 200 in steps of 5. Key `resolution_pct`. See "The resolution comes from the headset". |
-| Anisotropic filtering | 16x | A list: off, 2x, 4x, 8x, 16x. Key `anisotropy` (1, 2, 4, 8, 16). The launcher also writes the level to `AnisotropicFiltering` in `dxwrapper\dxwrapper.ini`, because dxwrapper applies its own level to the Direct3D 9 device. A fixed 16 there would make "off" do nothing. dxwrapper reads 0 as "leave it to the game". |
+| Anisotropic filtering | 16x | A list: off, 2x, 4x, 8x, 16x. Key `anisotropy` (1, 2, 4, 8, 16). With the renderer Direct3D 9 the launcher also writes the level to `AnisotropicFiltering` in `dxwrapper\dxwrapper.ini`, because dxwrapper applies its own level to the Direct3D 9 device. A fixed 16 there would make "off" do nothing. dxwrapper reads 0 as "leave it to the game". The renderer Vulkan takes the level that the game sets on its textures, so it needs no other file. |
 | Enable texture mipmaps | on | Uses smaller copies of each texture in the distance. Key `force_mips`. |
 | Model detail distance | 5x | How far out models keep their full detail. Key `detail_distance`, index 0 to 3: the game's own, 2x, 3x, 5x. |
+
+### Performance
+
+| Setting | Default | What it does |
+| --- | --- | --- |
+| Renderer | Direct3D 9 | Key `backend`. Vulkan: the mod draws the game with its own DirectDraw and Direct3D 7 on Vulkan, the session is a session with Vulkan, and the window of the game has a swapchain of Vulkan. The mod then uses no dxwrapper, no Direct3D 9 and no Direct3D 11 (`backend.md`, "The backend of the mod on Vulkan", "Only Vulkan"). The launcher writes `vulkan` only when the Vulkan of Windows has a GPU with Vulkan 1.3. Else it writes dxwrapper, sets the list back, and the status line of Save says so. Direct3D 9: dxwrapper and Direct3D 9. A bwvr.ini with no `backend=vulkan` shows Direct3D 9 |
+| Direct3D 9 through DXVK | off | Key `d3d9_backend`. Only with the renderer Direct3D 9, so the row is not in the table with Vulkan (`backend.md`, "DXVK under dxwrapper") |
+| Headset session with Vulkan | off | Key `xr_vulkan`. Only with the renderer Direct3D 9, so the row is not in the table with Vulkan: the renderer Vulkan always has a session with Vulkan (`backend.md`, "The session with Vulkan") |
+
+A change of the renderer in the list puts the two rows for Direct3D 9 in
+the table or takes them out at once, and the rows below move up or down.
+A save keeps the values of the two rows in `bwvr.ini` also with Vulkan, so
+a change back to Direct3D 9 has them.
+
+### Foveated rendering
+
+Both kinds need the eye pictures of the Vulkan renderer: the renderer
+Vulkan, or Direct3D 9 with the session with Vulkan. The sliders are there to
+find a setting that looks good. "Show the parts with fewer details" shows
+where the parts are.
+
+| Setting | Default | What it does |
+| --- | --- | --- |
+| Fewer shades away from the middle | off | Key `foveation` (the launcher writes 1). `backend.md`, "Foveated rendering" |
+| All shades within | 22 degrees | A slider from 10 to 45. Key `foveation_inner_deg` |
+| One shade for 2 by 2 within | 35 degrees | A slider from 15 to 70. Key `foveation_outer_deg`. The mod takes at least the angle of the row above |
+| Fewer pixels away from the middle | off | Key `fovea_res`. `backend.md`, "Foveated resolution" |
+| Resolution of the whole view | 50% | A slider from 5 to 100 in steps of 5. Key `fovea_res_outer_pct` |
+| Resolution of the middle | 100% | A slider from 50 to 200 in steps of 5. Key `fovea_res_center_pct` |
+| Size of the middle | 25 degrees | A slider from 10 to 45. Key `fovea_res_center_deg` |
+| Middle lower by | 0 degrees | A slider from 0 to 15. Key `fovea_res_center_down_deg`. Only with no eye tracker |
+| Show the parts with fewer details | off | Key `foveation_show`. A blue colour over the parts with fewer shades or fewer pixels |
 
 ### View
 
@@ -203,6 +240,15 @@ See `controllers.md` for the full controls.
 | Test keys | off | Key `test_keys`. Turns on the keys for tests. Each key changes one rule of the mod while the game runs, for a comparison. `backend.md` ("Keys for v1.0") and the player readme list them. F12 saves a picture of each eye in the game folder. A player does not need this. |
 
 F11 makes the direction of your head straight ahead. This key is always on.
+
+## A picture of the window
+
+A test aid: `"Black & White VR Mod.exe" --picture <file.bmp>` saves a
+picture of the window with the values of the bwvr.ini and ends. The window
+is outside the screen, at the bottom of the order of the windows, and it is
+never active. The launcher writes nothing. `--game <folder>` names the
+folder of the game when the launcher is not in it, for example in the
+folder of the build.
 
 ## The resolution comes from the headset
 
