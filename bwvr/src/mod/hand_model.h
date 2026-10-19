@@ -67,6 +67,10 @@ bool HandModelIndexTip(int hand, float out[3]);
 // True when a hand was built in this frame.
 bool HandModelBuilt();
 
+// The opacity of one hand (0 the left hand, 1 the right hand), 0 to 1. It
+// multiplies the alpha of the texture. It stays until the next call.
+void HandModelSetOpacity(int hand, float opacity);
+
 // In an eye pass: draws the hands of this frame with the camera of the eye.
 // Returns the count of triangles drawn, or -1 when the draw failed.
 int HandModelDraw(IDirect3DDevice7* device, const float camera[12],

@@ -582,8 +582,16 @@ that moves while the Hand takes it.
     rule "no motion that the player did not make"), 3 is the camera of the
     game with its turns, 0 is the still camera. `intro_speed_pct` makes the
     path slower. Then choose the default, and decide if `intro_vr` goes on.
-  - Not built: a push of the orbs with a controller, and a push in 3D. A
-    controller does not push the orbs now (`intro.md`, "Open work").
+  - Does the push in 3D feel right? Each hand takes the orbs in its reach
+    with its own motion, one to one (`intro_push_3d=1`, a reach of
+    `intro_push_radius_cm=30`), and the hand models show while the hands
+    move (`intro_hand_show=1`). An orb in front of a hand draws over it
+    (`intro_hand_depth=1`). With `intro_distance_cm=300` the hands reach the
+    orbs in the orbit at the start.
+    Shift and Insert switch the push in 3D, Shift and Backspace step
+    `intro_hand_show`, and Shift and Pause switch `intro_hand_depth`.
+  - Not built: a speed for the orbs that a hand moved, and a push of the
+    hand in the flat intro (`intro.md`, "Open work").
 - **P12. Ideas from Half-Life: Alyx** that are not built are in
   `research-hla.md`, for the far grab, the teleport, the hands, the hints,
   the sound and comfort.
