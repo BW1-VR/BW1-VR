@@ -343,26 +343,20 @@ is built, and no test has proven it.
   To decide: a halo or a line of the card that shows which objects the
   grip takes, a longer range of the grab while the leash is on, or no
   change.
-- **B36. The address space of 2 GiB runs full.** A headset session with
-  `backend=vulkan` ended after about 16 minutes of play with an access
-  violation in `LH3DMem::Alloc` (`0x00842D4A`): `malloc` gave a null
-  pointer for 109 KB. The dump had 2035 MB of addresses in use, the limit of
-  `runblack.exe`, which has no flag for a large address space (`backend.md`,
-  "The address space"). A session that ended after 13 minutes with "abnormal
-  program termination" can have the same cause. The line "memory" each 20 s
-  (`memory_log=20`) now gives the use by kind and the largest free run. A
-  headset session with that line showed private memory that grows from
-  491 to 1327 MB in 14 minutes, at about 90 MB a minute at the end, in new
-  blocks of about 2 MB. The heap of the game (LH3DMem) stayed at about 18
-  MB. In a second session the large blocks (256 KB or more of a heap, 256
-  KB or more of VirtualAlloc) stayed at about 346 MB while private memory
-  grew from 419 to 1297 MB in 7 minutes. So the growth is in small blocks
-  of a heap or in regions that no hook sees. The lines of the heaps, of the
-  growth places and of the private allocations that no hook saw
-  (`memory_blocks=1`) now give which. To do: find what grows, and make it
-  smaller. The flag for a
-  large address space in `runblack.exe` gives 4 GiB, but it changes a file
-  of the game, and that is a decision of the owner.
+- **B36. The address space of 2 GiB runs full: check the fix in a
+  headset.** Headset sessions with `backend=vulkan` ended after 7 to 16
+  minutes, when the 2 GiB of addresses of `runblack.exe` were full
+  (`backend.md`, "The address space"): `malloc` gave a null pointer in
+  `LH3DMem::Alloc` (`0x00842D4A`), or the game faulted at a save. The lines
+  of `memory_blocks=1` showed the cause: the process heap grew by about 680
+  MB in 15 minutes through `amdvlk32.dll`, the large blocks and the private
+  allocations that no hook saw stayed the same. `BeginOnce` of `vk_core.cpp`
+  allocated a new command buffer for each single job, and the reset of the
+  pool does not free it. A copy of the panel for a card in the headset is a
+  single job in each frame. `vk_once_reuse=1`
+  gives each job the same command buffer. To see in a headset: the line
+  "memory" stays near its value after the load, and the process heap does
+  not grow, in a session of 30 minutes or more.
 
 - **B32. A fight of Creatures: test the grip and the marks in the
   headset.** The grip with the Hand at a Creature is the attack or the
