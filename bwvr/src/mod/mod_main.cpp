@@ -604,6 +604,7 @@ int g_vk_keep_picture = 1;
 int g_vk_black_check = 1;
 int g_vk_untextured = 1;
 int g_vk_stage1 = 1;
+int g_vk_once_reuse = 1;  // vk_once_reuse
 // Foveated rendering (docs/backend.md, "Foveated rendering").
 int g_foveation = 0;
 int g_foveation_inner_deg = 0;
@@ -1570,6 +1571,8 @@ void ReadSettings() {
       GetPrivateProfileIntA("bwvr", "vk_untextured", 1, path) != 0 ? 1 : 0;
   g_vk_stage1 =
       GetPrivateProfileIntA("bwvr", "vk_stage1", 1, path) != 0 ? 1 : 0;
+  g_vk_once_reuse =
+      GetPrivateProfileIntA("bwvr", "vk_once_reuse", 1, path) != 0 ? 1 : 0;
   g_foveation =
       static_cast<int>(GetPrivateProfileIntA("bwvr", "foveation", 0, path));
   g_foveation_inner_deg = static_cast<int>(
@@ -1982,6 +1985,13 @@ void StartVrStep() {
     VkSceneSetBlackCheck(g_vk_black_check);
     VkSceneSetUntextured(g_vk_untextured);
     VkSceneSetStage1(g_vk_stage1);
+    vk::SetOnceReuse(g_vk_once_reuse != 0);
+    ModLog("vulkan       : vk_once_reuse=%d. %s", g_vk_once_reuse,
+           g_vk_once_reuse != 0
+               ? "Each single job (an upload, a copy for a card) has the same "
+                 "command buffer"
+               : "Each single job allocates a new command buffer, and the "
+                 "pool keeps each of them");
     VkSceneSetFoveation(g_foveation, g_foveation_inner_deg,
                         g_foveation_outer_deg, g_foveation_show);
     VkSceneSetFoveaRes(g_fovea_res, g_fovea_res_outer_pct,

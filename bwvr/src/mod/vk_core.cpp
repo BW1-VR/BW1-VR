@@ -22,6 +22,16 @@ bool g_failed = false;
 VkCommandPool g_pool = VK_NULL_HANDLE;
 VkFence g_fence = VK_NULL_HANDLE;
 CRITICAL_SECTION g_once_lock;
+// THE COMMAND BUFFER OF BeginOnce (vk_once_reuse=1). BeginOnce gives the one
+// command buffer of the pool each time, and the reset of the pool in EndOnce
+// puts it back into its first state. A command buffer that a pool allocates
+// lives until vkFreeCommandBuffers or the end of the pool: the reset of the
+// pool does not free it. So with vk_once_reuse=0, a new command buffer for
+// each job, each job keeps the memory of a command buffer in the heap of the
+// driver. A copy for a card in the headset is a job in each frame.
+bool g_once_reuse = true;
+VkCommandBuffer g_once_cb = VK_NULL_HANDLE;
+volatile LONG g_once_made = 0;  // command buffers that BeginOnce allocated
 
 // THE VULKAN OF AN OPENXR SESSION (vk_core.h).
 volatile LONG g_wait_external = 0;
@@ -421,6 +431,7 @@ void Stop() {
   UnlockQueue();
   f.vkDestroyFence(g_core.device, g_fence, nullptr);
   f.vkDestroyCommandPool(g_core.device, g_pool, nullptr);
+  g_once_cb = VK_NULL_HANDLE;
   // The instance and the device of a session belong to the session.
   if (!g_core.external) {
     f.vkDestroyDevice(g_core.device, nullptr);
@@ -540,20 +551,30 @@ void FreeImage(Image* image) {
 
 VkCommandBuffer BeginOnce() {
   EnterCriticalSection(&g_once_lock);
-  VkCommandBufferAllocateInfo info = {
-      VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
-  info.commandPool = g_pool;
-  info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-  info.commandBufferCount = 1;
-  VkCommandBuffer cb = VK_NULL_HANDLE;
-  if (f.vkAllocateCommandBuffers(g_core.device, &info, &cb) != VK_SUCCESS) {
-    LeaveCriticalSection(&g_once_lock);
-    return VK_NULL_HANDLE;
+  VkCommandBuffer cb = g_once_reuse ? g_once_cb : VK_NULL_HANDLE;
+  if (cb == VK_NULL_HANDLE) {
+    VkCommandBufferAllocateInfo info = {
+        VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO};
+    info.commandPool = g_pool;
+    info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    info.commandBufferCount = 1;
+    if (f.vkAllocateCommandBuffers(g_core.device, &info, &cb) != VK_SUCCESS) {
+      LeaveCriticalSection(&g_once_lock);
+      return VK_NULL_HANDLE;
+    }
+    InterlockedIncrement(&g_once_made);
+    if (g_once_reuse) g_once_cb = cb;
   }
   VkCommandBufferBeginInfo begin = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
   begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
   f.vkBeginCommandBuffer(cb, &begin);
   return cb;
+}
+
+void SetOnceReuse(bool on) { g_once_reuse = on; }
+
+uint32_t OnceMade() {
+  return static_cast<uint32_t>(InterlockedCompareExchange(&g_once_made, 0, 0));
 }
 
 bool EndOnce(VkCommandBuffer cb) {

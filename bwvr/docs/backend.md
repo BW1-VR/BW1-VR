@@ -2916,6 +2916,21 @@ texture ("vk scene : states N"). A line with a texture on stage 1 says
 whether the renderer makes that stage ("The second stage"). A line with "A
 complement input" names a draw with an input of 1 minus a colour.
 
+**The command buffer of a single job** (`vk_once_reuse`, 1 is the default,
+`vk_core.cpp`). An upload of a texture with a wait, the copy of a part of the
+panel for a card in the headset (`VkScenePanelReadHalf`, one in each frame
+that shows a card) and the picture of a test are single jobs: `BeginOnce`
+gives a command buffer, and `EndOnce` submits it, waits for the GPU and
+resets the pool. With 1 each job has the same command buffer, which the
+reset of the pool puts back into its first state. With 0 each job allocates
+a new command buffer. The reset of a pool does not free its command
+buffers, so each of them keeps its memory in the heap of the driver: in a
+headset session with the cards the process heap grew by about 100 MB a
+minute through `amdvlk32.dll`, until the address space of 2 GiB was full
+(`memory_blocks`, "The large blocks"). The line "vk scene" of each window
+gives the count of the command buffers of single jobs in the session. There
+is no test key: the difference is only in the memory over minutes.
+
 **The second stage** (`vk_stage1`, 1 is the default). With `backend=vulkan`
 the game adds a second texture with texture stage 1 for some draws:
 `D3DTOP_MODULATE2X` (5) or `D3DTOP_ADD` (7) of the texture and the current
@@ -5279,6 +5294,7 @@ keys that the launcher sets.
 | `vk_keep_picture` | 1 | With `backend=vulkan`: 1 a walk with no clear of the whole target before its first draw starts with the picture of the walk before, and the intro in stereo keeps the picture of each eye. 0 each walk starts black. A test key: Shift T. See "The picture of the walk before" |
 | `vk_black_check` | 1 | With `backend=vulkan`, a test aid: 1 checks 16 by 16 points of each eye picture, and a black picture gives a line of the log with what its walk drew. 0 no check. See "The check for a black picture" |
 | `vk_untextured` | 1 | With `backend=vulkan` or the Vulkan eyes: 1 a stage 0 with no texture gives the diffuse color for an operation with the texture as an argument, as Direct3D does. 0 it reads a white texel with an alpha of 1. A test key: Shift R. See "A stage with no texture" |
+| `vk_once_reuse` | 1 | With the Vulkan renderer: 1 each single job (an upload with a wait, a copy of the panel for a card) has the same command buffer. 0 each job allocates a new command buffer that the pool keeps, and the heap of the driver grows. No test key. See "The command buffer of a single job" |
 | `vk_stage1` | 1 | With the Vulkan renderer: 1 a draw with a color operation and a texture on texture stage 1 gets that stage, for example the light maps of the Temple. 0 the renderer makes stage 0 alone. A test key: Shift E. See "The second stage" |
 | `vk_present_late` | 1 | With `backend=vulkan` and the way through the CPU (`vk_window=0`): 1 the window on the monitor shows the picture of the present before, with no wait for the GPU, 0 each present waits for its own picture. See "The backend of the mod on Vulkan" |
 | `vulkan_only` | 1 | With `backend=vulkan`: 1 no part for Direct3D 9 starts, and the session with Vulkan has no Direct3D 11 device. 0 these parts start, with no Direct3D 9 to use. There is no test key: the choice is made at the start. See "Only Vulkan" |

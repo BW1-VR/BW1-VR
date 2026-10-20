@@ -214,8 +214,13 @@ bool MakeImage(uint32_t width, uint32_t height, uint32_t levels,
 void FreeImage(Image* image);
 
 // A command buffer for one job: Begin gives it, End submits it and waits.
+// With SetOnceReuse(true) (vk_once_reuse=1) each job has the same command
+// buffer. With false each job allocates a new one, and the pool keeps each
+// of them. OnceMade gives the count of the command buffers allocated.
 VkCommandBuffer BeginOnce();
 bool EndOnce(VkCommandBuffer cb);
+void SetOnceReuse(bool on);
+uint32_t OnceMade();
 
 // A barrier of one image from one layout to another, for all stages. The
 // layers from base_layer.

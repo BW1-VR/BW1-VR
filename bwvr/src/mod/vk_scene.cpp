@@ -4194,11 +4194,13 @@ void VkSceneReport(uint64_t frames) {
          "(%.1f with no XYZRHW, %.1f with no room in the ring, %.1f with no "
          "pipeline or set, %.1f for another target), %.1f in another format "
          "of XYZRHW. %d textures, %llu reads of a texture (%.1f MiB), %d "
-         "pipelines, %d samplers%s",
+         "pipelines, %d samplers, %u command buffers of single jobs made in "
+         "the session%s",
          g_walks, g_draws / per, g_skipped / per, g_skip_format / per,
          g_skip_ring / per, g_skip_state / per, g_skip_target / per,
          g_converted / per, g_texture_count, g_uploads,
          g_upload_bytes / 1048576.0, g_pipeline_count, g_sampler_count,
+         vk::OnceMade(),
          g_failed ? ". The renderer stopped after a fault" : "");
   ModLog("vk scene     : vk_scene_follow=%d. A frame: %.1f binds of render "
          "target 0, %.1f viewports, %.1f clears made (%.1f of them for one "
