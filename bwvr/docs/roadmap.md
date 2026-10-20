@@ -347,7 +347,11 @@ is built, and no test has proven it.
   headset.** Headset sessions with `backend=vulkan` ended after 7 to 16
   minutes, when the 2 GiB of addresses of `runblack.exe` were full
   (`backend.md`, "The address space"): `malloc` gave a null pointer in
-  `LH3DMem::Alloc` (`0x00842D4A`), or the game faulted at a save. The lines
+  `LH3DMem::Alloc` (`0x00842D4A`), or the game faulted at a save. One
+  session ended with the box "abnormal program termination" of `abort`
+  after 13 minutes, as a `std::bad_alloc` of the mod does when the
+  addresses are full. The crash log (`crash_log=1`) now writes such an
+  end with its place. The lines
   of `memory_blocks=1` showed the cause: the process heap grew by about 680
   MB in 15 minutes through `amdvlk32.dll`, the large blocks and the private
   allocations that no hook saw stayed the same. `BeginOnce` of `vk_core.cpp`
@@ -381,14 +385,6 @@ is built, and no test has proven it.
   walks. No run had a real tooltip of a thing under the Hand in that state.
   Only a headset can show that the yellow text at the Hand then shows one
   time.
-
-- **B35. The game ends with "abnormal program termination" after a fetch
-  of a dead tree.** In a headset session on the second island, the Hand
-  took a dead tree from a distance. About 0.3 s after the glide the game
-  ended with the box of `abort`, with no line in the log and with no dump.
-  The cause is not known. The crash log (`crash_log=1`, `backend.md`, "The
-  crash log") now writes the C++ exception and the caller of `abort`. The
-  next log of this end gives the place.
 
 B1b, B2, B4 and B11 are one package: a thing that is held, thrown, or
 that moves while the Hand takes it.
