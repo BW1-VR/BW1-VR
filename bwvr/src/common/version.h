@@ -13,9 +13,9 @@
 #define BWVR_PRODUCT_NAME "Black & White VR Mod"
 
 #define BWVR_VERSION_MAJOR 1
-#define BWVR_VERSION_MINOR 1
+#define BWVR_VERSION_MINOR 2
 #define BWVR_VERSION_PATCH 0
-#define BWVR_VERSION_TEXT "1.1.0"
+#define BWVR_VERSION_TEXT "1.2.0"
 
 #define BWVR_PUBLISHER "Buck"
 #define BWVR_COPYRIGHT "Copyright (C) 2026 Buck"

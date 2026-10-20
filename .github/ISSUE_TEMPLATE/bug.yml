@@ -10,7 +10,7 @@ body:
     id: build
     attributes:
       label: Build
-      description: The first line of bwvr.log in your game folder, for example "Black & White VR Mod 1.1.0 (build abc1234)".
+      description: The first line of bwvr.log in your game folder, for example "Black & White VR Mod 1.2.0 (build abc1234)".
     validations:
       required: true
   - type: input

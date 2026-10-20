@@ -144,7 +144,7 @@ Open [Issues](../../issues), select "New issue", and fill in the form. Three
 things make a report useful:
 
 - **The build.** It is the first line of `bwvr.log` in your game folder, for
-  example `Black & White VR Mod 1.1.0 (build abc1234)`.
+  example `Black & White VR Mod 1.2.0 (build abc1234)`.
 - **The logs.** Attach `bwvr.log` and each `bwvr-old-*.log` of that day. The
   mod keeps the logs of your last 20 sessions.
 - **What you did**, what you expected and what happened. A short video helps.

@@ -10,7 +10,7 @@ detail.
 
 ## Where it stands
 
-The mod is at version 1.1.0, an alpha for a small group of testers.
+The mod is at version 1.2.0, an alpha for a small group of testers.
 
 - **The game in VR.** The game draws the scene one time for each eye, the
   head moves the camera, and the picture goes to the headset through
