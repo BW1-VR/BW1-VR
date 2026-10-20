@@ -36,6 +36,11 @@
 // - totem_ghost=1: the ghost of the pole (the two meshes of the totem at the
 //   other value, with an alpha of 0x80) is narrower than the pole, so its
 //   faces do not fight with the faces of the pole (village_math.h).
+// - totem_hold=1: the pole stays at the value where the Hand let it go. The
+//   game moves the pole to a new value in 5.2 s for each 1.0 of change. For
+//   the value of a release, the mod gives the game the new value as the old
+//   one, so the game puts the pole there at once (village_math.h, "The pole
+//   after the release"). The value of the town is the game's own.
 // - The card says what the grip does at the totem and at a miracle icon, and
 //   it shows the value of the totem as the game does, with the count of the
 //   villagers that the town sends.
@@ -211,6 +216,16 @@ const int kMatrixYY = 0x24;
 // and for the mesh at +0x40 (0x00738C13).
 const uintptr_t kGhostPoleBack = 0x00738BA1;
 const uintptr_t kGhostTopBack = 0x00738C18;
+// TotemStatue::NetworkUnfriendlyEndLockedSelect, thiscall, no arguments: the
+// release of the totem. It sends packet 0x29 with the value of the Hand.
+const uintptr_t kTotemRelease = 0x00738630;
+const uint8_t kTotemReleaseBytes[9] = {0x56, 0x8B, 0xF1, 0x8B, 0x86,
+                                       0x88, 0x00, 0x00, 0x00};
+// TotemStatue::SetWorshipPercentage, thiscall (float), ret 4. Packet 0x29
+// calls it (through Town::SetWorshipPercentage 0x0073C060).
+const uintptr_t kTotemSetWorship = 0x00738270;
+const uint8_t kTotemSetWorshipBytes[10] = {0x8B, 0x44, 0x24, 0x04, 0x83,
+                                           0xEC, 0x74, 0x56, 0x8B, 0xF1};
 // GPlayer: the first town. Town: the next town of the player.
 const int kPlayerTowns = 0xA50;
 const int kPlayerCitadel = 0xA48;    // the Citadel, the Temple of the player
@@ -305,6 +320,7 @@ const float kMapScale = 6553.6f;
 const uintptr_t kTotemTable = 0x008E029C;
 const int kTotemValue = 0x80;        // the value of the totem
 const int kTotemDrag = 0x88;         // the value while the Hand moves it
+const int kTotemShown = 0x9C;        // the value that the pole shows
 const int kValidForLockedSelect = 0x6CC;  // a vtable slot (GInterfaceStatus*)
 // WorshipSite.
 const int kSiteIcons = 0xE0;         // the first WorshipSpellIcon
@@ -343,6 +359,9 @@ typedef void(__fastcall* TotemUpdateFn)(void* self, void* unused, float seconds,
 typedef void(__fastcall* SetPositionFn)(void* model, const float* point,
                                         float angle, float scale);
 typedef int(__fastcall* IntArgFn)(void* self, void* unused, int arg);
+typedef int(__fastcall* TotemReleaseFn)(void* self, void* unused);
+typedef void(__fastcall* TotemSetWorshipFn)(void* self, void* unused,
+                                            float value);
 typedef int(__fastcall* ValidForRequestFn)(void* self, void* unused,
                                            void* status, int level, int flag);
 typedef int(__fastcall* ValidToApplyFn)(void* self, void* unused, void* status,
@@ -367,6 +386,8 @@ TotemUpdateFn o_TotemUpdate = nullptr;
 SetPositionFn o_SetPosition = nullptr;
 SendIndexPacketFn o_SendIndexPacket = nullptr;
 HandOverPointFn o_HandOverPoint = nullptr;
+TotemReleaseFn o_TotemRelease = nullptr;
+TotemSetWorshipFn o_TotemSetWorship = nullptr;
 
 // --- the keys ---------------------------------------------------------------
 
@@ -374,6 +395,7 @@ struct Settings {
   bool totem = true;       // totem_hand
   bool take = true;        // totem_take: the totem is the source of a take
   bool ghost = true;       // totem_ghost: the ghost is narrower than the pole
+  bool hold = true;        // totem_hold: the pole stays where the Hand let it go
   bool join = true;        // hold_target
   float join_cm = 6.0f;    // hold_target_cm: the reach of a thing
   bool creature_stay = true;  // hold_creature_stay
@@ -387,6 +409,7 @@ bool g_ready = false;
 bool g_hooked = false;
 bool g_ghost_hooked = false;  // the hook of LH3DObject::SetPosition
 bool g_gift_hooked = false;   // the hook of the packet of the end of a gift
+bool g_hold_hooked = false;   // the hooks of the release of the totem
 uint64_t g_frame = 0;
 
 // The test keys of the desktop runs. village_test_site is a frame: at that
@@ -700,6 +723,84 @@ void __fastcall h_SetPosition(void* model, const float* point, float angle,
   }
   o_SetPosition(model, point, angle, village_math::GhostScale(scale, true));
   *reinterpret_cast<float*>(static_cast<uint8_t*>(model) + kMatrixYY) = scale;
+}
+
+// THE POLE AFTER THE RELEASE (village_math.h). The hook of the release keeps
+// the totem and the value of the Hand, so the hook of SetWorshipPercentage
+// knows the call of packet 0x29 for that release: the same totem and the
+// same value. Each hook runs once for each release.
+struct Release {
+  void* totem;
+  float value;
+  uint64_t frame;
+};
+Release g_release = {};
+// The packet comes some frames after the release. A release that has no
+// packet in this many frames is old.
+const uint64_t kReleaseFrames = 300;
+
+// For the log: the pole in the frames after the release, until the pole
+// shows the value of the totem and the locked select has ended.
+struct AfterRelease {
+  uint8_t* totem;
+  float value;         // the value of the Hand at the release
+  float before;        // the value of the totem before the release
+  uint64_t frame;
+  float low, high;     // the lowest and the highest value of the pole
+  uint64_t away;       // frames with the pole away from the value of the Hand
+  uint64_t ghost;      // frames with a ghost
+  bool set;            // packet 0x29 gave the value to the totem
+  bool ended;          // the locked select ended
+  float pole_at_end;   // the pole in the first frame after the end
+  float ghost_at_end;
+  uint64_t end_frame;
+};
+AfterRelease g_after = {};
+
+int __fastcall h_TotemRelease(void* self, void* unused) {
+  uint8_t* totem = static_cast<uint8_t*>(self);
+  if (totem != nullptr && !IsBadReadPtr(totem, 0xD8) &&
+      TableOf(totem) == kTotemTable) {
+    const float value = *reinterpret_cast<const float*>(totem + kTotemDrag);
+    g_release = {totem, value, g_frame};
+    g_after = {};
+    g_after.totem = totem;
+    g_after.value = value;
+    g_after.before = *reinterpret_cast<const float*>(totem + kTotemValue);
+    g_after.frame = g_frame;
+    g_after.low = g_after.high = value;
+  }
+  return o_TotemRelease(self, unused);
+}
+
+void __fastcall h_TotemSetWorship(void* self, void* unused, float value) {
+  uint8_t* totem = static_cast<uint8_t*>(self);
+  const bool release = totem != nullptr && totem == g_release.totem &&
+                       value == g_release.value &&
+                       g_frame <= g_release.frame + kReleaseFrames;
+  if (!release) {
+    o_TotemSetWorship(self, unused, value);
+    return;
+  }
+  g_release.totem = nullptr;
+  float* before = reinterpret_cast<float*>(totem + kTotemValue);
+  const float was = *before;
+  const float shown = *reinterpret_cast<const float*>(totem + kTotemShown);
+  *before = village_math::TotemValueBefore(was, value, g_settings.hold, true);
+  const float slide = village_math::TotemSlideMs(*before, value);
+  o_TotemSetWorship(self, unused, value);
+  if (g_after.totem == totem) g_after.set = true;
+  if (Log()) {
+    ModLog("village      : packet 0x29 gives the totem %p the value %.2f of "
+           "the release (the totem had %.2f, and the pole shows %.2f). %s: "
+           "the game moves the pole to it in %.0f ms, frame %llu", totem,
+           value, was, shown,
+           g_settings.hold
+               ? "The pole stays at the value of the Hand (totem_hold=1)"
+               : "The pole goes from the value that it shows to the new value "
+                 "(totem_hold=0)",
+           slide, g_frame);
+  }
 }
 
 // --- the gift of an object to a Creature --------------------------------------
@@ -1050,6 +1151,7 @@ void Init() {
   g_settings.totem = IniInt("totem_hand", 1) != 0;
   g_settings.take = IniInt("totem_take", 1) != 0;
   g_settings.ghost = IniInt("totem_ghost", 1) != 0;
+  g_settings.hold = IniInt("totem_hold", 1) != 0;
   // The keys scaffold_join and scaffold_join_cm are the old names of these
   // two. They count when the new keys are not there.
   g_settings.join =
@@ -1133,6 +1235,32 @@ void Init() {
            "the disassembly, so the mod does not hook it and the ghost of the "
            "totem has the width of the pole");
   }
+  if (SameBytes(kTotemRelease, kTotemReleaseBytes,
+                sizeof(kTotemReleaseBytes)) &&
+      SameBytes(kTotemSetWorship, kTotemSetWorshipBytes,
+                sizeof(kTotemSetWorshipBytes))) {
+    void* release = reinterpret_cast<void*>(kTotemRelease);
+    void* set = reinterpret_cast<void*>(kTotemSetWorship);
+    MH_STATUS status = MH_CreateHook(release, &h_TotemRelease,
+                                     reinterpret_cast<void**>(&o_TotemRelease));
+    if (status == MH_OK) {
+      status = MH_CreateHook(set, &h_TotemSetWorship,
+                             reinterpret_cast<void**>(&o_TotemSetWorship));
+    }
+    if (status == MH_OK) status = MH_EnableHook(release);
+    if (status == MH_OK) status = MH_EnableHook(set);
+    g_hold_hooked = status == MH_OK;
+    ModLog("hooks        : the release of the totem at 0x%08X and "
+           "TotemStatue::SetWorshipPercentage at 0x%08X %s",
+           static_cast<unsigned>(kTotemRelease),
+           static_cast<unsigned>(kTotemSetWorship),
+           g_hold_hooked ? "ok" : "FAILED");
+  } else {
+    ModLog("village      : the release of the totem or "
+           "TotemStatue::SetWorshipPercentage does not have the bytes of the "
+           "disassembly, so the mod does not hook them and the pole slides "
+           "to the new value after the release");
+  }
   InstallGift();
   LogKeys("totem_hand");
   ModLog("village      : totem_take=%d. %s", g_settings.take ? 1 : 0,
@@ -1143,6 +1271,13 @@ void Init() {
              : "The totem is no source of a take: the grab from a distance "
                "lets the totem go 700 ms after the press, and the pick record "
                "has the object at the Hand's point");
+  ModLog("village      : totem_hold=%d. %s", g_settings.hold ? 1 : 0,
+         g_settings.hold
+             ? "The pole stays at the value where the Hand let it go: the "
+               "game gets the value of the release with no slide"
+             : "After the release the pole goes back to the value that it "
+               "showed and slides to the new value, 5.2 s for each 1.0 of "
+               "change");
   ModLog("village      : totem_ghost=%d. %s", g_settings.ghost ? 1 : 0,
          g_settings.ghost
              ? "The ghost of the pole at the other value is 97 percent of the "
@@ -1581,6 +1716,60 @@ void WatchGhost() {
     ModLog("village      : the ghost of the totem is gone after %llu frames, "
            "frame %llu", g_frame - g_ghost_since, g_frame);
   }
+}
+
+// Once a frame after a release: where TotemStatue::Draw puts the pole and
+// the ghost. One line when the locked select ends, and one line when the
+// pole shows the value of the totem after that end.
+const uint64_t kAfterFrames = 900;
+const float kPoleStill = 0.005f;   // the step at which the game ends a slide
+
+void WatchAfterRelease() {
+  AfterRelease& a = g_after;
+  if (a.totem == nullptr) return;
+  if (IsBadReadPtr(a.totem, 0xD8) || TableOf(a.totem) != kTotemTable) {
+    a.totem = nullptr;
+    return;
+  }
+  const bool locked = (a.totem[kObjectFlags] & 0x10) != 0;
+  const float shown = *reinterpret_cast<const float*>(a.totem + kTotemShown);
+  const float drag = *reinterpret_cast<const float*>(a.totem + kTotemDrag);
+  const float value = *reinterpret_cast<const float*>(a.totem + kTotemValue);
+  const float pole = village_math::TotemPoleValue(shown, drag, locked);
+  const float ghost = village_math::TotemGhostValue(shown, drag, locked);
+  if (pole < a.low) a.low = pole;
+  if (pole > a.high) a.high = pole;
+  if (fabsf(pole - a.value) > kPoleStill) ++a.away;
+  if (pole != ghost) ++a.ghost;
+  if (!locked && !a.ended) {
+    a.ended = true;
+    a.pole_at_end = pole;
+    a.ghost_at_end = ghost;
+    a.end_frame = g_frame;
+    if (Log()) {
+      ModLog("village      : the locked select of the totem %p ended %llu "
+             "frames after the release. The pole is at %.2f (the Hand let it "
+             "go at %.2f) and %s, frame %llu", a.totem, g_frame - a.frame,
+             pole, a.value,
+             pole != ghost ? "the ghost is at an other value" : "no ghost",
+             g_frame);
+    }
+  }
+  const bool still = a.ended && a.set && fabsf(shown - value) < kPoleStill;
+  if (!still && g_frame < a.frame + kAfterFrames) return;
+  if (Log()) {
+    ModLog("village      : after the release of the totem %p at %.2f (it "
+           "was at %.2f before), the pole was from %.2f to %.2f in %llu "
+           "frames. It was away from the value of the Hand on %llu frames, "
+           "and the game drew the ghost on %llu. At the end of the locked "
+           "select the pole was at %.2f and the ghost at %.2f, and now the "
+           "pole is at %.2f%s (totem_hold=%d), frame %llu", a.totem, a.value,
+           a.before, a.low, a.high, g_frame - a.frame, a.away, a.ghost,
+           a.pole_at_end, a.ghost_at_end, pole,
+           still ? "" : ". The pole did not come to the value of the totem",
+           g_settings.hold ? 1 : 0, g_frame);
+  }
+  a.totem = nullptr;
 }
 
 void WatchTotems(uint8_t* face, uint8_t* hand) {
@@ -2114,6 +2303,7 @@ void VillageFrame() {
   TestKeys(face);
   WatchTotems(face, hand);
   WatchGhost();
+  WatchAfterRelease();
   WatchIcons(face);
   WatchVillager(hand);
   WatchScaffold(hand);

@@ -86,7 +86,8 @@ if ($Kind -eq 'totem') {
     # Hand lets it go. With -Set "totem_take=0" the far grab lets the totem go
     # 700 ms after the press, with the grip still closed. The eye pictures
     # show the ghost of the pole while the grip holds it and after the
-    # release (totem_ghost).
+    # release (totem_ghost), and the height of the pole in the second after
+    # the release (totem_hold).
     if ($Plan -eq '') { $Plan = 'gototem,up,up,up,down' }
     if ($Census -eq '') { $Census = '890' }
     if ($Seconds -eq 0) { $Seconds = 70 }
@@ -94,7 +95,7 @@ if ($Kind -eq 'totem') {
     if ($Steps -eq '') {
         $Steps = $pre + 'seek@920+1 point@1000+1 aimfar@1040+1 grip@1080+400 ' +
                  'seek@1140+1 shot@1150+1 seek@1170+1 seek@1200+1 shot@1230+1 seek@1260+1 shot@1300+1 ' +
-                 'shot@1500+1 shot@1560+1'
+                 'shot@1500+1 shot@1530+1 shot@1560+1'
     }
     $keys = "$keys;seek_bulk=1;far_test_least_cm=30;far_grab_choice=0;far_touch=0"
 } elseif ($Kind -eq 'charge') {

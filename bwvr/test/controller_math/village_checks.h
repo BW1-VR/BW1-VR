@@ -103,6 +103,39 @@ inline void VillageChecks() {
         "the rows of one frame have a limit",
         TotemRows(0.0f, 1.0f, 0.02f, screen), 4 * 2880);
 
+  // THE POLE AFTER THE RELEASE. The totem was at 0.22, and the Hand lets it
+  // go at 0.44. While the locked select runs, the pole is at the value of
+  // the Hand.
+  {
+    const float before = 0.22f, released = 0.44f;
+    Near("the pole at the release is at the value of the Hand",
+         TotemPoleValue(before, released, true), 0.44, 1e-6);
+    Near("totem_hold=0: the game slides the pole for 1144 ms",
+         TotemSlideMs(TotemValueBefore(before, released, false, true),
+                      released),
+         1144.0, 0.5);
+    Check(TotemSlideMs(TotemValueBefore(before, released, true, true),
+                       released) < kTotemSnapMs,
+          "totem_hold=1: the game puts the pole at the new value at once", 1,
+          1);
+    Near("totem_hold=1: a value that is not from a release slides",
+         TotemSlideMs(TotemValueBefore(before, released, true, false),
+                      released),
+         1144.0, 0.5);
+    // After packet 0x29 the drag value is the new value (GetWorshipSpeed).
+    // With the snap the shown value is the new value too, and then packet
+    // 0x1C ends the locked select.
+    Near("totem_hold=1: after the end the pole stays at 0.44",
+         TotemPoleValue(released, released, false), 0.44, 1e-6);
+    Check(TotemPoleValue(released, released, false) ==
+              TotemGhostValue(released, released, false),
+          "totem_hold=1: no ghost after the end", 1, 1);
+    Near("totem_hold=0: after the end the pole is back at 0.22",
+         TotemPoleValue(before, released, false), 0.22, 1e-6);
+    Near("totem_hold=0: the ghost is at the new value",
+         TotemGhostValue(before, released, false), 0.44, 1e-6);
+  }
+
   // THE COUNT OF THE WORSHIPPERS, as Town::GetWorshipersNeeded.
   Check(Worshippers(15, 0.0f) == 0, "value 0: no villager worships",
         Worshippers(15, 0.0f), 0);
