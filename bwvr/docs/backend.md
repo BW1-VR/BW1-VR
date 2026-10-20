@@ -55,6 +55,7 @@ Other docs: `software-tnl.md` (the CPU transform and the camera matrix),
 | `src/mod/bubble_card.cpp` | A speech bubble of the game as one card at the depth of its sign, and the name of a villager as one card at the depth of the villager |
 | `src/mod/note_depth.cpp` | A note of the game over a thing (the percent of a lesson over the Creature) at the depth of its place |
 | `src/mod/sky_detail.cpp`, `water_mode.cpp` | Clouds, the moon, sun glare, detail distance, the sea |
+| `src/mod/sprite_up.cpp`, `sprite_math.h` | Smoke, fire and the other sprites with world up |
 | `src/mod/spirit_anchor.cpp` | The advisors |
 | `src/mod/near_plane.cpp` | The near plane |
 | `src/mod/frame_timers.cpp`, `eye_capture.cpp`, `draw_probe.cpp` | Timing, eye pictures, draw probe |
@@ -4447,10 +4448,6 @@ draw at `0x0080DB30` turns billboard meshes at the lowest detail by it, so far t
 would turn with the head. It is built again after each call from the camera the game
 asked for, with the engine's `fn_00841260` and the constant at `0x008C78D8`.
 
-`LH3DSprite::Draw` builds the model view of each billboard at `0x00EA9E10` as an
-identity rotation in camera space, with the centre from the full per eye matrix. A
-billboard for VR wants world up, not the camera's up.
-
 ### The moon
 
 `LH3DSky::Draw` (`0x0086B010`) puts the moon at the stored camera plus the moon
@@ -4491,6 +4488,73 @@ each save.
   gives the moon the height `1100 * cos(15 * t) - 150`, with `t` from the visual time
   (`fn_0086A160`), so the moon shows at night. The time of day comes from the game
   and not from the clock of the PC: the test save "pen" is at dusk.
+
+### Sprites with world up
+
+`LH3DSprite::Draw` (`0x00840530`, `__thiscall`, no arguments) draws each billboard
+of the engine: smoke, fire, sparks, the glow of a miracle, the notes over a thing,
+the marks of a fight and the orbs of the logo. A particle system draws its sprites
+through `Particle3DSprite::DrawAt` (`0x0067AE80`). It calls the draw at once, or it
+puts the sprite in the sorted list (`LH3DSprite::AddDrawing` `0x00840C70`), which
+calls the same address later. With the SSE path (`0x00EA9EB4` not zero) the draw
+goes on in `fn_007A8DB0`, which does the same work.
+
+When the flag `0x40` of the sprite (`+0x28`) is clear, the draw builds the model
+view at `0x00EA9E10` in camera space: the centre from the camera matrix at
+`0x00EA1D28`, and the four corners in the camera plane, turned by the angle of the
+sprite (`+0x14`). So the up of a sprite is the camera up turned by its angle. The
+camera matrix has the head with its roll, so each sprite rolls with the head. A
+sprite with the flag `0x40` is a flat quad in the world (a turn about world up at
+`+0x14`, through the clip matrix `0x00EA9E40`), and it does not roll.
+
+A hook on the draw adds a turn to the angle for the one call and puts the angle back
+after it (`sprite_math.h`, `SpriteTurn`). The turn is the angle of world up in the
+camera plane, `atan2(m[3], m[4])` of the camera matrix. The sprite then keeps world
+up as it shows on the screen, it still faces the eye, and it keeps the place, the
+size and the turn of the game. With the head level and no roll the turn is 0, and
+the draw is the draw of the game. A turn of the head about world up does not change
+the turn. The two eyes differ only in the camera x translation, so they get one turn,
+and with one walk the right eye is a copy of the draws of the left eye. In the last
+10 degrees before a look straight up or down, world up has almost no length in the
+camera plane, so the turn fades to 0 there. The glow and the sparks of an advisor are
+drawn with the room camera of the advisors (see "The advisors"), which has world up,
+so they get no turn.
+
+Two particle rules of the game give a sprite the direction of its speed on the
+screen as its angle: `UR_OrientSpriteWithVelocity::ModifyAtomCore` (`0x0069A790`,
+`__thiscall`, ret 4) and `fn_006840E0` (`__stdcall`, the atom and the speed, from
+`UR_Flocking::ModifyAtomCollection`). Each measures the speed in the camera plane of
+`0x00EA1D28`. If that matrix has a roll, the angle has it, and the turn of the draw
+would add it a second time. These calls run in the scene walk, so the matrix has the
+roll of the head. A hook gives these two calls the camera with no roll
+(`DerollCamera`: the same place and forward, turned about the forward) and puts the
+matrix back after the call.
+
+The cost is one compare of three floats for each sprite. The turn is made again only
+when the camera matrix changes. With a Fireball and its fire in view (about 260
+sprites a frame), `GGame::ProcessGraphicsEngine` took the same time with each value
+of the key, within 0.13 ms, with each renderer.
+
+The other readers of the camera matrix and of its inverse at `0x00EA9DE0` are not
+billboards: the transforms of meshes with their own world matrix (`fn_00852C40`,
+`fn_00853A50`, `fn_0084CE20` and the functions near it), the clip planes
+(`fn_00822560`), the listener of the sound (`fn_004270D0`), and the seven sprites of
+`fn_00827500`, which `LH3DSprite::DrawSpecial1` (`0x00840CC0`) draws as quads in a
+world matrix. The far trees turn about world up with the heading at `0x00EA1D88`
+(see "Clouds"). The clouds and the ground mist are `LH3DMist` (see "Clouds").
+
+`sprite_world_up` (default 1) picks it: 1 world up, 0 the camera up with the head.
+Two test keys are for desktop runs. The launcher removes them from `bwvr.ini` on each
+save.
+
+- `sprite_test_frame=N`: at frame N of the scripted controller, `sprite_world_up`
+  changes.
+- `sprite_test_trace=1`: each report window has a line `sprite trace` with the
+  largest angle of the up of a drawn sprite from world up, less the angle of the
+  sprite. It reads the model view that the engine built. The line also has the
+  largest roll of the camera, and the largest difference of the turn between the
+  sprites of one frame. A second line has the largest roll of the camera at a turn
+  from a speed.
 
 ### The sun glare
 
@@ -5009,6 +5073,7 @@ The ini keys of the settled choices stay, so a test can set a value by hand:
 | Sun glare | `sun_glare` |
 | Clouds that the head does not turn | `clouds_head_free` |
 | A moon with world up | `moon_world_up` |
+| Sprites with world up | `sprite_world_up` |
 | Advisors in the room | `spirit_anchor` |
 
 Head position is always 6DOF, the world steps run once a frame and the Hand uses
@@ -5071,6 +5136,8 @@ keys that the launcher sets.
 | `clouds_head_free` | 1 | 1: in the table and the God view the clouds face the table camera, so a move of the head does not turn them. 0: they face the render head. See "Clouds" |
 | `moon_world_up` | 1 | 1: the moon turns with world up, so it stays fixed in the sky. 0: it turns with the camera of the head. See "The moon" |
 | `sky_test_frame`, `sky_test_trace`, `sky_test_hour` | 0, 0, -1 | Test keys of the desktop runs. See "The moon" |
+| `sprite_world_up` | 1 | 1: smoke, fire and the other sprites keep world up, so they do not roll with the head. 0: they roll with the head. See "Sprites with world up" |
+| `sprite_test_frame`, `sprite_test_trace` | 0, 0 | Test keys of the desktop runs. See "Sprites with world up" |
 | `freeze_time` | 1 | See "Time, bars and the second eye pass" |
 | `frame_time_real` | 1 | 1: after the two eye passes the game has the real time of the frame as its frame time. 0: it has the number from before the passes. See "The delta time after the passes" |
 | `frame_time_test_frame`, `frame_time_test_readers`, `frame_time_test_readers_frames` | 0, 0, 600 | Test keys of the desktop runs. See "The delta time after the passes" |

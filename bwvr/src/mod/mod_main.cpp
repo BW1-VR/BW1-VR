@@ -194,6 +194,8 @@ void SkySetGlareMode(int mode);
 void SkySetCloudPoleShare(int percent);
 void SkySetHeadFree(bool clouds, bool moon, int test_frame, bool trace,
                     int test_hour);
+void SpriteUpSet(bool on, int test_frame, bool trace);
+void SpriteUpInstall();
 void PointerMapSetDragSmoothing(int ms);
 void PointerMapSetFakeMouse(const char* script, int step_px,
                             const int x_pct[2], const int y_pct[2]);
@@ -438,6 +440,11 @@ bool g_moon_world_up = true;
 int g_sky_test_frame = 0;
 bool g_sky_test_trace = false;
 int g_sky_test_hour = -1;
+// Smoke, fire and the other sprites keep world up, not the camera up with
+// the roll of the head. The test keys change it at a frame and trace it.
+bool g_sprite_world_up = true;
+int g_sprite_test_frame = 0;
+bool g_sprite_test_trace = false;
 // The black bars of the story scenes. Off by default in a headset.
 bool g_cinema_bars = false;
 // The advisors stay where the player looked when they came.
@@ -1122,6 +1129,13 @@ void ReadSettings() {
       GetPrivateProfileIntA("bwvr", "sky_test_trace", 0, path) != 0;
   g_sky_test_hour = static_cast<int>(
       GetPrivateProfileIntA("bwvr", "sky_test_hour", -1, path));
+  // Not in the launcher. See docs/backend.md, "Sprites with world up".
+  g_sprite_world_up =
+      GetPrivateProfileIntA("bwvr", "sprite_world_up", 1, path) != 0;
+  g_sprite_test_frame = static_cast<int>(
+      GetPrivateProfileIntA("bwvr", "sprite_test_frame", 0, path));
+  g_sprite_test_trace =
+      GetPrivateProfileIntA("bwvr", "sprite_test_trace", 0, path) != 0;
   g_cinema_bars = GetPrivateProfileIntA("bwvr", "cinema_bars", 0, path) != 0;
   g_spirit_anchor =
       GetPrivateProfileIntA("bwvr", "spirit_anchor", 1, path) != 0;
@@ -1745,6 +1759,8 @@ void StartVrStep() {
                    g_sky_test_trace, g_sky_test_hour);
     SkySetGlareMode(g_sun_glare);
     SkyDetailInstall();
+    SpriteUpSet(g_sprite_world_up, g_sprite_test_frame, g_sprite_test_trace);
+    SpriteUpInstall();
     SpiritAnchorSetEnabled(g_spirit_anchor);
     SpiritAnchorSetWorldSize(g_spirit_world_size, g_test_keys,
                              g_spirit_world_size_test,

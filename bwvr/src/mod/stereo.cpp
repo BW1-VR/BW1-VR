@@ -173,6 +173,7 @@ void ComfortCameraReport();
 void ScriptCameraReport();
 void UiDepthReportHelp();
 void SkyDetailReport();
+void SpriteUpReport();
 // spirit_anchor.cpp
 void SpiritAnchorReport();
 void SpiritAnchorWorldSizeToggle();
@@ -2077,6 +2078,7 @@ void __fastcall Process3dEngineBody(void* self, void* unused) {
     UiDepthReportHelp();
     UiPanelReport();
     SkyDetailReport();
+    SpriteUpReport();
     SpiritAnchorReport();
     ControllersReport();
     HandDirectReport();
