@@ -78,6 +78,43 @@ inline void LargeBlockChecks() {
   int one[1];
   Near("a top of one", Top(s, one, 1), 1, 0);
   Near("a top of one has the largest", one[0], p2, 0);
+
+  // The places of a heap: another heap gives another place.
+  const uint32_t none[kFrames] = {0, 0, 0, 0};
+  const int h1 = SiteOf(&s, none, kSegment, 0x00A40000u);
+  const int h2 = SiteOf(&s, none, kSegment, 0x00B50000u);
+  Check(h1 != h2, "another heap gives another place", h1, h2);
+  Near("the same heap gives the same place",
+       SiteOf(&s, none, kSegment, 0x00A40000u), h1, 0);
+
+  // The growth since the line before.
+  const int g1 = SiteOf(&s, f1, kGrowth, 0x00A40000u);
+  const int g2 = SiteOf(&s, f2, kGrowth, 0x00A40000u);
+  const int g3 = SiteOf(&s, f2, kGrowth, 0x00B50000u);
+  s.site[g1].live_bytes = 10;
+  s.site[g1].bytes_at_line = 8;
+  s.site[g2].live_bytes = 30;
+  s.site[g2].bytes_at_line = 5;
+  s.site[g3].live_bytes = 4;
+  s.site[g3].bytes_at_line = 4;
+  int grew[4];
+  Near("only places that grew are in the top of the growth",
+       TopGrowth(s, kGrowth, grew, 4), 2, 0);
+  Check(grew[0] == g2 && grew[1] == g1, "the top of the growth has the most "
+        "growth first", 0, 0);
+  Near("a top of the growth of one has the most",
+       (TopGrowth(s, kGrowth, grew, 1), grew[0]), g2, 0);
+  Near("the blocks of another kind are not in the top of the growth",
+       TopGrowth(s, kSegment, grew, 4), 0, 0);
+
+  // The heaps.
+  static Heaps heaps;
+  heaps.count = 0;
+  const int a = HeapOf(&heaps, 0x00A40000u);
+  const int b2 = HeapOf(&heaps, 0x00B50000u);
+  Check(a == 0 && b2 == 1, "each heap has its index", a, b2);
+  Near("a heap that is there keeps its index", HeapOf(&heaps, 0x00A40000u), 0,
+       0);
 }
 
 }  // namespace large_block_checks

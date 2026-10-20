@@ -24,8 +24,11 @@
 #include "address_space_math.h"
 
 extern void ModLog(const char* format, ...);
-// block_watch.cpp: the places of the large blocks, after each line.
+// block_watch.cpp: the places of the large blocks, after each line, and
+// whether a hook saw a region and it lives.
 void BlockWatchReport();
+bool BlockWatchOn();
+bool BlockWatchKnows(uint32_t base);
 
 namespace {
 
@@ -36,6 +39,26 @@ const double kMiB = 1024.0 * 1024.0;
 const uint64_t kLowFree = 64ull * 1024 * 1024;
 
 int g_seconds = 0;
+
+// THE PRIVATE ALLOCATIONS THAT NO HOOK SAW (memory_blocks=1): a region of
+// the kernel for a driver (for example the pages of the GPU that the driver
+// maps for the CPU), a region from before the hooks, or a region of less
+// than 64 KB. Two lists of their bases in rising order: of this walk and of
+// the walk before.
+const int kMaxUnseen = 4096;
+uint32_t g_unseen[2][kMaxUnseen];
+uint32_t g_unseen_size[2][kMaxUnseen];
+int g_unseen_count[2] = {0, 0};
+int g_unseen_now = 0;
+
+void CloseUnseen(uintptr_t base, uint64_t size) {
+  if (size == 0 || BlockWatchKnows(static_cast<uint32_t>(base))) return;
+  int& n = g_unseen_count[g_unseen_now];
+  if (n >= kMaxUnseen) return;
+  g_unseen[g_unseen_now][n] = static_cast<uint32_t>(base);
+  g_unseen_size[g_unseen_now][n] = static_cast<uint32_t>(size);
+  ++n;
+}
 
 int IniKey(const char* key, int fallback) {
   char path[MAX_PATH];
@@ -58,6 +81,11 @@ void Walk(address_space::Summary* s, double* ms) {
   const uintptr_t top =
       reinterpret_cast<uintptr_t>(info.lpMaximumApplicationAddress);
   address_space::Start(s);
+  const bool unseen = BlockWatchOn();
+  g_unseen_now = 1 - g_unseen_now;
+  g_unseen_count[g_unseen_now] = 0;
+  uintptr_t open_base = 0;
+  uint64_t open_size = 0;
   uintptr_t at = 0;
   while (at < top) {
     MEMORY_BASIC_INFORMATION m;
@@ -66,12 +94,25 @@ void Walk(address_space::Summary* s, double* ms) {
         reinterpret_cast<uintptr_t>(m.BaseAddress), m.RegionSize,
         reinterpret_cast<uintptr_t>(m.AllocationBase), m.State, m.Type};
     address_space::Add(s, r);
+    if (unseen) {
+      const bool private_part = m.State != MEM_FREE && m.Type == MEM_PRIVATE;
+      const uintptr_t base = reinterpret_cast<uintptr_t>(m.AllocationBase);
+      if (!private_part || base != open_base) {
+        CloseUnseen(open_base, open_size);
+        open_size = 0;
+      }
+      if (private_part) {
+        open_base = base;
+        open_size += m.RegionSize;
+      }
+    }
     const uintptr_t next = reinterpret_cast<uintptr_t>(m.BaseAddress) +
                            m.RegionSize;
     if (next <= at) break;
     at = next;
   }
   address_space::Finish(s);
+  if (unseen) CloseUnseen(open_base, open_size);
   QueryPerformanceCounter(&end);
   *ms = hz.QuadPart > 0
             ? (end.QuadPart - start.QuadPart) * 1000.0 / hz.QuadPart
@@ -130,6 +171,38 @@ DWORD WINAPI WatchThread(LPVOID) {
              kLowFree / kMiB);
     } else if (s.free_largest >= 2 * kLowFree) {
       low_said = false;
+    }
+    if (BlockWatchOn()) {
+      const int now_list = g_unseen_now, before = 1 - g_unseen_now;
+      uint64_t all = 0, fresh = 0;
+      int fresh_count = 0;
+      uint32_t largest[4] = {0, 0, 0, 0};
+      for (int i = 0; i < g_unseen_count[now_list]; ++i) {
+        const uint32_t size = g_unseen_size[now_list][i];
+        all += size;
+        if (InSorted(g_unseen[before], g_unseen_count[before],
+                     g_unseen[now_list][i])) {
+          continue;
+        }
+        fresh += size;
+        ++fresh_count;
+        for (int k = 0; k < 4; ++k) {
+          if (size > largest[k]) {
+            for (int j = 3; j > k; --j) largest[j] = largest[j - 1];
+            largest[k] = size;
+            break;
+          }
+        }
+      }
+      static uint64_t all_before = 0;
+      ModLog("memory       : the private allocations that no hook saw: %d, %.1f "
+             "MB (%+.1f MB since the line before). New since the line before: "
+             "%d, %.1f MB, the largest %.2f, %.2f, %.2f and %.2f MB",
+             g_unseen_count[now_list], all / kMiB,
+             (static_cast<double>(all) - static_cast<double>(all_before)) / kMiB,
+             fresh_count, fresh / kMiB, largest[0] / kMiB, largest[1] / kMiB,
+             largest[2] / kMiB, largest[3] / kMiB);
+      all_before = all;
     }
     BlockWatchReport();
     last_use = use;

@@ -72,6 +72,15 @@ inline void AddressSpaceChecks() {
   Near("the larger one is first, MiB", static_cast<double>(s.top[0] / kMiB), 2,
        0);
 
+  // The search in a rising array.
+  const uint32_t sorted[5] = {0x10000, 0x20000, 0x50000, 0x90000, 0xA0000};
+  Check(InSorted(sorted, 5, 0x50000), "a value in the middle is found", 0, 0);
+  Check(InSorted(sorted, 5, 0x10000) && InSorted(sorted, 5, 0xA0000),
+        "the first and the last value are found", 0, 0);
+  Check(!InSorted(sorted, 5, 0x30000) && !InSorted(sorted, 5, 0xB0000) &&
+            !InSorted(sorted, 0, 0x10000),
+        "a value that is not there is not found", 0, 0);
+
   // The top list keeps the largest four, largest first.
   Start(&s);
   const uint64_t sizes[] = {3, 9, 1, 7, 5, 8};

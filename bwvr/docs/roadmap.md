@@ -354,8 +354,13 @@ is built, and no test has proven it.
   headset session with that line showed private memory that grows from
   491 to 1327 MB in 14 minutes, at about 90 MB a minute at the end, in new
   blocks of about 2 MB. The heap of the game (LH3DMem) stayed at about 18
-  MB. The lines of the large blocks (`memory_blocks=1`) now give the places
-  of the calls that make them. To do: find what grows, and make it smaller. The flag for a
+  MB. In a second session the large blocks (256 KB or more of a heap, 256
+  KB or more of VirtualAlloc) stayed at about 346 MB while private memory
+  grew from 419 to 1297 MB in 7 minutes. So the growth is in small blocks
+  of a heap or in regions that no hook sees. The lines of the heaps, of the
+  growth places and of the private allocations that no hook saw
+  (`memory_blocks=1`) now give which. To do: find what grows, and make it
+  smaller. The flag for a
   large address space in `runblack.exe` gives 4 GiB, but it changes a file
   of the game, and that is a decision of the owner.
 

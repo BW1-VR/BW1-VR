@@ -1631,20 +1631,35 @@ frame thread, and it only reads. When the largest free run is under 64 MB,
 one more line says so. `memory_log=0` writes no line.
 
 **The large blocks.** With `memory_blocks=1` (the default, `block_watch.cpp`)
-hooks of ntdll count each block of 256 KB or more while it lives: the
-blocks of each heap (`RtlAllocateHeap`, `RtlReAllocateHeap`, `RtlFreeHeap`,
-so `HeapAlloc`, `malloc` and `new` of each C runtime), and the regions of
-`VirtualAlloc` (`NtAllocateVirtualMemory` with `MEM_RESERVE`,
+hooks of ntdll count each block while it lives: the blocks of 256 KB or more
+of each heap (`RtlAllocateHeap`, `RtlReAllocateHeap`, `RtlFreeHeap`, so
+`HeapAlloc`, `malloc` and `new` of each C runtime), and the regions of 64 KB
+or more of `VirtualAlloc` (`NtAllocateVirtualMemory` with `MEM_RESERVE`,
 `NtFreeVirtualMemory` with `MEM_RELEASE`), also of a driver. A region that a
-heap makes for a large block of its own is not counted again. A block gets a
+heap makes inside a call of the heap is a segment of that heap, and not a
+region of `VirtualAlloc`. The pages that a heap commits inside a call (and
+gives back with `MEM_DECOMMIT` or a release) count for that heap, and a
+commit also counts for the place of the outer call of the heap. A heap
+commits pages when its free room is used up, so a place that makes many
+small blocks that live shows there, as a sample. Three slots of `TlsAlloc`
+hold the depth of the hooks, the heap and the outer call on each thread. The
+hooks read and write them in the TEB: `__declspec(thread)` faults on a new
+thread before it has its static TLS, and `TlsGetValue` sets the last error. A block gets a
 place: the first 4 return addresses on the stack of the call outside ntdll,
 KernelBase and kernel32. The stack is read from the return address of the
 call up, and a word counts when it is in an image with code and the bytes
 before it end with a call. A word that only looks like a return address can
-pass. After each line of the address space, one line gives the live large
-blocks (heap and VirtualAlloc) and the change since the line before, and up
-to 6 lines give the places with the most live bytes, each with its blocks,
-its bytes, its change and its calls as "module+offset". Blocks from before
+pass. After each line of the address space come: a line of the private
+allocations that no hook saw (a region that the kernel maps for a driver,
+for example the pages of the GPU that the CPU can see, a region from before
+the hooks, or a region under 64 KB), with the new ones since the line
+before. Then a line of the live large blocks and the segments of the heaps,
+up to 4 lines of the heaps that committed the most pages since the line
+before (the process heap is the heap of the C runtime of the mod, and
+`__crtheap` `0x00FACCA8` is the heap of the C runtime of the game), up to 6
+lines of the places with the most growth of pages, and up to 4 lines of the
+places with the most live bytes. Each place has its calls as
+"module+offset". Blocks from before
 the start of the mod are not counted, and `HeapDestroy` frees blocks with no
 hook: a new block at the same address takes the old one out of its place. A
 small block costs a compare in the hook, a large block a walk of the stack,
@@ -5256,7 +5271,7 @@ keys that the launcher sets.
 | `crash_log` | 1 | 1: the log gets the first 8 C++ exceptions and an end of the game in `abort`, `terminate` or `_amsg_exit`, each with the return addresses on its stack. 0: no line. See "The crash log" |
 | `crash_log_test`, `crash_log_caught_test` | 0, 0 | Test keys: at the frame N the frame thread throws a C++ exception that the mod does not catch (the game ends), or that the mod catches. See "The crash log" |
 | `memory_log` | 20 | Each N seconds a line of the use of the address space of 2 GiB, the largest free run and the heap of the game. 0: no line. See "The address space" |
-| `memory_blocks` | 1 | 1: the line of the address space also gives the live large blocks (256 KB or more) of the heap and of VirtualAlloc and the 6 places with the most bytes. 0: no hook. See "The large blocks" |
+| `memory_blocks` | 1 | 1: the line of the address space also gives the private allocations that no hook saw, the live large blocks of the heaps (256 KB or more) and of VirtualAlloc (64 KB or more), the pages that each heap commits, and the places with the most growth and the most bytes. 0: no hook. See "The large blocks" |
 | `hang_watch` | 0 | A test key: 1 the place of the frame thread when it makes no frame for 8 s, 2 each 8 s. With each of the two the place of a fault. See "The watch of the frame thread" |
 | `crash_report` | 1 | 1: a fault that no handler takes writes a report to the log and the dump `bwvr-crash.dmp`. 0: no report and no dump. See "The report of a crash" |
 | `crash_test_frame` | 0 | A test key of the desktop runs: the frame of `FinishFrame` at which the mod writes to address 0. See "The report of a crash" |

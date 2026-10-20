@@ -111,6 +111,20 @@ inline void Add(Summary* s, const Region& r) {
 
 inline void Finish(Summary* s) { CloseAllocation(s); }
 
+// True when `value` is in the array `a` of `n` values in rising order.
+inline bool InSorted(const uint32_t* a, int n, uint32_t value) {
+  int lo = 0, hi = n;
+  while (lo < hi) {
+    const int mid = (lo + hi) / 2;
+    if (a[mid] < value) {
+      lo = mid + 1;
+    } else {
+      hi = mid;
+    }
+  }
+  return lo < n && a[lo] == value;
+}
+
 inline uint64_t InUse(const Summary& s) {
   uint64_t sum = 0;
   for (int k = 0; k < kKinds; ++k) sum += s.committed[k] + s.reserved[k];
