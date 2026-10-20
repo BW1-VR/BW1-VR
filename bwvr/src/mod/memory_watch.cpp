@@ -24,6 +24,8 @@
 #include "address_space_math.h"
 
 extern void ModLog(const char* format, ...);
+// block_watch.cpp: the places of the large blocks, after each line.
+void BlockWatchReport();
 
 namespace {
 
@@ -129,6 +131,7 @@ DWORD WINAPI WatchThread(LPVOID) {
     } else if (s.free_largest >= 2 * kLowFree) {
       low_said = false;
     }
+    BlockWatchReport();
     last_use = use;
     last_tick = now;
     Sleep(static_cast<DWORD>(g_seconds) * 1000);

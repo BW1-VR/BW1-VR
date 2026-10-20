@@ -350,8 +350,12 @@ is built, and no test has proven it.
   `runblack.exe`, which has no flag for a large address space (`backend.md`,
   "The address space"). A session that ended after 13 minutes with "abnormal
   program termination" can have the same cause. The line "memory" each 20 s
-  (`memory_log=20`) now gives the use by kind and the largest free run. To
-  do: find what grows in a session, and make it smaller. The flag for a
+  (`memory_log=20`) now gives the use by kind and the largest free run. A
+  headset session with that line showed private memory that grows from
+  491 to 1327 MB in 14 minutes, at about 90 MB a minute at the end, in new
+  blocks of about 2 MB. The heap of the game (LH3DMem) stayed at about 18
+  MB. The lines of the large blocks (`memory_blocks=1`) now give the places
+  of the calls that make them. To do: find what grows, and make it smaller. The flag for a
   large address space in `runblack.exe` gives 4 GiB, but it changes a file
   of the game, and that is a decision of the owner.
 

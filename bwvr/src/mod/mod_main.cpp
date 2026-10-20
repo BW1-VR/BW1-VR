@@ -118,6 +118,8 @@ void HangWatchFrame();
 void CrashLogInstall();
 // memory_watch.cpp: the line of the address space (memory_log).
 void MemoryWatchInstall();
+// block_watch.cpp: the places of the large blocks (memory_blocks).
+void BlockWatchInstall();
 // controllers.cpp
 void ControllerHintsSetOptions(bool on, const char* forced_profile);
 bool ControllerHintsInstall();
@@ -2742,6 +2744,7 @@ void Startup() {
   if (status != MH_OK) g_vr_enabled = false;
   ExitPathInstall();
   Depth24Install();
+  BlockWatchInstall();
   MemoryWatchInstall();
 }
 
