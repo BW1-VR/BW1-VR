@@ -38,8 +38,8 @@ There is no layout to keep in step and no separate load and save code.
 
 The window sizes itself around the table and starts a new column when one gets
 tall. A heading stays with at least three of its settings. A column has 26
-rows at most. The table of now has 26 rows, so the window has one column. One
-more row starts a second column.
+rows at most. The table of now has 42 rows (40 with the renderer Vulkan), so
+the window has two columns.
 
 A field is 160 units wide, which is enough for the longest choice ("Grip of
 the other hand"). The block of the buttons is below the last column and as
@@ -236,6 +236,12 @@ move the camera in steps.
 
 See `controllers.md` for the full controls.
 
+### Launcher
+
+| Setting | Default | What it does |
+| --- | --- | --- |
+| Check for updates | on | Key `update_check`. 1: each time the launcher opens, it asks GitHub for the latest version, and the status line says when a newer version is out. 0: the launcher does not ask. See "The update check" |
+
 ### Testing
 
 | Setting | Default | What it does |
@@ -281,9 +287,12 @@ When each check passes, the line is green with a tick: "Ready. OpenXR
 runtime:" and the name of the file of the runtime, for example
 `virtualdesktop-openxr-32.json`. Else the line is red with a warning sign,
 and it gives the first check that fails and what to do. The tooltip of the
-line gives each check that ran and its result, with the full paths. The
-launcher does the checks when it opens, when the row "Renderer" changes,
-and after "Save Config", which puts "Saved." before the result.
+line gives each check that ran and its result, with the full paths, and
+the result of the update check. The launcher does the checks when it
+opens, when the row "Renderer" changes, after "Save Config", which puts
+"Saved." before the result, and when the answer of the update check comes.
+When a newer version is out, the line of a ready PC is blue (see "The
+update check").
 
 1. **The files.** `ddraw.dll`, `openxr_loader.dll`, `dxwrapper\ddraw.dll`,
    `dxwrapper\dxwrapper.dll` and `dxwrapper\dxwrapper.ini`. The status line
@@ -316,6 +325,53 @@ The launcher only reads the registry for these checks. The tick and the
 warning sign are not in Segoe UI: Windows takes them from Segoe UI Symbol,
 which it links to Segoe UI. So the status line is a control of Unicode.
 
+## The update check
+
+When the launcher opens, it asks GitHub for the latest release of the mod:
+a GET of `https://api.github.com/repos/BW1-VR/BW1-VR/releases/latest` with
+WinHTTP, over HTTPS, with the User-Agent `BW1-VR-launcher/<version>`. The
+owner marks the release for the players as the latest one. The code is
+`StartUpdateCheck` and `AskForUpdate` in `launcher.cpp`, and the parse is
+in `src/common/update_check.h`, with checks in the math test.
+
+- **A thread of its own.** The window opens at once and never waits for
+  the network. Each step of the ask (the name, the connection, the send and
+  the answer) has a time out of 5 seconds. When the thread has the result,
+  it posts a message to the window, and the window does the checks again
+  with the same text before them (for example "Saved."). A line of another
+  fault, for example "Could not start runblack.exe.", stays.
+- **The answer.** The launcher reads two keys of the top object of the
+  JSON: `tag_name` (for example `v1.2.0-20261020-fd7f198`) and `html_url`
+  (the page of the release). The objects in the answer (`author`, each
+  asset) have an `html_url` too, so the parse reads only the keys of the
+  top object. The version is the three numbers after the `v` of the tag.
+  The launcher compares them, as numbers, with `BWVR_VERSION_MAJOR`,
+  `_MINOR` and `_PATCH` of `src/common/version.h`.
+- **A newer version.** The status line of a ready PC adds ". A new
+  version, 1.3.0, is out. Click here to get it." The line is blue in
+  place of green, and it keeps the tick. Over the line the pointer is a
+  hand. A click opens `html_url` in the browser of the player. The
+  launcher opens only an address that starts with `https://github.com/`.
+  A red fault comes first: then the line shows the fault and not the
+  update.
+- **No answer.** With no network, a time out, an HTTP status that is not
+  200, or an answer that is not as expected (no `tag_name`, a tag with no
+  version, no `html_url` of GitHub), the status line says nothing about
+  updates. The launcher has no log, so the tooltip of the status line
+  gives the cause, for example "Updates: no answer from ... (WinHTTP error
+  12007 at the step send: no network, or no name server)."
+
+The row "Check for updates" in the group "Launcher" is the key
+`update_check`: 1 (the default) asks at each start, 0 does not ask. The
+launcher reads the key when it opens, so a change counts from the next
+start.
+
+A picture for a test (`-shot`, `--picture`) asks only with one of the
+words of a test before `-shot`: `-update-tag <tag>` takes the place of
+the answer, with a release of that tag, and `-update-url <url>` takes the
+place of the address. So a picture does not change with the releases on
+GitHub. The picture waits for the answer.
+
 ## Where it finds the game
 
 The launcher looks beside itself, then in `Black & White Game` folders up to
@@ -347,20 +403,25 @@ art folder has no file for it.
 window to a BMP file and end. A person who uses the PC does not see the
 window: it is outside the screen, it has no button on the taskbar, and it
 does not take the focus. The launcher reads the settings for the picture and
-writes nothing but the file. With no game folder it does not stop: the
-picture then shows the default of each row. `--game <folder>` before
-`-shot` names the game folder when the launcher is not in it, for example
-in the build folder.
+writes nothing but the file and the text of its tooltip (see below). With no
+game folder it does not stop: the picture then shows the default of each
+row. `--game <folder>` before `-shot` names the game folder when the
+launcher is not in it, for example in the build folder.
 
 `-rows <n>` before `-shot` sets the most rows of a column. This gives the
-picture of a table that has more columns.
+picture of a table that has more columns. `-update-tag <tag>` and
+`-update-url <url>` before `-shot` give the update check an answer or an
+address (see "The update check"). The launcher also writes the tooltip of
+the status line to `<file>.tip.txt`, because a picture shows no tooltip.
 
 `bwvr/tools/desk/launcher_shot.ps1 -Name <name>` runs the launcher of the
 build folder in this way and makes a PNG in `local\launcher-shot`. `-Game
 <folder>` gives it the game folder, so the status line shows the checks of
-that game. The launcher passes its environment to the checks, so a run
-with the variable `XR_RUNTIME_JSON` set to a file that is not there shows
-the line of a runtime file that is missing. Look at
-the picture after each change of the table or of the layout: a text that is
+that game. `-UpdateTag` and `-UpdateUrl` give the two words of the update
+check. The script prints the tooltip of the status line with `TIP` before
+each line, and keeps it as `<name>.txt` beside the PNG. The launcher passes
+its environment to the checks, so a run with the variable `XR_RUNTIME_JSON`
+set to a file that is not there shows the line of a runtime file that is
+missing. Look at the picture after each change of the table or of the layout: a text that is
 cut off and two controls that overlap show there. The picture is the client
 area only. It does not show the frame of the window or a tooltip.

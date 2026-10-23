@@ -22,17 +22,20 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <winhttp.h>
 
 #define VK_NO_PROTOTYPES
 #include <vulkan/vulkan.h>
 
 #include "../common/exe_check.h"
+#include "../common/update_check.h"
 #include "../common/version.h"
 
 #pragma comment(lib, "comctl32.lib")
 #pragma comment(lib, "shell32.lib")
 #pragma comment(lib, "advapi32.lib")
 #pragma comment(lib, "gdi32.lib")
+#pragma comment(lib, "winhttp.lib")
 
 // The controls of Windows with its visual styles (version 6 of the common
 // controls). Without this line Windows gives the launcher version 5, which
@@ -341,6 +344,13 @@ const Setting kSettings[] = {
      "back after 10 minutes of play without that action. In a lesson of the "
      "tutorial, each line shows. Always: each line always shows. To show all "
      "lines again, delete bwvr-hint-counts.ini in the game folder."},
+
+    {kGroup, nullptr, "Launcher", nullptr, 0, nullptr},
+    {kBool, "update_check", "Check for updates", nullptr, 1,
+     "Each time the launcher opens, it asks GitHub for the latest version "
+     "of the mod. When a newer version is out, the line at the bottom of "
+     "the window says so. Click that line to open the page of the new "
+     "version in your browser. Off: the launcher does not ask."},
 
     {kGroup, nullptr, "Testing", nullptr, 0, nullptr},
     {kBool, "test_keys", "Test keys", nullptr, 0,
@@ -682,8 +692,15 @@ bool VulkanPendingThere() { return FileThere(g_game_dir, kVulkanPendingFile); }
 // --- the status line: the checks before a start ----------------------------
 
 // The text is green with a tick, or red with a warning sign
-// (WM_CTLCOLORSTATIC).
+// (WM_CTLCOLORSTATIC). With a newer version on GitHub the line of a ready
+// PC is blue, and a click on it opens the page of that version.
 bool g_status_ok = true;
+bool g_status_update = false;
+// The line shows the result of CheckEverything, and `before` of that call.
+// When the answer of GitHub comes, the line shows the checks again with the
+// same `before`. A line of another fault stays.
+bool g_status_from_checks = false;
+char g_status_before[256] = "";
 // The tooltip of the status line: each check and its result.
 char g_status_tip[2048] = "";
 
@@ -700,8 +717,9 @@ void SetStatusTip(const char* text) {
 
 // The font of the launcher has no tick and no warning sign. Windows takes
 // them from a font that it links to it (Segoe UI Symbol).
-void SayStatus(bool ok, const char* text) {
+void SayStatus(bool ok, const char* text, bool update = false) {
   g_status_ok = ok;
+  g_status_update = ok && update;
   wchar_t wide[1024];
   wide[0] = ok ? 0x2713 : 0x26A0;
   wide[1] = L' ';
@@ -712,7 +730,269 @@ void SayStatus(bool ok, const char* text) {
   InvalidateRect(g_status, nullptr, TRUE);
 }
 
-void SayStatus(const char* text) { SayStatus(false, text); }
+void SayStatus(const char* text) {
+  g_status_from_checks = false;
+  SayStatus(false, text);
+}
+
+// --- the update check ------------------------------------------------------
+//
+// THE UPDATE CHECK (docs/launcher.md, "The update check"). When the launcher
+// opens, a thread of its own asks GitHub for the latest release, so the
+// window never waits for the network. The owner marks the release for the
+// players as the latest one. With no answer, or an answer that is not as
+// expected, the status line says nothing about updates, and its tooltip
+// gives the cause.
+
+const char kLatestReleaseUrl[] =
+    "https://api.github.com/repos/BW1-VR/BW1-VR/releases/latest";
+// The thread posts this message to the window when it has the result.
+const UINT kUpdateAnswer = WM_APP + 1;
+// The time out of each step of the ask: the name, the connection, the send
+// and the answer.
+const int kUpdateTimeoutMs = 5000;
+// A release of the mod is about 10 KB of JSON.
+const DWORD kUpdateMostBytes = 1024 * 1024;
+
+struct UpdateResult {
+  bool newer = false;
+  char version[32] = "";
+  char page[512] = "";
+  // The line of the tooltip of the status line.
+  char note[640] = "";
+};
+
+// The ask of this start: the address, or a tag of a test that takes the
+// place of the answer. The window writes them before the thread starts.
+char g_update_url[512] = "";
+char g_update_test_tag[128] = "";
+// The thread writes g_update_thread_result, and then posts kUpdateAnswer.
+// The window reads it only after that message, into g_update.
+UpdateResult g_update_thread_result;
+UpdateResult g_update;
+HANDLE g_update_thread = nullptr;
+
+// A GET of `url` with WinHTTP. True with the body of an answer with the
+// HTTP status 200. Else `why` gives the cause.
+bool FetchUrl(const char* url, char* body, DWORD size, DWORD* got, char* why,
+              size_t why_size) {
+  *got = 0;
+  wchar_t wide[512];
+  if (MultiByteToWideChar(CP_UTF8, 0, url, -1, wide, 512) == 0) {
+    strcpy_s(why, why_size, "the address is too long");
+    return false;
+  }
+  URL_COMPONENTS parts = {sizeof(parts)};
+  wchar_t host[256] = L"";
+  wchar_t path[512] = L"";
+  parts.lpszHostName = host;
+  parts.dwHostNameLength = 256;
+  parts.lpszUrlPath = path;
+  parts.dwUrlPathLength = 512;
+  if (!WinHttpCrackUrl(wide, 0, 0, &parts)) {
+    _snprintf_s(why, why_size, _TRUNCATE,
+                "the address is not a URL (WinHTTP error %lu)", GetLastError());
+    return false;
+  }
+  wchar_t agent[64];
+  _snwprintf_s(agent, 64, _TRUNCATE, L"BW1-VR-launcher/%hs",
+               BWVR_VERSION_TEXT);
+  HINTERNET session =
+      WinHttpOpen(agent, WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,
+                  WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+  // Windows before 8.1 has no automatic proxy.
+  if (session == nullptr) {
+    session = WinHttpOpen(agent, WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
+                          WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+  }
+  HINTERNET connection = nullptr;
+  HINTERNET request = nullptr;
+  const char* step = "open";
+  bool ok = false;
+  DWORD status = 0;
+  DWORD status_size = sizeof(status);
+  if (session == nullptr) goto done;
+  WinHttpSetTimeouts(session, kUpdateTimeoutMs, kUpdateTimeoutMs,
+                     kUpdateTimeoutMs, kUpdateTimeoutMs);
+  step = "connect";
+  connection = WinHttpConnect(session, host, parts.nPort, 0);
+  if (connection == nullptr) goto done;
+  step = "request";
+  request = WinHttpOpenRequest(
+      connection, L"GET", path, nullptr, WINHTTP_NO_REFERER,
+      WINHTTP_DEFAULT_ACCEPT_TYPES,
+      parts.nScheme == INTERNET_SCHEME_HTTPS ? WINHTTP_FLAG_SECURE : 0);
+  if (request == nullptr) goto done;
+  WinHttpAddRequestHeaders(request, L"Accept: application/vnd.github+json",
+                           static_cast<DWORD>(-1), WINHTTP_ADDREQ_FLAG_ADD);
+  step = "send";
+  if (!WinHttpSendRequest(request, WINHTTP_NO_ADDITIONAL_HEADERS, 0,
+                          WINHTTP_NO_REQUEST_DATA, 0, 0, 0)) {
+    goto done;
+  }
+  step = "answer";
+  if (!WinHttpReceiveResponse(request, nullptr)) goto done;
+  if (!WinHttpQueryHeaders(
+          request, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
+          WINHTTP_HEADER_NAME_BY_INDEX, &status, &status_size,
+          WINHTTP_NO_HEADER_INDEX)) {
+    goto done;
+  }
+  if (status != 200) {
+    _snprintf_s(why, why_size, _TRUNCATE,
+                "GitHub answered with the HTTP status %lu", status);
+    WinHttpCloseHandle(request);
+    WinHttpCloseHandle(connection);
+    WinHttpCloseHandle(session);
+    return false;
+  }
+  step = "read";
+  for (;;) {
+    if (*got >= size - 1) {
+      _snprintf_s(why, why_size, _TRUNCATE,
+                  "the answer is longer than %lu bytes", size - 1);
+      WinHttpCloseHandle(request);
+      WinHttpCloseHandle(connection);
+      WinHttpCloseHandle(session);
+      return false;
+    }
+    DWORD read = 0;
+    if (!WinHttpReadData(request, body + *got, size - 1 - *got, &read)) {
+      goto done;
+    }
+    if (read == 0) break;
+    *got += read;
+  }
+  body[*got] = 0;
+  ok = true;
+
+done:
+  if (!ok) {
+    const DWORD error = GetLastError();
+    const char* meaning = "";
+    if (error == ERROR_WINHTTP_NAME_NOT_RESOLVED) {
+      meaning = ": no network, or no name server";
+    } else if (error == ERROR_WINHTTP_TIMEOUT) {
+      meaning = ": the time out";
+    } else if (error == ERROR_WINHTTP_CANNOT_CONNECT) {
+      meaning = ": no connection";
+    } else if (error == ERROR_WINHTTP_SECURE_FAILURE) {
+      meaning = ": the secure connection failed";
+    }
+    _snprintf_s(why, why_size, _TRUNCATE,
+                "WinHTTP error %lu at the step %s%s", error, step, meaning);
+  }
+  if (request != nullptr) WinHttpCloseHandle(request);
+  if (connection != nullptr) WinHttpCloseHandle(connection);
+  if (session != nullptr) WinHttpCloseHandle(session);
+  return ok;
+}
+
+DWORD WINAPI AskForUpdate(void*) {
+  UpdateResult& result = g_update_thread_result;
+  static char body[kUpdateMostBytes];
+  DWORD got = 0;
+  char why[256] = "";
+  const char* from = "GitHub";
+  bool answered = false;
+  if (g_update_test_tag[0] != 0) {
+    // A test: the answer of a release with this tag.
+    from = "the tag of the test";
+    _snprintf_s(body, sizeof(body), _TRUNCATE,
+                "{\"tag_name\":\"%s\",\"html_url\":\"https://github.com/"
+                "BW1-VR/BW1-VR/releases/tag/%s\"}",
+                g_update_test_tag, g_update_test_tag);
+    got = static_cast<DWORD>(strlen(body));
+    answered = true;
+  } else {
+    answered =
+        FetchUrl(g_update_url, body, sizeof(body), &got, why, sizeof(why));
+  }
+  if (!answered) {
+    _snprintf_s(result.note, sizeof(result.note), _TRUNCATE,
+                "Updates: no answer from %s (%s).", g_update_url, why);
+  } else {
+    update_check::Release release;
+    const update_check::Verdict verdict = update_check::Judge(
+        body, got, BWVR_VERSION_MAJOR, BWVR_VERSION_MINOR, BWVR_VERSION_PATCH,
+        &release);
+    switch (verdict) {
+      case update_check::kNewer:
+        result.newer = true;
+        _snprintf_s(result.version, sizeof(result.version), _TRUNCATE,
+                    "%d.%d.%d", release.major, release.minor, release.patch);
+        strcpy_s(result.page, sizeof(result.page), release.page);
+        _snprintf_s(result.note, sizeof(result.note), _TRUNCATE,
+                    "Updates: the latest release from %s is %s (tag %s), and "
+                    "this launcher is " BWVR_VERSION_TEXT ". The page: %s",
+                    from, result.version, release.tag, release.page);
+        break;
+      case update_check::kNotNewer:
+        _snprintf_s(result.note, sizeof(result.note), _TRUNCATE,
+                    "Updates: the latest release from %s is %d.%d.%d (tag "
+                    "%s), and this launcher is " BWVR_VERSION_TEXT
+                    ". No newer version is out.",
+                    from, release.major, release.minor, release.patch,
+                    release.tag);
+        break;
+      case update_check::kNoTag:
+        _snprintf_s(result.note, sizeof(result.note), _TRUNCATE,
+                    "Updates: the answer from %s (%lu bytes) has no "
+                    "tag_name.",
+                    from, got);
+        break;
+      case update_check::kBadTag:
+        _snprintf_s(result.note, sizeof(result.note), _TRUNCATE,
+                    "Updates: the tag %s from %s has no version.", release.tag,
+                    from);
+        break;
+      default:
+        _snprintf_s(result.note, sizeof(result.note), _TRUNCATE,
+                    "Updates: the answer from %s has no html_url of GitHub.",
+                    from);
+        break;
+    }
+  }
+  if (g_window != nullptr) PostMessageA(g_window, kUpdateAnswer, 0, 0);
+  return 0;
+}
+
+// Starts the ask when bwvr.ini has update_check=1. `test_tag` takes the
+// place of the answer, and `test_url` the place of the address. A picture
+// for a test (`picture`) asks only with one of them, so that the picture
+// does not change with the releases on GitHub.
+void StartUpdateCheck(bool picture, const char* test_tag,
+                      const char* test_url) {
+  if (GetPrivateProfileIntA("bwvr", "update_check", 1, g_ini_path) == 0) {
+    strcpy_s(g_update.note, sizeof(g_update.note),
+             "Updates: off (update_check=0 in bwvr.ini).");
+    return;
+  }
+  if (picture && test_tag == nullptr && test_url == nullptr) {
+    strcpy_s(g_update.note, sizeof(g_update.note),
+             "Updates: no ask for a picture of a test.");
+    return;
+  }
+  strcpy_s(g_update_url, sizeof(g_update_url),
+           test_url != nullptr ? test_url : kLatestReleaseUrl);
+  if (test_tag != nullptr) {
+    strcpy_s(g_update_test_tag, sizeof(g_update_test_tag), test_tag);
+  }
+  strcpy_s(g_update.note, sizeof(g_update.note),
+           "Updates: the launcher asks GitHub for the latest version.");
+  g_update_thread =
+      CreateThread(nullptr, 0, AskForUpdate, nullptr, 0, nullptr);
+  if (g_update_thread == nullptr) {
+    strcpy_s(g_update.note, sizeof(g_update.note),
+             "Updates: the launcher could not start the thread of the ask.");
+  }
+}
+
+void OpenUpdatePage() {
+  if (!g_update.newer || !update_check::IsGitHubPage(g_update.page)) return;
+  ShellExecuteA(nullptr, "open", g_update.page, nullptr, nullptr,
+                SW_SHOWNORMAL);
+}
 
 // Adds one line to the text of a tooltip.
 void TipLine(char* tip, size_t size, const char* line) {
@@ -894,6 +1174,10 @@ void CheckEverything(const char* before = nullptr) {
   char tip[2048] = "";
   char detail[1024];
   bool ok = false;
+  bool update = false;
+  g_status_from_checks = true;
+  strcpy_s(g_status_before, sizeof(g_status_before),
+           before != nullptr ? before : "");
   if (before != nullptr && before[0] != 0) {
     strcpy_s(line, sizeof(line), before);
     strcat_s(line, sizeof(line), " ");
@@ -1041,9 +1325,19 @@ void CheckEverything(const char* before = nullptr) {
               FileName(runtime));
   strcat_s(line, sizeof(line), detail);
   ok = true;
+  // A newer version shows only on the line of a ready PC. A fault comes
+  // first.
+  if (g_update.newer) {
+    _snprintf_s(detail, sizeof(detail), _TRUNCATE,
+                ". A new version, %s, is out. Click here to get it.",
+                g_update.version);
+    strcat_s(line, sizeof(line), detail);
+    update = true;
+  }
 
 done:
-  SayStatus(ok, line);
+  if (g_update.note[0] != 0) TipLine(tip, sizeof(tip), g_update.note);
+  SayStatus(ok, line, update);
   SetStatusTip(tip);
 }
 
@@ -1839,7 +2133,7 @@ void BuildControls() {
   g_status = CreateWindowExW(
       0, L"STATIC", L"",
       WS_CHILD | WS_VISIBLE | SS_LEFT | SS_NOPREFIX | SS_NOTIFY, 0, 0, 0, 0,
-      g_window, nullptr, nullptr, nullptr);
+      g_window, reinterpret_cast<HMENU>(6), nullptr, nullptr);
   for (HWND button : g_buttons) {
     SendMessageA(button, WM_SETFONT, reinterpret_cast<WPARAM>(g_font), TRUE);
   }
@@ -1890,6 +2184,10 @@ LRESULT CALLBACK Proc(HWND window, UINT message, WPARAM w, LPARAM l) {
         case 5:
           PlayNoVr();
           return 0;
+        case 6:
+          // A click on the status line with a newer version.
+          if (HIWORD(w) == STN_CLICKED) OpenUpdatePage();
+          return 0;
         default:
           break;
       }
@@ -1909,12 +2207,34 @@ LRESULT CALLBACK Proc(HWND window, UINT message, WPARAM w, LPARAM l) {
       }
       return 0;
     }
+    case kUpdateAnswer:
+      // The thread of the ask has ended (AskForUpdate).
+      g_update = g_update_thread_result;
+      if (g_status_from_checks) {
+        char before[sizeof(g_status_before)];
+        strcpy_s(before, sizeof(before), g_status_before);
+        CheckEverything(before);
+      }
+      return 0;
+    case WM_SETCURSOR:
+      // The hand of a link over the line of a newer version.
+      if (reinterpret_cast<HWND>(w) == g_status && g_status_update) {
+        SetCursor(LoadCursor(nullptr, IDC_HAND));
+        return TRUE;
+      }
+      break;
     case WM_CTLCOLORSTATIC:
       SetBkMode(reinterpret_cast<HDC>(w), TRANSPARENT);
-      // The status line: green when each check passes, else red.
+      // The status line: green when each check passes, blue with a newer
+      // version, else red.
       if (reinterpret_cast<HWND>(l) == g_status) {
-        SetTextColor(reinterpret_cast<HDC>(w),
-                     g_status_ok ? RGB(0, 128, 0) : RGB(200, 0, 0));
+        COLORREF color = RGB(200, 0, 0);
+        if (g_status_update) {
+          color = RGB(0, 90, 200);
+        } else if (g_status_ok) {
+          color = RGB(0, 128, 0);
+        }
+        SetTextColor(reinterpret_cast<HDC>(w), color);
       }
       return reinterpret_cast<LRESULT>(GetSysColorBrush(COLOR_BTNFACE));
     case WM_DESTROY:
@@ -1948,7 +2268,9 @@ void MakeFonts() {
 // does not take the focus. It must show there, because a list draws its text
 // only in a window that shows. The picture is the client area, which each
 // control draws into a bitmap (WM_PRINT). The launcher reads the settings
-// for it and writes nothing but the file.
+// for it and writes nothing but the file, and the tooltip of the status line
+// in a text file beside it (`<file>.tip.txt`), because a picture shows no
+// tooltip.
 bool WriteShot(const char* path) {
   SetWindowLongA(g_window, GWL_EXSTYLE,
                  GetWindowLongA(g_window, GWL_EXSTYLE) | WS_EX_NOACTIVATE);
@@ -2005,6 +2327,17 @@ bool WriteShot(const char* path) {
   SelectObject(dc, before);
   DeleteObject(bitmap);
   DeleteDC(dc);
+  char tip_path[MAX_PATH];
+  strcpy_s(tip_path, sizeof(tip_path), path);
+  // The rest of the command line can end with a space.
+  size_t end = strlen(tip_path);
+  while (end > 0 && tip_path[end - 1] == ' ') tip_path[--end] = 0;
+  strcat_s(tip_path, sizeof(tip_path), ".tip.txt");
+  if (fopen_s(&file, tip_path, "wb") == 0 && file != nullptr) {
+    fputs(g_status_tip, file);
+    fputs("\n", file);
+    fclose(file);
+  }
   return written;
 }
 
@@ -2077,9 +2410,16 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE, LPSTR command, int) {
 
   const char* picture = nullptr;
   const char* game = nullptr;
+  // The words of a test of the update check: "-update-tag <tag>" takes the
+  // place of the answer of GitHub, "-update-url <url>" the place of its
+  // address.
+  const char* update_tag = nullptr;
+  const char* update_url = nullptr;
   for (int i = 1; i + 1 < __argc; ++i) {
     if (strcmp(__argv[i], "--picture") == 0) picture = __argv[i + 1];
     if (strcmp(__argv[i], "--game") == 0) game = __argv[i + 1];
+    if (strcmp(__argv[i], "-update-tag") == 0) update_tag = __argv[i + 1];
+    if (strcmp(__argv[i], "-update-url") == 0) update_url = __argv[i + 1];
   }
   bool found = FindGame();
   if (!found && (picture != nullptr || shot != nullptr) && game != nullptr &&
@@ -2130,7 +2470,20 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE, LPSTR command, int) {
   BuildControls();
   LoadAll();
   UpdateRendererRows(true);
+  // The ask starts before the checks, so that the tooltip of the status
+  // line says that it runs.
+  const bool test_picture = picture != nullptr || shot != nullptr;
+  StartUpdateCheck(test_picture, update_tag, update_url);
   CheckEverything();
+  // A picture for a test waits for the answer, so that it shows the line of
+  // the update.
+  if (test_picture && g_update_thread != nullptr) {
+    WaitForSingleObject(g_update_thread, 4 * kUpdateTimeoutMs);
+    MSG answer;
+    while (PeekMessageA(&answer, nullptr, 0, 0, PM_REMOVE)) {
+      DispatchMessageA(&answer);
+    }
+  }
   if (picture != nullptr) {
     SetWindowPos(g_window, HWND_BOTTOM, -30000, -30000, 0, 0,
                  SWP_NOSIZE | SWP_NOACTIVATE);

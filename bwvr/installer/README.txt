@@ -74,6 +74,14 @@ green tick and "Ready" show that each check passed. A red warning
 shows the first problem and what to do. Hold the pointer over the
 line to see each check.
 
+Each time the launcher opens, it asks GitHub for the latest version
+of the mod. When a newer version is out and the PC is ready, the line
+at the bottom is blue and says so. Click the line to open the page of
+the new version in your browser. With no network, the launcher says
+nothing about updates. The ask sends only the version of the
+launcher. To stop the ask, clear "Check for updates" in the group
+Launcher, or set update_check=0 in bwvr.ini.
+
 If a start with the renderer Vulkan fails, the next start uses
 Direct3D 9. The launcher then shows "Direct3D 9" in the row
 "Renderer", and a red warning. To try Vulkan again, set "Renderer" to
@@ -107,7 +115,7 @@ still view of the logo.
 THE SETTINGS
 ------------
 
-The launcher shows five groups.
+These are some of the groups of the launcher.
 
   Picture         How big a picture each eye gets, a margin around
                   the view, how sharp the textures are, and how far
@@ -125,6 +133,10 @@ The launcher shows five groups.
 
   Controllers     The glow at the Hand, the grab of the world, and the
                   lines of the hint cards.
+
+  Launcher        "Check for updates": the launcher asks GitHub for
+                  the latest version each time it opens (see HOW TO
+                  START).
 
   Testing         One box, which turns on keys for tests. The box
                   is off, and a player does not need it.
