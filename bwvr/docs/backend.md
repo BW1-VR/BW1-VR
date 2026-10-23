@@ -35,6 +35,7 @@ Other docs: `software-tnl.md` (the CPU transform and the camera matrix),
 | `src/mod/mod_main.cpp` | Settings (`ReadSettings`), hook installation, the log, the shutdown |
 | `src/mod/vr_start.cpp` | The tries to start the headset session on a thread of the mod, and the frame watch of the tries (`vr_start`) |
 | `src/vr/xr_screen.cpp` | The OpenXR session, the frames, the input and the layers |
+| `src/vr/refresh_rate_math.h` | The refresh rate that `refresh_rate_hz` asks for, and the pace of the runtime in each report (`xr_screen.cpp`) |
 | `src/vr/bridge/client.cpp`, `host.cpp`, `protocol.h` | The x64 host for Steam Frame and its client in the mod (`xr_bridge`) |
 | `src/mod/gpu_bridge.cpp` | Shared textures, Direct3D 9 to Direct3D 11 copy, depth format hook |
 | `src/mod/frame_send.cpp` | The way of the eye pictures to the headset: when the mod waits for the GPU, and on which thread (`frame_send`) |
@@ -1781,6 +1782,77 @@ wait) in the window, and the count of the calls of 20 ms or more.
 Only a headset session can show what the wait, the copy to the bridge and the
 frame to the runtime cost in a slow frame. Only a person can say if a sound
 that stops sounds the same with `audio_stop_wait` 0 and 1.
+
+### The refresh rate of the headset
+
+The runtime sets the pace of the frames: `xrWaitFrame` returns when the
+runtime wants the next frame. Each frame of `xrWaitFrame` has a predicted
+display period (the time of one refresh) and a predicted display time. When
+the runtime has the extension `XR_FB_display_refresh_rate`, the instance
+turns it on (`xr_screen.cpp`). The mod can then read the rates that the
+headset offers and the rate now, and it can ask for a rate.
+
+`refresh_rate_hz` sets the rate that the mod asks for, after each
+`xrBeginSession`:
+
+| Value | The rate that the mod asks for |
+| --- | --- |
+| 0, the default | No rate. The headset keeps the rate that the player set in the runtime |
+| A number, for example 120 | That rate when the headset offers it. Else the nearest higher rate, or the highest rate when no rate is higher. The log says which |
+| -1 | The highest rate that the headset offers |
+
+`refresh_rate_math.h` chooses the rate. Its checks are in
+`refresh_rate_checks.h`. The mod does not ask when the headset has the rate
+already. The ini key has no test key.
+
+The log has these lines:
+
+```
+refresh rate : refresh_rate_hz=V. ...
+  refresh rate : the headset offers R1, R2, ... Hz, and the rate now is R Hz (XR_FB_display_refresh_rate)
+  refresh rate : refresh_rate_hz=V gives R Hz (why). The mod asks for it: XR_SUCCESS. The rate now is R Hz
+  refresh rate : the first 6 frames of the session: the display period of xrWaitFrame, ms: P1 ... P6. The display times came this far apart, ms: S1 ... S5. Now the refresh rate is R Hz
+  refresh rate : the headset changed its refresh rate from A to B Hz
+  display      : the refresh rate is R Hz. In N frames xrWaitFrame gave a display period of P ms (H Hz), P1 to P2 ms. The display times came S ms apart (H Hz) in K steps, and L steps were more than 1.5 periods. xrWaitFrame took W ms in the mean
+```
+
+The first line comes with the settings, also in a desktop run. The lines
+with the rates come at the start of a session. A runtime with no extension
+gives one line that says so. The line `display` comes with each report of
+450 frames. The period says the rate of the display. The steps between the
+display times say the rate at which the runtime takes frames. When the two
+rates are not the same, the runtime holds the frames in `xrWaitFrame`, and
+the mean time in `xrWaitFrame` says how long. A step of more than 1.5
+periods is a refresh with no new frame: the headset shows the frame before
+again. `bwvr-xrtest 30 vulkan hz=-1` shows the same lines with a test
+pattern and no game, so it shows the pace of the runtime alone.
+
+**The pace at 120 Hz with Virtual Desktop.** With a Quest 3 through Virtual
+Desktop at 120 Hz with Space Warp off, sessions of the game have 96 to 100
+frames a second, with each renderer. At 90 Hz they have 89 to 90. These
+facts come from the logs of those sessions:
+
+- The display period of `xrWaitFrame` is 8.3 ms (the end line of each walk
+  with the stick gives it). So the runtime says that the display has 120 Hz.
+- The display times of the frames are 9.7 to 10.6 ms apart (the time of a
+  frame of the walk, `god_display_time=1`). No step is more than 1.5
+  periods.
+- The runtime skips no frame.
+- With `backend=vulkan` a frame of 10.0 ms has a median of 5.9 ms in the
+  wait for the runtime (the number `wait` of the line `stereo`), and of 4.2
+  ms in the rest. From the end of `xrWaitFrame` to the end of `xrEndFrame` a
+  frame takes a median of 3.9 ms (the line `frame age`). So the frame of the
+  mod is ready about 6 ms before the runtime takes the next frame.
+- With dxwrapper the rest of a frame is a median of 8.5 to 9.0 ms, and the
+  wait is 1.3 to 1.8 ms. The frame rate is 96 to 98.
+
+So the cap of about 100 frames a second is in the runtime of Virtual
+Desktop, and not in the work of the mod: the runtime gives a frame each 10
+ms on a display of 120 Hz. Not known: why. A cause can be the encoder or
+the link to the headset at 120 Hz, or the size of the eye pictures (3600 x
+2880 for each eye, where the headset asks for 2688 x 2880). The line
+`display` of the next session shows the rate that the runtime gives, and
+`bwvr-xrtest` shows if the runtime has the same pace with no game.
 
 ### The read ahead of the files of the game
 
@@ -5095,6 +5167,7 @@ keys that the launcher sets.
 | `gpu_bridge` | 1 | The GPU path |
 | `frame_send` | 0 | 0: the mod waits for the GPU after each eye pass. 1: one wait a frame. 2: one wait a frame on a second thread, which also gives the frame to the runtime. See "One wait a frame, and a second thread" |
 | `xr_hold_ms` | 30 | When the game gives the runtime no frame for this many ms, a second thread sends the layers of the last frame again, at the rate of the headset. 0 is off: the headset gets no frame while the game gives none. 0 to 1000. A test key: Shift W. See "The hold of the last frame" |
+| `refresh_rate_hz` | 0 | 0: the mod asks the headset for no refresh rate. A number: the mod asks for that rate when the headset offers it, else for the nearest higher rate (or the highest rate when no rate is higher). -1: the highest rate that the headset offers. With each value the log has the rates of the headset. No test key. See "The refresh rate of the headset" |
 | `draw_merge` | 1 | 1: in an eye pass of the scene, a row of draw calls of the game with one state goes to Direct3D as one draw call. 0: each draw call goes as it comes. See "One draw call for a row of draw calls" |
 | `tick_direct` | 2 | 2: the `GetTickCount` of the game gives the milliseconds of the performance counter, with no check of busy waiting of dxwrapper. 1: it gives `GetTickCount64`, in steps of the timer of Windows. 0: the game calls it through the hooks of dxwrapper. See "The clock of the game and the hooks of dxwrapper" |
 | `draw_merge_test`, `draw_merge_test_frame` | 0, 0 | Test keys of the desktop runs. See the same section |

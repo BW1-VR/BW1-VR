@@ -13,7 +13,7 @@
 // Direct3D 11 swapchain and the frame pacing all work, and anything that
 // breaks later is the game side.
 //
-//   bwvr-xrtest [seconds] [vulkan] [relay | alone]
+//   bwvr-xrtest [seconds] [vulkan] [relay | alone] [hz=<rate>]
 //
 // With the word vulkan the session is one with Vulkan (XrScreen::UseVulkan,
 // xr_vulkan=1 of the mod): the runtime makes the Vulkan device, and Vulkan
@@ -22,6 +22,10 @@
 // through a Direct3D 11 texture that Vulkan shares (xr_vulkan_upload=0).
 // With the word alone too, the session has no Direct3D 11 device
 // (XrScreen::UseD3D11, the session of backend=vulkan with vulkan_only=1).
+// With hz=<rate> the test asks the headset for that refresh rate, as
+// refresh_rate_hz of the mod does (XrScreen::SetRefreshRate): hz=-1 asks
+// for the highest rate. The log has the rates of the headset with each
+// value, and the frames a second show the pace of the runtime with no game.
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -139,8 +143,11 @@ int main(int argc, char** argv) {
   bool vulkan = false;
   bool relay = false;
   bool alone = false;
+  int hz = 0;
   for (int i = 1; i < argc; ++i) {
-    if (strcmp(argv[i], "vulkan") == 0) {
+    if (strncmp(argv[i], "hz=", 3) == 0) {
+      hz = atoi(argv[i] + 3);
+    } else if (strcmp(argv[i], "vulkan") == 0) {
       vulkan = true;
     } else if (strcmp(argv[i], "relay") == 0) {
       relay = true;
@@ -160,6 +167,7 @@ int main(int argc, char** argv) {
   screen.UseVulkan(vulkan);
   screen.UseD3D11(!(vulkan && alone));
   screen.SetVulkanUpload(!relay);
+  screen.SetRefreshRate(hz);
   Log("The session uses %s.",
       !vulkan ? "Direct3D 11"
       : alone ? "Vulkan with no Direct3D 11, and Vulkan copies the pattern "

@@ -631,6 +631,16 @@ that moves while the Hand takes it.
     overlay of Virtual Desktop on (the latency of the network and the frames
     that the headset drops), and a session with `xr_vulkan=0` and
     `backend=dxwrapper` for a comparison.
+  - **About 100 frames a second at 120 Hz with Virtual Desktop.** The
+    runtime says that the display has 120 Hz, and it takes a frame each 10
+    ms. The frame of the mod is ready about 6 ms before that with
+    `backend=vulkan` (`backend.md`, "The refresh rate of the headset"). So
+    the cap is in the runtime. Next steps: a session that reads the lines
+    `refresh rate :` and `display      :`, a session with
+    `refresh_rate_hz=-1`, and `bwvr-xrtest 30 vulkan hz=-1` for the pace of
+    the runtime with no game. Then a session with a smaller render size,
+    and one with the performance overlay of Virtual Desktop on (the time of
+    the encoder).
   - **The wait at the stop of a sound.** The mod skips the 20 ms that
     the audio DLL waits on the frame thread at the stop of a sound
     (`audio_stop_wait=0`, `audio.md`, 7.6). In a desktop run the worst frame

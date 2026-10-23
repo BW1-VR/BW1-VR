@@ -23,6 +23,7 @@
 #include <openxr/openxr_platform.h>
 
 #include "../common/version.h"
+#include "refresh_rate_math.h"
 
 namespace bwvr {
 namespace {
@@ -545,6 +546,25 @@ struct XrScreen::Impl {
   XrSpace gaze_space = XR_NULL_HANDLE;
   bool gaze_valid = false;
   float gaze_direction[3] = {0.0f, 0.0f, -1.0f};
+  // THE REFRESH RATE OF THE HEADSET (XR_FB_display_refresh_rate,
+  // SetRefreshRate). The instance has the extension when the runtime lists
+  // it, so the log has the rates with each value of refresh_rate_hz.
+  bool refresh_extension = false;
+  int refresh_ask = refresh_rate_math::kAskNone;
+  bool refresh_logged = false;  // the rates of the headset are in the log
+  PFN_xrEnumerateDisplayRefreshRatesFB enumerate_rates = nullptr;
+  PFN_xrGetDisplayRefreshRateFB get_rate = nullptr;
+  PFN_xrRequestDisplayRefreshRateFB request_rate = nullptr;
+  void ApplyRefreshRate();  // after xrBeginSession
+  float RateNow();          // 0 when the runtime does not say
+  // The display period and the time in xrWaitFrame of the frames of a
+  // report window, and of the first frames of the session (only the frame
+  // thread writes them).
+  refresh_rate_math::Window display_window;
+  static const int kFirstFrames = 6;
+  int64_t first_period[kFirstFrames] = {};
+  int64_t first_time[kFirstFrames] = {};
+  int first_count = 0;
   bool profiles_logged = false;
   char profile[2][XR_MAX_PATH_LENGTH] = {{0}, {0}};
 
@@ -1221,6 +1241,10 @@ bool XrScreen::StartInstance(LogFn log) {
                      XR_EXT_EYE_GAZE_INTERACTION_EXTENSION_NAME) == 0) {
             s.gaze_extension = s.gaze_wanted;
           }
+          if (strcmp(list[i].extensionName,
+                     XR_FB_DISPLAY_REFRESH_RATE_EXTENSION_NAME) == 0) {
+            s.refresh_extension = true;
+          }
           if (strcmp(list[i].extensionName, "XR_MSFT_controller_model") == 0 ||
               strcmp(list[i].extensionName, "XR_FB_render_model") == 0) {
             model = true;
@@ -1232,12 +1256,18 @@ bool XrScreen::StartInstance(LogFn log) {
       }
     }
   }
-  const char* extensions[] = {s.vulkan ? XR_KHR_VULKAN_ENABLE2_EXTENSION_NAME
-                                       : XR_KHR_D3D11_ENABLE_EXTENSION_NAME,
-                              XR_EXT_EYE_GAZE_INTERACTION_EXTENSION_NAME};
+  const char* extensions[3] = {s.vulkan ? XR_KHR_VULKAN_ENABLE2_EXTENSION_NAME
+                                        : XR_KHR_D3D11_ENABLE_EXTENSION_NAME};
+  uint32_t extension_count = 1;
+  if (s.gaze_extension) {
+    extensions[extension_count++] = XR_EXT_EYE_GAZE_INTERACTION_EXTENSION_NAME;
+  }
+  if (s.refresh_extension) {
+    extensions[extension_count++] = XR_FB_DISPLAY_REFRESH_RATE_EXTENSION_NAME;
+  }
 
   XrInstanceCreateInfo create = {XR_TYPE_INSTANCE_CREATE_INFO};
-  create.enabledExtensionCount = s.gaze_extension ? 2 : 1;
+  create.enabledExtensionCount = extension_count;
   create.enabledExtensionNames = extensions;
   strcpy_s(create.applicationInfo.applicationName, BWVR_PRODUCT_NAME);
   // A uint32_t, so not XR_MAKE_VERSION, which is 64 bit.
@@ -1293,6 +1323,16 @@ bool XrScreen::StartInstance(LogFn log) {
           static_cast<unsigned>(XR_VERSION_MAJOR(properties.runtimeVersion)),
           static_cast<unsigned>(XR_VERSION_MINOR(properties.runtimeVersion)),
           static_cast<unsigned>(XR_VERSION_PATCH(properties.runtimeVersion)));
+  }
+  if (s.refresh_extension) {
+    xrGetInstanceProcAddr(
+        s.instance, "xrEnumerateDisplayRefreshRatesFB",
+        reinterpret_cast<PFN_xrVoidFunction*>(&s.enumerate_rates));
+    xrGetInstanceProcAddr(s.instance, "xrGetDisplayRefreshRateFB",
+                          reinterpret_cast<PFN_xrVoidFunction*>(&s.get_rate));
+    xrGetInstanceProcAddr(
+        s.instance, "xrRequestDisplayRefreshRateFB",
+        reinterpret_cast<PFN_xrVoidFunction*>(&s.request_rate));
   }
   return true;
 }
@@ -1375,6 +1415,92 @@ void XrScreen::LogSystem() {
           "to %u x %u",
           recommended_w_, recommended_h_, s.max_w, s.max_h);
   }
+}
+
+float XrScreen::Impl::RateNow() {
+  float rate = 0.0f;
+  if (get_rate == nullptr || session == XR_NULL_HANDLE ||
+      XR_FAILED(get_rate(session, &rate))) {
+    return 0.0f;
+  }
+  return rate;
+}
+
+// THE REFRESH RATE OF THE HEADSET, after each xrBeginSession. The first
+// time the log has the rates of the headset and the rate now. With
+// refresh_rate_hz not 0 the mod asks for its rate, also after a new
+// xrBeginSession (a headset that slept).
+void XrScreen::Impl::ApplyRefreshRate() {
+  using namespace refresh_rate_math;
+  if (!refresh_extension || enumerate_rates == nullptr) {
+    if (!refresh_logged) {
+      refresh_logged = true;
+      log("  refresh rate : the runtime has no XR_FB_display_refresh_rate, so "
+          "the mod cannot read or ask for the refresh rate "
+          "(refresh_rate_hz=%d)", refresh_ask);
+    }
+    return;
+  }
+  std::vector<float> rates;
+  uint32_t count = 0;
+  if (XR_SUCCEEDED(enumerate_rates(session, 0, &count, nullptr)) &&
+      count > 0 && count < 64) {
+    rates.resize(count);
+    if (XR_FAILED(enumerate_rates(session, count, &count, rates.data()))) {
+      count = 0;
+    }
+  } else {
+    count = 0;
+  }
+  rates.resize(count);
+  const float now = RateNow();
+  if (!refresh_logged) {
+    refresh_logged = true;
+    std::string list;
+    char one[32];
+    for (uint32_t i = 0; i < count; ++i) {
+      sprintf_s(one, "%s%.1f", i > 0 ? ", " : "", rates[i]);
+      list += one;
+    }
+    if (count > 0) {
+      log("  refresh rate : the headset offers %s Hz, and the rate now is "
+          "%.1f Hz (XR_FB_display_refresh_rate)", list.c_str(), now);
+    } else {
+      log("  refresh rate : the runtime gives no rates of the headset, and "
+          "the rate now is %.1f Hz (XR_FB_display_refresh_rate)", now);
+    }
+  }
+  if (refresh_ask == kAskNone) {
+    log("  refresh rate : refresh_rate_hz=0, the mod asks for no rate");
+    return;
+  }
+  const Choice choice =
+      Choose(rates.data(), static_cast<int>(count), refresh_ask);
+  if (choice.how == kNone) {
+    log("  refresh rate : refresh_rate_hz=%d, but the headset offers no rate, "
+        "so the mod asks for none", refresh_ask);
+    return;
+  }
+  const char* why = choice.how == kExact    ? "the rate of the ini"
+                    : choice.how == kHigher ? "the headset does not offer the "
+                                              "rate of the ini, so the nearest "
+                                              "higher rate"
+                    : choice.how == kHighest
+                        ? "the highest rate of the headset"
+                        : "the headset offers no rate at or above the rate of "
+                          "the ini, so its highest rate";
+  if (now > 0.0f && SameRate(now, choice.hz)) {
+    log("  refresh rate : refresh_rate_hz=%d gives %.1f Hz (%s). The headset "
+        "has that rate now, so the mod does not ask for it",
+        refresh_ask, choice.hz, why);
+    return;
+  }
+  const XrResult result = request_rate != nullptr
+                              ? request_rate(session, choice.hz)
+                              : XR_ERROR_FUNCTION_UNSUPPORTED;
+  log("  refresh rate : refresh_rate_hz=%d gives %.1f Hz (%s). The mod asks "
+      "for it: %s. The rate now is %.1f Hz",
+      refresh_ask, choice.hz, why, ResultName(instance, result), RateNow());
 }
 
 bool XrScreen::StartSession(uint32_t width, uint32_t height, int eyes) {
@@ -1616,6 +1742,7 @@ bool XrScreen::BeginFrame() {
             XR_VIEW_CONFIGURATION_TYPE_PRIMARY_STEREO;
         if (s.Check(xrBeginSession(s.session, &begin), "xrBeginSession")) {
           s.session_running = true;
+          s.ApplyRefreshRate();
         }
       } else if (s.state == XR_SESSION_STATE_STOPPING) {
         xrEndSession(s.session);
@@ -1648,6 +1775,13 @@ bool XrScreen::BeginFrame() {
       running_ = false;
       s.ClearInput(hands_);
       return false;
+    } else if (event.type == XR_TYPE_EVENT_DATA_DISPLAY_REFRESH_RATE_CHANGED_FB) {
+      const XrEventDataDisplayRefreshRateChangedFB* changed =
+          reinterpret_cast<const XrEventDataDisplayRefreshRateChangedFB*>(
+              &event);
+      s.log("  refresh rate : the headset changed its refresh rate from %.1f "
+            "to %.1f Hz",
+            changed->fromDisplayRefreshRate, changed->toDisplayRefreshRate);
     }
   }
 
@@ -1685,6 +1819,44 @@ bool XrScreen::BeginFrame() {
   s.waited_at = waited_at;
   if (XR_SUCCEEDED(waited)) {
     s.display_seconds_ns = s.frame_state.predictedDisplayTime;
+    // THE PACE OF THE RUNTIME: the display period that it predicts, the
+    // time between two display times, and the time in xrWaitFrame. The
+    // first frames of the session go in one line of the log.
+    if (s.frequency.QuadPart == 0) QueryPerformanceFrequency(&s.frequency);
+    const double wait_ms =
+        static_cast<double>(waited_at.QuadPart - wait_start.QuadPart) *
+        1000.0 / static_cast<double>(s.frequency.QuadPart);
+    refresh_rate_math::Add(&s.display_window,
+                           s.frame_state.predictedDisplayTime,
+                           s.frame_state.predictedDisplayPeriod, wait_ms);
+    if (s.first_count < Impl::kFirstFrames) {
+      s.first_period[s.first_count] = s.frame_state.predictedDisplayPeriod;
+      s.first_time[s.first_count] = s.frame_state.predictedDisplayTime;
+      if (++s.first_count == Impl::kFirstFrames) {
+        char periods[128] = "";
+        char steps[128] = "";
+        int used = 0, steps_used = 0;
+        for (int i = 0; i < Impl::kFirstFrames; ++i) {
+          used += sprintf_s(periods + used, sizeof(periods) - used, "%s%.2f",
+                            i > 0 ? " " : "", s.first_period[i] / 1e6);
+          if (i > 0) {
+            steps_used += sprintf_s(
+                steps + steps_used, sizeof(steps) - steps_used, "%s%.2f",
+                i > 1 ? " " : "",
+                (s.first_time[i] - s.first_time[i - 1]) / 1e6);
+          }
+        }
+        const float rate = s.RateNow();
+        char rate_text[64] = "the runtime does not give the refresh rate";
+        if (rate > 0.0f) {
+          sprintf_s(rate_text, "the refresh rate is %.1f Hz", rate);
+        }
+        s.log("  refresh rate : the first %d frames of the session: the "
+              "display period of xrWaitFrame, ms: %s. The display times "
+              "came this far apart, ms: %s. Now %s",
+              Impl::kFirstFrames, periods, steps, rate_text);
+      }
+    }
   }
   if (!s.Check(waited, "xrWaitFrame")) {
     s.ClearInput(hands_);
@@ -2341,6 +2513,24 @@ void XrScreen::ReportUpload(uint64_t frames) {
     s.hold_frames = s.hold_runs = s.hold_taken = s.hold_failed = 0;
     s.hold_worst = 0;
     s.hold_lock_busy = s.hold_sending = 0;
+  }
+  if (s.display_window.frames > 0) {
+    // THE PACE OF THE RUNTIME. A display period of 8.33 ms with display
+    // times 10 ms apart is a display of 120 Hz that gets a frame each 10 ms.
+    using namespace refresh_rate_math;
+    const refresh_rate_math::Window& w = s.display_window;
+    const float rate = s.RateNow();
+    char rate_text[48] = "not known";
+    if (rate > 0.0f) sprintf_s(rate_text, "%.1f Hz", rate);
+    s.log("  display      : the refresh rate is %s. In %llu frames xrWaitFrame "
+          "gave a display period of %.2f ms (%.1f Hz), %.2f to %.2f ms. The "
+          "display times came %.2f ms apart (%.1f Hz) in %llu steps, and "
+          "%llu steps were more than 1.5 periods. xrWaitFrame took %.2f ms "
+          "in the mean",
+          rate_text, w.frames, MeanPeriodMs(w), HzOfMs(MeanPeriodMs(w)),
+          w.period_least_ms, w.period_most_ms, MeanStepMs(w),
+          HzOfMs(MeanStepMs(w)), w.steps, w.late, MeanWaitMs(w));
+    Clear(&s.display_window);
   }
   if (s.frequency.QuadPart != 0) {
     const double to_ms = 1000.0 / static_cast<double>(s.frequency.QuadPart);
@@ -4505,6 +4695,10 @@ void XrScreen::SetHoldMs(int ms) {
 }
 
 int XrScreen::HoldMs() const { return static_cast<int>(impl_->hold_ms); }
+
+void XrScreen::SetRefreshRate(int hz) {
+  impl_->refresh_ask = refresh_rate_math::ClampAsk(hz);
+}
 
 double XrScreen::DisplaySeconds() const {
   return static_cast<double>(impl_->display_seconds_ns) * 1e-9;

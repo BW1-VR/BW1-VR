@@ -293,6 +293,13 @@ class XrScreen {
   // frame. 0: the headset gets no frame while the game gives none.
   void SetHoldMs(int ms);
   int HoldMs() const;
+  // THE REFRESH RATE OF THE HEADSET (refresh_rate_hz,
+  // XR_FB_display_refresh_rate). Before StartSession. 0: the mod asks for
+  // no rate. A number: the mod asks for that rate when the headset offers
+  // it, else for the nearest higher one. -1: the highest rate that the
+  // headset offers. With each value the log has the rates of the headset
+  // and the rate now when the runtime has the extension.
+  void SetRefreshRate(int hz);
   // The display time that the runtime predicted for the frame of the last
   // BeginFrame, in seconds. 0 before the first frame. A move of the view by
   // the time between two of these has the rate of the display.

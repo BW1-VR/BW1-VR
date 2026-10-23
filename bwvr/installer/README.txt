@@ -1150,6 +1150,12 @@ the two pictures then do not join.
 The frame rate drops in busy scenes. If it gets too low, lower the
 resolution scale, or bring the model detail distance in.
 
+The mod uses the refresh rate that you set for the headset. To ask
+the headset for a different rate, set refresh_rate_hz in bwvr.ini to
+a rate in Hz, or to -1 for the highest rate of the headset. The log
+gives the rates of the headset and the frame rate that the runtime
+gives the game.
+
 The edge of the view can show black when you turn your head fast. Set
 "Margin around the view" in the launcher (key fov_margin_pct). The
 game then draws more on each side. A margin costs frame time, so use

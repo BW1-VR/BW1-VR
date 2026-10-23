@@ -624,6 +624,9 @@ bool g_vulkan_only = false;
 
 // xr_hold_ms: the hold of the last frame (XrScreen::SetHoldMs).
 int g_xr_hold_ms = 30;
+// refresh_rate_hz: the refresh rate that the mod asks the headset for
+// (XrScreen::SetRefreshRate). 0 asks for none, -1 for the highest.
+int g_refresh_rate_hz = 0;
 int g_render_thread_late_end = 1;
 int g_thread_wait = 1;
 int g_test_cores = 0;
@@ -1595,6 +1598,10 @@ void ReadSettings() {
       GetPrivateProfileIntA("bwvr", "xr_vulkan_upload", 1, path) != 0 ? 1 : 0;
   g_xr_hold_ms = static_cast<int>(
       GetPrivateProfileIntA("bwvr", "xr_hold_ms", 30, path));
+  g_refresh_rate_hz = static_cast<int>(
+      GetPrivateProfileIntA("bwvr", "refresh_rate_hz", 0, path));
+  if (g_refresh_rate_hz < -1) g_refresh_rate_hz = 0;
+  if (g_refresh_rate_hz > 1000) g_refresh_rate_hz = 1000;
   g_render_thread_late_end =
       GetPrivateProfileIntA("bwvr", "render_thread_late_end", 1, path) != 0
           ? 1
@@ -1688,6 +1695,13 @@ void ReadSettings() {
          g_vr_enabled ? 1 : 0, g_stereo ? 1 : 0, g_width, g_distance);
   ModLog("settings     : eye separation %.3f world units, interface shift "
          "%.0f px", g_separation, g_ui_shift);
+  ModLog("refresh rate : refresh_rate_hz=%d. %s", g_refresh_rate_hz,
+         g_refresh_rate_hz == 0
+             ? "The mod asks the headset for no refresh rate"
+         : g_refresh_rate_hz < 0
+             ? "The mod asks the headset for its highest refresh rate"
+             : "The mod asks the headset for this refresh rate, or for the "
+               "nearest higher one");
 }
 
 void ModLogNowhere(const char* format, ...);
@@ -2052,6 +2066,7 @@ void StartVrStep() {
   screen->WantEyeGaze(g_foveation != 0 && g_foveation_gaze != 0);
   screen->SetVulkanUpload(g_xr_vulkan_upload != 0);
   screen->SetHoldMs(g_xr_hold_ms);
+  screen->SetRefreshRate(g_refresh_rate_hz);
   screen->SetPlacement(g_distance, g_width);
   screen->EnablePanel(g_stereo && g_ui_panel.mode == kUiPanelLayer);
   // Only the first failure and every tenth after it reach the log. A message
@@ -2177,6 +2192,7 @@ void StartVrFromThread() {
   } else {
     screen->SetVulkanUpload(g_xr_vulkan_upload != 0);
     screen->SetHoldMs(g_xr_hold_ms);
+    screen->SetRefreshRate(g_refresh_rate_hz);
     screen->SetPlacement(g_distance, g_width);
     screen->EnablePanel(g_stereo && g_ui_panel.mode == kUiPanelLayer);
     screen->SetLog(&ModLog);
