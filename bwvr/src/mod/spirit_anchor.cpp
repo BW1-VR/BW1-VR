@@ -98,6 +98,7 @@
 
 #include "MinHook.h"
 #include "../common/bw_addresses.h"
+#include "debug_menu.h"
 #include "spirit_size_math.h"
 
 extern void ModLog(const char* format, ...);
@@ -1121,6 +1122,12 @@ void SpiritAnchorWorldSizeToggle() {
          g_world_size ? "has the angle of size that it has at its near depth"
                       : "is 4 times as large as at its usual place, as in "
                         "the game");
+}
+
+// The value of spirit_world_size for the debug page.
+int SpiritAnchorWorldSizeValue() {
+  if (!g_installed || !g_world_keys || !g_world_patched) return kDebugCannot;
+  return g_world_size ? 1 : 0;
 }
 
 void SpiritAnchorSetEnabled(bool on) {

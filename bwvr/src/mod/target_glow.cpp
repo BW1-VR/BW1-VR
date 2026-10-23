@@ -42,6 +42,7 @@
 #include <ddraw.h>
 #include <d3d.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
@@ -49,6 +50,7 @@
 #include "MinHook.h"
 
 #include "../common/bw_addresses.h"
+#include "debug_menu.h"
 #include "target_glow.h"
 #include "target_glow_math.h"
 
@@ -61,6 +63,8 @@ int StereoPassEye();
 uint64_t ControllersFrameCount();
 uint64_t ControllersTestFrame(uint64_t key_frame, uint64_t frame);
 void ControllersGesturePulse(float amplitude, float seconds);
+// This file: the switch of the test key (below the namespace).
+void TargetGlowChange(const char* by);
 
 namespace {
 
@@ -492,14 +496,23 @@ void PollKeys(uint64_t frame) {
   const HWND window = GetForegroundWindow();
   if (window != nullptr) GetWindowThreadProcessId(window, &process);
   if (process != GetCurrentProcessId()) return;
-  SetMode(NextMode(g_mode),
-          "test key: Ctrl, Shift and the left square bracket key");
+  TargetGlowChange("Ctrl, Shift and the left square bracket key");
+}
+
+}  // namespace
+
+// THE SWITCH OF THE TEST KEY (debug_menu.h): target_glow goes from 1 to 0 to
+// 2 and back to 1. Without the hook of the draw nothing changes.
+void TargetGlowChange(const char* by) {
+  if (!g_installed) return;
+  char cause[128];
+  sprintf_s(cause, sizeof(cause), "test key: %s", by);
+  SetMode(NextMode(g_mode), cause);
   ControllersGesturePulse(0.5f, g_mode == kModeHalo   ? 0.08f
                                 : g_mode == kModeMesh ? 0.24f
                                                       : 0.45f);
 }
-
-}  // namespace
+int TargetGlowValue() { return g_installed ? g_mode : kDebugCannot; }
 
 void TargetGlowSetOptions(const TargetGlowSettings& settings) {
   g_mode = ClampMode(settings.mode);

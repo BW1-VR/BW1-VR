@@ -76,6 +76,7 @@
 #include "MinHook.h"
 #include "audio.h"
 #include "audio_math.h"
+#include "debug_menu.h"
 
 void ModLog(const char* format, ...);
 float TabletopViewScale();
@@ -595,6 +596,28 @@ int PlayTakeLoop(void* self, void* options, int sample) {
   return r;
 }
 
+}  // namespace
+
+// The switch of the debug page (debug_menu.h). The key is read only while
+// the hooks of the sound are in.
+void AudioTakeLoopChange(const char* by) {
+  if (!g_hooked) return;
+  g_take_loop = !g_take_loop;
+  ControllersGesturePulse(0.5f, g_take_loop ? 0.30f : 0.08f);
+  ModLog("audio take   : %s: audio_take_loop is %d now. %s", by,
+         g_take_loop ? 1 : 0,
+         g_take_loop ? "The ears decide the start of the loop of a bulk take"
+                     : "The game camera decides the start of the loop of a "
+                       "bulk take, as in the game");
+}
+
+int AudioTakeLoopValue() {
+  if (!g_hooked) return kDebugCannot;
+  return g_take_loop ? 1 : 0;
+}
+
+namespace {
+
 // Once a frame: the loop of a take that plays, and the test key.
 void TakeLoopFrame() {
   if (g_take_loop_state == kTakeLoopPlays) {
@@ -634,13 +657,7 @@ void TakeLoopFrame() {
   const HWND window = GetForegroundWindow();
   if (window != nullptr) GetWindowThreadProcessId(window, &process);
   if (process != GetCurrentProcessId()) return;
-  g_take_loop = !g_take_loop;
-  ControllersGesturePulse(0.5f, g_take_loop ? 0.30f : 0.08f);
-  ModLog("audio take   : Ctrl, Shift and the equals key: audio_take_loop is "
-         "%d now. %s", g_take_loop ? 1 : 0,
-         g_take_loop ? "The ears decide the start of the loop of a bulk take"
-                     : "The game camera decides the start of the loop of a "
-                       "bulk take, as in the game");
+  AudioTakeLoopChange("Ctrl, Shift and the equals key");
 }
 
 int __fastcall h_PlayEffect(void* self, void* unused, void* options) {

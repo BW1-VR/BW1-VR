@@ -42,6 +42,7 @@
 #include <string.h>
 
 #include "MinHook.h"
+#include "debug_menu.h"
 #include "fast_transform.h"
 #include "fast_transform_math.h"
 
@@ -565,6 +566,13 @@ void FastTransformToggle(const char* keys) {
   ControllersGesturePulse(0.5f, g_on ? 0.30f : 0.08f);
   ModLog("test key     : %s, fast_transform is %d from the next mesh", keys,
          g_on ? 1 : 0);
+}
+
+// The value of fast_transform for the debug page. With no hooks of the loops
+// the switch changes nothing.
+int FastTransformValue() {
+  if (!g_in) return kDebugCannot;
+  return g_on ? 1 : 0;
 }
 
 void FastTransformReport(uint64_t frames) {

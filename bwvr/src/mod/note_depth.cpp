@@ -34,6 +34,7 @@
 
 #include "MinHook.h"
 #include "../common/bw_addresses.h"
+#include "debug_menu.h"
 #include "note_depth.h"
 #include "one_walk.h"
 #include "text_click_math.h"
@@ -299,6 +300,11 @@ void NoteDepthInstall() {
 void NoteDepthToggle(const char* cause) {
   if (!g_installed) return;
   Toggle(cause);
+}
+
+int NoteDepthValue() {
+  if (!g_installed) return kDebugCannot;
+  return g_on ? 1 : 0;
 }
 
 void NoteDepthPass(int eye) { g_eye = g_installed ? eye : -1; }

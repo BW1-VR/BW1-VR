@@ -93,6 +93,7 @@
 #include <string.h>
 
 #include "MinHook.h"
+#include "debug_menu.h"
 #include "hand_exact.h"
 #include "hand_exact_math.h"
 #include "miracle.h"
@@ -938,6 +939,25 @@ void PlaceHeld(uint8_t* hand) {
   for (int i = 0; i < 3; ++i) matrix[9 + i] = g_hold.out[9 + i];
 }
 
+}  // namespace
+
+// The switch of the minus key of the number pad (debug_menu.h): the mesh of
+// the game's Hand is hidden (1) or shown (0). Nothing changes when the hook
+// of the draw of the mesh is not in.
+void HandExactHideChange(const char* by) {
+  if (!g_installed || !g_mesh_hooked) return;
+  g_hide_live = !g_hide_live;
+  ControllersGesturePulse(0.5f, g_hide_live ? 0.30f : 0.08f);
+  ModLog("hand exact   : %s: the mesh of the game's Hand is %s, "
+         "frame %llu", by, g_hide_live ? "HIDDEN" : "SHOWN",
+         ControllersFrameCount());
+}
+int HandExactHideValue() {
+  return g_installed && g_mesh_hooked ? (g_hide_live ? 1 : 0) : kDebugCannot;
+}
+
+namespace {
+
 // AN A/B IN THE HEADSET. With test_keys=1, the minus key of the number pad
 // shows and hides the mesh of the game's Hand while the game runs, so the
 // player can put the game's Hand beside the mod's hand. The pointing
@@ -960,10 +980,7 @@ void PollHideKey() {
   DWORD process = 0;
   if (window != nullptr) GetWindowThreadProcessId(window, &process);
   if (process != GetCurrentProcessId()) return;
-  g_hide_live = !g_hide_live;
-  ControllersGesturePulse(0.5f, g_hide_live ? 0.30f : 0.08f);
-  ModLog("hand exact   : the minus key: the mesh of the game's Hand is %s, "
-         "frame %llu", g_hide_live ? "HIDDEN" : "SHOWN", frame);
+  HandExactHideChange("the minus key");
 }
 
 bool SameBytes(uintptr_t address, const uint8_t* want, int count) {

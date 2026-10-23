@@ -27,6 +27,8 @@
 void VkWindowSetOptions(int on);
 void VkWindowToggle(const char* keys);
 bool VkWindowWanted();
+// The value of vk_window for the debug page, or kDebugCannot.
+int VkWindowValue();
 
 // Blits layer 0 of `source` (in the layout of a color attachment, which it
 // keeps) to the client area of `window`, `width` by `height` pixels, and

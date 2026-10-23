@@ -98,6 +98,7 @@
 #include "MinHook.h"
 #include "catch_math.h"
 #include "controller_math.h"
+#include "debug_menu.h"
 #include "far_grab.h"
 #include "throw_math.h"
 #include "throw_physics.h"
@@ -1732,6 +1733,192 @@ void DrawFlights() {
   }
 }
 
+}  // namespace
+
+// THE SWITCHES OF THE THROW (debug_menu.h). The test keys below and the debug
+// page call these functions. The keys are read in the hook of the draw, so a
+// switch can change only when the hooks of the real flight are in.
+
+int ThrowLawValue() { return g_installed ? g_law : kDebugCannot; }
+
+void ThrowLawChange(const char* by) {
+  if (!g_installed) return;
+  g_law = g_law == 2 ? 1 : 2;
+  ModLog("hand throw   : %s: a throw now uses %s", by,
+         g_law == 2 ? "the real flight (throw_law=2)"
+                    : "the square root law with the game's physics "
+                      "(throw_law=1)");
+}
+
+int ThrowDrawValue() { return g_installed ? g_draw : kDebugCannot; }
+
+void ThrowDrawChange(const char* by) {
+  if (!g_installed) return;
+  g_draw = g_draw == throw_math::kDrawReal ? throw_math::kDrawFlight
+                                           : throw_math::kDrawReal;
+  ControllersGesturePulse(0.5f,
+                          g_draw == throw_math::kDrawReal ? 0.30f : 0.06f);
+  ModLog("hand throw   : %s: throw_draw is %d now. %s", by, g_draw,
+         g_draw == throw_math::kDrawReal
+             ? "A substep with a touch of another object is 5 ms of the "
+               "picture, and the picture does not go back to a place "
+               "behind a guess"
+             : "Each substep has its time of the flight in the picture");
+}
+
+// 1 when the height rule is on. With release_fall_cm=0 the rule has no
+// height, and the switch cannot change it.
+int ThrowFallValue() {
+  if (!g_installed || !(g_fall_m > 0.0f)) return kDebugCannot;
+  return g_fall_off ? 0 : 1;
+}
+
+void ThrowFallChange(const char* by) {
+  if (!g_installed) return;
+  g_fall_off = !g_fall_off;
+  ControllersGesturePulse(0.5f, g_fall_off ? 0.06f : 0.30f);
+  if (g_fall_off || g_fall_m > 0.0f) {
+    ModLog("hand throw   : %s: a still hand %s", by,
+           g_fall_off ? "sets the object down at each height"
+                      : "lets the object fall when its point is higher "
+                        "than release_fall_cm over the land");
+  } else {
+    ModLog("hand throw   : %s: release_fall_cm is 0, so a still hand sets "
+           "the object down at each height", by);
+  }
+}
+
+int ThrowLandValue() { return g_installed ? g_land : kDebugCannot; }
+
+void ThrowLandChange(const char* by) {
+  if (!g_installed) return;
+  g_land = g_land == 1 ? 2 : (g_land == 2 ? 0 : 1);
+  ControllersGesturePulse(
+      0.5f, g_land == 1 ? 0.30f : (g_land == 2 ? 0.15f : 0.06f));
+  ModLog("hand throw   : %s: after its first contact a thrown object now %s "
+         "(throw_land=%d)", by,
+         g_land == 1 ? "goes to the time of the land, with the low bounce "
+                       "and the brake"
+         : g_land == 2
+             ? "keeps the time of the flight, with the low bounce and the "
+               "brake"
+             : "keeps the time of the flight, with the game's bounce and no "
+               "brake",
+         g_land);
+}
+
+int ThrowSettleValue() {
+  if (!g_installed) return kDebugCannot;
+  return g_settle ? 1 : 0;
+}
+
+void ThrowSettleChange(const char* by) {
+  if (!g_installed) return;
+  g_settle = !g_settle;
+  ControllersGesturePulse(0.5f, g_settle ? 0.30f : 0.06f);
+  ModLog("hand throw   : %s: a tree that falls now %s (throw_tree_settle=%d)",
+         by,
+         g_settle ? "settles: it turns down fast while it touches the land "
+                    "and is slow"
+                  : "keeps the game's turn after its landing",
+         g_settle ? 1 : 0);
+}
+
+int ThrowRestValue() { return g_installed ? g_rest : kDebugCannot; }
+
+void ThrowRestChange(const char* by) {
+  if (!g_installed) return;
+  g_rest = g_rest == throw_math::kRestOff ? throw_math::kRestAll
+                                          : throw_math::kRestOff;
+  ControllersGesturePulse(0.5f, g_rest != 0 ? 0.30f : 0.06f);
+  ModLog("hand throw   : %s: throw_land_rest is %d now. After its landing a "
+         "thrown object %s", by, g_rest,
+         g_rest != 0 ? "loses a turn in place fast, the brake of the land is "
+                       "off on land that is steeper than the brake holds, "
+                       "and an object that lies still for 0.5 s is at rest"
+                     : "keeps the turn of the brake, the brake acts on each "
+                       "land, and only the rest test of the game ends the "
+                       "landing");
+}
+
+int ThrowTakeValue() {
+  if (!g_installed) return kDebugCannot;
+  return g_take_guard ? 1 : 0;
+}
+
+void ThrowTakeChange(const char* by) {
+  if (!g_installed) return;
+  g_take_guard = !g_take_guard;
+  ControllersGesturePulse(0.5f, g_take_guard ? 0.30f : 0.06f);
+  ModLog("hand take    : %s: catch_rest_guard is %d now. An object that comes "
+         "to rest while the Hand takes it %s", by, g_take_guard ? 1 : 0,
+         g_take_guard ? "stays in the physics of the game until the game puts "
+                        "it in the Hand"
+                      : "gets the end of its physics from the game");
+}
+
+int ThrowCatchValue() { return g_installed ? g_catch_rule : kDebugCannot; }
+
+void ThrowCatchChange(const char* by) {
+  if (!g_installed) return;
+  g_catch_rule = g_catch_rule != catch_math::kCatchWaits
+                     ? catch_math::kCatchWaits
+                     : catch_math::kCatchAtOnce;
+  ControllersGesturePulse(
+      0.5f, g_catch_rule != catch_math::kCatchWaits ? 0.30f : 0.06f);
+  ModLog("hand catch   : %s: catch_at_once is %d now. An object that moves %s",
+         by, g_catch_rule,
+         g_catch_rule != catch_math::kCatchWaits
+             ? "is in the hand at the press of the grip"
+             : "moves on until the game takes it out of its physics");
+}
+
+// The time factor and the rate of the land go in steps of 0.25 from 1.0 to
+// 10.0. The values are throw_slow_x10 and throw_land_rate_x10.
+int ThrowSlowValue() {
+  if (!g_installed) return kDebugCannot;
+  return static_cast<int>(g_slow * 10.0f + 0.5f);
+}
+
+int ThrowLandRateValue() {
+  if (!g_installed) return kDebugCannot;
+  return static_cast<int>(g_land_rate * 10.0f + 0.5f);
+}
+
+static void ThrowSlowStep(bool slower, const char* by) {
+  if (!g_installed) return;
+  float k = g_slow + (slower ? 0.25f : -0.25f);
+  if (k < 1.0f) k = 1.0f;
+  if (k > 10.0f) k = 10.0f;
+  const bool moved = k != g_slow;
+  g_slow = k;
+  ControllersGesturePulse(moved ? 0.3f : 0.1f, moved ? 0.03f : 0.01f);
+  ModLog("hand throw   : the time factor is %.2f now (%s: %s). The next "
+         "throw flies the same arc, %.2f times slower than real",
+         g_slow, by, slower ? "slower" : "faster", g_slow);
+}
+
+static void ThrowLandRateStep(bool slower, const char* by) {
+  if (!g_installed) return;
+  float rate = g_land_rate + (slower ? -0.25f : 0.25f);
+  if (rate < 1.0f) rate = 1.0f;
+  if (rate > 10.0f) rate = 10.0f;
+  const bool moved = rate != g_land_rate;
+  g_land_rate = rate;
+  ControllersGesturePulse(moved ? 0.3f : 0.1f, moved ? 0.03f : 0.01f);
+  ModLog("hand throw   : the rate of the land is %.2f now (%s: %s). After "
+         "its first contact the next thrown object moves %.2f times as fast "
+         "as in the game's own time",
+         g_land_rate, by, slower ? "slower" : "faster", g_land_rate);
+}
+
+void ThrowSlowerChange(const char* by) { ThrowSlowStep(true, by); }
+void ThrowFasterChange(const char* by) { ThrowSlowStep(false, by); }
+void ThrowLandSlowerChange(const char* by) { ThrowLandRateStep(true, by); }
+void ThrowLandFasterChange(const char* by) { ThrowLandRateStep(false, by); }
+
+namespace {
+
 // AN A/B IN THE HEADSET. With test_keys=1, Scroll Lock goes between the real
 // flight and the square root law. The game has no action on that key. A
 // flight that is in the air goes on. Read once a frame, and only while a
@@ -1752,11 +1939,7 @@ void PollLawKey() {
     const HWND window = GetForegroundWindow();
     if (window != nullptr) GetWindowThreadProcessId(window, &process);
     if (process == GetCurrentProcessId()) {
-      g_law = g_law == 2 ? 1 : 2;
-      ModLog("hand throw   : Scroll Lock: a throw now uses %s",
-             g_law == 2 ? "the real flight (throw_law=2)"
-                        : "the square root law with the game's physics "
-                          "(throw_law=1)");
+      ThrowLawChange("Scroll Lock");
     }
   }
   down = now;
@@ -1782,17 +1965,7 @@ void PollDrawKey() {
     const HWND window = GetForegroundWindow();
     if (window != nullptr) GetWindowThreadProcessId(window, &process);
     if (process == GetCurrentProcessId()) {
-      g_draw = g_draw == throw_math::kDrawReal ? throw_math::kDrawFlight
-                                               : throw_math::kDrawReal;
-      ControllersGesturePulse(
-          0.5f, g_draw == throw_math::kDrawReal ? 0.30f : 0.06f);
-      ModLog("hand throw   : Ctrl and Scroll Lock: throw_draw is %d now. %s",
-             g_draw,
-             g_draw == throw_math::kDrawReal
-                 ? "A substep with a touch of another object is 5 ms of the "
-                   "picture, and the picture does not go back to a place "
-                   "behind a guess"
-                 : "Each substep has its time of the flight in the picture");
+      ThrowDrawChange("Ctrl and Scroll Lock");
     }
   }
   down = now;
@@ -1818,17 +1991,7 @@ void PollFallKey() {
     const HWND window = GetForegroundWindow();
     if (window != nullptr) GetWindowThreadProcessId(window, &process);
     if (process == GetCurrentProcessId()) {
-      g_fall_off = !g_fall_off;
-      ControllersGesturePulse(0.5f, g_fall_off ? 0.06f : 0.30f);
-      if (g_fall_off || g_fall_m > 0.0f) {
-        ModLog("hand throw   : Shift Scroll Lock: a still hand %s",
-               g_fall_off ? "sets the object down at each height"
-                          : "lets the object fall when its point is higher "
-                            "than release_fall_cm over the land");
-      } else {
-        ModLog("hand throw   : Shift Scroll Lock: release_fall_cm is 0, so a "
-               "still hand sets the object down at each height");
-      }
+      ThrowFallChange("Shift Scroll Lock");
     }
   }
   down = now;
@@ -1854,19 +2017,7 @@ void PollLandKey() {
     const HWND window = GetForegroundWindow();
     if (window != nullptr) GetWindowThreadProcessId(window, &process);
     if (process == GetCurrentProcessId()) {
-      g_land = g_land == 1 ? 2 : (g_land == 2 ? 0 : 1);
-      ControllersGesturePulse(
-          0.5f, g_land == 1 ? 0.30f : (g_land == 2 ? 0.15f : 0.06f));
-      ModLog("hand throw   : Pause: after its first contact a thrown object "
-             "now %s (throw_land=%d)",
-             g_land == 1 ? "goes to the time of the land, with the low bounce "
-                           "and the brake"
-             : g_land == 2
-                   ? "keeps the time of the flight, with the low bounce and "
-                     "the brake"
-                   : "keeps the time of the flight, with the game's bounce "
-                     "and no brake",
-             g_land);
+      ThrowLandChange("Pause");
     }
   }
   down = now;
@@ -1893,14 +2044,7 @@ void PollSettleKey() {
     const HWND window = GetForegroundWindow();
     if (window != nullptr) GetWindowThreadProcessId(window, &process);
     if (process == GetCurrentProcessId()) {
-      g_settle = !g_settle;
-      ControllersGesturePulse(0.5f, g_settle ? 0.30f : 0.06f);
-      ModLog("hand throw   : Shift Pause: a tree that falls now %s "
-             "(throw_tree_settle=%d)",
-             g_settle ? "settles: it turns down fast while it touches the "
-                        "land and is slow"
-                      : "keeps the game's turn after its landing",
-             g_settle ? 1 : 0);
+      ThrowSettleChange("Shift Pause");
     }
   }
   down = now;
@@ -1928,18 +2072,7 @@ void PollRestKey() {
     const HWND window = GetForegroundWindow();
     if (window != nullptr) GetWindowThreadProcessId(window, &process);
     if (process == GetCurrentProcessId()) {
-      g_rest = g_rest == throw_math::kRestOff ? throw_math::kRestAll
-                                              : throw_math::kRestOff;
-      ControllersGesturePulse(0.5f, g_rest != 0 ? 0.30f : 0.06f);
-      ModLog("hand throw   : Ctrl, Shift and Pause: throw_land_rest is %d "
-             "now. After its landing a thrown object %s", g_rest,
-             g_rest != 0 ? "loses a turn in place fast, the brake of the "
-                           "land is off on land that is steeper than the "
-                           "brake holds, and an object "
-                           "that lies still for 0.5 s is at rest"
-                         : "keeps the turn of the brake, the brake acts on "
-                           "each land, and only the rest test of the game "
-                           "ends the landing");
+      ThrowRestChange("Ctrl, Shift and Pause");
     }
   }
   down = now;
@@ -1964,14 +2097,7 @@ void PollTakeKey() {
     const HWND window = GetForegroundWindow();
     if (window != nullptr) GetWindowThreadProcessId(window, &process);
     if (process == GetCurrentProcessId()) {
-      g_take_guard = !g_take_guard;
-      ControllersGesturePulse(0.5f, g_take_guard ? 0.30f : 0.06f);
-      ModLog("hand take    : Ctrl, Shift and Scroll Lock: catch_rest_guard is "
-             "%d now. An object that comes to rest while the Hand takes it %s",
-             g_take_guard ? 1 : 0,
-             g_take_guard ? "stays in the physics of the game until the game "
-                            "puts it in the Hand"
-                          : "gets the end of its physics from the game");
+      ThrowTakeChange("Ctrl, Shift and Scroll Lock");
     }
   }
   down = now;
@@ -1996,16 +2122,7 @@ void PollCatchKey() {
     const HWND window = GetForegroundWindow();
     if (window != nullptr) GetWindowThreadProcessId(window, &process);
     if (process == GetCurrentProcessId()) {
-      g_catch_rule = g_catch_rule != catch_math::kCatchWaits
-                         ? catch_math::kCatchWaits
-                         : catch_math::kCatchAtOnce;
-      ControllersGesturePulse(
-          0.5f, g_catch_rule != catch_math::kCatchWaits ? 0.30f : 0.06f);
-      ModLog("hand catch   : Ctrl, Shift and Backspace: catch_at_once is %d "
-             "now. An object that moves %s", g_catch_rule,
-             g_catch_rule != catch_math::kCatchWaits
-                 ? "is in the hand at the press of the grip"
-                 : "moves on until the game takes it out of its physics");
+      ThrowCatchChange("Ctrl, Shift and Backspace");
     }
   }
   down = now;
@@ -2037,29 +2154,17 @@ void PollSlowKeys() {
   for (int i = 0; i < 2; ++i) {
     const bool now = (GetAsyncKeyState(keys[i]) & 0x8000) != 0;
     if (now && !down[i] && focus && ctrl && !shift) {
-      float rate = g_land_rate + (i == 0 ? -0.25f : 0.25f);
-      if (rate < 1.0f) rate = 1.0f;
-      if (rate > 10.0f) rate = 10.0f;
-      const bool moved = rate != g_land_rate;
-      g_land_rate = rate;
-      ControllersGesturePulse(moved ? 0.3f : 0.1f, moved ? 0.03f : 0.01f);
-      ModLog("hand throw   : the rate of the land is %.2f now (%s). After "
-             "its first contact the next thrown object moves %.2f times as "
-             "fast as in the game's own time",
-             g_land_rate, i == 0 ? "Ctrl and Numpad Plus: slower"
-                                 : "Ctrl and Numpad Divide: faster",
-             g_land_rate);
+      if (i == 0) {
+        ThrowLandSlowerChange("Ctrl and Numpad Plus");
+      } else {
+        ThrowLandFasterChange("Ctrl and Numpad Divide");
+      }
     } else if (now && !down[i] && focus && !shift) {
-      float k = g_slow + (i == 0 ? 0.25f : -0.25f);
-      if (k < 1.0f) k = 1.0f;
-      if (k > 10.0f) k = 10.0f;
-      const bool moved = k != g_slow;
-      g_slow = k;
-      ControllersGesturePulse(moved ? 0.3f : 0.1f, moved ? 0.03f : 0.01f);
-      ModLog("hand throw   : the time factor is %.2f now (%s). The next "
-             "throw flies the same arc, %.2f times slower than real",
-             g_slow, i == 0 ? "Numpad Plus: slower" : "Numpad Divide: faster",
-             g_slow);
+      if (i == 0) {
+        ThrowSlowerChange("Numpad Plus");
+      } else {
+        ThrowFasterChange("Numpad Divide");
+      }
     }
     down[i] = now;
   }

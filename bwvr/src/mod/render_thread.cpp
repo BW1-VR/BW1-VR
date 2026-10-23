@@ -53,6 +53,7 @@
 #include "MinHook.h"
 #include "one_walk_math.h"
 #include "d3d7_thread.h"
+#include "debug_menu.h"
 #include "fast_transform.h"
 #include "render_thread.h"
 #include "render_thread_d3d9.h"
@@ -67,6 +68,8 @@ void* GpuBridgeDeviceObject();
 bool DrawMergeSurfaceHooked();
 // controllers.cpp
 void ControllersGesturePulse(float amplitude, float seconds);
+// mod_main.cpp: true with vulkan_only=1. Then no part for Direct3D 9 starts.
+bool VulkanOnly();
 
 namespace {
 
@@ -3178,6 +3181,26 @@ void RenderThreadToggle(const char* keys) {
          keys, g_wanted, ModeName(g_wanted));
 }
 
+// The values of the test keys for the debug page. With vulkan_only=1 there
+// is no Direct3D 9, so each one is kDebugCannot.
+int RenderThreadValue() { return VulkanOnly() ? kDebugCannot : g_wanted; }
+
+int RenderThreadLockFreeValue() {
+  return VulkanOnly() ? kDebugCannot : g_lock_free ? 1 : 0;
+}
+
+int RenderThreadFilterValue() {
+  return VulkanOnly() ? kDebugCannot : g_filter ? 1 : 0;
+}
+
+int RenderThreadBuffersValue() {
+  return VulkanOnly() ? kDebugCannot : g_buffers ? 1 : 0;
+}
+
+int RenderThreadFlushValue() {
+  return VulkanOnly() ? kDebugCannot : g_flush_every;
+}
+
 bool RenderThreadFrame(uint64_t frame) {
   if (g_test_frame <= 0) return false;
   const uint64_t first = static_cast<uint64_t>(g_test_frame);
@@ -3614,6 +3637,10 @@ void RenderThreadRightEyeToggle(const char* keys) {
          keys, g_right_eye ? 1 : 0);
 }
 
+int RenderThreadRightEyeValue() {
+  return VulkanOnly() ? kDebugCannot : g_right_eye ? 1 : 0;
+}
+
 unsigned long RenderThreadQueueFlush(void* query) {
   if (!g_late || ThisThreadId() != g_frame_thread || query == nullptr) {
     return 0;
@@ -3674,4 +3701,8 @@ void RenderThreadLateEndToggle(const char* keys) {
   ControllersGesturePulse(0.5f, g_late_end ? 0.30f : 0.08f);
   ModLog("test key     : %s, render_thread_late_end is %d from the next walk",
          keys, g_late_end ? 1 : 0);
+}
+
+int RenderThreadLateEndValue() {
+  return VulkanOnly() ? kDebugCannot : g_late_end ? 1 : 0;
 }

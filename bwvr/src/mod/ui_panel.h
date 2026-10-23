@@ -70,8 +70,13 @@ const UiPanelSettings& UiPanelOptions();
 // value and 0.
 int UiPanelMode();
 void UiPanelToggle();
+// The switch of the debug page for UiPanelToggle: UiPanelMode, or with
+// ui_panel=0 1 while the subtitle card is on. kDebugCannot when there is
+// nothing to switch.
+int UiPanelValue();
 // The test key of subtitle_read_ahead. keys names the keys for the log.
 void UiPanelSubtitleReadAheadToggle(const char* keys);
+int UiPanelSubtitleReadAheadValue();
 // Once a stereo frame, after UiDepthNewFrame. It latches the route for both
 // eye passes.
 void UiPanelBeginFrame(bool to_headset, bool projection, uint64_t frame,

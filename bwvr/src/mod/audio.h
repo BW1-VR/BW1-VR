@@ -116,6 +116,8 @@ void AudioVoicesAudible(bool audible);
 // The test key of audio_stop_wait. The wait of the audio DLL at the stop of
 // a sound goes off and on (docs/audio.md, "7.6 The wait of a stop").
 void AudioStopWaitToggle();
+// The value of audio_stop_wait for the debug page, or kDebugCannot.
+int AudioStopWaitValue();
 // A flat cue through the mixer: mono, 22050 Hz, pan -1 to 1.
 bool AudioVoicesCue(const int16_t* data, int frames, float gain, float pan);
 // audio_rolloff.cpp, the test key: true gives a room factor that is the same
@@ -185,6 +187,8 @@ void AudioInstall(bool head, bool advisors, bool trace);
 void AudioFrame();
 // Test key. Ctrl Shift F12.
 void AudioCycleMode();
+// The step of that key for the debug page (0 to 4), or kDebugCannot.
+int AudioModeValue();
 
 // audio_sources.cpp
 // advisors: steer the advisors. flat: steer the flat effects and the

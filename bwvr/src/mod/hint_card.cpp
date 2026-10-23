@@ -108,6 +108,7 @@
 #include "controller_hints.h"
 #include "controllers.h"
 #include "creature_command.h"
+#include "debug_menu.h"
 #include "far_grab.h"
 #include "forest_take.h"
 #include "hint_card.h"
@@ -1705,10 +1706,12 @@ static void PollTimingKey();
 static void PollWordsKey();
 static void PollTreeKey();
 static void PollMovesKey();
+static void PlayWordsPulses(double now);
 
 void HintCardEndFrame() {
   CardsStart();
   const double now = NowSeconds();
+  PlayWordsPulses(now);
   static double last_time = 0.0;
   float dt = static_cast<float>(now - last_time);
   if (last_time == 0.0 || dt > 0.25f) dt = 0.25f;
@@ -2148,6 +2151,28 @@ void HintCardEndFrame() {
   }
 }
 
+// The switches of the debug page (debug_menu.h) can change only while the
+// cards can show. The test keys act only then too.
+static bool CardsCanShow() {
+  ReadSettings();
+  return g_on && !g_toggled_off && !g_raster_failed;
+}
+
+void HintCardTimingChange(const char* by) {
+  if (!CardsCanShow()) return;
+  g_timing = g_timing != 0 ? 0 : 1;
+  ControllersGesturePulse(0.5f, g_timing != 0 ? 0.24f : 0.08f);
+  ModLog("test key     : %s: prompt_timing is %d now (%s)", by, g_timing,
+         g_timing != 0 ? "a prompt of a target shows at once"
+                       : "each prompt waits for its dwell, its hold and its "
+                         "count");
+}
+
+int HintCardTimingValue() {
+  if (!CardsCanShow()) return kDebugCannot;
+  return g_timing;
+}
+
 // THE A/B KEY (test_keys=1): Ctrl with End switches prompt_timing between 1
 // and 0. The pointing controller gives a long pulse for 1 and a short pulse
 // for 0. Read once a frame, and only while a window of the game is in front.
@@ -2165,12 +2190,7 @@ static void PollTimingKey() {
   const HWND window = GetForegroundWindow();
   if (window != nullptr) GetWindowThreadProcessId(window, &process);
   if (process != GetCurrentProcessId()) return;
-  g_timing = g_timing != 0 ? 0 : 1;
-  ControllersGesturePulse(0.5f, g_timing != 0 ? 0.24f : 0.08f);
-  ModLog("test key     : Ctrl and End: prompt_timing is %d now (%s)", g_timing,
-         g_timing != 0 ? "a prompt of a target shows at once"
-                       : "each prompt waits for its dwell, its hold and its "
-                         "count");
+  HintCardTimingChange("Ctrl and End");
 }
 
 // THE A/B KEY (test_keys=1): Ctrl with Home changes hint_words from 3 to 2 to
@@ -2181,10 +2201,45 @@ static void PollTimingKey() {
 const float kWordsPulseSeconds = 0.08f;
 const float kWordsLongPulseSeconds = 0.40f;
 const double kWordsPulseStep = 0.25;  // from the start of a pulse to the next
+static int g_words_pulses = 0;
+static double g_words_pulse_at = 0.0;
+
+// The change starts the train of pulses, and HintCardEndFrame plays it each
+// frame.
+void HintCardWordsChange(const char* by) {
+  if (!CardsCanShow()) return;
+  g_words = g_words <= 0 ? 3 : g_words - 1;
+  g_words_pulses = g_words;
+  g_words_pulse_at = NowSeconds();
+  if (g_words == 0) ControllersGesturePulse(0.5f, kWordsLongPulseSeconds);
+  ModLog("test key     : %s: hint_words is %d now (%s)", by, g_words,
+         g_words >= 3   ? "a target has one text, the prompt of a take or of "
+                          "a fetch keeps the grip until the Hand holds the "
+                          "object, and a hint that a prompt owned does not "
+                          "show after the prompt went"
+         : g_words == 2 ? "a target has one text, and the prompt of a take "
+                          "keeps the grip until the Hand holds the object"
+         : g_words == 1 ? "a target has one text, and the hint of the game "
+                          "shows after the close of the grip on a take"
+                        : "a hint of the game takes the place of the prompt");
+  PlayWordsPulses(NowSeconds());
+}
+
+int HintCardWordsValue() {
+  if (!CardsCanShow()) return kDebugCannot;
+  return g_words;
+}
+
+static void PlayWordsPulses(double now) {
+  if (g_words_pulses > 0 && now >= g_words_pulse_at) {
+    --g_words_pulses;
+    g_words_pulse_at = now + kWordsPulseStep;
+    ControllersGesturePulse(0.5f, kWordsPulseSeconds);
+  }
+}
+
 static void PollWordsKey() {
   static bool was = false;
-  static int pulses = 0;
-  static double pulse_at = 0.0;
   if (!g_test_keys) return;
   // Shift must be up: Ctrl, Shift and Home is the key of grip_press_guard.
   const bool down = (GetAsyncKeyState(VK_HOME) & 0x8000) != 0 &&
@@ -2192,31 +2247,12 @@ static void PollWordsKey() {
                     (GetAsyncKeyState(VK_SHIFT) & 0x8000) == 0;
   const bool pressed = down && !was;
   was = down;
-  const double now = NowSeconds();
   if (pressed) {
     DWORD process = 0;
     const HWND window = GetForegroundWindow();
     if (window != nullptr) GetWindowThreadProcessId(window, &process);
     if (process != GetCurrentProcessId()) return;
-    g_words = g_words <= 0 ? 3 : g_words - 1;
-    pulses = g_words;
-    pulse_at = now;
-    if (g_words == 0) ControllersGesturePulse(0.5f, kWordsLongPulseSeconds);
-    ModLog("test key     : Ctrl and Home: hint_words is %d now (%s)", g_words,
-           g_words >= 3   ? "a target has one text, the prompt of a take or of "
-                            "a fetch keeps the grip until the Hand holds the "
-                            "object, and a hint that a prompt owned does not "
-                            "show after the prompt went"
-           : g_words == 2 ? "a target has one text, and the prompt of a take "
-                            "keeps the grip until the Hand holds the object"
-           : g_words == 1 ? "a target has one text, and the hint of the game "
-                            "shows after the close of the grip on a take"
-                          : "a hint of the game takes the place of the prompt");
-  }
-  if (pulses > 0 && now >= pulse_at) {
-    --pulses;
-    pulse_at = now + kWordsPulseStep;
-    ControllersGesturePulse(0.5f, kWordsPulseSeconds);
+    HintCardWordsChange("Ctrl and Home");
   }
 }
 
@@ -2265,7 +2301,7 @@ static void PollMovesKey() {
 
 void HintCardMovesToggle(const char* by) {
   ReadSettings();
-  if (!g_test_keys) return;
+  if (!TestSwitchesOn()) return;
   g_moves = g_moves != 0 ? 0 : 1;
   ControllersGesturePulse(0.5f, g_moves != 0 ? 0.30f : 0.08f);
   ModLog("test key     : %s: prompt_moves is %d now (%s)", by, g_moves,
@@ -2273,6 +2309,11 @@ void HintCardMovesToggle(const char* by) {
                         "can move the player"
                       : "no line for the walk, and the line of A shows in each "
                         "case");
+}
+
+int HintCardMovesValue() {
+  if (!CardsCanShow()) return kDebugCannot;
+  return g_moves;
 }
 
 void HintCardToggle() {
@@ -2286,6 +2327,12 @@ void HintCardToggle() {
   ModLog("test key     : %s",
          g_toggled_off ? "the hints draw in the eye pictures"
                        : "the hints show on the cards beside the wrists");
+}
+
+int HintCardCardsValue() {
+  ReadSettings();
+  if (!g_on) return kDebugCannot;
+  return g_toggled_off ? 0 : 1;
 }
 
 void HintCardLearnDone(int skill, const char* how) {

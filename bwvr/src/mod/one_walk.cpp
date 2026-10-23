@@ -51,6 +51,7 @@
 #include "one_walk.h"
 #include "one_walk_math.h"
 #include "d3d7_thread.h"
+#include "debug_menu.h"
 #include "render_thread_d3d9.h"
 #include "vk_scene.h"
 
@@ -64,6 +65,8 @@ void DrawMergeFlush();
 // gpu_bridge.cpp
 void* GpuBridgeDeviceObject();
 void GpuBridgeOwnDepth(bool on);
+// mod_main.cpp: true with vulkan_only=1.
+bool VulkanOnly();
 
 namespace {
 
@@ -749,6 +752,13 @@ bool OneWalkWanted() { return g_wanted && !g_hook_failed && !g_make_failed; }
 
 void OneWalkToggle() { OneWalkSetWanted(!g_wanted); }
 
+// The value of one_walk for the debug page. After a failure one walk cannot
+// run, so the switch cannot change it.
+int OneWalkValue() {
+  if (g_hook_failed || g_make_failed) return kDebugCannot;
+  return g_wanted ? 1 : 0;
+}
+
 namespace {
 
 const char* MarksText(bool on) {
@@ -778,6 +788,8 @@ void OneWalkMarksToggle(const char* cause) {
   ModLog("one walk     : %s: one_walk_marks is %d now (%s), frame %llu", cause,
          g_marks ? 1 : 0, MarksText(g_marks), ControllersFrameCount());
 }
+
+int OneWalkMarksValue() { return g_marks ? 1 : 0; }
 
 bool OneWalkBeginPass(float separation) {
   if (g_active) return true;
@@ -1085,4 +1097,9 @@ void OneWalkMergeToggle(const char* keys) {
   ControllersGesturePulse(0.5f, g_merge ? 0.30f : 0.08f);
   ModLog("test key     : %s, one_walk_merge is %d from the next draw", keys,
          g_merge ? 1 : 0);
+}
+
+// With vulkan_only=1 there is no Direct3D 9 to draw for both eyes.
+int OneWalkMergeValue() {
+  return VulkanOnly() ? kDebugCannot : g_merge ? 1 : 0;
 }

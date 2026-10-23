@@ -46,6 +46,7 @@
 
 #include "controller_math.h"
 #include "controllers.h"
+#include "debug_menu.h"
 #include "hint_card.h"
 #include "hint_learn_math.h"
 #include "tabletop.h"
@@ -1019,6 +1020,13 @@ void WorldGrabCycleTest() {
   }
   ModLog("grab         : the test key sets the grab of the world to %s",
          kTestName[g_test]);
+}
+
+// The step of the Shift F11 test key for the debug page: 0, 1 or 2. With no
+// grab in the ini, the step changes nothing.
+int WorldGrabTestValue() {
+  if (!g_set.on || g_set.hand <= 0) return kDebugCannot;
+  return g_test;
 }
 
 // Once a report window.

@@ -58,6 +58,7 @@
 #include <string.h>
 
 #include "../common/bw_addresses.h"
+#include "debug_menu.h"
 #include "hand_model.h"
 
 extern void ModLog(const char* format, ...);
@@ -68,6 +69,9 @@ void* HandDirectHand(bool* active);
 // script of the fake controller uses.
 void ControllersGesturePulse(float amplitude, float seconds);
 uint64_t ControllersFrameCount();
+// This file: the switches of the test keys (below the namespace).
+void HandModelSwapChange(const char* by);
+void HandModelLookChange(const char* by);
 
 namespace {
 
@@ -849,8 +853,8 @@ void PollKeys() {
   DWORD process = 0;
   if (window != nullptr) GetWindowThreadProcessId(window, &process);
   if (process != GetCurrentProcessId()) return;
-  if (swap_pressed) SwapModel("Ctrl and the minus key");
-  if (look_pressed) StepLook("Shift and the minus key");
+  if (swap_pressed) HandModelSwapChange("Ctrl and the minus key");
+  if (look_pressed) HandModelLookChange("Shift and the minus key");
 }
 
 // The light position and the color of the Hand of the game, for this frame.
@@ -1261,6 +1265,33 @@ int FillHand(const Built& built, const float camera[12], float near_plane,
 }
 
 }  // namespace
+
+// THE SWITCHES OF THE TEST KEYS (debug_menu.h). Ctrl and the minus key of the
+// number pad: the next hands. The value is 0 for the low poly hands, 1 for
+// the mesh of the game and 2 for the mesh of the file. Without the mesh of
+// the game nothing changes.
+void HandModelSwapChange(const char* by) {
+  Load();
+  if (!g_ready) return;
+  SwapModel(by);
+}
+int HandModelSwapValue() {
+  Load();
+  return g_ready ? g_mode : kDebugCannot;
+}
+
+// Shift and the minus key of the number pad: the next look. The value is 0
+// for the alignment of the player, then 1 evil, 2 neutral and 3 good. With
+// the low poly hands the look shows nothing.
+void HandModelLookChange(const char* by) {
+  Load();
+  if (!g_ready) return;
+  StepLook(by);
+}
+int HandModelLookValue() {
+  Load();
+  return g_ready && g_mode != kModeLowPoly ? g_look_step : kDebugCannot;
+}
 
 bool HandModelActive() {
   Load();

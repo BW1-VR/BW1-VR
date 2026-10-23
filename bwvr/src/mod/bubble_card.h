@@ -10,6 +10,8 @@ void BubbleCardSetOptions(int on, int name_on, int test, int test_frame);
 void BubbleCardInstall();
 // The test key (Shift and Delete in play, test_keys=1).
 void BubbleCardToggle(const char* cause);
+// The value of bubble_card for the debug page, or kDebugCannot.
+int BubbleCardValue();
 // stereo.cpp: the eye pass that runs, or -1 after the passes.
 void BubbleCardPass(int eye);
 void BubbleCardReport();

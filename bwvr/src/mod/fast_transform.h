@@ -15,4 +15,6 @@ bool FastTransformOn();
 void FastTransformSet(bool on);
 // The test key: fast_transform goes between 1 and 0.
 void FastTransformToggle(const char* keys);
+// The value of fast_transform for the debug page, or kDebugCannot.
+int FastTransformValue();
 void FastTransformReport(uint64_t frames);

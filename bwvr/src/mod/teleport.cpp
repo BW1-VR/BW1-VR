@@ -62,6 +62,7 @@
 #include "aim_smooth.h"
 #include "controller_math.h"
 #include "controllers.h"
+#include "debug_menu.h"
 #include "haptics.h"
 #include "hint_card.h"
 #include "hint_learn_math.h"
@@ -624,6 +625,24 @@ void LogRuleMode(const char* why) {
   }
 }
 
+}  // namespace
+
+// The switch of the debug page (debug_menu.h). The teleport must be on, as
+// for the key.
+void TeleportRingChange(const char* by) {
+  if (!g_installed || !g_settings.on) return;
+  g_settings.ring_mode = g_settings.ring_mode != 0 ? 0 : 1;
+  ControllersGesturePulse(0.5f, g_settings.ring_mode != 0 ? 0.24f : 0.08f);
+  LogRuleMode(by);
+}
+
+int TeleportRingValue() {
+  if (!g_installed || !g_settings.on) return kDebugCannot;
+  return g_settings.ring_mode;
+}
+
+namespace {
+
 // THE A/B KEY (test_keys=1): Ctrl with Insert changes the size rule of the
 // ring between 1 (one size in the world) and 0 (one size in the room). The
 // pointing controller gives a long pulse for 1 and a short pulse for 0. The
@@ -642,9 +661,7 @@ void PollRingKey() {
   const HWND window = GetForegroundWindow();
   if (window != nullptr) GetWindowThreadProcessId(window, &process);
   if (process != GetCurrentProcessId()) return;
-  g_settings.ring_mode = g_settings.ring_mode != 0 ? 0 : 1;
-  ControllersGesturePulse(0.5f, g_settings.ring_mode != 0 ? 0.24f : 0.08f);
-  LogRuleMode("Ctrl and Insert");
+  TeleportRingChange("Ctrl and Insert");
 }
 
 // What the switch rule of the press is now, in the log.
@@ -681,10 +698,17 @@ void PollSwitchKey() {
 }  // namespace
 
 void TeleportSwitchToggle(const char* by) {
-  if (!g_installed || !g_settings.test_keys) return;
+  if (!g_installed || !TestSwitchesOn()) return;
   g_settings.move_switch = g_settings.move_switch != 0 ? 0 : 1;
   ControllersGesturePulse(0.5f, g_settings.move_switch != 0 ? 0.30f : 0.08f);
   LogSwitch(by);
+}
+
+// The switch of the debug page. The key is read only while the teleport is
+// on.
+int TeleportSwitchValue() {
+  if (!g_installed || !g_settings.on) return kDebugCannot;
+  return g_settings.move_switch;
 }
 
 void TeleportSetOptions(const TeleportSettings& settings) {

@@ -86,5 +86,9 @@ uint64_t CutsceneWindowEndFrame(uint64_t frame);
 // 1: the depth limit off and on.
 void CutsceneWindowToggle();
 void CutsceneWindowDepthToggle();
+// The values of these keys for the debug page: cutscene_window (0 or 1) and
+// cutscene_depth (0, 1 or 2).
+int CutsceneWindowValue();
+int CutsceneWindowDepthValue();
 
 void CutsceneWindowReport();

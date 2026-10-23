@@ -47,6 +47,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "debug_menu.h"
 #include "hand_feel.h"
 #include "hand_feel_math.h"
 #include "hand_model.h"
@@ -561,6 +562,35 @@ bool MakeWorld(const HandFeelHand& in, const HandState& state, bool left,
 
 }  // namespace
 
+// THE SWITCHES OF THE TEST KEYS (debug_menu.h). Ctrl, Shift and the minus key
+// of the number pad: the fingers react to the world (1) or have the curls of
+// the pose only (0). With hand_feel=0 nothing changes.
+void HandFeelChange(const char* by) {
+  LoadSettings();
+  if (!g_set.on) return;
+  Toggle(by);
+}
+int HandFeelValue() {
+  LoadSettings();
+  return g_set.on ? (g_live ? 1 : 0) : kDebugCannot;
+}
+
+// Ctrl, Shift and End: a small object in the Hand is held in a pinch (1) or
+// in the fist (0). With hand_feel=0 nothing changes.
+void HandFeelPinchChange(const char* by) {
+  LoadSettings();
+  if (!g_set.on) return;
+  g_pinch.live = !g_pinch.live;
+  ControllersGesturePulse(0.5f, g_pinch.live ? 0.30f : 0.08f);
+  ModLog("hand feel    : %s: a small object in the Hand "
+         "is held %s, frame %llu", by,
+         g_pinch.live ? "in a pinch" : "in the fist", g_frame);
+}
+int HandFeelPinchValue() {
+  LoadSettings();
+  return g_set.on && g_set.pinch ? (g_pinch.live ? 1 : 0) : kDebugCannot;
+}
+
 void HandFeelFrame() {
   LoadSettings();
   g_frame = ControllersFrameCount();
@@ -582,11 +612,7 @@ void HandFeelFrame() {
       DWORD owner = 0;
       if (front != nullptr) GetWindowThreadProcessId(front, &owner);
       if (owner == GetCurrentProcessId()) {
-        g_pinch.live = !g_pinch.live;
-        ControllersGesturePulse(0.5f, g_pinch.live ? 0.30f : 0.08f);
-        ModLog("hand feel    : Ctrl, Shift and End: a small object in the Hand "
-               "is held %s, frame %llu",
-               g_pinch.live ? "in a pinch" : "in the fist", g_frame);
+        HandFeelPinchChange("Ctrl, Shift and End");
       }
     }
   }
@@ -600,7 +626,7 @@ void HandFeelFrame() {
   DWORD process = 0;
   if (window != nullptr) GetWindowThreadProcessId(window, &process);
   if (process != GetCurrentProcessId()) return;
-  Toggle("Ctrl, Shift and the minus key");
+  HandFeelChange("Ctrl, Shift and the minus key");
 }
 
 void HandFeelCurls(const HandFeelHand& in,

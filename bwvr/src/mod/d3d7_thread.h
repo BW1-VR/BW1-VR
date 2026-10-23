@@ -13,6 +13,9 @@ bool D3D7ThreadOn();
 void D3D7ThreadSet(bool on);
 // The test key: d3d7_thread goes between 1 and 0.
 void D3D7ThreadToggle(const char* keys);
+// The value of d3d7_thread for the debug page, or kDebugCannot with
+// vulkan_only=1.
+int D3D7ThreadValue();
 // stereo.cpp: a walk starts (true, after RenderThreadWalk(true)) or ends
 // (false, before RenderThreadWalk(false)). The end waits until the D3D7
 // thread did each call.
@@ -41,3 +44,5 @@ void D3D7ThreadSetMergeNow(bool on);
 bool D3D7ThreadMerging();
 // The test key: d3d7_thread_merge goes between 1 and 0.
 void D3D7ThreadMergeToggle(const char* keys);
+// Its value for the debug page, or kDebugCannot with vulkan_only=1.
+int D3D7ThreadMergeValue();

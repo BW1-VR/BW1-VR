@@ -71,6 +71,7 @@
 #include "MinHook.h"
 #include "controller_math.h"
 #include "cutscene_window.h"
+#include "debug_menu.h"
 #include "hint_card.h"
 #include "subtitle_card_math.h"
 #include "ui_panel.h"
@@ -1065,6 +1066,18 @@ void UiPanelToggle() {
   ModLog("test key     : %s", ModeName(g_mode));
 }
 
+// The switch of the debug page: the ui_panel value in use now. With
+// ui_panel=0 it is 1 while the subtitles show on the card in the room, and 0
+// while they draw in the eye pictures.
+int UiPanelValue() {
+  if (g_settings.mode == kUiPanelOff) {
+    // The key switches the hint cards and the subtitle card together.
+    if (!g_sub.set.on) return HintCardCardsValue();
+    return g_sub.toggled_off ? 0 : 1;
+  }
+  return g_mode;
+}
+
 // Ctrl Shift Semicolon with test_keys=1, and
 // subtitle_read_ahead_test_seconds: the read ahead of the subtitle card goes
 // off and on, for a live A/B. A copy from before the key does not show. A
@@ -1082,6 +1095,12 @@ void UiPanelSubtitleReadAheadToggle(const char* keys) {
                "card"
              : "the frame thread waits for the GPU at the copy of the subtitle "
                "card");
+}
+
+// The value of subtitle_read_ahead for the debug page.
+int UiPanelSubtitleReadAheadValue() {
+  if (!g_sub.set.on) return kDebugCannot;
+  return g_sub.set.read_ahead ? 1 : 0;
 }
 
 void UiPanelBeginFrame(bool to_headset, bool projection, uint64_t frame,

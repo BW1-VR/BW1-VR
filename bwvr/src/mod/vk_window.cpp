@@ -4,10 +4,13 @@
 #include <windows.h>
 #define VK_USE_PLATFORM_WIN32_KHR
 #include "vk_window.h"
+#include "debug_menu.h"
 #include "vk_fallback.h"
 
 void ModLog(const char* format, ...);
 void ControllersGesturePulse(float amplitude, float seconds);
+// vk_scene.cpp: true while the Vulkan renderer runs.
+bool VkSceneOn();
 
 namespace {
 
@@ -384,6 +387,13 @@ void VkWindowToggle(const char* keys) {
          "window gets the picture %s",
          keys, g_wanted ? 1 : 0,
          g_wanted ? "through a swapchain of Vulkan" : "through the CPU and GDI");
+}
+
+// The value of vk_window for the debug page. With no renderer, or a window
+// that cannot have a swapchain, the switch changes nothing.
+int VkWindowValue() {
+  if (g_unusable || !VkSceneOn()) return kDebugCannot;
+  return g_wanted ? 1 : 0;
 }
 
 bool VkWindowWanted() { return g_wanted && !g_unusable; }

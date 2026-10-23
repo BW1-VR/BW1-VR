@@ -1610,18 +1610,7 @@ void TraceCamera(const Facts& f) {
 // grip as the click, the ray with the plain buttons, and no ray (the pointer
 // is the place of the real hand in the view). A longer pulse for each next
 // one.
-void PollTestKey() {
-  if (!g_test_keys) return;
-  static bool before = false;
-  const bool down = (GetAsyncKeyState(VK_NUMPAD6) & 0x8000) != 0 &&
-                    (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
-  const bool pressed = down && !before;
-  before = down;
-  if (!pressed) return;
-  HWND window = GetForegroundWindow();
-  DWORD process = 0;
-  if (window != nullptr) GetWindowThreadProcessId(window, &process);
-  if (process != GetCurrentProcessId()) return;
+void PointerStep(const char* cause) {
   int way = g_pointer == 0 ? 2 : (g_click != 0 ? 0 : 1);
   way = (way + 1) % 3;
   g_pointer = way == 2 ? 0 : 1;
@@ -1635,8 +1624,22 @@ void PollTestKey() {
       "no ray: the pointer is the place of the real hand in the view "
       "(temple_pointer=0)"};
   ControllersGrabPulse(1, 0.5f, 0.08f + 0.11f * way);
-  ModLog("temple       : Ctrl and numpad 6: %s, frame %llu", kWays[way],
-         g_frame);
+  ModLog("temple       : %s: %s, frame %llu", cause, kWays[way], g_frame);
+}
+
+void PollTestKey() {
+  if (!g_test_keys) return;
+  static bool before = false;
+  const bool down = (GetAsyncKeyState(VK_NUMPAD6) & 0x8000) != 0 &&
+                    (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
+  const bool pressed = down && !before;
+  before = down;
+  if (!pressed) return;
+  HWND window = GetForegroundWindow();
+  DWORD process = 0;
+  if (window != nullptr) GetWindowThreadProcessId(window, &process);
+  if (process != GetCurrentProcessId()) return;
+  PointerStep("Ctrl and numpad 6");
 }
 
 // Ctrl and the star key of the number pad: the flight of the camera of a
@@ -1788,6 +1791,50 @@ const int kMaxUnderLogs = 300;
 uint64_t g_under_changes = 0;
 
 }  // namespace
+
+// THE SWITCHES OF THE DEBUG PAGE (debug_menu.h). The test keys above make the
+// same changes. The pointer and the view of a room each go through three
+// ways. Their value is the number of the way in the list of its key: 0, 1
+// or 2.
+void TemplePointerChange(const char* by) {
+  Load();
+  PointerStep(by);
+}
+
+int TemplePointerValue() {
+  Load();
+  return g_pointer == 0 ? 2 : (g_click != 0 ? 0 : 1);
+}
+
+void TempleFlightChange(const char* by) {
+  Load();
+  FlightToggle(by);
+}
+
+int TempleFlightValue() {
+  Load();
+  return g_camera_flight;
+}
+
+void TempleViewChange(const char* by) {
+  Load();
+  ViewStep(by);
+}
+
+int TempleViewValue() {
+  Load();
+  return g_view == 0 ? 2 : (g_camera_screen != 0 ? 0 : 1);
+}
+
+void TempleFadeChange(const char* by) {
+  Load();
+  FadeToggle(by);
+}
+
+int TempleFadeValue() {
+  Load();
+  return g_fade_eyes;
+}
 
 bool TempleInside() { return g_facts.inside; }
 

@@ -403,6 +403,25 @@ void Watch(const Facts& f, double now) {
   g_plan_changed = false;
 }
 
+}  // namespace
+
+// The switch of the debug page (debug_menu.h).
+void CreatureStayModeChange(const char* by) {
+  Init();
+  g_mode = g_mode == stay_math::kModeHold ? stay_math::kModeClose
+                                          : stay_math::kModeHold;
+  ControllersGesturePulse(0.5f,
+                          g_mode == stay_math::kModeHold ? 0.24f : 0.08f);
+  LogMode(by);
+}
+
+int CreatureStayModeValue() {
+  Init();
+  return g_mode;
+}
+
+namespace {
+
 // THE A/B KEY (test_keys=1): Shift with End, and Ctrl up, changes
 // creature_hold_stay between 1 and 0. The pointing controller gives a long
 // pulse for 1 and a short pulse for 0. Ctrl with End is a key of the hint
@@ -421,11 +440,7 @@ void PollKey() {
   const HWND window = GetForegroundWindow();
   if (window != nullptr) GetWindowThreadProcessId(window, &process);
   if (process != GetCurrentProcessId()) return;
-  g_mode = g_mode == stay_math::kModeHold ? stay_math::kModeClose
-                                          : stay_math::kModeHold;
-  ControllersGesturePulse(0.5f,
-                          g_mode == stay_math::kModeHold ? 0.24f : 0.08f);
-  LogMode("Shift and End");
+  CreatureStayModeChange("Shift and End");
 }
 
 }  // namespace

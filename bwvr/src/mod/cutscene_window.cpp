@@ -1300,6 +1300,16 @@ void CutsceneWindowDepthToggle() {
              : "The stereo of the cut scene window has no depth limit");
 }
 
+int CutsceneWindowValue() {
+  ReadSettings();
+  return g_set.on ? 1 : 0;
+}
+
+int CutsceneWindowDepthValue() {
+  ReadSettings();
+  return g_set.depth;
+}
+
 void CutsceneWindowReport() {
   if (g_flat_frames == 0 && g_change_frames == 0) return;
   ModLog("cut scene    : %llu frames in the window and %llu frames of a "

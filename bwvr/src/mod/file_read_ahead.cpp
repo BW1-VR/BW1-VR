@@ -40,6 +40,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "debug_menu.h"
 #include "file_read_ahead_math.h"
 
 void ModLog(const char* format, ...);
@@ -245,9 +246,10 @@ void WriteAddress(const Site& s, uintptr_t address) {
 }  // namespace
 
 // Puts the functions of the mod in the five calls of LHFile. on is the value
-// of file_read_ahead. With test_keys=1 they go in also with the key at 0, so
-// the test key can turn the read ahead on. Call it before the game opens a
-// file, from the start of the DLL.
+// of file_read_ahead. With test_keys=1 or debug_menu=1 (TestSwitchesOn) they
+// go in also with the key at 0, so the test key and the debug page can turn
+// the read ahead on. Call it before the game opens a file, from the start of
+// the DLL.
 void FileReadAheadInstall(bool on, bool test_keys) {
   g_on = on ? 1 : 0;
   if (!on && !test_keys) {
@@ -285,6 +287,12 @@ void FileReadAheadToggle(const char* keys) {
   const LONG now = InterlockedXor(&g_on, 1) ^ 1;
   ModLog("read ahead   : test key (%s), file_read_ahead is %d now", keys,
          static_cast<int>(now));
+}
+
+// The value of file_read_ahead for the debug page.
+int FileReadAheadValue() {
+  if (!g_installed) return kDebugCannot;
+  return static_cast<int>(InterlockedCompareExchange(&g_on, 0, 0));
 }
 
 // For the report of each 450 frames. A line only when the game read a file

@@ -55,6 +55,12 @@
 // ways while the stick can drive the ring: both, the button only, the stick
 // only. radial_test_save=N (a test key) saves the first N pictures of the
 // ring as bwvr-ring-NNNNN.bmp.
+//
+// THE DEBUG PAGE (debug_menu=1, debug_menu.cpp). The ring gets the item
+// "debug", and its pages hold the switches of the test keys
+// (debug_menu_math.h). A badge of a switch has its word and its value now.
+// After a choice of a switch, the ring opens on that page again for 30 s, so
+// a second choice for an A/B needs no walk through the pages.
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -67,6 +73,8 @@
 #include "audio.h"
 #include "controllers.h"
 #include "cutscene_window.h"
+#include "debug_menu.h"
+#include "debug_menu_math.h"
 #include "haptics.h"
 #include "hint_card_math.h"
 #include "radial_menu.h"
@@ -107,6 +115,19 @@ int g_temple_items[kPages][kSlots];
 Settings g_settings = DefaultSettings();
 // The test key: 0 both ways, 1 the button only, 2 the stick only.
 int g_way = 0;
+// The rings with all their pages: the pages of the ini, then the debug
+// pages. `base` is the count of the pages of the ini, and `home` the page and
+// the slot of the item "debug" (-1 for none).
+struct Ring {
+  debug_math::Pages pages;
+  int base;
+  int home;
+  int home_slot;
+};
+Ring g_ring;
+Ring g_temple_ring;
+bool g_debug = false;
+bool g_debug_failed = false;
 // The controller of the ring has face buttons. One with none (a Vive wand, a
 // Windows Mixed Reality controller) keeps the ring on its stick.
 bool g_face_buttons = true;
@@ -146,12 +167,110 @@ void Narrow(const wchar_t* in, char* out, size_t size) {
   out[n] = 0;
 }
 
+// The word of an item for the log: the word of the ini, the ini key of a
+// switch, or the name of a group.
+const char* ItemId(int item, char* buffer, size_t size) {
+  if (IsSwitchItem(item)) {
+    const int i = item - kItemSwitchBase;
+    const char* key = DebugSwitchKey(i);
+    if (key[0] != 0) return key;
+    Narrow(DebugSwitchLabel(i), buffer, size);
+    return buffer;
+  }
+  if (IsGroupItem(item)) {
+    Narrow(DebugGroupName(item - kItemGroupBase), buffer, size);
+    return buffer;
+  }
+  if (item < 0 || item >= kItems) return "none";
+  return kItemInfo[item].id;
+}
+
 // The words of a page, for the log.
 void PageWords(const int items[kSlots], char* out, size_t size) {
   out[0] = 0;
   for (int i = 0; i < kSlots; ++i) {
     if (i > 0) strncat_s(out, size, ", ", _TRUNCATE);
-    strncat_s(out, size, kItemInfo[items[i]].id, _TRUNCATE);
+    char buffer[48];
+    strncat_s(out, size, ItemId(items[i], buffer, sizeof(buffer)), _TRUNCATE);
+  }
+}
+
+// The name of a page of a ring, for the log.
+void PageTitle(const Ring& ring, bool temple, int page, char* out,
+               size_t size) {
+  if (page < ring.base) {
+    if (temple) {
+      strcpy_s(out, size, "The ring of the Temple");
+    } else {
+      sprintf_s(out, size, "Page %d", page + 1);
+    }
+    return;
+  }
+  for (int s = 0; s < kSlots; ++s) {
+    const int item = ring.pages.items[page][s];
+    if (IsSwitchItem(item)) {
+      char group[32];
+      Narrow(DebugGroupName(DebugSwitchGroup(item - kItemSwitchBase)), group,
+             sizeof(group));
+      sprintf_s(out, size, "The debug page %s (page %d)", group, page + 1);
+      return;
+    }
+  }
+  sprintf_s(out, size, "The debug page of the groups (page %d)", page + 1);
+}
+
+// THE ITEM "debug" in the pages of the ini of a ring. With debug_menu=0 the
+// word is an empty slot. With debug_menu=1 and no page with the word, the
+// last page gets it (DebugSlot).
+void PlaceDebug(Ring* ring, const char* which) {
+  ring->home = -1;
+  ring->home_slot = -1;
+  debug_math::Pages& p = ring->pages;
+  for (int page = 0; page < p.count; ++page) {
+    for (int s = 0; s < kSlots; ++s) {
+      if (p.items[page][s] != kItemDebug) continue;
+      if (!g_debug || ring->home >= 0) {
+        p.items[page][s] = kItemNone;
+      } else {
+        ring->home = page;
+        ring->home_slot = s;
+      }
+    }
+  }
+  if (!g_debug || ring->home >= 0 || p.count < 1) return;
+  const int page = p.count - 1;
+  const int slot = DebugSlot(p.items[page]);
+  const int before = p.items[page][slot];
+  p.items[page][slot] = kItemDebug;
+  ring->home = page;
+  ring->home_slot = slot;
+  if (before != kItemNone) {
+    ModLog("ring         : debug_menu=1: the item \"debug\" takes slot %d (0 is "
+           "the top) of %s %d, in place of \"%s\"", slot, which, page + 1,
+           kItemInfo[before].id);
+  }
+}
+
+// THE DEBUG PAGES of a ring, after the pages of the ini. A switch that
+// cannot change now is not there.
+void BuildDebugPages(Ring* ring) {
+  debug_math::Pages& p = ring->pages;
+  p.count = ring->base;
+  if (!g_debug || ring->home < 0) return;
+  p.links[ring->home][ring->home_slot] = -1;
+  static int group_of[kMaxSwitches];
+  const int count = DebugSwitchCount();
+  for (int i = 0; i < count; ++i) {
+    group_of[i] = DebugSwitchValue(i) == kDebugCannot ? -1
+                                                      : DebugSwitchGroup(i);
+  }
+  int group_page[64];
+  if (!debug_math::AddDebugPages(&p, ring->home, ring->home_slot, group_of,
+                                 count, DebugGroupCount(), group_page) &&
+      !g_debug_failed) {
+    g_debug_failed = true;
+    ModLog("ring         : the debug pages do not fit in %d pages, so the item "
+           "\"debug\" goes to no page", kMaxPages);
   }
 }
 
@@ -214,6 +333,20 @@ void ReadSettings() {
   ReadPage("radial_menu_items_temple", kDefaultTemple, g_temple_items[0]);
   for (int i = 0; i < kSlots; ++i) g_temple_items[1][i] = kItemNone;
   g_pages = PageHasItems(g_items[1]) ? 2 : 1;
+  g_debug = DebugMenuOn();
+  for (int page = 0; page < g_pages; ++page) {
+    memcpy(g_ring.pages.items[page], g_items[page], sizeof(g_items[page]));
+  }
+  g_ring.pages.count = g_pages;
+  memcpy(g_temple_ring.pages.items[0], g_temple_items[0],
+         sizeof(g_temple_items[0]));
+  g_temple_ring.pages.count = 1;
+  PlaceDebug(&g_ring, "page");
+  PlaceDebug(&g_temple_ring, "the ring of the Temple, page");
+  debug_math::IniLinks(&g_ring.pages);
+  debug_math::IniLinks(&g_temple_ring.pages);
+  g_ring.base = g_ring.pages.count;
+  g_temple_ring.base = g_temple_ring.pages.count;
   const bool new_layout = ControllersButtonLayout() != 0;
   const char* const kButtonWords[4] = {
       "no button opens it",
@@ -224,9 +357,9 @@ void ReadSettings() {
       "the stick click of that hand opens it",
       "the trigger of that hand opens it"};
   char a[200], b[200], c[200];
-  PageWords(g_items[0], a, sizeof(a));
-  PageWords(g_items[1], b, sizeof(b));
-  PageWords(g_temple_items[0], c, sizeof(c));
+  PageWords(g_ring.pages.items[0], a, sizeof(a));
+  PageWords(g_ring.pages.items[g_pages > 1 ? 1 : 0], b, sizeof(b));
+  PageWords(g_temple_ring.pages.items[0], c, sizeof(c));
   ModLog("ring         : radial_menu=1. radial_menu_button=%d: %s, the hand "
          "picks an item after %d cm, and the release chooses. "
          "radial_menu_stick=%d: %s. The size is %d percent",
@@ -241,6 +374,7 @@ void ReadSettings() {
   ModLog("ring         : page 1: %s", a);
   if (g_pages > 1) ModLog("ring         : page 2: %s", b);
   ModLog("ring         : in the Temple: %s", c);
+  DebugMenuLogStart();
 }
 
 // --- the game --------------------------------------------------------------------
@@ -585,12 +719,47 @@ struct ItemNow {
   const wchar_t* name;
   const wchar_t* note;   // empty for none
   const char* why;       // for the log, when it cannot act
+  wchar_t own[48];       // the note of a switch, when own_note
+  bool own_note;
 };
+
+const wchar_t* NoteOf(const ItemNow& now) {
+  return now.own_note ? now.own : now.note;
+}
+
+// An item of the debug page: a switch says its ini key and its value now.
+ItemNow DebugStateOf(int item) {
+  ItemNow now = {true, L"", L"", "", {0}, false};
+  if (IsGroupItem(item)) {
+    now.name = DebugGroupName(item - kItemGroupBase);
+    return now;
+  }
+  const int i = item - kItemSwitchBase;
+  now.name = DebugSwitchName(i);
+  const int value = DebugSwitchValue(i);
+  if (value == kDebugCannot) {
+    now.can = false;
+    now.note = L"It cannot change now";
+    now.why = "it cannot change now";
+    return now;
+  }
+  wchar_t word[32];
+  DebugSwitchValueText(i, value, word, 32);
+  const char* key = DebugSwitchKey(i);
+  if (key[0] != 0) {
+    swprintf_s(now.own, L"%hs=%d (%ls)", key, value, word);
+  } else {
+    swprintf_s(now.own, L"It is %ls now", word);
+  }
+  now.own_note = true;
+  return now;
+}
 
 int g_last_mark = -1;
 
 ItemNow StateOf(int item, const Facts& f) {
-  ItemNow now = {true, kItemInfo[item].name, L"", ""};
+  if (IsSwitchItem(item) || IsGroupItem(item)) return DebugStateOf(item);
+  ItemNow now = {true, kItemInfo[item].name, L"", "", {0}, false};
   const ItemInfo& info = kItemInfo[item];
   const auto no = [&now](const wchar_t* note, const char* why) {
     now.can = false;
@@ -601,7 +770,9 @@ ItemNow StateOf(int item, const Facts& f) {
     now.can = false;
     return now;
   }
-  if (item == kItemMore) return now;
+  if (item == kItemMore || item == kItemDebug || item == kItemBack) {
+    return now;
+  }
   if (f.game == nullptr) {
     no(L"No game runs now", "no game runs");
     return now;
@@ -708,6 +879,14 @@ ItemNow StateOf(int item, const Facts& f) {
 // The player chose an item. True when its keys are queued.
 bool Choose(int item, const Facts& f, const ItemNow& now) {
   const uint64_t frame = ControllersFrameCount();
+  if (IsSwitchItem(item)) {
+    if (DebugSwitchChoose(item - kItemSwitchBase)) {
+      ++g_choices;
+      return true;
+    }
+    ++g_refusals;
+    return false;
+  }
   const ItemInfo& info = kItemInfo[item];
   if (!now.can) {
     ++g_refusals;
@@ -794,10 +973,17 @@ const int kBadgePad = 22;
 const int kBadgeLeast = 150;
 const float kBadgeRadius = 22.0f;
 const int kBadgeEm = 34;
+// A badge of a switch has two lines: its word, and its value under it.
+const int kSwitchHeight = 92;
+const int kSwitchEm = 28;
+const int kValueEm = 26;
+// A badge left or right of the middle ends at the edge of the picture.
+const int kBadgeMost = 320;
 const int kNameEm = 38;
 const int kNoteEm = 28;
 const int kCardPad = 26;
 const int kCardMost = 470;
+const int kCardWide = 500;
 const float kCardRadius = 24.0f;
 const float kFadeIn = 0.10f;
 const float kFadeOut = 0.20f;
@@ -818,6 +1004,7 @@ const Rgb kNoteInk = {255.0f, 196.0f, 60.0f};
 // What the picture shows. The picture is drawn again only when this changes.
 struct Look {
   int item[kSlots];
+  int value[kSlots];       // the value now of a switch, else 0
   bool dim[kSlots];
   int slot;                // the choice, or -1
   wchar_t name[48];        // the card in the middle: empty for none
@@ -828,6 +1015,8 @@ HDC g_dc = nullptr;
 HBITMAP g_dib = nullptr;
 uint32_t* g_bits = nullptr;
 HFONT g_badge_font = nullptr;
+HFONT g_switch_font = nullptr;
+HFONT g_value_font = nullptr;
 HFONT g_name_font = nullptr;
 HFONT g_note_font = nullptr;
 bool g_raster_failed = false;
@@ -861,10 +1050,13 @@ bool RasterStart() {
                        L"Segoe UI");
   };
   g_badge_font = font(kBadgeEm, FW_BOLD);
+  g_switch_font = font(kSwitchEm, FW_BOLD);
+  g_value_font = font(kValueEm, FW_SEMIBOLD);
   g_name_font = font(kNameEm, FW_SEMIBOLD);
   g_note_font = font(kNoteEm, FW_SEMIBOLD);
   if (g_dc == nullptr || g_dib == nullptr || bits == nullptr ||
-      g_badge_font == nullptr || g_name_font == nullptr ||
+      g_badge_font == nullptr || g_switch_font == nullptr ||
+      g_value_font == nullptr || g_name_font == nullptr ||
       g_note_font == nullptr) {
     g_raster_failed = true;
     ModLog("ring         : GDI gave no picture for the ring, so the ring does "
@@ -948,36 +1140,80 @@ bool Raster(const Look& look) {
   memset(g_base, 0, sizeof(g_base));
   // The letters first, white on black. The green of a pixel is its cover.
   RECT badge[kSlots];
+  int badge_split[kSlots];
   for (int i = 0; i < kSlots; ++i) {
     SetRectEmpty(&badge[i]);
-    const wchar_t* word = kItemInfo[look.item[i]].word;
-    if (look.item[i] == kItemNone || word[0] == 0) continue;
-    int w = TextWidth(g_badge_font, word) + 2 * kBadgePad;
+    badge_split[i] = kSize;
+    const int item = look.item[i];
+    const bool two = IsSwitchItem(item);
+    const wchar_t* word = L"";
+    wchar_t value[32] = L"";
+    if (two) {
+      word = DebugSwitchLabel(item - kItemSwitchBase);
+      DebugSwitchValueText(item - kItemSwitchBase, look.value[i], value, 32);
+    } else if (IsGroupItem(item)) {
+      word = DebugGroupName(item - kItemGroupBase);
+    } else if (item > kItemNone && item < kItems) {
+      word = kItemInfo[item].word;
+    }
+    if (word[0] == 0) continue;
+    int w = TextWidth(two ? g_switch_font : g_badge_font, word);
+    if (two) {
+      const int value_w = TextWidth(g_value_font, value);
+      if (value_w > w) w = value_w;
+    }
+    w += 2 * kBadgePad;
     if (w < kBadgeLeast) w = kBadgeLeast;
+    if (w > kBadgeMost) w = kBadgeMost;
+    const int h = two ? kSwitchHeight : kBadgeHeight;
     float cx = 0.0f, cy = 0.0f;
     SlotPixel(i, kMiddle, kSlotRadius, &cx, &cy);
     badge[i].left = static_cast<LONG>(cx) - w / 2;
     badge[i].right = badge[i].left + w;
-    badge[i].top = static_cast<LONG>(cy) - kBadgeHeight / 2;
-    badge[i].bottom = badge[i].top + kBadgeHeight;
-    SelectObject(g_dc, g_badge_font);
+    badge[i].top = static_cast<LONG>(cy) - h / 2;
+    badge[i].bottom = badge[i].top + h;
+    const UINT flags = DT_SINGLELINE | DT_NOPREFIX | DT_CENTER | DT_VCENTER |
+                       DT_END_ELLIPSIS;
     RECT r = badge[i];
-    DrawTextW(g_dc, word, -1, &r,
-              DT_SINGLELINE | DT_NOPREFIX | DT_CENTER | DT_VCENTER |
-                  DT_NOCLIP);
+    r.left += kBadgePad / 2;
+    r.right -= kBadgePad / 2;
+    if (two) {
+      r.top += 6;
+      r.bottom = r.top + 44;
+      badge_split[i] = r.bottom;
+      SelectObject(g_dc, g_switch_font);
+      DrawTextW(g_dc, word, -1, &r, flags);
+      RECT v = r;
+      v.top = badge_split[i] - 4;
+      v.bottom = badge[i].bottom - 8;
+      SelectObject(g_dc, g_value_font);
+      DrawTextW(g_dc, value, -1, &v, flags);
+    } else {
+      SelectObject(g_dc, g_badge_font);
+      DrawTextW(g_dc, word, -1, &r, flags);
+    }
   }
   RECT card;
   SetRectEmpty(&card);
   int split = kSize;
   if (look.name[0] != 0) {
     const bool two = look.note[0] != 0;
-    int w = TextWidth(g_name_font, look.name);
+    // A long name (a switch of the debug page) takes the font of the value
+    // of a badge, and the card can be wider. It still ends left of the
+    // badges at the left and the right.
+    HFONT name_font = g_name_font;
+    int most = kCardMost;
+    if (TextWidth(name_font, look.name) + 2 * kCardPad > kCardMost) {
+      name_font = g_value_font;
+      most = kCardWide;
+    }
+    int w = TextWidth(name_font, look.name);
     if (two) {
       const int note_w = TextWidth(g_note_font, look.note);
       if (note_w > w) w = note_w;
     }
     w += 2 * kCardPad;
-    if (w > kCardMost) w = kCardMost;
+    if (w > most) w = most;
     const int h = two ? 124 : 80;
     card.left = static_cast<LONG>(kMiddle) - w / 2;
     card.right = card.left + w;
@@ -991,7 +1227,7 @@ bool Raster(const Look& look) {
       name.bottom = name.top + 50;
       split = name.bottom;
     }
-    SelectObject(g_dc, g_name_font);
+    SelectObject(g_dc, name_font);
     DrawTextW(g_dc, look.name, -1, &name,
               DT_SINGLELINE | DT_NOPREFIX | DT_CENTER | DT_VCENTER |
                   DT_END_ELLIPSIS);
@@ -1016,8 +1252,10 @@ bool Raster(const Look& look) {
     const Rgb& fill = lit ? (dim ? kDimLit : kLit) : kCardColor;
     const float alpha = lit ? 1.0f : (dim ? 0.50f : 0.88f);
     const Rgb& ink = lit ? kLitInk : (dim ? kDimInk : kWhite);
+    // The value of a switch has the color of a note.
+    const Rgb& ink2 = lit || dim ? ink : kNoteInk;
     Box(badge[i].left, badge[i].top, badge[i].right, badge[i].bottom,
-        kBadgeRadius, fill, alpha, ink, kSize, ink);
+        kBadgeRadius, fill, alpha, ink, badge_split[i] - 4, ink2);
   }
   if (!IsRectEmpty(&card)) {
     Box(card.left, card.top, card.right, card.bottom, kCardRadius, kCardColor,
@@ -1076,14 +1314,20 @@ bool g_was_temple = false;
 bool g_button_seen_up = false;
 bool g_trigger_down = false;
 bool g_key_down = false;         // the test key
+// After a choice of a switch the ring opens on its debug page again until
+// then (seconds of NowSeconds), in the same place (the Temple or not).
+const double kReturnSeconds = 30.0;
+int g_return_page = 0;
+double g_return_until = 0.0;
+bool g_return_temple = false;
 
 const char* SlotWord(const int (*items)[kSlots], const State& st) {
   if (st.slot < 0) return "the middle";
-  return kItemInfo[items[st.page][st.slot]].id;
+  static char buffer[48];
+  return ItemId(items[st.page][st.slot], buffer, sizeof(buffer));
 }
 
-// The test key: Ctrl and the 1 key of the number pad. A longer pulse for
-// each next way.
+// The test key: Ctrl and the 1 key of the number pad.
 void PollTestKey() {
   if (!g_test_keys) return;
   const bool down = (GetAsyncKeyState(VK_NUMPAD1) & 0x8000) != 0 &&
@@ -1095,9 +1339,44 @@ void PollTestKey() {
   DWORD process = 0;
   if (window != nullptr) GetWindowThreadProcessId(window, &process);
   if (process != GetCurrentProcessId()) return;
+  RadialMenuWayChange("Ctrl and numpad 1");
+}
+
+void BuildLook(const int (*items)[kSlots], int page, int slot, const Facts& f,
+               Look* look) {
+  memset(look, 0, sizeof(*look));
+  look->slot = slot;
+  for (int i = 0; i < kSlots; ++i) {
+    const int item = items[page][i];
+    look->item[i] = item;
+    look->value[i] =
+        IsSwitchItem(item) ? DebugSwitchValue(item - kItemSwitchBase) : 0;
+    look->dim[i] = item != kItemNone && !StateOf(item, f).can;
+  }
+  if (slot >= 0) {
+    const ItemNow now = StateOf(items[page][slot], f);
+    wcsncpy_s(look->name, now.name, _TRUNCATE);
+    wcsncpy_s(look->note, NoteOf(now), _TRUNCATE);
+  }
+}
+
+}  // namespace
+
+// The switch of the test key Ctrl and Numpad 1 (debug_menu.cpp): the ways
+// that open the ring, while the stick can drive the ring. A longer pulse for
+// each next way.
+int RadialMenuWayValue() {
+  ReadSettings();
+  if (!g_on || !StickCanDrive()) return kDebugCannot;
+  return g_way;
+}
+
+void RadialMenuWayChange(const char* by) {
+  ReadSettings();
+  if (!g_on) return;
   if (!StickCanDrive()) {
-    ModLog("ring         : Ctrl and numpad 1: the stick does not drive the "
-           "ring now (button_layout=%d), so the ring has one way, frame %llu",
+    ModLog("ring         : %s: the stick does not drive the ring now "
+           "(button_layout=%d), so the ring has one way, frame %llu", by,
            ControllersButtonLayout(), ControllersFrameCount());
     return;
   }
@@ -1109,27 +1388,9 @@ void PollTestKey() {
       "only the button opens the ring, and the hand picks",
       "only the stick opens the ring, and the trigger chooses"};
   ControllersGrabPulse(1, 0.5f, 0.08f + 0.11f * g_way);
-  ModLog("ring         : Ctrl and numpad 1: %s, frame %llu", kWays[g_way],
+  ModLog("ring         : %s: %s, frame %llu", by, kWays[g_way],
          ControllersFrameCount());
 }
-
-void BuildLook(const int (*items)[kSlots], const State& st, const Facts& f,
-               Look* look) {
-  memset(look, 0, sizeof(*look));
-  look->slot = st.slot;
-  for (int i = 0; i < kSlots; ++i) {
-    const int item = items[st.page][i];
-    look->item[i] = item;
-    look->dim[i] = item != kItemNone && !StateOf(item, f).can;
-  }
-  if (st.slot >= 0) {
-    const ItemNow now = StateOf(items[st.page][st.slot], f);
-    wcsncpy_s(look->name, now.name, _TRUNCATE);
-    wcsncpy_s(look->note, now.note, _TRUNCATE);
-  }
-}
-
-}  // namespace
 
 bool RadialMenuOpen() { return g_state_ready && g_state.open != kClosed; }
 
@@ -1203,13 +1464,25 @@ void RadialMenuFrame() {
   const bool have_game = ReadFacts(&facts);
   if (have_game) Watch(facts);
 
-  // The ring of the Temple has one page. A ring that is open when the player
-  // goes in or out closes, because its items are not the items of the place.
+  // The ring of the Temple has one page of the ini. A ring that is open when
+  // the player goes in or out closes, because its items are not the items of
+  // the place.
   const bool temple = have_game && facts.temple;
-  const int (*items)[kSlots] = temple ? g_temple_items : g_items;
-  const int pages = temple ? 1 : g_pages;
+  Ring& ring = temple ? g_temple_ring : g_ring;
   const bool place_changed = temple != g_was_temple;
   g_was_temple = temple;
+  // The debug pages hold the switches that can change now, so they are made
+  // again while the ring is closed. An open ring keeps its pages.
+  if (g_state.open == kClosed) {
+    BuildDebugPages(&ring);
+    g_state.open_page = g_debug && now < g_return_until &&
+                                g_return_temple == temple &&
+                                g_return_page < ring.pages.count
+                            ? g_return_page
+                            : 0;
+  }
+  const int (*items)[kSlots] = ring.pages.items;
+  const int pages = ring.pages.count;
 
   Input in;
   memset(&in, 0, sizeof(in));
@@ -1260,7 +1533,7 @@ void RadialMenuFrame() {
   }
 
   Events ev;
-  Step(&g_state, g_settings, in, items, pages, &ev);
+  Step(&g_state, g_settings, in, items, ring.pages.links, pages, &ev);
 
   if (ev.blocked) {
     ++g_blocked;
@@ -1278,8 +1551,9 @@ void RadialMenuFrame() {
     g_notice = false;
     g_show_until = 0.0;
     if (LogRoom()) {
-      char words[200];
+      char words[300], title[80];
       PageWords(items[g_state.page], words, sizeof(words));
+      PageTitle(ring, temple, g_state.page, title, sizeof(title));
       ModLog("ring         : the ring opens at the %s hand (%s), at %.3f %.3f "
              "%.3f m, %.0f cm from the head. %s: %s, frame %llu",
              hand.left ? "left" : "right",
@@ -1287,15 +1561,15 @@ void RadialMenuFrame() {
                                          : "the stick, and the trigger chooses",
              g_plane.center[0], g_plane.center[1], g_plane.center[2],
              controller_math::Distance(g_plane.center, hand.head) * 100.0f,
-             temple ? "The ring of the Temple" : "Page 1", words, frame);
+             title, words, frame);
     }
     HapticsPulseHands(1, haptics_math::kTick);
   }
   if (ev.paged && LogRoom()) {
-    char words[200];
+    char words[300], title[80];
     PageWords(items[g_state.page], words, sizeof(words));
-    ModLog("ring         : page %d: %s, frame %llu", g_state.page + 1, words,
-           frame);
+    PageTitle(ring, temple, g_state.page, title, sizeof(title));
+    ModLog("ring         : %s: %s, frame %llu", title, words, frame);
   }
   if (ev.moved && g_state.open != kClosed) {
     if (g_state.slot >= 0) {
@@ -1320,22 +1594,24 @@ void RadialMenuFrame() {
     const int item = items[ev.chosen_page][ev.chosen];
     const ItemNow item_now = StateOf(item, facts);
     if (Choose(item, facts, item_now)) {
-      HapticsPulseHands(1, haptics_math::kActivate);
+      // A switch gives the pulse of its test key, so the pulse of the ring
+      // does not hide it.
+      if (!IsSwitchItem(item)) HapticsPulseHands(1, haptics_math::kActivate);
       AudioCue(kAudioCueRingChoose, g_left ? -0.4f : 0.4f);
+      // After a switch the ring opens on its page again for a while.
+      g_return_until = IsSwitchItem(item) ? now + kReturnSeconds : 0.0;
+      g_return_page = ev.chosen_page;
+      g_return_temple = temple;
     } else {
       // The ring stays for a moment and says why.
       HapticsPulseHands(1, haptics_math::kRefused);
       g_notice = true;
       g_show_until = now + kNoticeSeconds;
-      memset(&g_notice_look, 0, sizeof(g_notice_look));
-      for (int i = 0; i < kSlots; ++i) {
-        g_notice_look.item[i] = items[ev.chosen_page][i];
-        g_notice_look.dim[i] = true;
-      }
-      g_notice_look.slot = ev.chosen;
+      BuildLook(items, ev.chosen_page, ev.chosen, facts, &g_notice_look);
+      for (int i = 0; i < kSlots; ++i) g_notice_look.dim[i] = true;
       wcsncpy_s(g_notice_look.name, item_now.name, _TRUNCATE);
       wcsncpy_s(g_notice_look.note,
-                item_now.note[0] != 0 ? item_now.note : L"Not now",
+                NoteOf(item_now)[0] != 0 ? NoteOf(item_now) : L"Not now",
                 _TRUNCATE);
     }
   } else if (ev.closed) {
@@ -1352,7 +1628,7 @@ void RadialMenuFrame() {
   if (g_notice && !show) g_notice = false;
   if (open) {
     Look look;
-    BuildLook(items, g_state, facts, &look);
+    BuildLook(items, g_state.page, g_state.slot, facts, &look);
     if (!g_have_drawn || !SameLook(look, g_drawn)) Raster(look);
   } else if (g_notice && (!g_have_drawn || !SameLook(g_notice_look, g_drawn))) {
     Raster(g_notice_look);

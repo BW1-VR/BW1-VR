@@ -240,3 +240,19 @@ void VkSceneSetTextureReuse(int on);
 // the picture of the present before, with no wait for the GPU. 0: it waits
 // for the picture of this present.
 void VkSceneSetPresentLate(int on);
+
+// The values of the test keys for the debug page (vk_eyes, vk_scene_follow,
+// vk_panel, vk_only, vk_upload_queue, the step of the foveation key,
+// fovea_res, vk_keep_picture, vk_stage1 and vk_untextured), or kDebugCannot
+// when the renderer is off. vk_eyes and vk_only are kDebugCannot with
+// vulkan_only=1 too.
+int VkSceneEyesValue();
+int VkSceneFollowValue();
+int VkScenePanelValue();
+int VkSceneOnlyValue();
+int VkSceneUploadsValue();
+int VkSceneFoveationValue();
+int VkSceneFoveaResValue();
+int VkSceneKeepPictureValue();
+int VkSceneStage1Value();
+int VkSceneUntexturedValue();

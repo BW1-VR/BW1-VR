@@ -21,10 +21,14 @@ void OneWalkSetCheck(bool on);
 void OneWalkSetMerge(bool on);
 // The test key: one_walk_merge goes between 1 and 0.
 void OneWalkMergeToggle(const char* keys);
+// Its value for the debug page, or kDebugCannot with vulkan_only=1.
+int OneWalkMergeValue();
 bool OneWalkCheck();
 // True when one walk is asked for and nothing has failed.
 bool OneWalkWanted();
 void OneWalkToggle();
+// The value of one_walk for the debug page, or kDebugCannot after a failure.
+int OneWalkValue();
 
 // The pass of the left eye starts. separation is the distance of the eyes in
 // world units: the left eye is at -separation / 2 and the right eye at
@@ -51,6 +55,7 @@ void OneWalkSetMarks(bool on, int test_frame);
 bool OneWalkMarks();
 // The test key (Ctrl, Shift and the right square bracket key, test_keys=1).
 void OneWalkMarksToggle(const char* cause);
+int OneWalkMarksValue();
 
 // The wide target (an IDirect3DSurface9) and the part of it that one eye
 // holds, as left, top, right, bottom.

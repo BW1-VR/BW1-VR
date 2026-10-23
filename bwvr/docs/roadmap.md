@@ -910,6 +910,9 @@ that moves while the Hand takes it.
   6.2). A grip from a distance in the walk of `-Kind tie` can show it.
 - **R10. Two test keys on one key.** Ctrl and the 9 key of the number pad is
   the test key of `creature_palm_point` (`hand_direct.cpp`) and of the take
-  from a forest (`forest_take.cpp`). The keys of the keyboard that no code
-  of the game or of the mod reads are few: a new test key needs a search
-  first (`backend.md`, the hotkey table).
+  from a forest (`forest_take.cpp`). Ctrl and the 1 key of the number pad
+  is the test key of the ways of the ring (`radial_menu.cpp`) and of
+  `god_camera_at` (`stereo.cpp`). The debug page of the ring has one item for
+  each of the four. The keys of the keyboard that no code of the game or of
+  the mod reads are few: a new test key needs a search first (`backend.md`,
+  the hotkey table).

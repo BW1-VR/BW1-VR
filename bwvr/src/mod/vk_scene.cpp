@@ -108,6 +108,7 @@
 #include <vector>
 
 #include "d3d7_thread.h"
+#include "debug_menu.h"
 #include "ui_panel.h"
 #include "one_walk.h"
 #include "one_walk_math.h"
@@ -126,6 +127,8 @@
 void ModLog(const char* format, ...);
 // controllers.cpp
 void ControllersGesturePulse(float amplitude, float seconds);
+// mod_main.cpp: true with vulkan_only=1.
+bool VulkanOnly();
 // stereo.cpp: the eye pass now, or -1 outside the eye passes.
 int StereoPassEye();
 // intro_vr.cpp: the eye pass of the intro in stereo with intro_eye_trails,
@@ -4309,4 +4312,53 @@ void VkSceneReport(uint64_t frames) {
            "Vulkan renderer in the headset", g_eye_frames, frames);
   }
   g_eye_frames = 0;
+}
+
+// THE SWITCHES OF THE DEBUG PAGE: the values of the test keys of the
+// renderer. With the renderer off a key changes nothing, so each one is
+// kDebugCannot. vk_eyes and vk_only also need Direct3D 9, which
+// vulkan_only=1 does not have.
+int VkSceneEyesValue() {
+  if (!VkSceneOn() || VulkanOnly()) return kDebugCannot;
+  return g_eyes ? 1 : 0;
+}
+
+int VkSceneFollowValue() {
+  return VkSceneOn() ? (g_follow ? 1 : 0) : kDebugCannot;
+}
+
+int VkScenePanelValue() {
+  return VkSceneOn() ? (g_panel_mode ? 1 : 0) : kDebugCannot;
+}
+
+int VkSceneOnlyValue() {
+  if (!VkSceneOn() || VulkanOnly()) return kDebugCannot;
+  return g_only_mode ? 1 : 0;
+}
+
+int VkSceneUploadsValue() {
+  return VkSceneOn() ? (g_upload_queue ? 1 : 0) : kDebugCannot;
+}
+
+// The step of the key: 0 off, 1 on, 2 on with the marks of the coarse parts.
+int VkSceneFoveationValue() {
+  if (!VkSceneOn()) return kDebugCannot;
+  if (g_fovea_level == 0) return 0;
+  return g_fovea_show ? 2 : 1;
+}
+
+int VkSceneFoveaResValue() {
+  return VkSceneOn() ? (g_mres_mode ? 1 : 0) : kDebugCannot;
+}
+
+int VkSceneKeepPictureValue() {
+  return VkSceneOn() ? (g_keep_picture ? 1 : 0) : kDebugCannot;
+}
+
+int VkSceneStage1Value() {
+  return VkSceneOn() ? (g_stage1_mode ? 1 : 0) : kDebugCannot;
+}
+
+int VkSceneUntexturedValue() {
+  return VkSceneOn() ? (g_untextured ? 1 : 0) : kDebugCannot;
 }

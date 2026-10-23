@@ -76,6 +76,7 @@
 
 #include "MinHook.h"
 #include "../common/bw_addresses.h"
+#include "debug_menu.h"
 #include "hint_card.h"
 #include "hint_learn_math.h"
 #include "table_math.h"
@@ -2685,17 +2686,17 @@ void TabletopInstall() {
   }
 }
 
-// Ctrl F11, and the step of table_sweep. The table faces the game camera
-// again when it comes back.
-void TabletopToggle() {
+// Ctrl F11, the step of table_sweep and the debug page. The table faces the
+// game camera again when it comes back. `by` must be a string that stays.
+void TabletopChange(const char* by) {
   if (!g_installed) return;
   g_on = !g_on;
   g_have_table = false;
-  g_build_cause = "Ctrl F11";
+  g_build_cause = by;
   g_owned = false;
   g_god_zoom = g_god_ground = g_god_turn = 0;
-  StopZoomHold("Ctrl F11", false);
-  StopWalk("Ctrl F11", false);
+  StopZoomHold(by, false);
+  StopWalk(by, false);
   g_spawn.pending = false;
   g_spawn.again = false;
   g_pan = {};
@@ -2704,6 +2705,14 @@ void TabletopToggle() {
   } else {
     ModLog("tabletop     : the table is now %s", g_on ? "on" : "off");
   }
+}
+
+void TabletopToggle() { TabletopChange("Ctrl F11"); }
+
+// The switch of the debug page: 1 while the table or the God view is on.
+int TabletopValue() {
+  if (!g_installed) return kDebugCannot;
+  return g_on ? 1 : 0;
 }
 
 // THE MAIN CAMERA CALL OF A FRAME, from head_camera.cpp. True when the table
@@ -3390,7 +3399,7 @@ bool TabletopGodTurnedOnly(float* turned) {
 // changes between 1 and 0. Then the view goes to the game camera of now by
 // the rule that it has, so the two places can be compared at one camera.
 void TabletopGodSpawnToggle() {
-  if (!g_installed || !g_settings.god || !g_settings.test_keys) return;
+  if (!g_installed || !g_settings.god || !TestSwitchesOn()) return;
   g_settings.god_spawn = g_settings.god_spawn != 0 ? 0 : 1;
   ModLog("test key     : god_spawn=%d. %s", g_settings.god_spawn,
          g_settings.god_spawn != 0
@@ -3401,11 +3410,19 @@ void TabletopGodSpawnToggle() {
   if (TabletopGodOwnsView()) g_spawn.again = true;
 }
 
+// The value of god_spawn for the debug page.
+int TabletopGodSpawnValue() {
+  if (!g_installed || !g_settings.god || !TestSwitchesOn()) {
+    return kDebugCannot;
+  }
+  return g_settings.god_spawn != 0 ? 1 : 0;
+}
+
 // THE TEST KEY of god_camera_at (Ctrl and Numpad 1, with test_keys=1). The
 // version changes, so the game camera goes to the other place at its next
 // update.
 void TabletopGodCameraAtToggle() {
-  if (!g_installed || !g_settings.god || !g_settings.test_keys) return;
+  if (!g_installed || !g_settings.god || !TestSwitchesOn()) return;
   g_settings.god_camera_at = g_settings.god_camera_at != 0 ? 0 : 1;
   ModLog("test key     : god_camera_at=%d. The game camera stands over %s",
          g_settings.god_camera_at,
@@ -3413,6 +3430,14 @@ void TabletopGodCameraAtToggle() {
                                        : "the recenter place");
   ++g_god_version;
   g_god_nonturn_version = g_god_version;
+}
+
+// The value of god_camera_at for the debug page.
+int TabletopGodCameraAtValue() {
+  if (!g_installed || !g_settings.god || !TestSwitchesOn()) {
+    return kDebugCannot;
+  }
+  return g_settings.god_camera_at != 0 ? 1 : 0;
 }
 
 // A step from the sticks or the wheel. It is kept until the next main camera
@@ -3480,7 +3505,7 @@ bool TabletopGodZoomHold(float push) {
 // and a short pulse for the steps. A hold that runs stops at once, and a
 // stick that is pushed must come back before it zooms.
 void TabletopGodZoomSmoothToggle() {
-  if (!g_installed || !g_settings.god || !g_settings.test_keys) return;
+  if (!g_installed || !g_settings.god || !TestSwitchesOn()) return;
   g_settings.god_zoom_smooth = g_settings.god_zoom_smooth != 0 ? 0 : 1;
   if (g_settings.god_zoom_smooth == 0) {
     StopZoomHold("the test key chose the steps", true);
@@ -3494,6 +3519,14 @@ void TabletopGodZoomSmoothToggle() {
              : "One push of the stick is one zoom step");
 }
 
+// The value of god_zoom_smooth for the debug page.
+int TabletopGodZoomSmoothValue() {
+  if (!g_installed || !g_settings.god || !TestSwitchesOn()) {
+    return kDebugCannot;
+  }
+  return g_settings.god_zoom_smooth != 0 ? 1 : 0;
+}
+
 // THE TEST KEY of god_zoom_about (Ctrl, Shift and Delete, with test_keys=1).
 // The point of a zoom goes from the land that the head looks at (1) to the
 // land under the head (0), to the Hand's point (2) and back. The pointing
@@ -3501,7 +3534,7 @@ void TabletopGodZoomSmoothToggle() {
 // for 2. A hold of the smooth zoom that runs stops, and a stick that is still
 // pushed starts a new hold with the new point.
 void TabletopGodZoomAboutCycle() {
-  if (!g_installed || !g_settings.god || !g_settings.test_keys) return;
+  if (!g_installed || !g_settings.god || !TestSwitchesOn()) return;
   g_settings.god_zoom_about = zoom_math::NextAbout(g_settings.god_zoom_about);
   StopZoomHold("the test key changed the point of the zoom", true);
   const int about = g_settings.god_zoom_about;
@@ -3509,6 +3542,14 @@ void TabletopGodZoomAboutCycle() {
                                 : about == zoom_math::kAboutLook ? 0.24f
                                                                  : 0.08f);
   LogZoomAbout("test key     ");
+}
+
+// The value of god_zoom_about for the debug page: 0, 1 or 2.
+int TabletopGodZoomAboutValue() {
+  if (!g_installed || !g_settings.god || !TestSwitchesOn()) {
+    return kDebugCannot;
+  }
+  return g_settings.god_zoom_about;
 }
 
 // THE WALK WITH THE STICK: the rule of now, and the request of the stick for
@@ -3559,7 +3600,7 @@ bool TabletopGodWalk(const float push[2], const float* aim) {
 // and a long pulse for 2. A walk that runs stops, and a stick that is still
 // pushed starts a new walk with the new rule.
 void TabletopGodMoveStickCycle() {
-  if (!g_installed || !g_settings.god || !g_settings.test_keys) return;
+  if (!g_installed || !g_settings.god || !TestSwitchesOn()) return;
   g_settings.move_stick =
       walk_math::NextRule(walk_math::Rule(g_settings.move_stick));
   StopWalk("the test key changed move_stick", true);
@@ -3568,6 +3609,14 @@ void TabletopGodMoveStickCycle() {
                                 : rule == walk_math::kRuleHead     ? 0.24f
                                                                    : 0.08f);
   LogMoveStick("test key     ");
+}
+
+// The value of move_stick for the debug page: 0, 1 or 2.
+int TabletopGodMoveStickValue() {
+  if (!g_installed || !g_settings.god || !TestSwitchesOn()) {
+    return kDebugCannot;
+  }
+  return walk_math::Rule(g_settings.move_stick);
 }
 
 bool TabletopGodTurn(int direction, float degrees) {

@@ -53,12 +53,15 @@
 #include <string.h>
 
 #include "MinHook.h"
+#include "debug_menu.h"
 #include "far_grab.h"
 #include "take_stream.h"
 #include "take_stream_math.h"
 
 void ModLog(const char* format, ...);
 void ControllersGesturePulse(float amplitude, float seconds);
+// This file: the switch of the A/B key (below the namespace).
+void TakeStreamChange(const char* by);
 
 namespace {
 
@@ -363,10 +366,7 @@ void PollKey() {
   const HWND window = GetForegroundWindow();
   if (window != nullptr) GetWindowThreadProcessId(window, &process);
   if (process != GetCurrentProcessId()) return;
-  g_on = !g_on;
-  ControllersGesturePulse(0.5f, g_on ? 0.30f : 0.08f);
-  ModLog("take stream  : Ctrl, Shift and the minus key: take_stream is %d "
-         "now, frame %llu. %s", g_on ? 1 : 0, g_frame, Words(g_on));
+  TakeStreamChange("Ctrl, Shift and the minus key");
 }
 
 bool SameBytes(uintptr_t address, const uint8_t* bytes, size_t count) {
@@ -375,6 +375,17 @@ bool SameBytes(uintptr_t address, const uint8_t* bytes, size_t count) {
 }
 
 }  // namespace
+
+// THE SWITCH OF THE A/B KEY (debug_menu.h). Without the hook of the rule
+// nothing changes.
+void TakeStreamChange(const char* by) {
+  if (!g_hooked) return;
+  g_on = !g_on;
+  ControllersGesturePulse(0.5f, g_on ? 0.30f : 0.08f);
+  ModLog("take stream  : %s: take_stream is %d "
+         "now, frame %llu. %s", by, g_on ? 1 : 0, g_frame, Words(g_on));
+}
+int TakeStreamValue() { return g_hooked ? (g_on ? 1 : 0) : kDebugCannot; }
 
 void TakeStreamSetOptions(int take_stream, bool test_keys) {
   g_on = take_stream != 0;

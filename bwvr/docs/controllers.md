@@ -1712,6 +1712,8 @@ key buffer of the game.
 | `hall`, `room_creature`, `room_challenge`, `room_save`, `room_options`, `room_library` | The rooms of the Temple | The key of action `0x14` to `0x19` (F4 to F9) |
 | `leave` | Leave the Temple, or back to the hall | Esc |
 | `more` | More | The other page |
+| `debug` | The debug page | The first page of the debug page (10.8). An empty slot with `debug_menu=0` |
+| `back` | Back | The page before, on a page of the debug page |
 | `none` | An empty slot | |
 
 The rings by default, from the top and clockwise:
@@ -1800,6 +1802,7 @@ does not show, and its items still act.
 | `radial_menu_size_pct` | 100 | The size of the ring, 50 to 200 |
 | `radial_menu_creature` | 1 | 1 the item `creature` is one teleport in the God view, 0 it is the key of the game |
 | `radial_test_save` | 0 | A test key: the mod saves the first N pictures of the ring as `bwvr-ring-NNNNN.bmp` |
+| `debug_menu` | 0 | 1 puts the item `debug` on the ring (10.8). The launcher row "Debug menu" in the group "Testing" |
 
 **The test keys.** With `test_keys=1`, Ctrl and the Menu key change
 `button_layout` (5.1). While the stick can drive the ring (`button_layout=0`),
@@ -1909,6 +1912,93 @@ Needs the headset:
 4. Whether the card in the middle is in the way of the hand.
 5. The order of the items.
 6. In the Temple: the view of each room, and the Hand at a door (section 11).
+
+### 10.8 The debug page
+
+The test keys (`test_keys=1`, `backend.md`, "Keys for v1.0") change one
+rule each while the game runs, for a live A/B. A player in the headset has
+no keyboard. With `debug_menu=1` (the launcher row "Debug menu") the ring
+has the item `debug`, and its pages hold the same switches. The page does
+not need `test_keys=1`, and the keys of the keyboard still need it.
+
+The code is `debug_menu.cpp` (the table of the switches), `debug_menu_math.h`
+(the pages and their links) and the ring (`radial_menu.cpp`).
+
+**The place of the item.** A page of the ini that has the word `debug`
+holds it. Else the last page of the ring gets it: its first empty slot, or
+on a full page slot 5 (from 0 at the top and clockwise: the slot left of the
+bottom, `DebugSlot`). Page 2 as made is full, so `debug` takes the place of
+`help` there. The ring of the Temple has it in its empty slot 7. The log
+names the item that gives its slot.
+
+**The pages.** A link item goes to its page after 0.45 s with the hand on
+it, or at once with the trigger, as `More` does. A release on a link chooses
+nothing.
+
+| Page | Items |
+| --- | --- |
+| The groups | View, Picture, Render, Interface, Hand, Throw, Creature, Sound, Temple: each group that has a switch now |
+| A group | Its switches. A badge has the word of the switch, and its value under it in amber, for example "One walk" and "on". The card in the middle has the name of the switch and its ini key with the value, for example `one_walk=1 (on)` |
+
+Each page has `back` in the bottom slot: from a group to the page of the
+groups, and from the groups to the page with `debug`. A list of 7 items or
+fewer has one page. A longer list has 6 items on each page, and `more` in
+slot 3 goes to its next page, and from its last page to its first.
+
+**A choice of a switch** calls the change function of its test key: the same
+step of the value, the same pulse and the same log line, at once. The ring
+gives no pulse of its own for a switch, so the pulse of the test key is
+clear. The log has one more line with the new value. For 30 s after the
+choice the ring opens on the same page again, so a second choice for an A/B
+needs no walk through the pages.
+
+**A switch that cannot change now is not on the page**: its part is off,
+its hook is not in, or it is for the other renderer (the switches of
+Direct3D 9 with `vulkan_only=1`). The ring makes its debug pages again on
+each frame that it is closed.
+
+**The table.** `kSwitches` in `debug_menu.cpp` has one line for each switch:
+the group, the word on the badge, the name on the card, the ini key, the
+value function, the change function and the words of the values. The file of
+the area has the two functions, and its test key calls the same change
+function. So a new test key is one more line. A switch that needs a start
+of the game (for example `backend`) is not in the table. The keys of the
+intro, the trims of the aim ray, F11 and F12 are not switches. The hotkey
+table of `backend.md` names the item of each key.
+
+A part that a switch needs, and that the mod puts in only for a test, is in
+with `test_keys=1` or `debug_menu=1` (`TestSwitchesOn`): the hook of the
+release at once, the read ahead of the files, the patch of the size of the
+spirits, and the second thread of the bridge.
+
+The log:
+
+```
+debug page   : debug_menu=1. The ring has the item "debug" with 107 switches in 9 groups, 92 of them can change now. test_keys=0
+ring         : debug_menu=1: the item "debug" takes slot 5 (0 is the top) of page 2, in place of "help"
+ring         : The debug page of the groups (page 3): View, Picture, Render, more, back, Interface, Hand, Throw, frame 248
+ring         : The debug page Render (page 9): one_walk, foveation, fovea_res, more, back, frame_send, frame_time_real, fast_transform, frame 299
+one walk     : off. The scene is walked one time for each eye (one_walk=0)
+debug page   : the player chose "One walk": one_walk is 0 now (off), it was 1, frame 371
+```
+
+**Tests.** The math test (`debug_menu_checks.h`) covers the lists and their
+slots, the slot of `debug`, the pages with their links (`debug`, the groups,
+`back`, `more`), a switch that cannot change, pages that do not fit, the
+words of a value, and the ring with the links: the hand through `More`,
+`debug` and a group to a switch, and the stick with the trigger on `back`.
+
+Desktop runs [R] (the test save `temple`, `debug_menu=1` and `test_keys=0`,
+with Vulkan): Y and four steps of the left hand go through `More`, `debug`
+and the group Render to "One walk", and the release turns one walk off. The
+next press of Y opens the ring on the page Render again, and "Foveation"
+goes on. `radial_test_save` saves each picture of the ring. With
+`debug_menu=0` page 2 has `help` in slot 5, and no page has `debug`.
+
+Needs the headset:
+
+1. Whether the badges of two lines are easy to read at 32 cm.
+2. Whether 0.45 s on each link is too slow for a walk through three pages.
 
 ## 11. The Temple
 

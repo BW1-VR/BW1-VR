@@ -324,6 +324,9 @@ still:
   Number pad keys     Switch between two ways of one behavior, while
                       you play. See TEST KEYS OF THE NUMBER PAD.
 
+With "Debug menu" on, the ring has the same switches on its debug
+page, so you can change them in the headset (see THE RING).
+
 
 MOTION CONTROLLERS
 ------------------
@@ -457,13 +460,25 @@ top and clockwise. The words are temple, enter, creature, town, land,
 leash_learning, leash_compassion, leash_aggression, leash_next,
 leash_previous, mark_set, mark_go, mark_back, pause, slower, faster,
 help, names, details, save, load, playground, hall, room_creature,
-room_challenge, room_save, room_options, room_library, leave, more
-and none. Set radial_menu=0 for no ring. With button_layout=0 the
+room_challenge, room_save, room_options, room_library, leave, more,
+debug and none. Set radial_menu=0 for no ring. With button_layout=0 the
 ring opens with X and with the left stick: set radial_menu_stick=0
 for the ring with X only, or radial_menu_button=0 for the ring with
 the stick only. Set radial_menu_reach_cm to change how far your hand
 moves to pick an item (5), and radial_menu_size_pct for the size of
 the ring (100).
+
+The debug page is for tests. Turn on "Debug menu" in the launcher
+(debug_menu=1), and the ring gets the item Debug. On the second page
+it takes the place of the help of the game, and in the Temple it
+takes the empty slot. Keep your hand on Debug for a moment to get the
+groups: View, Picture, Render, Interface, Hand, Throw, Creature,
+Sound and Temple. Keep your hand on a group to get its switches. Each
+switch shows its value now, for example "One walk" with "on" under
+it. Choose a switch, and it changes at once, as its test key does.
+For 30 seconds after a choice, the ring opens on the same page again.
+Back goes to the page before. A switch that cannot change now is not
+on the page. The debug page does not need "Test keys".
 
 
 THE TEMPLE

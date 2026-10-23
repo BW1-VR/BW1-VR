@@ -147,6 +147,7 @@ bool TabletopGodZoomForwardIn();
 // smooth zoom. The test god_zoom_test_toggle=N does the same at frame N of
 // the controllers, with no key press, for a desktop run.
 void TabletopGodZoomSmoothToggle();
+int TabletopGodZoomSmoothValue();
 
 // The test key of god_zoom_about (Ctrl, Shift and Delete, with test_keys=1):
 // the point of a zoom goes from the land that the head looks at (1) to the
@@ -154,6 +155,7 @@ void TabletopGodZoomSmoothToggle();
 // god_zoom_about_test=N does the same at frame N of the controllers, with no
 // key press, for a desktop run.
 void TabletopGodZoomAboutCycle();
+int TabletopGodZoomAboutValue();
 
 // THE WALK WITH THE STICK (move_stick). TabletopGodMoveStick gives the rule
 // of now: 0 off, 1 the direction of the head, 2 the direction of the
@@ -180,9 +182,16 @@ bool TabletopMoveAllowed();
 // The test key of move_stick (Shift and the Menu key, with test_keys=1): the
 // rule goes from 1 to 2 to 0 and back to 1.
 void TabletopGodMoveStickCycle();
+int TabletopGodMoveStickValue();
 
 // True while the table or the God view is on, also while it stands aside.
 bool TabletopIsOn();
+
+// Ctrl F11 and the debug page: the table or the God view goes off and on.
+// `by` names the cause, and must be a string that stays. TabletopValue is 1
+// while it is on, or kDebugCannot when it is not installed.
+void TabletopChange(const char* by);
+int TabletopValue();
 
 // THE TELEPORT (docs/god-view.md, "The teleport"). target is a land point of
 // the world, and only its x and z are read. The move is made once, at the next
@@ -221,8 +230,10 @@ void TabletopGodGameMoved(const char* cause, const float position[3],
 // changes between 1 and 0, and the view goes to the game camera again by the
 // new rule.
 void TabletopGodSpawnToggle();
+int TabletopGodSpawnValue();
 
 // The test key of god_camera_at (Ctrl and Numpad 1, with test_keys=1): the
 // game camera stands over the land point under the head or over the
 // recenter place.
 void TabletopGodCameraAtToggle();
+int TabletopGodCameraAtValue();

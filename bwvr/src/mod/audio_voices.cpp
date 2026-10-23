@@ -66,6 +66,7 @@
 #include "audio.h"
 #include "audio_math.h"
 #include "audio_spatial.h"
+#include "debug_menu.h"
 
 void ModLog(const char* format, ...);
 float TabletopViewScale();
@@ -1210,6 +1211,12 @@ void AudioStopWaitToggle() {
              : "each stop of a sound holds the thread of the game for 20 ms, "
                "as in the game",
          g_stop_skipped, g_stop_kept);
+}
+
+// The value of audio_stop_wait for the debug page.
+int AudioStopWaitValue() {
+  if (!g_on || !g_stop_hooked) return kDebugCannot;
+  return g_stop_wait;
 }
 
 // The test key. false gives each shadowed channel back to QMixer, at once,

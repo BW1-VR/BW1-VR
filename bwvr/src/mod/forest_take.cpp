@@ -43,6 +43,7 @@
 #include <wchar.h>
 
 #include "controller_math.h"
+#include "debug_menu.h"
 #include "far_grab.h"
 #include "forest_take.h"
 #include "forest_take_math.h"
@@ -65,6 +66,8 @@ bool ControllersFarRay(float origin[3], float direction[3], float* units,
                        float eye[3]);
 void ControllersGesturePulse(float amplitude, float seconds);
 uint64_t ControllersFrameCount();
+// This file: the switch of the A/B key (below the namespace).
+void ForestTakeChange(const char* by);
 
 namespace {
 
@@ -196,9 +199,7 @@ void PollKey() {
   const HWND window = GetForegroundWindow();
   if (window != nullptr) GetWindowThreadProcessId(window, &process);
   if (process != GetCurrentProcessId()) return;
-  g_settings.on = !g_settings.on;
-  ControllersGesturePulse(0.5f, g_settings.on ? 0.20f : 0.05f);
-  SayRule();
+  ForestTakeChange("Ctrl and Numpad 9");
 }
 
 // --- the state -------------------------------------------------------------------
@@ -354,6 +355,19 @@ void SayEnd(const char* why, void* held) {
 }
 
 }  // namespace
+
+// THE SWITCH OF THE A/B KEY (debug_menu.h): forest_take goes between 1 and
+// 0. The log line of the rule does not name the cause.
+void ForestTakeChange(const char*) {
+  ReadSettings();
+  g_settings.on = !g_settings.on;
+  ControllersGesturePulse(0.5f, g_settings.on ? 0.20f : 0.05f);
+  SayRule();
+}
+int ForestTakeValue() {
+  ReadSettings();
+  return g_settings.on ? 1 : 0;
+}
 
 bool ForestTakeRuns() { return g_runs; }
 

@@ -38,8 +38,8 @@ There is no layout to keep in step and no separate load and save code.
 
 The window sizes itself around the table and starts a new column when one gets
 tall. A heading stays with at least three of its settings. A column has 26
-rows at most. The table of now has 42 rows (40 with the renderer Vulkan), so
-the window has two columns.
+rows at most. The table of now has more rows than that, so the window has two
+columns.
 
 A field is 160 units wide, which is enough for the longest choice ("Grip of
 the other hand"). The block of the buttons is below the last column and as
@@ -247,6 +247,7 @@ See `controllers.md` for the full controls.
 | Setting | Default | What it does |
 | --- | --- | --- |
 | Test keys | off | Key `test_keys`. Turns on the keys for tests. Each key changes one rule of the mod while the game runs, for a comparison. `backend.md` ("Keys for v1.0") and the player readme list them. F12 saves a picture of each eye in the game folder. A player does not need this. |
+| Debug menu | off | Key `debug_menu`. The ring of the left hand gets the item Debug, with pages of the switches of the test keys. A choice changes a switch at once, so a comparison needs no keyboard (`controllers.md`, 10.8). It does not need "Test keys". A player does not need this. |
 
 F11 makes the direction of your head straight ahead. This key is always on.
 

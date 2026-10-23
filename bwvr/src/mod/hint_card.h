@@ -33,6 +33,9 @@ void HintCardEndFrame();
 // The test key (Ctrl Shift F11 with ui_panel=0): the card, or the hints in
 // the eye pictures.
 void HintCardToggle();
+// For the debug page: 1 while the hints show on the cards, 0 while they draw
+// in the eye pictures, kDebugCannot with hint_card=0.
+int HintCardCardsValue();
 
 // The test key of prompt_moves (Ctrl, Shift and the period key, with
 // test_keys=1), and the word "promptkey" of the scripted controller: the key

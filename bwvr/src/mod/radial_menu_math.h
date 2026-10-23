@@ -35,7 +35,11 @@ namespace radial_math {
 
 const float kPi = 3.14159265f;
 const int kSlots = 8;
+// The pages of the lists of the ini: page 1 and page 2.
 const int kPages = 2;
+// All pages of a ring: the pages of the ini and the pages of the debug page
+// (debug_menu_math.h).
+const int kMaxPages = 48;
 
 // --- the items -------------------------------------------------------------------
 
@@ -71,8 +75,29 @@ enum Item {
   kItemHall,
   kItemLeave,
   kItemMore,
+  kItemDebug,
+  kItemBack,
   kItems
 };
+
+// The items of the debug page are not in kItemInfo. A group of switches is
+// kItemGroupBase + the group, and a switch is kItemSwitchBase + its line of
+// the table in debug_menu.cpp.
+const int kItemGroupBase = 900;
+const int kItemSwitchBase = 1000;
+const int kMaxSwitches = 400;
+
+inline bool IsGroupItem(int item) {
+  return item >= kItemGroupBase && item < kItemSwitchBase;
+}
+inline bool IsSwitchItem(int item) {
+  return item >= kItemSwitchBase && item < kItemSwitchBase + kMaxSwitches;
+}
+// An item that goes to a page. A release on it chooses nothing.
+inline bool IsLinkItem(int item) {
+  return item == kItemMore || item == kItemDebug || item == kItemBack ||
+         IsGroupItem(item);
+}
 
 // How an item acts. Each one goes through the key path of the game
 // (docs/controls-audit.md, "How the game reads a key").
@@ -139,6 +164,8 @@ const ItemInfo kItemInfo[kItems] = {
     {"hall", L"Hall", L"The hall of the Temple", kHowAction, 0x14, 0, 1},
     {"leave", L"Leave", L"Leave the Temple", kHowKey, 0x01, 0, 1},
     {"more", L"More", L"More", kHowPage, 0, 0, 0},
+    {"debug", L"Debug", L"The debug page", kHowPage, 0, 0, 0},
+    {"back", L"Back", L"Back", kHowPage, 0, 0, 0},
 };
 
 // The rings as made. The order is how often a player needs an item, from the
@@ -202,6 +229,27 @@ inline int ParseItems(const char* text, int out[kSlots], char* unknown,
 inline bool PageHasItems(const int items[kSlots]) {
   for (int i = 0; i < kSlots; ++i) {
     if (items[i] != kItemNone && items[i] != kItemMore) return true;
+  }
+  return false;
+}
+
+// THE SLOT OF THE ITEM "debug" (debug_menu=1) on a page that does not have
+// it: the first empty slot. On a full page it takes slot 5, the slot left of
+// the bottom, or the next slot that is not "More".
+inline int DebugSlot(const int items[kSlots]) {
+  for (int i = 0; i < kSlots; ++i) {
+    if (items[i] == kItemNone) return i;
+  }
+  const int order[kSlots] = {5, 6, 7, 3, 2, 1, 0, 4};
+  for (int i = 0; i < kSlots; ++i) {
+    if (items[order[i]] != kItemMore) return order[i];
+  }
+  return 5;
+}
+
+inline bool PageHasItem(const int items[kSlots], int item) {
+  for (int i = 0; i < kSlots; ++i) {
+    if (items[i] == item) return true;
   }
   return false;
 }
@@ -323,6 +371,7 @@ enum Open { kClosed, kOpenButton, kOpenStick };
 struct State {
   int open;
   int page;
+  int open_page;       // the page that the next open shows (the caller sets it)
   int slot;            // the choice now, -1 for the middle
   int dead_slot;       // after a change of page: not live until the pick leaves it
   double slot_since;
@@ -348,10 +397,26 @@ inline void Reset(State* state) {
   state->dead_slot = -1;
 }
 
+// The page that a link item goes to, or -1. With no table of links, "More"
+// goes to the next page.
+inline int LinkOf(const int (*items)[kSlots], const int (*links)[kSlots],
+                  int pages, int page, int slot) {
+  if (slot < 0 || !IsLinkItem(items[page][slot])) return -1;
+  if (links != nullptr) {
+    const int to = links[page][slot];
+    return to >= 0 && to < pages ? to : -1;
+  }
+  if (items[page][slot] == kItemMore && pages > 1) return (page + 1) % pages;
+  return -1;
+}
+
 // One frame of the ring. `items` are the pages of the ring now, and `pages`
-// is 1 or 2. An empty slot cannot be picked.
+// is their count, 1 to kMaxPages. `links` gives the page of each link item
+// ("More", "debug", "back", a group), or it is null: then "More" goes to the
+// next page. An empty slot cannot be picked.
 inline void Step(State* st, const Settings& set, const Input& in,
-                 const int (*items)[kSlots], int pages, Events* ev) {
+                 const int (*items)[kSlots], const int (*links)[kSlots],
+                 int pages, Events* ev) {
   memset(ev, 0, sizeof(*ev));
   ev->chosen = -1;
   const bool button_edge = in.button && !st->button_before;
@@ -362,7 +427,7 @@ inline void Step(State* st, const Settings& set, const Input& in,
       sqrtf(in.stick[0] * in.stick[0] + in.stick[1] * in.stick[1]);
   if (stick_r < set.stick_out) st->stick_back = false;
   if (pages < 1) pages = 1;
-  if (pages > kPages) pages = kPages;
+  if (pages > kMaxPages) pages = kMaxPages;
   if (st->page >= pages) st->page = 0;
 
   if (st->open == kClosed) {
@@ -378,7 +443,8 @@ inline void Step(State* st, const Settings& set, const Input& in,
     } else {
       return;
     }
-    st->page = 0;
+    st->page = st->open_page >= 0 && st->open_page < pages ? st->open_page
+                                                           : 0;
     st->slot = -1;
     st->dead_slot = -1;
     st->slot_since = in.time;
@@ -436,11 +502,14 @@ inline void Step(State* st, const Settings& set, const Input& in,
     st->slot_since = in.time;
     ev->moved = true;
   }
-  const bool on_more = st->slot >= 0 && items[st->page][st->slot] == kItemMore;
+  // A link item ("More", "debug", "back", a group) goes to its page. On a
+  // link the release and the trigger choose nothing.
+  const bool on_link = st->slot >= 0 && IsLinkItem(items[st->page][st->slot]);
+  const int link_to = LinkOf(items, links, pages, st->page, st->slot);
   const auto turn_page = [&]() {
     st->dead_slot = st->slot;
     st->slot = -1;
-    st->page = (st->page + 1) % pages;
+    st->page = link_to;
     st->slot_since = in.time;
     ev->paged = true;
     ev->moved = true;
@@ -448,8 +517,8 @@ inline void Step(State* st, const Settings& set, const Input& in,
 
   if (st->open == kOpenButton) {
     if (!in.button) {
-      // The release chooses. On "More" and in the middle it chooses nothing.
-      if (st->slot >= 0 && !on_more) {
+      // The release chooses. On a link and in the middle it chooses nothing.
+      if (st->slot >= 0 && !on_link) {
         ev->chosen = st->slot;
         ev->chosen_page = st->page;
       }
@@ -457,8 +526,8 @@ inline void Step(State* st, const Settings& set, const Input& in,
       return;
     }
   } else if (trigger_edge && st->slot >= 0) {
-    if (on_more) {
-      if (pages > 1) turn_page();
+    if (on_link) {
+      if (link_to >= 0) turn_page();
       return;
     }
     ev->chosen = st->slot;
@@ -468,9 +537,15 @@ inline void Step(State* st, const Settings& set, const Input& in,
     close();
     return;
   }
-  if (on_more && pages > 1 && in.time - st->slot_since >= set.dwell) {
+  if (on_link && link_to >= 0 && in.time - st->slot_since >= set.dwell) {
     turn_page();
   }
+}
+
+// The ring of the pages of the ini alone, with no table of links.
+inline void Step(State* st, const Settings& set, const Input& in,
+                 const int (*items)[kSlots], int pages, Events* ev) {
+  Step(st, set, in, items, nullptr, pages > kPages ? kPages : pages, ev);
 }
 
 // --- the game side ---------------------------------------------------------------

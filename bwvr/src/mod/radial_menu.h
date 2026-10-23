@@ -28,5 +28,12 @@ bool RadialMenuStickDrives();
 // before it opens the ring.
 void RadialMenuLayoutChanged();
 
+// The switch of the test key Ctrl and Numpad 1, for the debug page
+// (debug_menu.cpp): the ways that open the ring. The value is 0 both ways, 1
+// the button only, 2 the stick only, or kDebugCannot while the stick does not
+// drive the ring.
+int RadialMenuWayValue();
+void RadialMenuWayChange(const char* by);
+
 // Once a report window.
 void RadialMenuReport();

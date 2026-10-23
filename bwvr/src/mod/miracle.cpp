@@ -769,6 +769,23 @@ void Init() {
   }
 }
 
+}  // namespace
+
+// The switch of the debug page (debug_menu.h).
+void MiracleHandChange(const char* by) {
+  Init();
+  g_settings.on = !g_settings.on;
+  ControllersGesturePulse(0.5f, g_settings.on ? 0.24f : 0.08f);
+  LogKeys(by);
+}
+
+int MiracleHandValue() {
+  Init();
+  return g_settings.on ? 1 : 0;
+}
+
+namespace {
+
 // THE A/B KEY (test_keys=1): Ctrl with the 8 key of the number pad changes
 // miracle_hand. The pointing controller gives a long pulse for 1 and a short
 // pulse for 0. Only while a window of the game is in front.
@@ -784,9 +801,7 @@ void PollKey() {
   const HWND window = GetForegroundWindow();
   if (window != nullptr) GetWindowThreadProcessId(window, &process);
   if (process != GetCurrentProcessId()) return;
-  g_settings.on = !g_settings.on;
-  ControllersGesturePulse(0.5f, g_settings.on ? 0.24f : 0.08f);
-  LogKeys("Ctrl and numpad 8");
+  MiracleHandChange("Ctrl and numpad 8");
 }
 
 // --- the test seeds ---------------------------------------------------------

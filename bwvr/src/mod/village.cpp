@@ -1315,6 +1315,36 @@ void Init() {
   }
 }
 
+}  // namespace
+
+// The switches of the debug page (debug_menu.h).
+void VillageTotemChange(const char* by) {
+  Init();
+  g_settings.totem = !g_settings.totem;
+  g_drag.on = false;
+  ControllersGesturePulse(0.5f, g_settings.totem ? 0.24f : 0.08f);
+  LogKeys(by);
+}
+
+int VillageTotemValue() {
+  Init();
+  return g_settings.totem ? 1 : 0;
+}
+
+void VillageHoldChange(const char* by) {
+  Init();
+  g_settings.join = !g_settings.join;
+  ControllersGesturePulse(0.5f, g_settings.join ? 0.24f : 0.08f);
+  LogHoldKey(by);
+}
+
+int VillageHoldValue() {
+  Init();
+  return g_settings.join ? 1 : 0;
+}
+
+namespace {
+
 // THE A/B KEY (test_keys=1): Ctrl with the 4 key of the number pad changes
 // totem_hand. The pointing controller gives a long pulse for 1 and a short
 // pulse for 0. Only while a window of the game is in front.
@@ -1330,10 +1360,7 @@ void PollKey() {
   const HWND window = GetForegroundWindow();
   if (window != nullptr) GetWindowThreadProcessId(window, &process);
   if (process != GetCurrentProcessId()) return;
-  g_settings.totem = !g_settings.totem;
-  g_drag.on = false;
-  ControllersGesturePulse(0.5f, g_settings.totem ? 0.24f : 0.08f);
-  LogKeys("Ctrl and numpad 4");
+  VillageTotemChange("Ctrl and numpad 4");
 }
 
 // THE A/B KEY of hold_target (test_keys=1): Ctrl with the 2 key of the number
@@ -1350,9 +1377,7 @@ void PollHoldKey() {
   const HWND window = GetForegroundWindow();
   if (window != nullptr) GetWindowThreadProcessId(window, &process);
   if (process != GetCurrentProcessId()) return;
-  g_settings.join = !g_settings.join;
-  ControllersGesturePulse(0.5f, g_settings.join ? 0.24f : 0.08f);
-  LogHoldKey("Ctrl and numpad 2");
+  VillageHoldChange("Ctrl and numpad 2");
 }
 
 // --- the census of the test key ----------------------------------------------

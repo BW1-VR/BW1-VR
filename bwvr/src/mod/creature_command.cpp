@@ -111,6 +111,7 @@
 #include "creature_command.h"
 #include "far_choice_math.h"
 #include "creature_command_math.h"
+#include "debug_menu.h"
 #include "far_grab.h"
 #include "haptics.h"
 #include "hint_card.h"
@@ -848,29 +849,49 @@ void Init() {
 // while a window of the game is in front.
 const float kRulePulseSeconds = 0.08f;
 const double kRulePulseStep = 0.25;  // from the start of a pulse to the next
+int g_rule_pulses = 0;
+double g_rule_pulse_at = 0.0;
+
+}  // namespace
+
+// The switch of the debug page (debug_menu.h). The change starts the train of
+// pulses, and PollRuleKey plays it.
+void CreatureCommandRuleChange(const char* by) {
+  if (!g_ready) return;
+  g_settings.rule = g_settings.rule <= 1 ? 4 : g_settings.rule - 1;
+  g_rule_pulses = g_settings.rule;
+  g_rule_pulse_at = NowSeconds();
+  LogRule(by);
+}
+
+int CreatureCommandRuleValue() {
+  if (!g_ready || !g_settings.on) return kDebugCannot;
+  return g_settings.rule;
+}
+
+namespace {
+
+// The train of pulses plays with test_keys=0 too, because the debug page can
+// start it.
 void PollRuleKey() {
   static bool was = false;
-  static int pulses = 0;
-  static double pulse_at = 0.0;
-  if (!g_settings.test_keys) return;
-  const bool down = (GetAsyncKeyState(VK_NUMPAD5) & 0x8000) != 0 &&
-                    (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
-  const bool pressed = down && !was;
-  was = down;
-  const double now = NowSeconds();
-  if (pressed) {
-    DWORD process = 0;
-    const HWND window = GetForegroundWindow();
-    if (window != nullptr) GetWindowThreadProcessId(window, &process);
-    if (process != GetCurrentProcessId()) return;
-    g_settings.rule = g_settings.rule <= 1 ? 4 : g_settings.rule - 1;
-    pulses = g_settings.rule;
-    pulse_at = now;
-    LogRule("Ctrl and numpad 5");
+  if (g_settings.test_keys) {
+    const bool down = (GetAsyncKeyState(VK_NUMPAD5) & 0x8000) != 0 &&
+                      (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
+    const bool pressed = down && !was;
+    was = down;
+    if (pressed) {
+      DWORD process = 0;
+      const HWND window = GetForegroundWindow();
+      if (window != nullptr) GetWindowThreadProcessId(window, &process);
+      if (process != GetCurrentProcessId()) return;
+      CreatureCommandRuleChange("Ctrl and numpad 5");
+    }
   }
-  if (pulses > 0 && now >= pulse_at) {
-    --pulses;
-    pulse_at = now + kRulePulseStep;
+  const double now = NowSeconds();
+  if (g_rule_pulses > 0 && now >= g_rule_pulse_at) {
+    --g_rule_pulses;
+    g_rule_pulse_at = now + kRulePulseStep;
     ControllersGesturePulse(0.5f, kRulePulseSeconds);
   }
 }

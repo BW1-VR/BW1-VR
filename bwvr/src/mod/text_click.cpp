@@ -191,6 +191,24 @@ uint8_t* Help() {
   return help;
 }
 
+}  // namespace
+
+// The switch of the debug page (debug_menu.h).
+void TextClickChange(const char* by) {
+  ReadSettings();
+  g_on = !g_on;
+  ControllersGesturePulse(0.5f, g_on ? 0.24f : 0.08f);
+  ModLog("test key     : %s: text_click is %d now, frame %llu. %s", by,
+         g_on ? 1 : 0, g_frame, RuleText());
+}
+
+int TextClickValue() {
+  ReadSettings();
+  return g_on ? 1 : 0;
+}
+
+namespace {
+
 // THE A/B KEY (test_keys=1): Shift with Insert, and Ctrl up, switches
 // text_click between 1 and 0. The pointing controller gives a long pulse for
 // 1 and a short pulse for 0. Ctrl with Insert is the key of the ring of the
@@ -209,10 +227,7 @@ void PollKey() {
   const HWND window = GetForegroundWindow();
   if (window != nullptr) GetWindowThreadProcessId(window, &process);
   if (process != GetCurrentProcessId()) return;
-  g_on = !g_on;
-  ControllersGesturePulse(0.5f, g_on ? 0.24f : 0.08f);
-  ModLog("test key     : Shift and Insert: text_click is %d now, frame %llu. "
-         "%s", g_on ? 1 : 0, g_frame, RuleText());
+  TextClickChange("Shift and Insert");
 }
 
 // The test: start a wait, as a script does with a text with interaction.

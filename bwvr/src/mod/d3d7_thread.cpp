@@ -63,6 +63,7 @@
 #include "../common/bw_addresses.h"
 #include "d3d7_thread.h"
 #include "ddraw_census.h"
+#include "debug_menu.h"
 #include "vk_scene.h"
 #include "render_thread_ring.h"
 #include "thread_id.h"
@@ -76,6 +77,8 @@ void ControllersGesturePulse(float amplitude, float seconds);
 void OneWalkPostState();
 // one_walk.cpp: before a draw goes into the queue.
 void OneWalkBeforeQueuedDraw();
+// mod_main.cpp: true with vulkan_only=1.
+bool VulkanOnly();
 
 namespace {
 
@@ -911,6 +914,11 @@ void D3D7ThreadMergeToggle(const char* keys) {
          keys, g_merge ? 1 : 0);
 }
 
+// With vulkan_only=1 there is no dxwrapper, so the switch cannot change.
+int D3D7ThreadMergeValue() {
+  return VulkanOnly() ? kDebugCannot : g_merge ? 1 : 0;
+}
+
 void D3D7ThreadSetOptions(int on) {
   g_ini = on != 0;
   g_on = g_ini;
@@ -930,6 +938,8 @@ void D3D7ThreadToggle(const char* keys) {
   ModLog("test key     : %s, d3d7_thread is %d from the next walk", keys,
          g_on ? 1 : 0);
 }
+
+int D3D7ThreadValue() { return VulkanOnly() ? kDebugCannot : g_on ? 1 : 0; }
 
 void D3D7ThreadWalk(bool begin, bool render_thread) {
   if (begin) {

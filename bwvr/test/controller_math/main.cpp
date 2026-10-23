@@ -3539,6 +3539,7 @@ void CreatureChecks() {
 #include "spirit_size_checks.h"
 #include "stay_checks.h"
 #include "ring_checks.h"
+#include "debug_menu_checks.h"
 #include "teleport_checks.h"
 #include "sky_checks.h"
 #include "sprite_checks.h"
@@ -3953,6 +3954,7 @@ int main() {
   aim_checks::AimChecks();
   miracle_checks::MiracleChecks();
   ring_checks::RingChecks();
+  debug_menu_checks::DebugMenuChecks();
   teleport_checks::TeleportChecks();
   sky_checks::SkyChecks();
   sprite_checks::SpriteChecks();

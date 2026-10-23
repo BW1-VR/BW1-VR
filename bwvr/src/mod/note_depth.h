@@ -10,6 +10,8 @@ void NoteDepthSetOptions(int on, const char* test_frames, int test_frame);
 void NoteDepthInstall();
 // The test key (Ctrl, Shift and the apostrophe key in play, test_keys=1).
 void NoteDepthToggle(const char* cause);
+// The value of note_depth for the debug page, or kDebugCannot.
+int NoteDepthValue();
 // stereo.cpp: the eye pass that runs, or -1 after the passes.
 void NoteDepthPass(int eye);
 // controllers.cpp: once a frame, and once for each pass of the message pump

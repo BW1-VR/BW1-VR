@@ -55,6 +55,7 @@
 
 #include "MinHook.h"
 #include "../common/bw_addresses.h"
+#include "debug_menu.h"
 #include "eye_clean_math.h"
 
 extern void ModLog(const char* format, ...);
@@ -340,6 +341,9 @@ void EyeCleanToggle(const char* cause) {
   if (!g_installed) return;
   Toggle(cause);
 }
+
+// The value of eye_clean for the debug page.
+int EyeCleanValue() { return g_installed ? g_key : kDebugCannot; }
 
 // Before eye pass 0 of a frame.
 void EyeCleanBeginPair() {

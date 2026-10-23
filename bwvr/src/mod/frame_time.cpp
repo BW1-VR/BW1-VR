@@ -285,6 +285,9 @@ void FrameTimeToggle(const char* cause) {
          g_real, RuleText(g_real), g_kept, ControllersFrameCount());
 }
 
+// The value of frame_time_real for the debug page.
+int FrameTimeValue() { return g_real; }
+
 // The part of a frame that runs, for the list of the readers.
 void FrameTimeHook(bool inside) {
   g_part = inside ? frame_time_math::kHook : frame_time_math::kOutside;

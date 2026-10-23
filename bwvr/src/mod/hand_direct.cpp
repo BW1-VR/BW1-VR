@@ -129,6 +129,7 @@
 #include "controllers.h"
 #include "creature_command.h"
 #include "creature_stay.h"
+#include "debug_menu.h"
 #include "far_choice_math.h"
 #include "far_grab.h"
 #include "fight_math.h"
@@ -3378,6 +3379,274 @@ bool StepSendsPackets(uint8_t* face) {
   return true;
 }
 
+void SetRule(int rule);
+
+// The pulses of a step of far_grab_choice (HandDirectFarChoiceChange).
+const float kChoicePulseSeconds = 0.08f;
+const float kChoiceLongPulseSeconds = 0.40f;
+// From the start of a pulse to the start of the next one.
+const ULONGLONG kChoicePulseStepMs = 250;
+
+}  // namespace
+
+// THE SWITCHES OF THE TEST KEYS (debug_menu.h). Each change function makes
+// the change of a test key below, and the debug page calls it too. Each value
+// function gives the value now, or kDebugCannot when the direct hand is not
+// in.
+
+// The star key of the number pad: release_at_once.
+void HandDirectReleaseAtOnceChange(const char* by) {
+  g_turn_on = !g_turn_on;
+  ControllersGesturePulse(0.5f, g_turn_on ? 0.30f : 0.08f);
+  ModLog("hand throw   : %s: the release at once is %s, frame "
+         "%llu. %s", by, g_turn_on ? "ON" : "OFF", g_frame,
+         g_turn_on ? "A game turn runs at once after a release, and the grip "
+                     "opens on a fast fall"
+                   : "A release waits for the next game turn, and the grip "
+                     "opens only below 35%");
+}
+int HandDirectReleaseAtOnceValue() {
+  return g_installed ? (g_turn_on ? 1 : 0) : kDebugCannot;
+}
+
+// Ctrl and Page Up: catch_moving goes from 3 to 2 to 1 to 0 and back to 3.
+void HandDirectCatchMovingChange(const char* by) {
+  g_catch_on = g_catch_on == near_math::kCatchOff ? near_math::kCatchOpen
+                                                  : g_catch_on - 1;
+  g_catch_logged = nullptr;
+  g_wide_catch_logged = nullptr;
+  ControllersGesturePulse(0.5f, g_catch_on == near_math::kCatchOpen   ? 0.45f
+                                : g_catch_on == near_math::kCatchRest ? 0.30f
+                                : g_catch_on == near_math::kCatchPick ? 0.15f
+                                                                      : 0.08f);
+  ModLog("hand pick    : %s: catch_moving is %d now, frame %llu. %s", by,
+         g_catch_on, g_frame,
+         g_catch_on == near_math::kCatchOpen
+             ? "An object that moves has the reach that it has at rest and "
+               "the extra reach. An object that fell from a still hand has "
+               "no guard, and the guard of a throw ends when the grip is "
+               "fully open"
+         : g_catch_on == near_math::kCatchRest
+             ? "An object that moves has the reach that it has at rest and "
+               "the extra reach. An object that fell from a still hand has "
+               "no guard, and a throw has the guard for the whole of "
+               "catch_grace_ms"
+         : g_catch_on == near_math::kCatchPick
+             ? "An object that moves has the extra reach on the reach of the "
+               "pick only, and each object that you let go has the guard"
+             : "Each object has the same reach, moving or still");
+}
+int HandDirectCatchMovingValue() {
+  return g_installed ? g_catch_on : kDebugCannot;
+}
+
+// Ctrl, Shift and Page Up: hand_wide_pick_cm goes between its value and 0.
+void HandDirectWidePickChange(const char* by) {
+  static int saved = 0;
+  if (g_wide_cm > 0) {
+    saved = g_wide_cm;
+    g_wide_cm = 0;
+  } else {
+    g_wide_cm = saved > 0 ? saved : near_math::kWideCm;
+  }
+  g_wide_logged = nullptr;
+  ControllersGesturePulse(0.5f, g_wide_cm > 0 ? 0.30f : 0.08f);
+  ModLog("hand pick    : %s: hand_wide_pick_cm is %d now, "
+         "frame %llu. %s", by, g_wide_cm, g_frame,
+         g_wide_cm > 0
+             ? "A holdable object up to that gap is the target when nothing "
+               "is nearer"
+             : "The wide reach is off: a gap between the reach of the pick "
+               "and the far grab has no target");
+}
+int HandDirectWidePickValue() {
+  return g_installed ? g_wide_cm : kDebugCannot;
+}
+
+// Ctrl and Delete: far_grab_choice goes from 2 to 3 to 4 to 0 to 1 and back
+// to 2. PollChoiceKey plays the short pulses on the frames after the change.
+void HandDirectFarChoiceChange(const char* by) {
+  FarGrabSetChoice(FarGrabChoice() >= far_choice_math::kChoiceMost
+                       ? 0
+                       : FarGrabChoice() + 1);
+  g_choice_pulses = FarGrabChoice();
+  g_choice_pulse_tick = GetTickCount64();
+  if (FarGrabChoice() == 0) {
+    ControllersGesturePulse(0.5f, kChoiceLongPulseSeconds);
+  }
+  ModLog("far grab    : %s: far_grab_choice is %d now, frame "
+         "%llu. %s", by, FarGrabChoice(), g_frame,
+         FarGrabChoiceWords(FarGrabChoice()));
+}
+int HandDirectFarChoiceValue() {
+  return g_installed && FarGrabOn() ? FarGrabChoice() : kDebugCannot;
+}
+
+// Ctrl and Backspace: far_grab_stay goes between 1 and 0.
+void HandDirectFarStayChange(const char* by) {
+  FarGrabSetStay(FarGrabStay() != 0 ? 0 : 1);
+  ControllersGesturePulse(0.5f, FarGrabStay() != 0 ? 0.30f : 0.08f);
+  ModLog("far grab    : %s: far_grab_stay is %d now, frame "
+         "%llu. %s", by, FarGrabStay(), g_frame,
+         FarGrabStayWords(FarGrabStay()));
+}
+int HandDirectFarStayValue() {
+  return g_installed && FarGrabOn() ? FarGrabStay() : kDebugCannot;
+}
+
+// Shift and Backspace: far_take_carry goes between 1 and 0.
+void HandDirectTakeCarryChange(const char* by) {
+  FarGrabSetTakeCarry(FarGrabTakeCarry() != 0 ? 0 : 1);
+  ControllersGesturePulse(0.5f, FarGrabTakeCarry() != 0 ? 0.30f : 0.08f);
+  ModLog("far grab    : %s: far_take_carry is %d now, frame "
+         "%llu. %s", by, FarGrabTakeCarry(), g_frame,
+         FarGrabTakeCarryWords(FarGrabTakeCarry()));
+}
+int HandDirectTakeCarryValue() {
+  return g_installed && FarGrabOn() ? FarGrabTakeCarry() : kDebugCannot;
+}
+
+// Ctrl and the point key of the number pad: scroll_draw goes between 1 and 0.
+void HandDirectScrollDrawChange(const char* by) {
+  g_scroll_draw = !g_scroll_draw;
+  ControllersGesturePulse(0.5f, g_scroll_draw ? 0.30f : 0.08f);
+  ModLog("hand scroll  : %s: scroll_draw is %d, frame "
+         "%llu. %s", by, g_scroll_draw ? 1 : 0, g_frame,
+         g_scroll_draw ? "Each scroll that the game draws is a candidate, "
+                         "with the reach of scroll_reach_cm"
+                       : "A scroll is a candidate only when the game's pick "
+                         "offers it, with the reach of each object");
+}
+int HandDirectScrollDrawValue() {
+  return g_installed ? (g_scroll_draw ? 1 : 0) : kDebugCannot;
+}
+
+// Ctrl and the 7 key of the number pad: a script that asks about the camera
+// gets the player, or the game's camera. Nothing changes when the hooks of
+// the scripts are not in.
+void HandDirectScriptPlayerChange(const char* by) {
+  if (!g_script_hooked) return;
+  g_script_on = !g_script_on;
+  ControllersGesturePulse(0.5f, g_script_on ? 0.30f : 0.08f);
+  if (g_script_on) {
+    ModLog("scripts      : %s: a script that asks about the "
+           "camera gets the player again (script_distance=%d, "
+           "script_view=%d, script_camera_moves=%d), frame %llu", by,
+           g_script_distance, g_script_view, g_script_moves, g_frame);
+  } else {
+    ModLog("scripts      : %s: a script that asks about the "
+           "camera gets the game's camera, as with script_distance=0, "
+           "script_view=0 and script_camera_moves=0, frame %llu", by, g_frame);
+  }
+}
+int HandDirectScriptPlayerValue() {
+  return g_script_hooked ? (g_script_on ? 1 : 0) : kDebugCannot;
+}
+
+// Ctrl and the 9 key of the number pad: creature_palm_point goes between 1
+// and 0.
+void HandDirectPalmPointChange(const char* by) {
+  g_palm_point = !g_palm_point;
+  ControllersGesturePulse(0.5f, g_palm_point ? 0.30f : 0.08f);
+  ModLog("hand creature: %s: creature_palm_point is %d, "
+         "frame %llu. %s", by, g_palm_point ? 1 : 0, g_frame,
+         g_palm_point ? "The point of the flat hand of a stroke is the palm"
+                      : "The point of the flat hand of a stroke is the tip "
+                        "of the index finger");
+}
+int HandDirectPalmPointValue() {
+  return g_installed ? (g_palm_point ? 1 : 0) : kDebugCannot;
+}
+
+// Ctrl and the 3 key of the number pad: the limits of the hand of a stroke
+// go between the limits of the ini (0) and the fixed limits (1).
+void HandDirectStrokeLimitsChange(const char* by) {
+  g_stroke_limits_before = !g_stroke_limits_before;
+  float finger_below = 0.0f, flat_above = 0.0f;
+  StrokeLimitsNow(&finger_below, &flat_above);
+  ControllersGesturePulse(0.5f, g_stroke_limits_before ? 0.08f : 0.30f);
+  ModLog("hand creature: %s: the hand of a stroke is the "
+         "finger below %.2f of the hand's length and the flat hand over "
+         "%.2f, and a stroke starts with the flat hand from %.2f (%s), "
+         "frame %llu", by, finger_below, flat_above,
+         0.5f * (finger_below + flat_above),
+         g_stroke_limits_before
+             ? "the fixed limits of the test key"
+             : "creature_finger_below_pct and creature_flat_above_pct",
+         g_frame);
+}
+int HandDirectStrokeLimitsValue() {
+  return g_installed ? (g_stroke_limits_before ? 1 : 0) : kDebugCannot;
+}
+
+// The 9 key of the number pad: the next speed of a slap. The value is 0 for
+// the speed of the ini, and 1 to 4 for 0.7, 1.0, 1.3 and 1.6 m/s.
+void HandDirectSlapChange(const char* by) {
+  g_slap_key = (g_slap_key + 1) % 4;
+  ControllersGesturePulse(0.5f, 0.08f * (g_slap_key + 1));
+  ModLog("hand creature: %s: a slap needs %.1f m/s now, and a hard "
+         "slap %.2f m/s (creature_slap_mps is %.2f in the ini), frame %llu",
+         by, SlapMps(), 1.8f * SlapMps(), ControllersCreatureSlapMps(),
+         g_frame);
+}
+int HandDirectSlapValue() {
+  return g_installed ? g_slap_key + 1 : kDebugCannot;
+}
+
+// The 3 key of the number pad: the next value of creature_stroke_hand.
+void HandDirectStrokeHandChange(const char* by) {
+  g_stroke_mode = (g_stroke_mode + 1) % 4;
+  ControllersGesturePulse(0.5f, 0.08f * (g_stroke_mode + 1));
+  ModLog("hand creature: %s: creature_stroke_hand is %d now: %s. A "
+         "slap needs %.2f m/s, frame %llu", by, g_stroke_mode,
+         g_stroke_mode == 0   ? "the hand of a stroke follows the size of "
+                                "the Creature"
+         : g_stroke_mode == 1 ? "the flat hand"
+         : g_stroke_mode == 2 ? "the index finger"
+                              : "the fist stroke: a fist while the grip is "
+                                "closed, and the speed of the grip only",
+         SlapMps(), g_frame);
+}
+int HandDirectStrokeHandValue() {
+  return g_installed ? g_stroke_mode : kDebugCannot;
+}
+
+// The 7 key of the number pad: hand_glow_idle goes between 1 and 0.
+void HandDirectGlowIdleChange(const char* by) {
+  g_glow_idle = !g_glow_idle;
+  ControllersGesturePulse(0.5f, g_glow_idle ? 0.08f : 0.30f);
+  ModLog("hand glow    : %s: hand_glow_idle is %d, frame %llu. %s", by,
+         g_glow_idle ? 1 : 0, g_frame,
+         g_glow_idle ? "The glow shows on each frame, pale blue with no "
+                       "target"
+                     : "The glow shows only while a press of the grip has "
+                       "a target at the Hand's point");
+}
+int HandDirectGlowIdleValue() {
+  return g_installed ? (g_glow_idle ? 1 : 0) : kDebugCannot;
+}
+
+// The point key of the number pad: near_rule goes between 2 (one target) and
+// the old rule. With near_rule=0 or 1 in the ini, between that rule and 2.
+void HandDirectNearRuleChange(const char* by) {
+  SetRule(g_rule == 2 ? (g_rule_ini < 2 ? g_rule_ini : 1) : 2);
+  ControllersGesturePulse(0.5f, g_one_target ? 0.30f : 0.08f);
+  ModLog("hand pick    : %s: near_rule is %d, frame %llu. %s", by,
+         g_rule, g_frame,
+         g_one_target
+             ? "One target: the pick record holds only the object with the "
+               "halo, and the game's search at the palm is off"
+             : g_near_rule
+                   ? "The nearest body within the reach, the game's pick at "
+                     "the pixel for an object that is not near, and the "
+                     "game's search at the palm"
+                   : "The pick has a reach of 60 percent of the Hand's "
+                     "length");
+}
+int HandDirectNearRuleValue() { return g_installed ? g_rule : kDebugCannot; }
+
+namespace {
+
 // THE A/B KEY (docs/throw.md, "The release at once"). With test_keys=1, the
 // star key of the number pad turns the release at once off and on while the
 // game runs: the game turn after a release, and the fast opening of the grip
@@ -3399,14 +3668,7 @@ void PollReleaseKey() {
   DWORD process = 0;
   if (window != nullptr) GetWindowThreadProcessId(window, &process);
   if (process != GetCurrentProcessId()) return;
-  g_turn_on = !g_turn_on;
-  ControllersGesturePulse(0.5f, g_turn_on ? 0.30f : 0.08f);
-  ModLog("hand throw   : the star key: the release at once is %s, frame "
-         "%llu. %s", g_turn_on ? "ON" : "OFF", g_frame,
-         g_turn_on ? "A game turn runs at once after a release, and the grip "
-                     "opens on a fast fall"
-                   : "A release waits for the next game turn, and the grip "
-                     "opens only below 35%");
+  HandDirectReleaseAtOnceChange("the star key");
 }
 
 // THE A/B KEY of the pick at the glow (docs/grab.md, "One point for each
@@ -3434,30 +3696,7 @@ void PollCatchKey() {
   DWORD process = 0;
   if (window != nullptr) GetWindowThreadProcessId(window, &process);
   if (process != GetCurrentProcessId()) return;
-  g_catch_on = g_catch_on == near_math::kCatchOff ? near_math::kCatchOpen
-                                                  : g_catch_on - 1;
-  g_catch_logged = nullptr;
-  g_wide_catch_logged = nullptr;
-  ControllersGesturePulse(0.5f, g_catch_on == near_math::kCatchOpen   ? 0.45f
-                                : g_catch_on == near_math::kCatchRest ? 0.30f
-                                : g_catch_on == near_math::kCatchPick ? 0.15f
-                                                                      : 0.08f);
-  ModLog("hand pick    : Ctrl and Page Up: catch_moving is %d now, frame %llu. %s",
-         g_catch_on, g_frame,
-         g_catch_on == near_math::kCatchOpen
-             ? "An object that moves has the reach that it has at rest and "
-               "the extra reach. An object that fell from a still hand has "
-               "no guard, and the guard of a throw ends when the grip is "
-               "fully open"
-         : g_catch_on == near_math::kCatchRest
-             ? "An object that moves has the reach that it has at rest and "
-               "the extra reach. An object that fell from a still hand has "
-               "no guard, and a throw has the guard for the whole of "
-               "catch_grace_ms"
-         : g_catch_on == near_math::kCatchPick
-             ? "An object that moves has the extra reach on the reach of the "
-               "pick only, and each object that you let go has the guard"
-             : "Each object has the same reach, moving or still");
+  HandDirectCatchMovingChange("Ctrl and Page Up");
 }
 
 // The test key Ctrl Shift Page Up: hand_wide_pick_cm goes between its value
@@ -3474,22 +3713,7 @@ void PollWideKey() {
   DWORD process = 0;
   if (window != nullptr) GetWindowThreadProcessId(window, &process);
   if (process != GetCurrentProcessId()) return;
-  static int saved = 0;
-  if (g_wide_cm > 0) {
-    saved = g_wide_cm;
-    g_wide_cm = 0;
-  } else {
-    g_wide_cm = saved > 0 ? saved : near_math::kWideCm;
-  }
-  g_wide_logged = nullptr;
-  ControllersGesturePulse(0.5f, g_wide_cm > 0 ? 0.30f : 0.08f);
-  ModLog("hand pick    : Ctrl, Shift and Page Up: hand_wide_pick_cm is %d now, "
-         "frame %llu. %s", g_wide_cm, g_frame,
-         g_wide_cm > 0
-             ? "A holdable object up to that gap is the target when nothing "
-               "is nearer"
-             : "The wide reach is off: a gap between the reach of the pick "
-               "and the far grab has no target");
+  HandDirectWidePickChange("Ctrl, Shift and Page Up");
 }
 
 // THE A/B KEY OF THE CHOICE OF A FAR TARGET (test_keys=1): Ctrl with the Delete
@@ -3498,37 +3722,25 @@ void PollWideKey() {
 // pulse for each unit of the value, and one long pulse for 0: a hand can count
 // pulses, and it cannot tell five lengths apart. The key is read once a frame,
 // only while a window of the game is in front, and the mod does not take it
-// from the game.
-const float kChoicePulseSeconds = 0.08f;
-const float kChoiceLongPulseSeconds = 0.40f;
-// From the start of a pulse to the start of the next one.
-const ULONGLONG kChoicePulseStepMs = 250;
+// from the game. The pulses play also after a change from the debug page, so
+// they play before the test of test_keys.
 void PollChoiceKey() {
-  if (!g_release_key) return;
-  // Shift must be up: Ctrl, Shift and Delete is the key of god_zoom_about.
-  const bool down = (GetAsyncKeyState(VK_DELETE) & 0x8000) != 0 &&
-                    (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0 &&
-                    (GetAsyncKeyState(VK_SHIFT) & 0x8000) == 0;
-  const bool pressed = down && !g_choice_key_down;
-  g_choice_key_down = down;
-  const ULONGLONG now = GetTickCount64();
-  if (pressed) {
-    HWND window = GetForegroundWindow();
-    DWORD process = 0;
-    if (window != nullptr) GetWindowThreadProcessId(window, &process);
-    if (process != GetCurrentProcessId()) return;
-    FarGrabSetChoice(FarGrabChoice() >= far_choice_math::kChoiceMost
-                         ? 0
-                         : FarGrabChoice() + 1);
-    g_choice_pulses = FarGrabChoice();
-    g_choice_pulse_tick = now;
-    if (FarGrabChoice() == 0) {
-      ControllersGesturePulse(0.5f, kChoiceLongPulseSeconds);
+  if (g_release_key) {
+    // Shift must be up: Ctrl, Shift and Delete is the key of god_zoom_about.
+    const bool down = (GetAsyncKeyState(VK_DELETE) & 0x8000) != 0 &&
+                      (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0 &&
+                      (GetAsyncKeyState(VK_SHIFT) & 0x8000) == 0;
+    const bool pressed = down && !g_choice_key_down;
+    g_choice_key_down = down;
+    if (pressed) {
+      HWND window = GetForegroundWindow();
+      DWORD process = 0;
+      if (window != nullptr) GetWindowThreadProcessId(window, &process);
+      if (process != GetCurrentProcessId()) return;
+      HandDirectFarChoiceChange("Ctrl and Delete");
     }
-    ModLog("far grab    : Ctrl and Delete: far_grab_choice is %d now, frame "
-           "%llu. %s", FarGrabChoice(), g_frame,
-           FarGrabChoiceWords(FarGrabChoice()));
   }
+  const ULONGLONG now = GetTickCount64();
   if (g_choice_pulses > 0 && now >= g_choice_pulse_tick) {
     --g_choice_pulses;
     g_choice_pulse_tick = now + kChoicePulseStepMs;
@@ -3553,10 +3765,7 @@ void PollStayKey() {
   DWORD process = 0;
   if (window != nullptr) GetWindowThreadProcessId(window, &process);
   if (process != GetCurrentProcessId()) return;
-  FarGrabSetStay(FarGrabStay() != 0 ? 0 : 1);
-  ControllersGesturePulse(0.5f, FarGrabStay() != 0 ? 0.30f : 0.08f);
-  ModLog("far grab    : Ctrl and Backspace: far_grab_stay is %d now, frame "
-         "%llu. %s", FarGrabStay(), g_frame, FarGrabStayWords(FarGrabStay()));
+  HandDirectFarStayChange("Ctrl and Backspace");
 }
 
 // THE A/B KEY OF A TAKE WHOSE SOURCE GOES AWAY (test_keys=1): Shift with the
@@ -3575,11 +3784,7 @@ void PollTakeCarryKey() {
   DWORD process = 0;
   if (window != nullptr) GetWindowThreadProcessId(window, &process);
   if (process != GetCurrentProcessId()) return;
-  FarGrabSetTakeCarry(FarGrabTakeCarry() != 0 ? 0 : 1);
-  ControllersGesturePulse(0.5f, FarGrabTakeCarry() != 0 ? 0.30f : 0.08f);
-  ModLog("far grab    : Shift and Backspace: far_take_carry is %d now, frame "
-         "%llu. %s", FarGrabTakeCarry(), g_frame,
-         FarGrabTakeCarryWords(FarGrabTakeCarry()));
+  HandDirectTakeCarryChange("Shift and Backspace");
 }
 
 
@@ -3653,101 +3858,14 @@ void PollNearKey() {
   DWORD process = 0;
   if (window != nullptr) GetWindowThreadProcessId(window, &process);
   if (process != GetCurrentProcessId()) return;
-  if (scroll_pressed) {
-    g_scroll_draw = !g_scroll_draw;
-    ControllersGesturePulse(0.5f, g_scroll_draw ? 0.30f : 0.08f);
-    ModLog("hand scroll  : Ctrl and the point key: scroll_draw is %d, frame "
-           "%llu. %s", g_scroll_draw ? 1 : 0, g_frame,
-           g_scroll_draw ? "Each scroll that the game draws is a candidate, "
-                           "with the reach of scroll_reach_cm"
-                         : "A scroll is a candidate only when the game's pick "
-                           "offers it, with the reach of each object");
-  }
-  if (script_pressed) {
-    g_script_on = !g_script_on;
-    ControllersGesturePulse(0.5f, g_script_on ? 0.30f : 0.08f);
-    if (g_script_on) {
-      ModLog("scripts      : Ctrl and the 7 key: a script that asks about the "
-             "camera gets the player again (script_distance=%d, "
-             "script_view=%d, script_camera_moves=%d), frame %llu",
-             g_script_distance, g_script_view, g_script_moves, g_frame);
-    } else {
-      ModLog("scripts      : Ctrl and the 7 key: a script that asks about the "
-             "camera gets the game's camera, as with script_distance=0, "
-             "script_view=0 and script_camera_moves=0, frame %llu", g_frame);
-    }
-  }
-  if (palm_pressed) {
-    g_palm_point = !g_palm_point;
-    ControllersGesturePulse(0.5f, g_palm_point ? 0.30f : 0.08f);
-    ModLog("hand creature: Ctrl and the 9 key: creature_palm_point is %d, "
-           "frame %llu. %s", g_palm_point ? 1 : 0, g_frame,
-           g_palm_point ? "The point of the flat hand of a stroke is the palm"
-                        : "The point of the flat hand of a stroke is the tip "
-                          "of the index finger");
-  }
-  if (limit_pressed) {
-    g_stroke_limits_before = !g_stroke_limits_before;
-    float finger_below = 0.0f, flat_above = 0.0f;
-    StrokeLimitsNow(&finger_below, &flat_above);
-    ControllersGesturePulse(0.5f, g_stroke_limits_before ? 0.08f : 0.30f);
-    ModLog("hand creature: Ctrl and the 3 key: the hand of a stroke is the "
-           "finger below %.2f of the hand's length and the flat hand over "
-           "%.2f, and a stroke starts with the flat hand from %.2f (%s), "
-           "frame %llu", finger_below, flat_above,
-           0.5f * (finger_below + flat_above),
-           g_stroke_limits_before
-               ? "the fixed limits of the test key"
-               : "creature_finger_below_pct and creature_flat_above_pct",
-           g_frame);
-  }
-  if (slap_pressed) {
-    g_slap_key = (g_slap_key + 1) % 4;
-    ControllersGesturePulse(0.5f, 0.08f * (g_slap_key + 1));
-    ModLog("hand creature: the 9 key: a slap needs %.1f m/s now, and a hard "
-           "slap %.2f m/s (creature_slap_mps is %.2f in the ini), frame %llu",
-           SlapMps(), 1.8f * SlapMps(), ControllersCreatureSlapMps(),
-           g_frame);
-  }
-  if (stroke_pressed) {
-    g_stroke_mode = (g_stroke_mode + 1) % 4;
-    ControllersGesturePulse(0.5f, 0.08f * (g_stroke_mode + 1));
-    ModLog("hand creature: the 3 key: creature_stroke_hand is %d now: %s. A "
-           "slap needs %.2f m/s, frame %llu", g_stroke_mode,
-           g_stroke_mode == 0   ? "the hand of a stroke follows the size of "
-                                  "the Creature"
-           : g_stroke_mode == 1 ? "the flat hand"
-           : g_stroke_mode == 2 ? "the index finger"
-                                : "the fist stroke: a fist while the grip is "
-                                  "closed, and the speed of the grip only",
-           SlapMps(), g_frame);
-  }
-  if (glow_pressed) {
-    g_glow_idle = !g_glow_idle;
-    ControllersGesturePulse(0.5f, g_glow_idle ? 0.08f : 0.30f);
-    ModLog("hand glow    : the 7 key: hand_glow_idle is %d, frame %llu. %s",
-           g_glow_idle ? 1 : 0, g_frame,
-           g_glow_idle ? "The glow shows on each frame, pale blue with no "
-                         "target"
-                       : "The glow shows only while a press of the grip has "
-                         "a target at the Hand's point");
-  }
-  if (!pressed) return;
-  // Between one target and the old rule. With near_rule=0 or
-  // 1 in the ini, between that rule and one target.
-  SetRule(g_rule == 2 ? (g_rule_ini < 2 ? g_rule_ini : 1) : 2);
-  ControllersGesturePulse(0.5f, g_one_target ? 0.30f : 0.08f);
-  ModLog("hand pick    : the point key: near_rule is %d, frame %llu. %s",
-         g_rule, g_frame,
-         g_one_target
-             ? "One target: the pick record holds only the object with the "
-               "halo, and the game's search at the palm is off"
-             : g_near_rule
-                   ? "The nearest body within the reach, the game's pick at "
-                     "the pixel for an object that is not near, and the "
-                     "game's search at the palm"
-                   : "The pick has a reach of 60 percent of the Hand's "
-                     "length");
+  if (scroll_pressed) HandDirectScrollDrawChange("Ctrl and the point key");
+  if (script_pressed) HandDirectScriptPlayerChange("Ctrl and the 7 key");
+  if (palm_pressed) HandDirectPalmPointChange("Ctrl and the 9 key");
+  if (limit_pressed) HandDirectStrokeLimitsChange("Ctrl and the 3 key");
+  if (slap_pressed) HandDirectSlapChange("the 9 key");
+  if (stroke_pressed) HandDirectStrokeHandChange("the 3 key");
+  if (glow_pressed) HandDirectGlowIdleChange("the 7 key");
+  if (pressed) HandDirectNearRuleChange("the point key");
 }
 
 // Once a frame: how long the Hand kept the object after the release action.
@@ -7630,11 +7748,11 @@ void HandDirectInstallTable() {
            g_far_test_take_gone);
   }
   // A GAME TURN NOW: release_at_once=0 leaves the game turns as they are.
-  // With test_keys=1 the hook goes in for both values, so the A/B key can
-  // turn the release at once on.
+  // With test_keys=1 or debug_menu=1 the hook goes in for both values, so the
+  // A/B key and the debug page can turn the release at once on.
   g_turn_on = IniKey("release_at_once", 1) != 0;
   g_release_key = IniKey("test_keys", 0) != 0;
-  if (g_turn_on || g_release_key) {
+  if (g_turn_on || TestSwitchesOn()) {
     g_turn_hooked = Hook(kDoATurn, reinterpret_cast<void*>(&h_DoATurn),
                          reinterpret_cast<void**>(&o_DoATurn),
                          "GGame::LocalTimerSaysDoATurn (a game turn at once "
@@ -8458,26 +8576,42 @@ int HandDirectTreeVerdict() {
   return g_tree_hint != 0 ? g_tree_verdict : -1;
 }
 
-// The A/B key of the roots pile (test_keys=1, Ctrl, Shift and Page Down).
-void HandDirectRootsToggle() {
+// The A/B key of the roots pile (test_keys=1, Ctrl, Shift and Page Down),
+// and its switch of the debug page (debug_menu.h).
+void HandDirectRootsToggle(const char* by) {
   ReadTreeHintKey();
   g_roots_at_tree = g_roots_at_tree != 0 ? 0 : 1;
   ControllersGesturePulse(0.5f, g_roots_at_tree != 0 ? 0.24f : 0.08f);
-  ModLog("test key     : Ctrl, Shift and Page Down: far_roots_at_tree is %d now "
-         "(%s)", g_roots_at_tree,
+  ModLog("test key     : %s: far_roots_at_tree is %d now "
+         "(%s)", by, g_roots_at_tree,
          g_roots_at_tree != 0 ? "the roots pile stands at the roots"
                               : "the roots pile stays on the way of the glide");
 }
+void HandDirectRootsToggle() {
+  HandDirectRootsToggle("Ctrl, Shift and Page Down");
+}
+int HandDirectRootsValue() {
+  ReadTreeHintKey();
+  return g_installed ? g_roots_at_tree : kDebugCannot;
+}
 
-// The A/B key of the card (test_keys=1, Ctrl and Page Down).
-void HandDirectTreeHintToggle() {
+// The A/B key of the card (test_keys=1, Ctrl and Page Down), and its switch
+// of the debug page (debug_menu.h).
+void HandDirectTreeHintToggle(const char* by) {
   ReadTreeHintKey();
   g_tree_hint = g_tree_hint != 0 ? 0 : 1;
   ControllersGesturePulse(0.5f, g_tree_hint != 0 ? 0.24f : 0.08f);
-  ModLog("test key     : Ctrl and Page Down: tree_plant_hint is %d now (%s)",
+  ModLog("test key     : %s: tree_plant_hint is %d now (%s)", by,
          g_tree_hint, g_tree_hint != 0 ? "the card says what the opening of "
                                          "the grip does with a tree"
                                        : "the card shows the text of the game");
+}
+void HandDirectTreeHintToggle() {
+  HandDirectTreeHintToggle("Ctrl and Page Down");
+}
+int HandDirectTreeHintValue() {
+  ReadTreeHintKey();
+  return g_installed ? g_tree_hint : kDebugCannot;
 }
 
 // For overlay.cpp: the hand of a stroke of the Creature, and what the tickle

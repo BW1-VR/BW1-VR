@@ -3069,6 +3069,9 @@ void UiDepthToggleHintHandDepth(const char* cause) {
          ControllersFrameCount());
 }
 
+// The value of hint_hand_depth for the debug page.
+int UiDepthHintHandDepthValue() { return g_hint_hand_depth; }
+
 // Once a frame, outside the eye passes: the test key with a frame.
 void UiDepthHintHandDepthFrame() {
   if (g_hint_hand_depth_test_frame <= 0) return;
@@ -3205,6 +3208,11 @@ void UiDepthCycleSubtitleDegrees() {
   g_subtitle_degrees = static_cast<float>(next);
   ModLog("test key     : subtitles sit %d degrees below the middle of the view",
          next);
+}
+
+// The value of subtitle_deg for the debug page, in degrees.
+int UiDepthSubtitleDegreesValue() {
+  return static_cast<int>(g_subtitle_degrees + 0.5f);
 }
 
 // Names every caller that draws a different number of batches in the second

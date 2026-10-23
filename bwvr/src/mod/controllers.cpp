@@ -55,6 +55,7 @@
 #include "controller_math.h"
 #include "controllers.h"
 #include "creature_command.h"
+#include "debug_menu.h"
 #include "far_grab.h"
 #include "frame_profile.h"
 #include "haptics.h"
@@ -2650,6 +2651,45 @@ bool ButtonDown(int button) {
                                   g_grip_down, g_swap_buttons);
 }
 
+}  // namespace
+
+// THE SWITCHES OF THE TWO TEST KEYS BELOW (debug_menu.h). The first pump of
+// the buttons reads grip_press_guard and grip_press_hold. Before it nothing
+// changes.
+void ControllersPressGuardChange(const char* by) {
+  if (g_press_guard < 0) return;
+  g_press_guard = g_press_guard != 0 ? 0 : 1;
+  ControllersGesturePulse(0.5f, g_press_guard != 0 ? 0.30f : 0.08f);
+  ModLog("grip         : %s: grip_press_guard is %d now, "
+         "frame %llu. %s", by, g_press_guard, g_frame,
+         g_press_guard != 0
+             ? "A dip of the squeeze in the first 300 ms of a press does not "
+               "open the grip"
+             : "A fast fall of the squeeze opens the grip at any time");
+}
+int ControllersPressGuardValue() {
+  return g_installed && g_press_guard >= 0 ? g_press_guard : kDebugCannot;
+}
+
+void ControllersPressHoldChange(const char* by) {
+  if (g_press_hold < 0) return;
+  g_press_hold = g_press_hold != 0 ? 0 : 1;
+  ControllersGesturePulse(0.5f, g_press_hold != 0 ? 0.30f : 0.08f);
+  ModLog("grip         : %s: "
+         "grip_press_hold is %d now, frame %llu. %s", by, g_press_hold, g_frame,
+         g_press_hold != 0
+             ? "The button of the game stays down until the pick up of the "
+               "game is over, and a press on an object that moves is no "
+               "click"
+             : "The button of the game goes up 167 ms after the object came "
+               "into the Hand of the picture");
+}
+int ControllersPressHoldValue() {
+  return g_installed && g_press_hold >= 0 ? g_press_hold : kDebugCannot;
+}
+
+namespace {
+
 // THE TEST KEY OF THE PRESS GUARD: Ctrl, Shift and Home (test_keys=1) turn
 // grip_press_guard off and on while the game runs.
 void PollPressGuardKey() {
@@ -2662,14 +2702,7 @@ void PollPressGuardKey() {
   const bool pressed = down && !g_press_guard_key_down;
   g_press_guard_key_down = down;
   if (!pressed || !GameInFront()) return;
-  g_press_guard = g_press_guard != 0 ? 0 : 1;
-  ControllersGesturePulse(0.5f, g_press_guard != 0 ? 0.30f : 0.08f);
-  ModLog("grip         : Ctrl, Shift and Home: grip_press_guard is %d now, "
-         "frame %llu. %s", g_press_guard, g_frame,
-         g_press_guard != 0
-             ? "A dip of the squeeze in the first 300 ms of a press does not "
-               "open the grip"
-             : "A fast fall of the squeeze opens the grip at any time");
+  ControllersPressGuardChange("Ctrl, Shift and Home");
 }
 
 // THE TEST KEY OF THE PRESS OF THE GAME: Shift and the plus key of the number
@@ -2685,16 +2718,7 @@ void PollPressHoldKey() {
   const bool pressed = down && !g_press_hold_key_down;
   g_press_hold_key_down = down;
   if (!pressed || !GameInFront()) return;
-  g_press_hold = g_press_hold != 0 ? 0 : 1;
-  ControllersGesturePulse(0.5f, g_press_hold != 0 ? 0.30f : 0.08f);
-  ModLog("grip         : Shift and the plus key of the number pad: "
-         "grip_press_hold is %d now, frame %llu. %s", g_press_hold, g_frame,
-         g_press_hold != 0
-             ? "The button of the game stays down until the pick up of the "
-               "game is over, and a press on an object that moves is no "
-               "click"
-             : "The button of the game goes up 167 ms after the object came "
-               "into the Hand of the picture");
+  ControllersPressHoldChange("Shift and the plus key of the number pad");
 }
 
 void PumpButtons(ULONGLONG now) {
@@ -4657,7 +4681,17 @@ void ControllersCycleOwnerMode() {
          kOwnerModeName[g_owner_mode]);
 }
 
+// The value of the switch of Ctrl+F12 on the debug page (debug_menu.h).
+int ControllersOwnerModeValue() {
+  return g_on && g_installed ? g_owner_mode : kDebugCannot;
+}
+
 int ControllersButtonLayout() { return ButtonLayout(); }
+
+// The value of the switch of button_layout on the debug page.
+int ControllersButtonLayoutValue() {
+  return g_on ? ButtonLayout() : kDebugCannot;
+}
 
 // The test key of button_layout. A button that is down now is not a new
 // press for its new job, a ring that is open closes with no choice, and a

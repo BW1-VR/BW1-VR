@@ -84,6 +84,7 @@
 #include "../common/bw_addresses.h"
 #include "bubble_card.h"
 #include "bubble_card_math.h"
+#include "debug_menu.h"
 #include "one_walk.h"
 #include "one_walk_math.h"
 
@@ -626,6 +627,11 @@ void BubbleCardInstall() {
 void BubbleCardToggle(const char* cause) {
   if (!g_installed) return;
   Toggle(cause);
+}
+
+int BubbleCardValue() {
+  if (!g_installed) return kDebugCannot;
+  return g_on ? 1 : 0;
 }
 
 void BubbleCardPass(int eye) {

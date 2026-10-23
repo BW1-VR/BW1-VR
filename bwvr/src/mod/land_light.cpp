@@ -48,6 +48,7 @@
 #include <string.h>
 
 #include "MinHook.h"
+#include "debug_menu.h"
 #include "land_light_math.h"
 
 extern void ModLog(const char* format, ...);
@@ -200,6 +201,30 @@ void CloseFrame() {
   g_given += static_cast<uint64_t>(g_frame_given);
 }
 
+}  // namespace
+
+// The switch of the debug page (debug_menu.h). The list of the lights of the
+// game must be ready, as for the key.
+void LandLightEyesChange(const char* by) {
+  Load();
+  if (!g_ready) return;
+  EndRun();
+  g_both_eyes = g_both_eyes != 0 ? 0 : 1;
+  ControllersGrabPulse(1, 0.5f, g_both_eyes != 0 ? 0.30f : 0.08f);
+  ModLog("land light   : %s: land_light_eyes is %d now. A light on the land "
+         "that comes one time in a frame shows in %s, frame %llu", by,
+         g_both_eyes, g_both_eyes != 0 ? "both eyes" : "the left eye only",
+         ControllersFrameCount());
+}
+
+int LandLightEyesValue() {
+  Load();
+  if (!g_ready) return kDebugCannot;
+  return g_both_eyes;
+}
+
+namespace {
+
 // Ctrl, Shift and the Menu key: the lights show in both eyes, or in the left
 // eye only (land_light_eyes). A long pulse for both eyes and a short pulse
 // for the left eye.
@@ -216,14 +241,7 @@ void PollKey() {
   DWORD process = 0;
   if (window != nullptr) GetWindowThreadProcessId(window, &process);
   if (process != GetCurrentProcessId()) return;
-  EndRun();
-  g_both_eyes = g_both_eyes != 0 ? 0 : 1;
-  ControllersGrabPulse(1, 0.5f, g_both_eyes != 0 ? 0.30f : 0.08f);
-  ModLog("land light   : Ctrl, Shift and the Menu key: land_light_eyes is %d "
-         "now. A light on the land that comes one time in a frame shows in "
-         "%s, frame %llu", g_both_eyes,
-         g_both_eyes != 0 ? "both eyes" : "the left eye only",
-         ControllersFrameCount());
+  LandLightEyesChange("Ctrl, Shift and the Menu key");
 }
 
 // land_light_test: the light of a lightning at its start, as fn_00837200

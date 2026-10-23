@@ -358,6 +358,11 @@ const Setting kSettings[] = {
      "while you play, so that you can compare, and the readme lists them. "
      "F12 saves a picture of each eye in the game folder. A player does "
      "not need this."},
+    {kBool, "debug_menu", "Debug menu", nullptr, 0,
+     "Adds the item Debug to the ring of your left hand. It opens pages "
+     "with the switches of the test keys, and a choice changes a switch at "
+     "once. So you can compare in the headset with no keyboard. It does "
+     "not need the test keys. A player does not need this."},
 };
 
 const int kSettingCount = sizeof(kSettings) / sizeof(kSettings[0]);

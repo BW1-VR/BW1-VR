@@ -26,14 +26,21 @@ void RenderThreadSetOptions(int mode, int test_frame, int lock_free,
 // The test key: gpu_flush goes between 0 and the value of the ini
 // (or 128).
 void RenderThreadFlushToggle(const char* keys);
+// The values of the test keys for the debug page, or kDebugCannot with
+// vulkan_only=1.
+int RenderThreadFlushValue();
 // The test key: render_thread_buffers goes between 1 and 0.
 void RenderThreadBuffersToggle(const char* keys);
+int RenderThreadBuffersValue();
 // The test key: render_thread_filter goes between 1 and 0.
 void RenderThreadFilterToggle(const char* keys);
+int RenderThreadFilterValue();
 // The test key: the mode goes between 0 and the value of the ini (or 1).
 void RenderThreadToggle(const char* keys);
+int RenderThreadValue();
 // The test key: render_thread_lock_free goes between 1 and 0.
 void RenderThreadLockFreeToggle(const char* keys);
+int RenderThreadLockFreeValue();
 // Each frame of the scene, before the eye passes. `frame` is the frame of the
 // controllers. True when the test of the pictures wants a picture of each eye
 // of this frame.
@@ -58,6 +65,7 @@ void RenderThreadSetLateEnd(bool on);
 bool RenderThreadLateEnd();
 // The test key: render_thread_late_end goes between 1 and 0.
 void RenderThreadLateEndToggle(const char* keys);
+int RenderThreadLateEndValue();
 // gpu_bridge.cpp, frame_send=2: the event query of the end of a frame goes
 // into the open queue after a walk, and the render thread issues it with
 // D3DGETDATA_FLUSH. Gives its number, or 0 when the frame thread must issue
@@ -74,3 +82,4 @@ void RenderThreadSetAbTest(const char* key);
 void RenderThreadSetRightEye(bool on);
 // The test key: render_thread_right_eye goes between 1 and 0.
 void RenderThreadRightEyeToggle(const char* keys);
+int RenderThreadRightEyeValue();

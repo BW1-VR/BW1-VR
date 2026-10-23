@@ -40,6 +40,7 @@
 
 #include "MinHook.h"
 #include "audio.h"
+#include "debug_menu.h"
 
 void ModLog(const char* format, ...);
 bool HeadCameraRenderBasis(float basis_out[9], float position_out[3]);
@@ -470,3 +471,6 @@ void AudioCycleMode() {
                        : "the ears are on the game camera (the sound of the "
                          "game)");
 }
+
+// The step of the Ctrl Shift F12 test key for the debug page: 0 to 4.
+int AudioModeValue() { return g_installed ? g_mode : kDebugCannot; }
