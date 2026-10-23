@@ -2318,6 +2318,9 @@ value is 0, so the test is always false, in the plain game too.]
   angle (`near_math::HeadSees`). This is the game's test for the picture
   that the headset shows.
 - **For "thing can view the camera",** the camera is the head.
+- **For a thing that a script turns to "camera position"** (`SET_FOCUS`),
+  the point is the head (`villager_look_head`, `village.md`, "A villager
+  that a script turns to the player").
 
 The game measures a distance on the map, so the height of the head does not
 count. At 100 units a meter a thing 50 cm in front of the head is 50 units
@@ -2422,9 +2425,10 @@ script gets the game's answer.
 | `script_distance` | 1 | 1: a distance from the camera is the distance from the player. 0: the game's camera |
 | `script_view` | 1 | 1: a view test uses the view of the head. 0: the game's camera |
 | `script_camera_moves` | 1 | 1: a script that asks how the player holds the land, or if the rotate arrow shows, gets the moves of the God view (16.6). 0: the game's answers |
+| `villager_look_head` | 1 | 1: a thing that a script turns to "camera position" turns to the head (`village.md`). 0: to the game's camera |
 
 With `test_keys=1`, Ctrl and the 7 key of the number pad change between the
-player (the three keys as the ini has them) and the game's camera for all
+player (the four keys as the ini has them) and the game's camera for all
 tests. The pointing controller gives a long pulse for the player and a short
 pulse for the game's camera.
 

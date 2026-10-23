@@ -713,6 +713,10 @@ the cut scene, as in the game. Set script_distance=0 and script_view=0
 in bwvr.ini if a quest must see only the camera of the game, far
 behind you.
 
+When a quest turns a villager to you, he turns his body to your
+head. Set villager_look_head=0 in bwvr.ini to turn him to the
+camera of the game, far behind you.
+
 
 THE FAR GRAB
 ------------
@@ -1045,9 +1049,9 @@ does not need them.
   Ctrl 5    The four rules of the aim of the trigger
             (creature_command_rule). One short pulse for each
             unit of the value.
-  Ctrl 7    The three rules for what a quest sees
-            (script_distance, script_view and
-            script_camera_moves).
+  Ctrl 7    The four rules for what a quest sees
+            (script_distance, script_view,
+            script_camera_moves and villager_look_head).
   Ctrl 8    The two ways to cast a miracle (miracle_hand).
   .         The rule "near objects win" and the pick of the Hand
             (far_grab_near_cm).

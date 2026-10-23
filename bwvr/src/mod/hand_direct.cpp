@@ -138,6 +138,7 @@
 #include "haptics.h"
 #include "miracle.h"
 #include "village.h"
+#include "village_math.h"
 #include "near_math.h"
 #include "table_math.h"
 #include "throw_physics.h"
@@ -1191,6 +1192,9 @@ int g_script_view = 1;
 // if the rotate arrow shows, gets the moves of the God view (h_ScriptHandState
 // and h_ScriptArrows).
 int g_script_moves = 1;
+// villager_look_head: a script that turns a villager to the camera turns him
+// to the head (h_ScriptFocus).
+int g_look_head = 1;
 bool g_script_on = true;
 bool g_script_key_down = false;
 void ScriptPlayerInstall();
@@ -3531,12 +3535,15 @@ void HandDirectScriptPlayerChange(const char* by) {
   if (g_script_on) {
     ModLog("scripts      : %s: a script that asks about the "
            "camera gets the player again (script_distance=%d, "
-           "script_view=%d, script_camera_moves=%d), frame %llu", by,
-           g_script_distance, g_script_view, g_script_moves, g_frame);
+           "script_view=%d, script_camera_moves=%d, "
+           "villager_look_head=%d), frame %llu", by,
+           g_script_distance, g_script_view, g_script_moves, g_look_head,
+           g_frame);
   } else {
     ModLog("scripts      : %s: a script that asks about the "
            "camera gets the game's camera, as with script_distance=0, "
-           "script_view=0 and script_camera_moves=0, frame %llu", by, g_frame);
+           "script_view=0, script_camera_moves=0 and villager_look_head=0, "
+           "frame %llu", by, g_frame);
   }
 }
 int HandDirectScriptPlayerValue() {
@@ -7915,14 +7922,18 @@ void LatchPlayer() {
   g_player = p;
 }
 
-// True when the player stands for the camera of a script at this moment.
-bool ScriptPlayerNow() {
-  if (!g_script_on || !g_player.valid) return false;
+// True when the view of the player is at the place of the game camera at this
+// moment, with each answer of the player on or off.
+bool ScriptPlayerStands() {
+  if (!g_player.valid) return false;
   return near_math::PlayerIsCamera(true, TabletopGodOwnsView(),
                                    ScriptCameraOwnerNow(),
                                    CutsceneWindowBarsUp(),
                                    ComfortCameraGameMoves());
 }
+
+// True when the player stands for the camera of a script at this moment.
+bool ScriptPlayerNow() { return g_script_on && ScriptPlayerStands(); }
 
 bool ScriptCameraOut() {
   const uint8_t* game = *reinterpret_cast<const uint8_t* const*>(kScriptGame);
@@ -8052,6 +8063,199 @@ void __cdecl h_ScriptThingSees() {
   o_ScriptThingSees();
   for (int i = 0; i < 3; ++i) camera[i] = keep[i];
   ++g_script_answers;
+}
+
+// A THING THAT A SCRIPT TURNS TO THE CAMERA (villager_look_head) [V].
+// - GScript::SetFocus 0x006F90B0 is the word SET_FOCUS (native 34). It takes
+//   a thing and a point, which come off the stack as z, y, x, then the thing.
+//   For an object it calls slot 0x510: Object::SetFocus 0x006393A0 for a
+//   villager, which turns the whole body to the point on the map
+//   (LH3DMath::GetYAngle, then slot 0x524). A villager has no turn of the
+//   head and no pitch. For the Creature it is Creature::SetFocus 0x004F6760,
+//   and for a group each thing of the group.
+// - challenge.chl has SET_FOCUS with the point of "camera position" at 174
+//   places. 146 are in a cut scene, which keeps the camera of the story. The
+//   28 others turn a person of a quest to the player while the player has the
+//   view: for example the person at a scroll, who waves to the player
+//   (CreatureDevelopmentHighlightNotify), the Shaolin monk, the guards of the
+//   slavers and the man of the throwing stones.
+// - In the God view the engine camera is the game's own camera, 257 units
+//   from the player on the map (docs/god-view.md, section 16.2). So the
+//   villager turns to a point far behind the player.
+// With villager_look_head=1, while the player stands for the camera, a point
+// that is the engine camera to the last bit becomes the head. The game does
+// the turn. Ctrl and the 7 key of the number pad change it with the other
+// answers of the player (g_script_on).
+const uintptr_t kScriptFocus = 0x006F90B0;
+ScriptWordFn o_ScriptFocus = nullptr;
+// GameThingWithPos: the place on the map at +0x14 (x) and +0x18 (z), each
+// an int of 1/6553.6 unit (the 0.00015258789 at 0x008AA3A4).
+const int kThingMapX = 0x14;
+const int kThingMapZ = 0x18;
+const float kMapUnit = 0.00015258789f;
+const int kThingGameAngle = 0x5C;  // uint16, the heading of a Mobile
+const int kSlotIsCreature = 0x34;
+const int kSlotIsVillager = 0x2C8;  // thiscall (int), ret 4
+const int kSlotIsContainer = 0x3F8;
+typedef int(__fastcall* ThingAskFn)(void* self, void* unused);
+typedef int(__fastcall* ThingAskIntFn)(void* self, void* unused, int value);
+uint64_t g_look_turns = 0;   // the turns to the head of this report window
+uint64_t g_look_camera = 0;  // the turns to the game camera, at 0 or off
+uint64_t g_look_story = 0;   // the turns to the camera of a cut scene
+uint32_t g_look_said = 0;    // the script id of the thing that the log named
+int g_look_said_head = -1;   // and whether it turned to the head
+int g_look_logs = 0;
+const int kMaxLookLogs = 24;
+
+void* ScriptThingSlot(void* thing, int slot) {
+  if (thing == nullptr || IsBadReadPtr(thing, 4)) return nullptr;
+  void* const* table = *reinterpret_cast<void* const* const*>(thing);
+  if (table == nullptr || IsBadReadPtr(table + slot / 4, 4)) return nullptr;
+  return table[slot / 4];
+}
+
+const char* ScriptThingKind(void* thing) {
+  void* slot = ScriptThingSlot(thing, kSlotIsContainer);
+  if (slot != nullptr &&
+      reinterpret_cast<ThingAskFn>(slot)(thing, nullptr) != 0) {
+    return "a group of things";
+  }
+  slot = ScriptThingSlot(thing, kSlotIsCreature);
+  if (slot != nullptr &&
+      reinterpret_cast<ThingAskFn>(slot)(thing, nullptr) != 0) {
+    return "the Creature";
+  }
+  slot = ScriptThingSlot(thing, kSlotIsVillager);
+  if (slot != nullptr &&
+      reinterpret_cast<ThingAskIntFn>(slot)(thing, nullptr, 0) != 0) {
+    return "a villager";
+  }
+  return "a thing";
+}
+
+// The thing of a script id, as GScript::GetScriptGameThing 0x0070D220
+// finds it: the BaseInfo of the id in the table at 0x00D967F8 (20 bytes each,
+// ids 1 to 0x1FF). The mod reads it with BaseInfo::GetBase 0x00436B80 only:
+// GetScriptGameThing also gives the thing to the script that runs.
+const uintptr_t kScriptThings = 0x00D967F8;
+const uintptr_t kBaseInfoGetBase = 0x00436B80;  // thiscall (), the object
+typedef void*(__fastcall* GetBaseFn)(void* self, void* unused);
+void* ScriptThingOf(uint32_t id) {
+  if (id == 0 || id > 0x1FF) return nullptr;
+  void* info = reinterpret_cast<void*>(kScriptThings + id * 20);
+  void* thing = reinterpret_cast<GetBaseFn>(kBaseInfoGetBase)(info, nullptr);
+  if (thing == nullptr || IsBadReadPtr(thing, kThingGameAngle + 2)) {
+    return nullptr;
+  }
+  return thing;
+}
+
+// One line for a turn to the camera: where the thing is, where your head and
+// the game camera are from it, and where the game turned a villager.
+// said: 1 the head, 0 the game camera, 2 the game camera of a cut scene.
+void LookLog(const char* who, void* thing, const char* what,
+             const float game_camera[3], int said) {
+  const uint8_t* bytes = static_cast<const uint8_t*>(thing);
+  const float x =
+      *reinterpret_cast<const int32_t*>(bytes + kThingMapX) * kMapUnit;
+  const float z =
+      *reinterpret_cast<const int32_t*>(bytes + kThingMapZ) * kMapUnit;
+  const char* kind = ScriptThingKind(thing);
+  char faces[64] = "";
+  if (strcmp(kind, "a villager") == 0) {
+    const float now = village_math::GameAngleDegrees(
+        *reinterpret_cast<const uint16_t*>(bytes + kThingGameAngle));
+    _snprintf_s(faces, sizeof(faces), _TRUNCATE,
+                " The game turned him to %.1f degrees.", now);
+  }
+  const float to_camera =
+      village_math::FocusYAngle(x, z, game_camera[0], game_camera[2]) *
+      57.2957795f;
+  if (!g_player.valid) {
+    ModLog("villager look: %s %s (%s) at %.1f %.1f on the map to the "
+           "camera. It turns to the game camera at %.1f %.1f %.1f, at %.1f "
+           "degrees: the God view did not draw the last frame.%s Frame %llu",
+           who, kind, what, x, z, game_camera[0], game_camera[1],
+           game_camera[2], to_camera, faces, g_frame);
+    return;
+  }
+  const float* at = g_player.points.head_at;
+  const float to_head =
+      village_math::FocusYAngle(x, z, at[0], at[2]) * 57.2957795f;
+  const float hx = at[0] - x, hz = at[2] - z;
+  ModLog("villager look: %s %s (%s) at %.1f %.1f on the map to the camera. "
+         "%s Your head is at %.1f %.1f %.1f, %.1f units away on the map, at "
+         "%.1f degrees. The game camera is at %.1f %.1f %.1f, at %.1f "
+         "degrees, %.1f degrees from your head.%s (villager_look_head=%d), "
+         "frame %llu",
+         who, kind, what, x, z,
+         said == 1   ? "It turns to your head."
+         : said == 2 ? "It turns to the game camera: a cut scene, or the "
+                       "game moves its own camera."
+                     : "It turns to the game camera.",
+         at[0], at[1], at[2], sqrtf(hx * hx + hz * hz), to_head,
+         game_camera[0], game_camera[1], game_camera[2], to_camera,
+         village_math::TurnDegrees(to_head, to_camera), faces,
+         g_look_head != 0 && g_script_on ? 1 : 0, g_frame);
+}
+
+void __cdecl h_ScriptFocus() {
+  uint8_t* machine = *reinterpret_cast<uint8_t* const*>(kScriptMachine);
+  if (machine == nullptr) {
+    o_ScriptFocus();
+    return;
+  }
+  const ScriptPopFn pop = reinterpret_cast<ScriptPopFn>(kScriptPop);
+  const ScriptPushFn push = reinterpret_cast<ScriptPushFn>(kScriptPush);
+  uint32_t v[4];
+  int t[4];
+  for (int i = 0; i < 4; ++i) {
+    t[i] = 0;
+    v[i] = pop(machine, nullptr, &t[i]);
+  }
+  const uint32_t* camera =
+      reinterpret_cast<const uint32_t*>(bw::tech::kCameraPos);
+  const unsigned point_bits[3] = {v[2], v[1], v[0]};
+  const unsigned camera_bits[3] = {camera[0], camera[1], camera[2]};
+  const bool is_camera = point_bits[0] == camera_bits[0] &&
+                         point_bits[1] == camera_bits[1] &&
+                         point_bits[2] == camera_bits[2];
+  const bool player = is_camera && ScriptPlayerStands();
+  const bool head = village_math::FocusOnHead(
+      g_look_head != 0 && g_script_on, player, point_bits, camera_bits);
+  float game_camera[3];
+  memcpy(game_camera, camera, sizeof(game_camera));
+  if (head) {
+    memcpy(&v[2], &g_player.points.head_at[0], 4);
+    memcpy(&v[1], &g_player.points.head_at[1], 4);
+    memcpy(&v[0], &g_player.points.head_at[2], 4);
+  }
+  for (int i = 3; i >= 0; --i) push(machine, nullptr, v[i], t[i]);
+  o_ScriptFocus();
+  if (!is_camera) return;
+  if (!player) {
+    // A cut scene, or the game moves its own camera: the game's camera is
+    // right, as in the plain game.
+    ++g_look_story;
+  } else if (head) {
+    ++g_look_turns;
+  } else {
+    ++g_look_camera;
+  }
+  const int said = !player ? 2 : head ? 1 : 0;
+  if ((v[3] == g_look_said && said == g_look_said_head) ||
+      g_look_logs >= kMaxLookLogs) {
+    return;
+  }
+  void* thing = ScriptThingOf(v[3]);
+  if (thing == nullptr) return;
+  g_look_said = v[3];
+  g_look_said_head = said;
+  ++g_look_logs;
+  char what[48];
+  _snprintf_s(what, sizeof(what), _TRUNCATE, "script thing %u",
+              static_cast<unsigned>(v[3]));
+  LookLog("a script turns", thing, what, game_camera, said);
 }
 
 // The moves of the God view, at the moment of the word.
@@ -8191,6 +8395,31 @@ void ScriptPlayerInstall() {
   }
   if (!distance) g_script_distance = 0;
   if (!view) g_script_view = 0;
+  // The word that turns a thing to a point (villager_look_head).
+  g_look_head = IniKey("villager_look_head", 1) != 0 ? 1 : 0;
+  static const uint8_t kFocusBytes[14] = {0x83, 0xEC, 0x10, 0x56, 0x8B,
+                                          0x35, 0x10, 0x5C, 0xD9, 0x00,
+                                          0x8D, 0x44, 0x24, 0x04};
+  bool focus = false;
+  if (!ScriptBytes(kScriptFocus, kFocusBytes, sizeof(kFocusBytes)) ||
+      !ScriptBytes(kScriptThing, kThingBytes, sizeof(kThingBytes))) {
+    ModLog("hooks        : GScript::SetFocus at 0x%08X does not have the "
+           "bytes of the disassembly, so a script turns a villager to the "
+           "game's camera", static_cast<unsigned>(kScriptFocus));
+  } else {
+    focus = Hook(kScriptFocus, reinterpret_cast<void*>(&h_ScriptFocus),
+                 reinterpret_cast<void**>(&o_ScriptFocus),
+                 "GScript::SetFocus (a villager turns to the head)");
+  }
+  if (!focus) g_look_head = 0;
+  ModLog("scripts      : villager_look_head=%d. %s", g_look_head,
+         g_look_head != 0
+             ? "In the God view a script that turns a villager to the camera "
+               "turns him to your head. In a cut scene, and while the game "
+               "moves its own camera, he turns to the game's camera. 0 turns "
+               "him to the game's camera"
+             : "A script that turns a villager to the camera turns him to "
+               "the game's camera");
   // The two words that ask how the player moves the camera.
   static const uint8_t kHandStateBytes[17] = {
       0x8B, 0x0D, 0x5C, 0x19, 0xD0, 0x00, 0xE8, 0x15, 0x61,
@@ -8227,7 +8456,7 @@ void ScriptPlayerInstall() {
                "a turn shows the rotate arrow. 0 gives the game's answers"
              : "A script that asks how you hold the land, or if the rotate "
                "arrow shows, gets the game's answer");
-  g_script_hooked = distance || view || moves;
+  g_script_hooked = distance || view || moves || focus;
   if (!g_script_hooked) return;
   ModLog("scripts      : script_distance=%d, script_view=%d. In the God view "
          "a script of the game that asks about the camera gets the player. "
@@ -10616,6 +10845,17 @@ uint64_t HandDirectTakeScriptAnswers() {
 // Once a report window.
 void HandDirectReport() {
   ForestTakeReport();
+  if (g_look_turns != 0 || g_look_camera != 0 || g_look_story != 0) {
+    ModLog("villager look: a script turned a thing to the camera %llu times: "
+           "%llu times to your head, %llu times to the game camera in the "
+           "God view, and %llu times to the game camera in a cut scene or "
+           "while the game moved its own camera (villager_look_head=%d)",
+           g_look_turns + g_look_camera + g_look_story, g_look_turns,
+           g_look_camera, g_look_story, g_look_head);
+    g_look_turns = 0;
+    g_look_camera = 0;
+    g_look_story = 0;
+  }
   if (g_moves_answers != 0) {
     ModLog("scripts      : %llu answers to a script that asked how you hold "
            "the land or if the rotate arrow shows came from the moves of the "

@@ -343,4 +343,42 @@ inline const wchar_t* JobName(int job) {
   }
 }
 
+// A THING THAT A SCRIPT TURNS TO THE CAMERA [V]. The script word SET_FOCUS
+// (GScript::SetFocus 0x006F90B0) gives a thing a point. For a villager,
+// Object::SetFocus (0x006393A0) turns the whole body to the point on the map:
+// LH3DMath::GetYAngle (0x00841260) is atan2(dz, dx) from the thing to the
+// point, from 0 to 2 pi. The height of the point does not count.
+inline float FocusYAngle(float from_x, float from_z, float to_x, float to_z) {
+  const float two_pi = 6.28318531f;
+  float angle = atan2f(to_z - from_z, to_x - from_x);
+  if (angle < 0.0f) angle += two_pi;
+  return angle;
+}
+
+// The angle of the game for a heading (GUtils::ConvertAngle3DToGame
+// 0x0074DC30 keeps 11 bits: 2048 steps for a full turn), in degrees.
+inline float GameAngleDegrees(unsigned game_angle) {
+  return static_cast<float>(game_angle & 0x7FFu) * (360.0f / 2048.0f);
+}
+
+// The turn from heading a to heading b, in degrees, from -180 to 180.
+inline float TurnDegrees(float a_degrees, float b_degrees) {
+  float turn = fmodf(b_degrees - a_degrees, 360.0f);
+  if (turn > 180.0f) turn -= 360.0f;
+  if (turn <= -180.0f) turn += 360.0f;
+  return turn;
+}
+
+// True when the point of SET_FOCUS goes to the head (villager_look_head=1).
+// The point must be the engine camera to the last bit: that is the script
+// word "camera position" (GScript::GetCameraPos 0x006ECFF0). A point that a
+// script keeps, a marker and each other point stay. The player must stand for
+// the camera at the moment of the word (near_math::PlayerIsCamera).
+inline bool FocusOnHead(bool key_on, bool player_is_camera,
+                        const unsigned point_bits[3],
+                        const unsigned camera_bits[3]) {
+  return key_on && player_is_camera && point_bits[0] == camera_bits[0] &&
+         point_bits[1] == camera_bits[1] && point_bits[2] == camera_bits[2];
+}
+
 }  // namespace village_math

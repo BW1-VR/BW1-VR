@@ -305,6 +305,37 @@ inline void VillageChecks() {
   Check(HoldLineOf(kHeldOther, kOntoOther) == kLineOther,
         "a pair with no words of its own", HoldLineOf(kHeldOther, kOntoOther),
         kLineOther);
+
+  // A THING THAT A SCRIPT TURNS TO THE CAMERA: the angle of
+  // LH3DMath::GetYAngle is atan2(dz, dx), from 0 to 2 pi.
+  const float kRadToDeg = 57.2957795f;
+  Near("a point on +x is at 0 degrees",
+       FocusYAngle(10.0f, 20.0f, 15.0f, 20.0f) * kRadToDeg, 0.0, 1e-3);
+  Near("a point on +z is at 90 degrees",
+       FocusYAngle(10.0f, 20.0f, 10.0f, 30.0f) * kRadToDeg, 90.0, 1e-3);
+  Near("a point on -x is at 180 degrees",
+       FocusYAngle(10.0f, 20.0f, 2.0f, 20.0f) * kRadToDeg, 180.0, 1e-3);
+  Near("a point on -z is at 270 degrees, not -90",
+       FocusYAngle(10.0f, 20.0f, 10.0f, 12.0f) * kRadToDeg, 270.0, 1e-3);
+  Near("the game angle 512 is 90 degrees", GameAngleDegrees(512), 90.0, 1e-4);
+  Near("the game angle keeps 11 bits", GameAngleDegrees(2048 + 256), 45.0,
+       1e-4);
+  Near("a turn from 350 to 10 degrees is 20 degrees", TurnDegrees(350.0f, 10.0f),
+       20.0, 1e-4);
+  Near("a turn from 10 to 350 degrees is -20 degrees",
+       TurnDegrees(10.0f, 350.0f), -20.0, 1e-4);
+  Near("a turn of a half circle is 180 degrees", TurnDegrees(0.0f, 180.0f),
+       180.0, 1e-4);
+  const unsigned camera_bits[3] = {0x44FA0000u, 0x42C80000u, 0x45000000u};
+  const unsigned kept_bits[3] = {0x44FA0000u, 0x42C80001u, 0x45000000u};
+  Check(FocusOnHead(true, true, camera_bits, camera_bits),
+        "the camera position of the word goes to the head", 1, 1);
+  Check(!FocusOnHead(true, true, kept_bits, camera_bits),
+        "a point one bit from the camera stays", 0, 0);
+  Check(!FocusOnHead(true, false, camera_bits, camera_bits),
+        "in a cut scene the camera stays", 0, 0);
+  Check(!FocusOnHead(false, true, camera_bits, camera_bits),
+        "villager_look_head=0: the camera stays", 0, 0);
 }
 
 }  // namespace village_checks

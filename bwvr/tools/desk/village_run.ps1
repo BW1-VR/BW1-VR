@@ -37,7 +37,7 @@
 #                shake. -Icon gives the seed type of a different icon (3 is
 #                Food, which pours as Water does).
 # The other kinds (charge, store, job, tree, throw, probe, workshop, site,
-# build, scaffold, fartake, fartotem, choice) have a comment at their steps
+# build, scaffold, fartake, fartotem, choice, look) have a comment at their steps
 # below.
 param(
     [Parameter(Mandatory = $true)][string]$Name,
@@ -129,6 +129,23 @@ if ($Kind -eq 'totem') {
     if ($Seconds -eq 0) { $Seconds = 62 }
     if ($Steps -eq '') {
         $Steps = $pre + 'seek@920+1 seek@1000+1 seek@1040+1 grip@1046+260 seek@1180+1 shot@1420+1'
+    }
+} elseif ($Kind -eq 'look') {
+    # A villager that a script turns to the camera (bwvr/docs/village.md, "A
+    # villager that a script turns to the player"). In the test save "temple"
+    # a script turns the villager of script thing 189, 114 units from the
+    # head on the map, to "camera position" at log frame 164 (step frame 894), and
+    # again some times later. The log has the place of the villager, of the
+    # head and of the game camera, and the heading that the game gave him. The
+    # eye pictures come after the turn. The two zoom steps first make the
+    # game put its own camera about 400 units from the player
+    # (bwvr/docs/god-view.md, section 7). Compare with -Set
+    # "villager_look_head=0".
+    if ($Plan -eq '') { $Plan = 'gostore' }
+    if ($Census -eq '') { $Census = '890' }
+    if ($Seconds -eq 0) { $Seconds = 40 }
+    if ($Steps -eq '') {
+        $Steps = $pre + 'shot@900+1 shot@960+1 shot@1100+1'
     }
 } elseif ($Kind -eq 'tree') {
     # A tree near the Village Store: the grip takes it, the hand goes to the
@@ -313,7 +330,7 @@ $log = Join-Path $sp "desk-$Name\bwvr.log"
 if (-not (Test-Path $log)) { "no log at $log"; exit 1 }
 $pattern = '^village      :|^miracle      : (?!miracle_)|^hand pick    : seek plan|^hand bulk    :|^hand press   : the grip pressed|' +
            '^haptics      : (effect (3|14|15|18|19|20|21|23|24|25|26|27|28)|cast|refused)|' +
-           '^hand         : state|^gesture      : (the draw|the game)|^controllers  : the right button press started off|^grip         :|^hand (throw|drop|hold|take) *:'
+           '^hand         : state|^gesture      : (the draw|the game)|^controllers  : the right button press started off|^grip         :|^hand (throw|drop|hold|take) *:|^villager look:'
 if ($Kind -eq 'choice') {
     $pattern = '^far grab    : (far_grab_choice|far_grab_stay|the cone of a living|target|no target|the target \S+ \(\w+\) keeps|test: (aimfar|the tree))|^hand pick    : seek plan'
 }

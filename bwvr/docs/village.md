@@ -27,6 +27,8 @@ the Temple).
   release the pole stays where the hand let it go.
 - A miracle icon, the store, the Workshop, a scaffold and a villager work with
   the grip. The rules for the grip are in `grab.md`.
+- A villager that a script turns to "camera position" turns to the head
+  of the player. A villager turns his whole body and has no pitch.
 - The door of the Temple and the leash posts are targets of a tap. The mod
   adds the posts as candidates, because the game offers them to the pick as
   invisible balls.
@@ -491,6 +493,71 @@ the icon of the job. The villager keeps the job when the Hand lets him go.
 The job comes from the place of the villager, so it follows the Hand. It does
 not use the pick record.
 
+### How a villager looks at a thing [V]
+
+A villager has no turn of the head and no pitch. Each look of the game turns
+the whole body on the map, to the x and z of a thing. The height of the thing
+does not count.
+
+- `Living::LookAtPos` `0x005EC550` turns the villager a step at a time (64,
+  128 or 256 of the 2048 steps of a full turn in each call) toward a place,
+  with `GUtils::GetAngleFromXZ`. `Living::LookAtObject` `0x005EC520` gives it
+  the place of a thing (`+0x14`). About 30 functions of the villager states
+  use it:
+  for example `WaitForMate`, `WatchFlyingObjectReaction`, `ReactToFire`,
+  `PerformImpressedReaction`, `TurnToFaceCreatureReaction` and
+  `ApproachHandReaction`.
+- `Object::SetFocus` `0x006393A0` (slot `0x510`) turns a villager to a point
+  at once, with `LH3DMath::GetYAngle` `0x00841260` (atan2 of dz and dx) and
+  slot `0x524`. The heading of a villager is the 11 bit angle at `+0x5C`.
+- Some animations of a look depend on the height of the thing.
+  `Villager::LookAtFlyingObjectAnimation` `0x00423AD0` gives one animation
+  when the flying thing is more than 3 units above the land, and a different
+  one when it is lower.
+
+The reactions of the game (`Reaction::CreateReaction` `0x006E3D70`) come
+from a thing and spread to the living things near it. A villager reacts to
+these things of the Hand: a villager in the Hand (reaction 32, from
+`Villager::InterfaceSetInMagicHand`: a villager of the other sex waits and
+looks at him), a burning object in the Hand (33: the villagers flee), a
+villager that the Hand let go (24, from `Villager::DecideWhatToDo`) and a
+thrown object (9, from `Object::InitialisePhysicsFromHand`). Each one looks
+at the thing, and the thing in the Hand is at the place of the Hand. The
+reactions that come from the Hand itself (16 a pick up, 17 the totem, 22 an
+object into a store, all at the land point of the pointer,
+`GInterfaceStatus+0x14`) have no setup for a villager (`Living` slots
+`0x9E0`, `0x9E4`, `0x9F4` do nothing, and their priorities are 0). Only the
+Creature reacts to them. The game makes these reactions in the same
+functions with the real hand, so they start in VR as with the mouse. No
+villager state looks at the camera.
+
+### A villager that a script turns to the player (`villager_look_head=1`)
+
+The only look at the god is a look of a script. The word `SET_FOCUS`
+(`GScript::SetFocus` `0x006F90B0`, native 34) takes a thing and a point.
+`challenge.chl` gives it the point of "camera position" (native 5,
+`LH3DTech::g_camera`) at 174 places. 146 of them are in a cut scene, which
+keeps the camera of the story. The 28 others turn a person of a quest to the
+player while the player has the view. For example, the person at a scroll of
+the Creature lessons turns to the camera in each game turn while he waves to
+the player (`CreatureDevelopmentHighlightNotify`). The Shaolin monk, the
+guards of the slavers and the man of the throwing stones do the same.
+
+In the God view the engine camera is the game's own camera, 257 units from
+the player on the map (`god-view.md`, section 16.2). So such a villager
+turns to a point far behind the player.
+
+A hook on `GScript::SetFocus` (`h_ScriptFocus` in `hand_direct.cpp`) reads
+the point of the word. When the point is the engine camera to the last bit
+and the player stands for the camera (`god-view.md`, section 16.4), the
+point becomes the head (`village_math::FocusOnHead`). The game then does its
+own turn. A point that a script keeps, a marker and each other point stay.
+In a cut scene, and while the game moves its own camera, the villager turns
+to the game's camera, as in the plain game. A turn has no pitch, so the
+villager turns his body to the player and does not look up. The Creature
+and a group of things get the head too, because the word gives them the
+same point.
+
 ### What the real hand can do
 
 | Thing | With the real hand |
@@ -638,12 +705,15 @@ The count of the villagers is the count of the game
 | `totem_ghost` | 1 | 0: the ghost of the pole has the size of the pole, and where the two overlap their faces fight |
 | `totem_hold` | 1 | 0: after the release the pole jumps back to the value that it showed before and slides to the new value, 5.2 s for each 1.0 of change, as in the plain game |
 | `hold_target`, `hold_target_cm` | 1, 6 | See `grab.md`, "An object in the Hand that goes onto a thing". The code also reads the old names `scaffold_join` and `scaffold_join_cm` as the defaults |
+| `villager_look_head` | 1 | 1: in the God view a script that turns a villager to the camera turns him to your head. 0: he turns to the game's camera |
 
 The keys are read from `bwvr.ini`. They are not in the launcher.
 
 **The A/B key**, with `test_keys=1`: Ctrl with the 4 key of the number pad
 changes `totem_hand`. The pointing controller gives a long pulse for 1 and a
-short pulse for 0.
+short pulse for 0. Ctrl with the 7 key of the number pad changes
+`villager_look_head` together with the other answers of the player to the
+scripts (`god-view.md`, section 16).
 
 Test keys for the desktop runs only (the launcher removes them):
 
@@ -707,6 +777,17 @@ The tag `village` has one line for each change:
   which the mod gave the rows, the totems taken and the charges. One more
   line with the frames that had a ghost of a totem.
 
+The tag `villager look` has the turns to the camera:
+
+- The key at the start (with the tag `scripts`).
+- "a script turns a villager (script thing N) at ... on the map to the
+  camera", for each new thing and each change between the head and the game
+  camera, at most 24 lines. It has the place of the head and of the game
+  camera, the heading of each one from the thing, the angle between the two,
+  and the heading that the game gave a villager.
+- One line each report window: the turns to the head, the turns to the game
+  camera in the God view, and the turns in a cut scene.
+
 The lines of a miracle in the Hand have the tag `miracle`, and they say
 "from a Worship Site". A press with the miracle at its icon gives "the game
 takes ... back at the ... of its Worship Site".
@@ -742,6 +823,17 @@ show the ghost: with `totem_ghost=0` the faces of the pole have lines of
 noise where the ghost overlaps them, with the Vulkan renderer and with
 dxwrapper. With `totem_ghost=1` the faces are clean with both.
 
+A villager that a script turns to the player (`village_run.ps1 -Kind
+look`): in the test save `temple` a script turns the villager of script
+thing 189 to "camera position" at frame 164, and 6 more times in the next
+two report windows. He is 114 units from the head on the map. The head is at
+7.5 degrees from him, and the game camera is at 150.5 degrees, 143 degrees
+away from the head. With `villager_look_head=1` the game turns him to 7.4
+degrees, to the head. With 0 it turns him to 150.5 degrees, to the game
+camera. The math test checks the angle of `GetYAngle`, the 11 bit angle of
+the game, the turn between two headings, and that only the camera point to
+the last bit goes to the head.
+
 The pole after the release (`village_run.ps1 -Kind fartotem`, and
 `-Kind totem` with the plan `gototem,totem,up,up,up,down,down` and eye
 pictures in the second after the release): packet `0x29` comes 4 to 6 frames
@@ -755,12 +847,20 @@ value after 100 frames (0.44) and 44 frames (0.22).
 
 **Not run on the desktop:**
 
+- A person of a quest at a scroll who waves to the player
+  (`CreatureDevelopmentHighlightNotify`), the Creature and a group of
+  things that a script turns to the camera.
+
 - Heal from its icon, and the second power up.
 - Worshippers that make the chants: the runs set the pool with a test key.
 - A scaffold of three or more.
 - A left handed player, and a multiplayer game.
 
 **Needs the headset:**
+
+- Whether a person of a quest that turns his body to the head reads as a
+  look at the player. The game has no pitch for a villager, so he does not
+  look up.
 
 - Whether the pole feels held: the mod's hand stays where the grip closed on
   the pole, and the pole moves with it.
