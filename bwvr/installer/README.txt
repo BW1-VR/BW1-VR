@@ -940,6 +940,11 @@ creature_hold_stay_ms in bwvr.ini to change the time of the hold, in
 milliseconds (350). Set creature_stay_look=0 if your Creature must not
 look at your hand.
 
+Your Creature looks at you. When it waves at you, prays to you, shows
+you how it feels or follows you, its head turns to your head, so you
+get eye contact. Set creature_look_head=0 in bwvr.ini to make it look
+at the game camera, which is high in the sky above you.
+
 While the leash is on your Creature, the trigger commands it. Point
 your hand at an object: the object gets a green halo. Press the
 trigger, and your Creature goes to the object and acts on it. An object

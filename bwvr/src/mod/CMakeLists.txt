@@ -80,6 +80,7 @@ add_library(bwvr_mod SHARED
     tree_body.cpp
     creature_command.cpp
     creature_stay.cpp
+    creature_look.cpp
     miracle.cpp
     village.cpp
     radial_menu.cpp

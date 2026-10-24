@@ -14,6 +14,8 @@
 #   creature_recipe.ps1 -Name x12 -Dll <dll> -Kind gift
 #   creature_recipe.ps1 -Name x13 -Dll <dll> -Kind gift -Set "creature_gift=0"
 #   creature_recipe.ps1 -Name x14 -Dll <dll> -Kind giftfree
+#   creature_recipe.ps1 -Name x15 -Dll <dll> -Kind look
+#   creature_recipe.ps1 -Name x16 -Dll <dll> -Kind look -Set "creature_look_head=0"
 #
 #   creature_recipe.ps1 -Name x9 -Dll <dll> -Kind leash -NewGame
 #
@@ -91,6 +93,21 @@
 #   decides.
 # -Kind giftfree:
 #   The same with no leash.
+# -Kind look:
+#   The Creature looks at the player (bwvr/docs/creature.md, section 5.4).
+#   A look comes from a plan of the Creature. The steps of -Kind state come
+#   first: the strokes, the slaps and a stay of 300 frames. After the
+#   slaps the Creature shows the player how it feels (a plan that looks at
+#   the player), and the stay ends at frame 2150. Then the Creature starts
+#   its plan again, so its look at the player starts at about frame 2180.
+#   A picture at 2200 with the head at its place, a lean of 60 cm to the
+#   left (fake_head_right_cm=-60) from 2240 to 2440, and a picture at 2275
+#   in the lean. Then a second stay from 2520 to 2820 with the lean on from
+#   2480 to 2900: a picture at 2860 in the lean and one at 2960 with the
+#   head at its place. The lines "creature look" of the log give the target
+#   of each look of the Creature at the player and the angle between its
+#   eyes and the head. With -Set "creature_look_head=0" the Creature looks
+#   at the game camera.
 # -Kind click:
 #   A text that waits for a click (bwvr/docs/controller-hints.md, section
 #   10). At 100 units a meter: the grip from a distance puts the leash on.
@@ -116,6 +133,7 @@
 #   far grab    : the grip closed on your Creature the grip from a distance
 #   far grab    : the grip opened after ...         a short grip: the leash click
 #   creature stay: ...                              the stay, from start to end
+#   creature look: ...                              a look of the Creature at the player
 #   creature cmd : the leash is on / off
 #   village      : ...                              the target of the object in the Hand, and a gift from start to end
 #   text click   : ...                              a wait for a click, from start to end
@@ -174,6 +192,17 @@ if ($Kind -eq 'stay') {
 } elseif ($Kind -eq 'leash') {
     $steps = 'look@800+1200 point@860+1 aimfar@890+1 shot@900+1 grip@910+6 shot@950+1 ' +
              'trigger@980+6 aimfar@1060+1 grip@1080+6 aimfar@1160+1 grip@1180+300'
+} elseif ($Kind -eq 'look') {
+    $new = 80
+    # The keys of -Set come after these in the list, so -Set can give a
+    # different lean.
+    $keys = "fake_head_right_cm=-60;$keys"
+    $steps = 'stick_up@800+10 stick_up@830+10 look@860+2200 point@900+1 seek@930+1 grip@936+800 ' +
+             'nudge@1260+1 nudge@1310+1 nudge@1360+1 nudge@1410+1 ' +
+             'rot@1460+1 rot@1530+1 slap@1580+1 slap@1660+1 ' +
+             'point@1800+1 aimfar@1830+1 grip@1850+300 ' +
+             'shot@2200+1 lean@2240+200 shot@2275+1 ' +
+             'lean@2480+420 aimfar@2500+1 grip@2520+300 shot@2860+1 shot@2960+1'
 } elseif ($Kind -eq 'click') {
     $new = 80
     $watch = 0
@@ -241,7 +270,7 @@ $pattern = '^hand creature: (the body of|a press|the Creature state|the hand of|
            '^hand pick    : the target is|^hand press   : the grip pressed on|' +
            '^far grab    : (the grip closed|the grip opened|the hand cannot)|^creature stay: |' +
            '^creature cmd : (the leash|a short press|a double press|the trigger opens|test: aimcmd)|' +
-           '^text click   : |^hint card    : (frame \d+, the game gives its prompt|the prompt of a text)|' +
+           '^creature look: |^text click   : |^hint card    : (frame \d+, the game gives its prompt|the prompt of a text)|' +
            '^controllers  : the left button press started off view|' +
            '^hand pick    : seek plan: the Creature|' +
            '^haptics      : (\d+ pulses|leash|slap|touch|activate)'

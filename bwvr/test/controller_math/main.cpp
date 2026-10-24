@@ -3538,6 +3538,7 @@ void CreatureChecks() {
 #include "spawn_checks.h"
 #include "spirit_size_checks.h"
 #include "stay_checks.h"
+#include "look_checks.h"
 #include "ring_checks.h"
 #include "debug_menu_checks.h"
 #include "teleport_checks.h"
@@ -3970,6 +3971,7 @@ int main() {
   tree_body_checks::TreeBodyChecks();
   zoom_checks::ZoomChecks();
   stay_checks::StayChecks();
+  look_checks::LookChecks();
   text_click_checks::TextClickChecks();
   script_frame_checks::ScriptFrameChecks();
   frame_stats_checks::FrameStatsChecks();

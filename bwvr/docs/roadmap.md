@@ -434,6 +434,12 @@ that moves while the Hand takes it.
     Creature too,
   - a tree, a house or a pile is still easy to take or to tap: with the
     Hand's point in it, or with the aim on no far target.
+- **P2. The Creature looks at the player: check it in the headset.** Where a
+  plan of the Creature looks at the camera of the player, the Creature looks
+  at the player's head (`creature_look_head=1`, `creature.md`, section 5.4).
+  Desktop runs show the angles of the game. They do not show that the head
+  of a small Creature turns visibly on the screen. Check in a headset that
+  the eyes meet the player's eyes, with a larger Creature near the player.
 - **P2. The stay of the Creature: test it in the headset.** A grip from a
   distance that stays closed on the Creature makes it stop and stay until
   the grip opens. A short grip changes the leash when it opens

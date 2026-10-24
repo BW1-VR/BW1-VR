@@ -82,6 +82,7 @@
 #include <string.h>
 
 #include "controller_math.h"
+#include "creature_look.h"
 #include "creature_stay.h"
 #include "creature_stay_math.h"
 #include "far_choice_math.h"
@@ -515,6 +516,7 @@ void FarGrabFrame(const FarFrame& f) {
   g_f = f;
   g_have_frame = true;
   CreatureStayFrame(f.now, f.frame);
+  CreatureLookFrame(f.now, f.frame);
   // A glide that never started: the Hand did not hold the object.
   if (g_glide.armed && !g_glide.started &&
       f.now - g_glide.armed_at > kGlideWaitSeconds &&
@@ -1034,6 +1036,7 @@ bool FarGrabDrawState(FarDraw* out) {
 
 void FarGrabReport() {
   CreatureStayReport();
+  CreatureLookReport();
   // A new window: the log has its room again.
   if (g_logs_left_out != 0) {
     ModLog("far grab    : the log had room for %d lines in this window, and "

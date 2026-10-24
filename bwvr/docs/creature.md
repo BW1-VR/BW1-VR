@@ -526,6 +526,59 @@ Creature walk to the Hand when it is farther from the Hand than the rope is
 long (`0x0047316D`). The rest of the mind of the Creature was not read for
 the leash.
 
+### 1.9 The look of the Creature [V]
+
+**The look point.** The head of the Creature turns to a point of the world:
+the look point at `LH3DCreature+0x48C0`. `fn_00482C90` writes it (section
+1.7). `LH3DCreature::UpdateLook` (`0x00482D90`, from
+`LH3DCreature::UpdateTime`) turns the head to the point on each update. The
+eyes are at the base of the body (`+0x78`) and 15 times the scale (`+0x90`)
+higher. The yaw of the head (`+0x4864`) goes to the yaw of the line from the
+eyes to the point, less the heading of the body (`+0x84`). The pitch of the
+head (`+0x486C`) goes to the asin of the up part of that line. `fn_004EEBD0`
+moves the two angles with the speed of the Creature (`+0x4858`, `+0x48B8`),
+and it keeps the yaw within pi and the pitch within pi / 2. The yaw of a line
+is `atan2(x, -z)` (`GUtils::SetUnitDirectionVectorFromScreenPoint`
+`0x007FAA50`). `LH3DCreature::ReachedLookDestination` (`0x00483750`) is true
+when the two angles are 0: the head is back at rest.
+
+**Who gives the point.** On each game turn `Creature::ProcessState` calls
+`fn_004D03B0`. It takes the first of these:
+
+1. A look that the mind holds (`CreatureMental+0x1D3F4`): an object or a
+   fixed point.
+2. The look function of the step of the plan (a member function in the step
+   at `CreatureMental+0x1010`, 0x60 bytes for each step). It writes the point
+   as three words: x and z in map units (6553.6 to a unit of the world), and
+   the height over the land as a float. When it gives 1, `fn_004D03B0` gives
+   the point to `fn_00482C90`.
+3. `Creature::LookAround`.
+
+In the Creature state of the Hand the point is the Hand
+(`HandStateCreature::Update`, section 1.7).
+
+**The look at the player.** `Creature::LookAtCamera` (`0x004D1A30`) is the
+look function of the plans that act for the player. It writes the place of
+the camera of the nearest player
+(`Creature::GetNearestCameraInterfaceStatus`, `GInterfaceStatus+0xB0`). In a
+game with one player that is the player's own status. These plans have it
+(`CreatureAgenda::ConstructSubActionsFor...`): `FollowPlayer`, `WatchPlayer`
+(through `Creature::LookAtPlayer`), `WaveAtPlayer`, `PrayToPlayer`,
+`HowlAtPlayer`, `BeCrossWithPlayer`, `BePatheticWithPlayer`,
+`BeSillyWithPlayer`, `CommunicateState`, `ShowPlayerAnObject`,
+`ShowPlayerHowNiceYouReckon`, `Gesture`, `GoToMiddleOfScreen`, `HoldObject`,
+`ThrowObjectInHand`, `ThrowAtCamera`, `PointAtCamera`, `PointAtHand`,
+`PointOutHighlight`, `LookAtCamera`, `LookConfused`, and the five plans
+`NoticeAction`, `NoticeAggressiveAction`, `NoticeHelpfulAction`,
+`NoticePlayfulAction` and `NoticeStealingAction`.
+`Creature::LookAtPlayer` (`0x004D1420`) calls `Creature::LookAtHand` when
+`CreatureMental+0x18C78` is more than 30, and `Creature::LookAtCamera` else
+[I: what the value counts was not traced]. `Creature::LookAtHand`
+(`0x004D18C0`) writes the place of the Hand (`GInterfaceStatus+0xC8`).
+`CreatureAgenda::ConstructSubActionsForLookAtCameraInWideScreen` is the look
+in a cut scene: a walk to a place (`Creature::LookAtPosition`), and then
+steps with `Creature::LookAtCamera`.
+
 ## 2. The Creature by touch
 
 The code is in `hand_direct.cpp` (`TouchFrame`, `h_CreatureUpdate`,
@@ -1436,6 +1489,97 @@ creature stay: packet 0x1C goes, 37 ms after the end was asked for: the Creature
 creature stay: the game let the Creature go, 107 ms after the packet. Its mind runs again. It is at 1902.17 2519.82, and its plan is desire 23, action 81, step 0 of 4, frame 1554
 creature stay: the Creature goes on: 206 ms after the stay it is at 1902.88 2519.79, 0.72 units from the place of its stay. Its plan did not change: desire 23, action 81, step 0 of 4, frame 1565
 ```
+
+### 5.4 The Creature looks at the player (`creature_look_head`)
+
+In VR the picture does not come from the game camera. In the God view the
+game camera is 400 units from the land under the head and 50 degrees above
+it (`god-view.md`, section 7). So a Creature that looks at the camera looks
+at the sky over the player. The head of the player is a real place in the
+world. With `creature_look_head=1` the Creature looks at that place, and the
+player gets eye contact.
+
+**The way of the game.** Each plan of the Creature that looks at the player
+has the look function `Creature::LookAtCamera` (section 1.9). The code in
+`creature_look.cpp` hooks that function. The game function runs first and
+writes the place of its camera. When it gives 1, the camera is the camera of
+the local player, and the head is known, the hook writes the place of the
+head in the same three words. The game's own look then turns the head of the
+Creature (`LH3DCreature::UpdateLook`), with its speed and its limits. The
+mod adds no look: a look comes only from a plan of the Creature. The head is
+the place that the scene is drawn from (`HeadCameraRenderBasis`), latched
+once a frame, in the God view, in the immersive view and in a story. In a
+flat frame of the cut scene window no head is known, and the Creature looks
+at the camera of the game. The pure math is in `creature_look_math.h`.
+
+These looks do not change:
+
+- In the Creature state of the Hand (a stroke or a slap) the Creature looks
+  at the Hand, as in the game (section 1.7). The Hand is at the real hand.
+- In a stay it looks at the Hand (`creature_stay_look`, section 5.3).
+- `Creature::LookAtHand` gives the Hand, and the other look functions give
+  their objects and places.
+- The body of the Creature turns to the place of the game camera at the
+  start of a stay (`Creature::GoIntoStateOfFinishingAction`). A plan that
+  points at the camera or throws at it aims its arm at the place of the game
+  camera.
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `creature_look_head` | 1 | 1: where a plan of the Creature looks at the camera of the player, the Creature looks at the player's head. 0: it looks at the game camera |
+
+The hook is also on with 0. It then changes nothing, and it gives the lines
+of the log for a comparison. There is no keyboard test key.
+
+**The log.** The tag `creature look` has one line for each change, and no
+line for a frame:
+
+- the key at the start,
+- the start of a look: the plan of the Creature, the place of the game
+  camera, the target of the look, the head, and the angle between the eyes
+  of the Creature and the target and between the eyes and the head,
+- the eyes on the target (less than 6 degrees from it),
+- a move of the head of more than 10 units: the angles when the eyes are on
+  the target again, or 2 s after the move,
+- the end of the look, with the least angle between the eyes and the head,
+- once a report window, the number of looks at the camera and how many got
+  the head.
+
+The eyes are at the base of the body and 15 times the scale higher. Their
+direction is the heading of the body plus the yaw of the head, and the pitch
+of the head (section 1.9). The start line also gives the frames of the
+animations that show the turn of the head (`Morphable::GetAnim` 0x4B and 0x4C,
+read by `LH3DCreature::UpdateBuffers`).
+
+**What the desktop runs show** (`creature_recipe.ps1 -Kind look`, the test
+save `temple`, Vulkan). After the slaps the Creature shows how it feels
+(desire 18, action 23, a plan with `Creature::LookAtCamera`), and the stay
+starts the plan again at frame 1440 of the log. Later a short look of 400 ms
+comes (desire 9, action 169). The game camera is at 1594.8 314.4 2532.6, and
+the head at 1844.3 44.2 2470.5, 73 units from the eyes of the Creature:
+
+| | `creature_look_head=1` | `creature_look_head=0` |
+| --- | --- | --- |
+| The eyes on the target | 0.0 degrees from the head | 52.4 degrees from the head |
+| The turn of the head (yaw, pitch) | 45.9, 9.0 degrees | 0.0, 43.0 degrees |
+| A lean of 60 cm (26.7 units) | 2.6 degrees from the head 267 ms later | 39.9 degrees from the head |
+| The short look | 0.0 degrees from the head | 45.8 degrees from the head |
+
+```
+creature look: the Creature 0F83FA10 looks at the player now (its plan: desire 18, action 23, step 0). The game asks for the place of the camera 1594.8 314.4 2532.5. creature_look_head=1: the mod gives it the point of your head 1844.3 44.2 2470.5. ...
+creature look: the eyes of the Creature 0F83FA10 are on the target 119 ms after the start of the look: 0.0 degrees from the target and 0.0 degrees from the head. The look point of the game is 1844.3 44.2 2470.5. The head of the Creature turns 45.9 degrees (yaw) and 9.0 degrees (pitch), frame 1447
+creature look: the head moved 26.7 units to 1850.8 44.2 2496.4. 267 ms later the eyes of the Creature 0F83FA10 are 2.6 degrees from the head and 2.6 degrees from the target 1850.8 44.2 2496.4 (creature_look_head=1), frame 1529
+creature look: the look of the Creature 0F83FA10 at the player ends after 1794 ms: no step of its plan asks for the camera now. The eyes came to 0.0 degrees from the head at the least. Now they are 23.3 degrees from the head, frame 1564
+```
+
+**Open.** The Creature of the test save is small (size 0.22), and in the eye
+pictures of the desktop runs its head is about 20 pixels high. In the
+pictures at frame 1473 with the key at 1 and at 0 the head looks almost the
+same, although the angles of the game differ by 46 degrees of yaw and 34
+degrees of pitch. How much the look animations turn the head on the screen
+was not measured. Only a headset can show the eye contact, with a larger
+Creature near the player.
+
 
 ## 6. A fight of Creatures
 

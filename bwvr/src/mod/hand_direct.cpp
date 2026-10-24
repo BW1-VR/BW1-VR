@@ -128,6 +128,7 @@
 #include "controller_math.h"
 #include "controllers.h"
 #include "creature_command.h"
+#include "creature_look.h"
 #include "creature_stay.h"
 #include "debug_menu.h"
 #include "far_choice_math.h"
@@ -7562,6 +7563,7 @@ void InstallNear() {
                "acts on is nearer"
              : "The reach of the Creature at the Hand is hand_pick_cm");
   CreatureStayInstall();
+  CreatureLookInstall();
   g_creature_bone = IniKey("creature_bone", 1) != 0;
   ModLog("hand creature: creature_bone=%d. %s", g_creature_bone ? 1 : 0,
          g_creature_bone
