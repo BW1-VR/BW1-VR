@@ -11,7 +11,8 @@ This doc is about how the hands look and feel. It has these parts:
 - The glow at the Hand's point ("The glow at the Hand's point").
 - The renderer that draws the mod's own meshes in the game's frame ("Overlay
   renderer").
-- The pulses of the controllers ("Haptics").
+- The pulses of the controllers ("Haptics"), and the pulses of what the hand
+  touches ("Haptics from the world").
 
 The game's Hand itself (states, the point, the exact place) is in
 [hand.md](hand.md). The grip that holds is in [grab.md](grab.md). The Creature
@@ -1569,7 +1570,9 @@ One table gives each kind of pulse (`haptics_math.h`), and one function sends
 it (`HapticsPulse` in `haptics.cpp`). The levels follow Half-Life: Alyx:
 short ticks of about 10 ms, and 0.40 for an object that arrives.
 
-The rule: **no pulse for a thing that the player did not do.**
+The rule: **no pulse for a thing that the player did not do.** A pulse of the
+world ("Haptics from the world") answers an act of the player too, in the
+hand that does the act.
 
 ### The kinds
 
@@ -1653,3 +1656,110 @@ The desktop shows only that a pulse goes out at the right frame: `target`,
 
 **Open: only a headset shows it.** How each pulse feels. Set `haptics_pct=50`
 or `200` and say which kinds are too faint or too strong.
+
+## Haptics from the world
+
+With `world_haptics=1` (the default) the hand feels what it touches. The
+pulses of the controls stay as they are. Each pulse of the world is a kind
+of the same table (`haptics_math.h`), so `haptics_pct` scales it, and no
+pulse is stronger than 0.75 or longer than 40 ms. A pattern is a few pulses,
+never a long buzz. `HapticsWorldFrame` runs the patterns once a frame, from
+the frames of the mod (`controllers.cpp`), not from a thread.
+
+### What the hand feels
+
+| Kind | Amplitude | ms | The event of the game | The pattern | The hand |
+| --- | --- | --- | --- | --- | --- |
+| purr | 0.12 | 12 | The game plays a stroke of the Creature: the total of the Creature state goes up, or its time in the state goes back to 0 (`0x005B226C`) | 4 pulses in 0.19 s, at 0.6, 1, 1 and 0.6 of the strength | The Hand |
+| heart | 0.12 | 12 | The Hand holds a villager, a quest character or an animal: the Holding state, and the game's test `IsLiving` (slot `0x3C4`) of the object in the Hand | A beat of 2 pulses (1, then 0.6 after 0.16 s) each 0.9 s, while the Hand holds it | The Hand |
+| land | 0.06 | 6 | The land moves in the room under a grip of the world (`world_grab.cpp`) | One tick for each 2 cm that the land moves under the grip | Each grip that holds |
+| thump | 0.55 | 30 | The first contact of a thrown object (`FirstContact` in `throw_physics.cpp`), and a new roots pile of the game while the Hand holds a tree or the far grab glides one to it | One pulse. A landing: 0.35 at 0.5 m/s of the room or less, 1 at 3 m/s or more. A tree: 0.5 for a body of 1 cm of the room or less, 1 at 6 cm or more | The Hand |
+| charge | 0.30 | 12 | A miracle that casts at the release (a throw or a circle) starts the interface action 8 | 3 pulses in 0.17 s, at 0.4, 0.7 and 1 of the strength | The Hand |
+| piece | 0.10 | 8 | The rule of the stream of a take (`ER_MultiPickup::ModifyAtomCollection` `0x006A77C0`) deletes a piece whose age passed its life: the piece is in the Hand | One tick in each frame in which a piece came into the Hand, about 8 a second | The Hand |
+
+The slap stays the short hard pulse of the slap (0.41 to 0.75 for 25 ms),
+and the cast stays the pulse `cast` of the game's effects. The cast also
+ends the charge. The texture of a stroke (`stroke`, one tick for each 1.5
+cm) stays as it is.
+
+**The land.** The table of the God view: the mod takes the land point under
+each grip with the table of the last frame, and finds where the table of
+this frame puts that point in the room. The distance is how far the land
+moved under the grip. The camera grab off the table: the camera step of the
+frame, over the gain times the scale. Land that a limit holds does not move,
+so the texture stops when the land stops. A still hand gives no tick. The
+mod does not read a type of the ground, so rock and grass feel the same.
+
+**A tree.** The game makes a roots pile when the Tug pulls a tree free
+(`grab.md`, "A tree in the Hand"). The Creature also pulls trees out, so the
+thump comes only for a tree that the Hand holds or that the far grab glides
+to the Hand. The 2D radius of the tree in the room gives the strength.
+
+### The controls stay clear
+
+The pulses of the controls tell the player what the controls did: `target`,
+`lock`, `arrive`, `take`, `let go`, `activate`, `no target`, `leash on`,
+`leash off`, `command`, `teleport`, `refused`, `tick`, `gesture`, `menu` and
+`world`. For 80 ms after one of them on a hand, that hand gets no pulse of
+the world (`kControlClearSeconds`). A step of a pattern in that time is
+dropped, and the pattern goes on with its next step. A pulse of a control
+that comes while a pattern runs takes the place of the pulse of the world
+at once. So a new target and a lock stay clear. The touch, the stroke and
+the slap of the Creature, the power, the cast and the surface are no
+controls.
+
+All the pulses of the world are fainter than a lock, except the charge (0.30)
+and the thump (0.55), which come at the act of the player.
+
+### Keys and the log
+
+`world_haptics` (1): 1 gives the pulses of the world. 0 gives no pulse of
+the world, and the other pulses stay. No test key.
+
+The log has the key at the start, one line at the start of each pattern
+(the first 6 of each), and the first 6 pulses of each kind with the
+strength and the length, as for each kind:
+
+```
+haptics      : world_haptics=1. The hand feels the world: ...
+haptics      : the pattern purr starts on the pointing hand: 4 pulses of purr in 192 ms, 0.12 at most and 12 ms each, frame 2210
+haptics      : purr, 0.07 for 12 ms (strength 0.60, the pointing hand), frame 2210
+haptics      : land held back on the other hand: a pulse of a control went there 12 ms ago, frame 930
+hand throw   : the landing of 0F2A1C30 gives a thump of strength 0.63 for 1.58 m/s of the room (world_haptics=1)
+hand tree    : the tree 0E7B2210 comes out of the land. Its body has a radius of 2.4 cm of the room, so the thump has a strength of 0.64 (world_haptics=1), frame 1530
+miracle      : Fireball charges (interface action 8), and the Hand feels the build up (world_haptics=1), frame 1410
+take stream  : 23 pieces of the take came into the Hand, with a tick on 23 frames (world_haptics=1), frame 1300
+grab         : the land moved 18.0 cm in the room under the grip, and the hand felt 9 ticks of the land (world_haptics=1), frame 1120
+haptics      : the world this window (world_haptics=1): 2 purr, 1 heart and 0 charge patterns started, and 1 pulses of the world held back for a pulse of a control
+```
+
+With `world_haptics=0` the lines of the thump, the tree, the charge, the
+take and the land still come, with the key in them, and no pulse goes out.
+
+### Tests
+
+The math test (`HapticsChecks` in `haptics_checks.h`): each kind of the world
+keeps the limits at `haptics_pct=200`. A target, a lock and a take keep the
+hand clear for 80 ms, and a stroke, a cast and a beat do not. Each pattern
+has 4 pulses at most, 50 ms apart or more, in 0.25 s at most. The purr is 4
+pulses at 90 frames a second and then it is done. A frame of 0.5 s gives
+one pulse of the charge. A hold of 9 s gives 10 beats, and a pause of 30 s
+gives one pulse and no row of pulses. A grip that is still gives no tick of
+the land, and 40 cm of land gives 20. The thump goes from 0.35 to 1 with
+the speed, and from 0.5 to 1 with the size. A piece that the game deleted
+counts, and a new piece at its address does not.
+
+The desktop has no controller, so the log is the proof. Desktop runs show
+`heart` while the Hand holds a villager (`village_run.ps1 -Kind throw`),
+`thump` at each landing and at a tree that comes out of the land
+(`throw_queue.ps1 -Runs tree`), `piece` in a take at a store
+(`village_run.ps1 -Kind store`), `land` with 7 ticks for 15 cm of land and
+none for a still grip, and `charge` at a Fireball (`miracle_run.ps1 -Kind
+throw`). With `world_haptics=0` the same runs give the lines with no pulse.
+No run has shown `purr`: in the runs of the Creature state the game counted
+no stroke.
+
+**Open: only a headset shows it.** How each pattern feels: whether the purr
+reads as a purr, the beat as a heartbeat, and the texture of the land as
+land, whether the thump of a landing far from the hand feels right, and
+whether the 80 ms keep a target and a lock clear.

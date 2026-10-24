@@ -1044,6 +1044,24 @@ void MiracleFrame() {
   const bool have = any && Active(&f);
   g_have = have;
   g_now = f;
+  // THE CHARGE (world_haptics, haptics.cpp). The press of a miracle that
+  // casts at the release (a throw or a circle) starts the interface action
+  // 8, and the miracle charges until the release. The Hand feels a short
+  // build up at the start of the charge. The game's own effect of the cast
+  // then gives the pulse of the cast.
+  {
+    static bool charge_was = false;
+    const bool charge = have && f.seed != nullptr && f.action == 8;
+    if (charge && !charge_was) {
+      if (Log()) {
+        ModLog("miracle      : %s charges (interface action 8), and the Hand "
+               "feels the build up (world_haptics=%d), frame %llu",
+               SeedName(f.info.type), HapticsWorldOn(), g_frame);
+      }
+      HapticsWorldStart(haptics_math::kPatternCharge, 2);
+    }
+    charge_was = charge;
+  }
   if (have && f.seed != nullptr) ++g_frames_miracle;
   if (have && f.one_off) ++g_frames_seed;
   // WHERE THE MIRACLE IS: the Hand of the game against the point of the real

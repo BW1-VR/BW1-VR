@@ -1028,6 +1028,16 @@ that is still gives no pulse. Set haptics_pct in bwvr.ini to change
 the strength: 100 is the default, 50 is half, and 0 turns the pulses
 off.
 
+The hand also feels the world that it touches. Your Creature purrs
+in the hand when the game counts a stroke. A villager or an animal
+in the Hand has a light heartbeat. The land gives a faint texture
+while it moves under your grip, and it stops when the land stops. A
+thrown object that lands, and a tree that you pull out, give one
+thump. A miracle that charges gives a short build up, and each piece
+of a take from a pile gives a tick. These pulses never cover the
+pulse of a new target or a lock. Set world_haptics=0 in bwvr.ini to
+turn them off.
+
 
 TABLETOP
 --------

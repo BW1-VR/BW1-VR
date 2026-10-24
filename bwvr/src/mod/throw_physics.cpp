@@ -100,6 +100,7 @@
 #include "controller_math.h"
 #include "debug_menu.h"
 #include "far_grab.h"
+#include "haptics.h"
 #include "throw_math.h"
 #include "throw_physics.h"
 
@@ -836,6 +837,23 @@ void FirstContact(Flight* f, uint8_t* ob, int step) {
   if (f->drag_off) {
     *reinterpret_cast<float*>(ob + kObDrag) = f->drag;
     f->drag_off = false;
+  }
+  // THE THUMP OF THE LANDING (world_haptics, haptics.cpp): one pulse in the
+  // hand that threw the object, by its speed in the room at this contact.
+  {
+    const float* v = reinterpret_cast<const float*>(ob + kObVelocity);
+    const float mps = f->s > 0.0f
+                          ? controller_math::Length(v) * f->scale / f->s
+                          : 0.0f;
+    const float strength = haptics_math::ThumpBySpeed(mps);
+    static int thump_logs = 0;
+    if (thump_logs < 40) {
+      ++thump_logs;
+      ModLog("hand throw   : the landing of %p gives a thump of strength %.2f "
+             "for %.2f m/s of the room (world_haptics=%d)", f->object,
+             strength, mps, HapticsWorldOn());
+    }
+    HapticsWorld(2, haptics_math::kThump, strength);
   }
   if (g_flight_logs >= kMaxFlightLogs) return;
   ++g_flight_logs;

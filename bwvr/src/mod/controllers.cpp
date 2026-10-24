@@ -3892,6 +3892,8 @@ void ControllersFrame() {
   ++g_frames_in_window;
   LatchFrameAim();
   GrabSamples();
+  // The next pulses of the patterns of the world (haptics.cpp).
+  HapticsWorldFrame();
 
   // Latch what the pump needs. This runs once a frame, so an edge is seen
   // once. The pump may run more often and reads only the latches.

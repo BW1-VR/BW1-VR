@@ -126,6 +126,169 @@ inline void HapticsChecks() {
     Check(pulses >= 11 && pulses <= 12,
           "at 90 frames a second that is 11 or 12 pulses", pulses, 11);
   }
+
+  // THE WORLD (world_haptics=1).
+  {
+    bool world_limits = true;
+    for (int k = 0; k < kKinds; ++k) {
+      if (!IsWorld(k)) continue;
+      const Pulse p = Scaled(k, 1.0f, 200);
+      if (p.amplitude > kMostAmplitude + 1e-6f || p.seconds > kMostSeconds) {
+        world_limits = false;
+      }
+    }
+    Check(world_limits,
+          "each kind of the world keeps the limits, also at haptics_pct=200",
+          world_limits, 1);
+    Check(IsWorld(kPurr) && IsWorld(kPiece) && !IsWorld(kSurface) &&
+              !IsWorld(kStroke) && !IsWorld(kKinds),
+          "the six new kinds are the kinds of the world", 1, 1);
+    Check(KeepsClear(kTarget) && KeepsClear(kLock) && KeepsClear(kTake) &&
+              !KeepsClear(kStroke) && !KeepsClear(kCast) &&
+              !KeepsClear(kHeart),
+          "a target, a lock and a take keep the hand clear, and a stroke, a "
+          "cast and a beat do not", 1, 1);
+    Check(!WorldClear(1.05, 1.0) && WorldClear(1.08, 1.0),
+          "no pulse of the world in the 80 ms after a pulse of a control", 1,
+          1);
+    Check(Scaled(kHeart, 1.0f, 100).amplitude <
+                  Scaled(kLock, 1.0f, 100).amplitude &&
+              Scaled(kLand, 1.0f, 100).amplitude <
+                  Scaled(kLock, 1.0f, 100).amplitude &&
+              Scaled(kPiece, 1.0f, 100).amplitude <
+                  Scaled(kLock, 1.0f, 100).amplitude,
+          "a beat, the land and a piece are fainter than a lock", 1, 1);
+    Near("haptics_pct=50 gives half of a thump",
+         Scaled(kThump, 1.0f, 50).amplitude,
+         0.5 * Scaled(kThump, 1.0f, 100).amplitude, 1e-6);
+
+    // Each pattern is a few short pulses, and no step is near the next one.
+    bool few = true;
+    for (int p = 0; p < kPatterns; ++p) {
+      const PatternDef& d = kPatternDefs[p];
+      if (d.steps < 1 || d.steps > kMostSteps || !IsWorld(d.kind)) few = false;
+      for (int i = 1; i < d.steps; ++i) {
+        if (d.step[i].at - d.step[i - 1].at < 0.05f) few = false;
+      }
+      if (PatternSeconds(p) > 0.25f) few = false;
+      if (d.repeat > 0.0f && d.repeat < 2.0f * PatternSeconds(p)) few = false;
+    }
+    Check(few,
+          "each pattern has 4 pulses at most, 50 ms apart or more, in 0.25 s "
+          "at most, and a repeat leaves a pause", few, 1);
+
+    // THE PURR at 90 frames a second: 4 pulses, then it is done.
+    {
+      int next = 0, pulses = 0, frames = 0;
+      bool done = false;
+      float most = 0.0f;
+      for (int i = 0; i < 90 && !done; ++i) {
+        const float s = PatternDue(kPatternPurr, i / 90.0f, &next, &done);
+        if (s > 0.0f) ++pulses;
+        if (s > most) most = s;
+        frames = i;
+      }
+      Check(pulses == 4 && done, "the purr is 4 pulses, and then it is done",
+            pulses, 4);
+      Check(frames <= 18, "it is done in 0.2 s", frames, 18);
+      Near("its strongest pulse has the full strength", most, 1.0, 1e-6);
+    }
+    // A long frame: the steps that it jumped over give one pulse.
+    {
+      int next = 0;
+      bool done = false;
+      const float s = PatternDue(kPatternCharge, 0.5f, &next, &done);
+      Check(s == 1.0f && done,
+            "a frame of 0.5 s gives one pulse of the charge, with the "
+            "strength of its last step", s, 1.0);
+      Check(PatternDue(kPatternCharge, 0.6f, &next, &done) == 0.0f,
+            "and no pulse after that", 0, 0);
+    }
+    // THE CHARGE becomes stronger.
+    {
+      int next = 0;
+      bool done = false;
+      const float a = PatternDue(kPatternCharge, 0.0f, &next, &done);
+      const float b = PatternDue(kPatternCharge, 0.09f, &next, &done);
+      const float c = PatternDue(kPatternCharge, 0.17f, &next, &done);
+      Check(a > 0.0f && a < b && b < c, "the 3 pulses of the charge become "
+            "stronger", c, 1.0);
+    }
+    // THE BEAT: two pulses each 0.9 s, for as long as the Hand holds.
+    {
+      int next = 0, pulses = 0;
+      bool done = false;
+      for (int i = 0; i < 90 * 9; ++i) {
+        if (PatternDue(kPatternHeart, i / 90.0f, &next, &done) > 0.0f) {
+          ++pulses;
+        }
+      }
+      Check(pulses == 20 && !done,
+            "a hold of 9 s at 90 frames a second gives 10 beats of two pulses",
+            pulses, 20);
+      next = 2;
+      const float s = PatternDue(kPatternHeart, 30.0f, &next, &done);
+      Check(s > 0.0f && next == 68,
+            "after a pause of 30 s the beat goes on with one pulse, and no "
+            "row of pulses", next, 68);
+      next = 0;
+      Check(PatternDue(kPatterns, 0.0f, &next, &done) == 0.0f && done,
+            "a pattern that is not in the table gives no pulse", 0, 0);
+    }
+
+    // THE LAND under a grip at 90 frames a second.
+    {
+      float path = 0.0f;
+      int ticks = 0;
+      for (int i = 0; i < 300; ++i) {
+        if (LandTick(&path, 0.0f)) ++ticks;
+      }
+      Check(ticks == 0, "a still grip for 300 frames gives no tick of the land",
+            ticks, 0);
+      path = 0.0f;
+      for (int i = 0; i < 90; ++i) {
+        if (LandTick(&path, 40.0f / 90.0f)) ++ticks;
+      }
+      Check(ticks >= 19 && ticks <= 20,
+            "a move of 40 cm of the land gives a tick for each 2 cm", ticks,
+            20);
+    }
+
+    // THE THUMP.
+    Near("a slow landing has a thump of 0.35", ThumpBySpeed(0.2f), 0.35,
+         1e-6);
+    Near("a landing at 3 m/s has the full thump", ThumpBySpeed(3.0f), 1.0,
+         1e-6);
+    Check(ThumpBySpeed(2.0f) > ThumpBySpeed(1.0f),
+          "a faster landing is a stronger thump", 1, 1);
+    Near("a landing at 3 m/s is 0.55 at haptics_pct=100",
+         Scaled(kThump, ThumpBySpeed(3.0f), 100).amplitude, 0.55, 1e-6);
+    Near("a bush of 1 cm comes out of the land with 0.5", ThumpBySize(0.8f),
+         0.5, 1e-6);
+    Near("a large tree with the full thump", ThumpBySize(9.0f), 1.0, 1e-6);
+    Near("a tree of no known size with 0.7", ThumpBySize(0.0f), 0.7, 1e-6);
+
+    // THE PIECES OF A TAKE.
+    {
+      const uintptr_t was[3] = {10, 20, 30};
+      const float was_age[3] = {0.98f, 0.5f, 0.1f};
+      const uintptr_t now[3] = {20, 30, 40};
+      const float now_age[3] = {0.52f, 0.12f, 0.0f};
+      Check(PiecesIn(was, was_age, 3, now, now_age, 3) == 1,
+            "a piece that the game deleted came into the Hand, and a new "
+            "piece is not one", PiecesIn(was, was_age, 3, now, now_age, 3),
+            1);
+      const uintptr_t again[3] = {10, 20, 30};
+      const float again_age[3] = {0.0f, 0.52f, 0.12f};
+      Check(PiecesIn(was, was_age, 3, again, again_age, 3) == 1,
+            "a new piece at the address of an old one counts the old one",
+            PiecesIn(was, was_age, 3, again, again_age, 3), 1);
+      Check(PiecesIn(was, was_age, 3, was, was_age, 3) == 0,
+            "the same pieces give none", 0, 0);
+      Check(PiecesIn(was, was_age, 0, now, now_age, 3) == 0,
+            "the first frame of a take gives none", 0, 0);
+    }
+  }
 }
 
 // THE LEASH FROM A DISTANCE, and the Creature in the rule of the choice.

@@ -2652,6 +2652,8 @@ void __fastcall h_CreatureUpdate(void* self, void* unused, float dt,
     return;
   }
   const float before = *reinterpret_cast<const float*>(state + kStateTotal);
+  const int32_t time_before =
+      *reinterpret_cast<const int32_t*>(state + kStateTime);
   const bool first = g_touch_frame != g_frame;
   TouchFrame(state, hand, dt);
   const bool entered = first && g_touch_entered;
@@ -2664,6 +2666,15 @@ void __fastcall h_CreatureUpdate(void* self, void* unused, float dt,
   g_creature_total = after;
   const bool slap = after < before - 0.05f;
   const bool stroke = after > before + 0.05f;
+  // THE PURR (world_haptics): the game played a stroke. A stroke adds 0.1 to
+  // the total and sets the time in the state to 0 (0x005B226C). The time
+  // also shows a stroke when the total is at its top of 1. The hand of the
+  // stroke feels it.
+  const int32_t time_after =
+      *reinterpret_cast<const int32_t*>(state + kStateTime);
+  if (!slap && (stroke || time_after < time_before)) {
+    HapticsWorldStart(haptics_math::kPatternPurr, 2);
+  }
   const float slap_mps = SlapMps();
   const float s = 15.0f * CreatureSize(hand);
   // The motion of the hand in the room, as a unit: right, up and forward.
@@ -6768,6 +6779,42 @@ void WatchRootsPiles() {
     for (int i = 0; i < 3; ++i) at[i] = origin[i];
     moved = true;
   }
+  // THE THUMP OF A TREE THAT THE HAND PULLS OUT (world_haptics). A new roots
+  // pile is the moment at which the Tug of the game breaks the roots. Only
+  // for a tree in the Hand or in the glide of the far grab: the Creature also
+  // pulls trees out. The size of the tree in the room gives the strength.
+  if (added) {
+    void* held = g_hand != nullptr
+                     ? *reinterpret_cast<void* const*>(g_hand + kHandHeld)
+                     : nullptr;
+    void* tree = nullptr;
+    if (held != nullptr && !IsBadReadPtr(held, 0x70) && IsTreeObject(held) &&
+        !IsForest(held)) {
+      tree = held;
+    } else {
+      void* glide = nullptr;
+      float from[3];
+      if (FarGrabGlideOrigin(&glide, from) && glide != nullptr &&
+          IsTreeObject(glide)) {
+        tree = glide;
+      }
+    }
+    if (tree != nullptr) {
+      const float units = RoomUnits();
+      const float radius_cm =
+          units > 0.0f ? Radius2D(tree) / units * 100.0f : 0.0f;
+      const float strength = haptics_math::ThumpBySize(radius_cm);
+      static int thump_logs = 0;
+      if (thump_logs < 40) {
+        ++thump_logs;
+        ModLog("hand tree    : the tree %p comes out of the land. Its body "
+               "has a radius of %.1f cm of the room, so the thump has a "
+               "strength of %.2f (world_haptics=%d), frame %llu", tree,
+               radius_cm, strength, HapticsWorldOn(), g_frame);
+      }
+      HapticsWorld(2, haptics_math::kThump, strength);
+    }
+  }
   if (g_tree_logs >= 80) return;
   ++g_tree_logs;
   if (moved) {
@@ -9111,6 +9158,19 @@ void HandDirectPassBegin(int eye) {
   if (g_active && g_near_pick && g_choice != nullptr) Inject();
 }
 
+// THE BEAT OF A LIVING THING IN THE HAND (world_haptics, haptics.cpp): a
+// villager, a quest character or an animal that the Hand holds, by the
+// game's own test IsLiving. Once a frame, after the first eye pass.
+void LivingHoldFrame() {
+  void* held = g_hand != nullptr
+                   ? *reinterpret_cast<void* const*>(g_hand + kHandHeld)
+                   : nullptr;
+  const bool living = held != nullptr && State(g_hand) == kStateHolding &&
+                      !IsBadReadPtr(held, 0x70) && !IsCreatureObject(held) &&
+                      IsLivingThing(held);
+  HapticsWorldHold(living);
+}
+
 void HandDirectPassDone(int eye) {
   g_eye = -1;
   if (!g_active) return;
@@ -9124,6 +9184,7 @@ void HandDirectPassDone(int eye) {
     ForestTakeSelect();
     LogFetch();
     TreeReleaseFrame();
+    LivingHoldFrame();
     LogCheck();
     LogPickState();
   }

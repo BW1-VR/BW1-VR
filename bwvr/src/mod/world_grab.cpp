@@ -47,6 +47,7 @@
 #include "controller_math.h"
 #include "controllers.h"
 #include "debug_menu.h"
+#include "haptics.h"
 #include "hint_card.h"
 #include "hint_learn_math.h"
 #include "tabletop.h"
@@ -203,6 +204,23 @@ uint64_t g_steps = 0;
 
 // The ground limit held the height of the last one hand solve back.
 bool g_height_cut = false;
+
+// THE FEEL OF THE LAND (world_haptics, haptics.cpp). A faint tick for each 2
+// cm that the land moves in the room under a grip. The land moves with the
+// hand, so a still hand gives no tick. Land that a limit holds does not move,
+// so it gives no tick either. The path of each hand, and the land and the
+// ticks of the grab that holds, for the line of the release.
+float g_land_path[2] = {0.0f, 0.0f};
+float g_land_cm = 0.0f;
+uint64_t g_land_ticks = 0;
+
+void LandFeel(int mask, int slot, float moved_cm) {
+  if (((mask >> slot) & 1) == 0 || !(moved_cm > 0.0f)) return;
+  g_land_cm += moved_cm;
+  if (!haptics_math::LandTick(&g_land_path[slot], moved_cm)) return;
+  ++g_land_ticks;
+  HapticsWorld(slot == 0 ? 1 : 2, haptics_math::kLand);
+}
 
 bool LogRoom() {
   if (g_logs >= kMaxLogs) return false;
@@ -452,6 +470,17 @@ void Release(const char* why) {
            ControllersFrameCount(), g_written.position[0],
            g_written.position[1], g_written.position[2]);
   }
+  static int land_logs = 0;
+  if (g_holding && land_logs < 60) {
+    ++land_logs;
+    ModLog("grab         : the land moved %.1f cm in the room under the grip, "
+           "and the hand felt %llu ticks of the land (world_haptics=%d), "
+           "frame %llu", g_land_cm, g_land_ticks, HapticsWorldOn(),
+           ControllersFrameCount());
+  }
+  g_land_path[0] = g_land_path[1] = 0.0f;
+  g_land_cm = 0.0f;
+  g_land_ticks = 0;
   g_on_table = false;
   g_have_table_written = false;
   if (g_holding && g_have_written) {
@@ -704,6 +733,17 @@ void TableSolve(const GrabInput& in, int mask, const char* why) {
       if (frame_step > g_step_most) g_step_most = frame_step;
       g_step_sum += frame_step;
       ++g_steps;
+      // THE FEEL OF THE LAND: the land point under each grip with the table
+      // of the last frame, and where the table of this frame puts it.
+      const float scale = in.scale > 0.0f ? in.scale : 7.5f;
+      for (int slot = 0; slot < 2; ++slot) {
+        if (((mask >> slot) & 1) == 0) continue;
+        float grip[3], land[3], now[3];
+        for (int i = 0; i < 3; ++i) grip[i] = g_smooth[slot][i] / scale;
+        table_math::PoseWorld(g_table_written, room, grip, land);
+        table_math::PoseRoom(pose, room, land, now);
+        LandFeel(mask, slot, controller_math::Distance(now, grip) * 100.0f);
+      }
       // With the hands still and the smoothing done, the table must not
       // move at all: not its center, its heading or its scale.
       if (!g_raw_moved && g_settled) {
@@ -982,6 +1022,14 @@ bool WorldGrabSolve(const GrabCamera& camera, GrabCamera* out) {
       if (frame_step > g_step_most) g_step_most = frame_step;
       g_step_sum += frame_step;
       ++g_steps;
+      // THE FEEL OF THE LAND: the land is glued to the hand, so the camera
+      // moves by the gain times the move of the land in the room. A camera
+      // that a limit holds gives no move.
+      const float scale = in.scale > 0.0f ? in.scale : 7.5f;
+      const float land_cm =
+          g_gain > 0.0f ? frame_step / (g_gain * scale) * 100.0f : 0.0f;
+      LandFeel(mask, 0, land_cm);
+      LandFeel(mask, 1, land_cm);
       // The game's own update of this frame, before the grab wrote.
       const float game =
           controller_math::Distance(camera.position, g_written.position);

@@ -878,6 +878,13 @@ that moves while the Hand takes it.
   install and the uninstall of the add-on on a clean setup. The game ran
   at 42 to 44 frames a second, and the host sends each frame on the frame
   thread (`backend.md`).
+- **N19. Haptics from the world: check it in a headset.** With
+  `world_haptics=1` the hand feels the purr of a stroke, the beat of a
+  living thing in the Hand, the land under a grip, the thump of a landing
+  and of a tree that comes out, the charge of a miracle and the pieces of a
+  take (`hand-model.md`, "Haptics from the world"). Only a headset shows
+  how each pattern feels, and whether a new target and a lock stay clear.
+  The mod reads no type of the ground, so rock and grass feel the same.
 
 ### The repo, the release and the tools
 

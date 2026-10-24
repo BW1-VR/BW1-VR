@@ -38,11 +38,18 @@
 // each call of that frame uses the same curve. The place of a piece then
 // depends only on its age.
 //
+// THE PIECES IN THE HAND. In each take, at the Hand and at a distance, the
+// hook also counts the pieces that the rule deleted since the last frame:
+// those pieces are in the Hand. Each frame with such a piece gives the Hand a
+// tick of the kind "piece" (world_haptics, haptics.cpp). The hook writes
+// nothing for this.
+//
 // THE LOG. Tag "take stream": one line when the stream of a take at a
 // distance starts, with the source, its top, the Hand and the length of the
 // way, and one line at its end with the count of the pieces that the mod
 // placed. With take_stream=0 the same two lines say that the line of the game
-// stays.
+// stays. The end of each take has one line with the count of the pieces that
+// came into the Hand.
 //
 // Ini: take_stream (default 1), with the test key of Ctrl, Shift and the
 // minus key of the row of digits.
@@ -55,6 +62,7 @@
 #include "MinHook.h"
 #include "debug_menu.h"
 #include "far_grab.h"
+#include "haptics.h"
 #include "take_stream.h"
 #include "take_stream_math.h"
 
@@ -149,6 +157,21 @@ struct Stream {
   int seen_count;
 };
 Stream g_stream = {};
+
+// THE PIECES THAT COME INTO THE HAND (world_haptics, haptics.cpp), in each
+// take: at the Hand and at a distance. The pieces of the first call of the
+// rule in the last frame. A piece that the rule of the game deleted since
+// then is in the Hand, and the Hand feels a tick.
+struct Arrivals {
+  const void* collection;
+  uint64_t frame;
+  int count;
+  uintptr_t atom[kSeen];
+  float age[kSeen];
+  uint64_t in;      // the pieces of this take that came into the Hand
+  uint64_t ticks;   // and the frames with a tick
+};
+Arrivals g_arrive = {};
 
 bool Readable(const void* p, size_t n) {
   return p != nullptr && !IsBadReadPtr(p, n);
@@ -324,6 +347,47 @@ void Place(const uint8_t* collection) {
   g_stream.seen_count = count;
 }
 
+void ArrivalsEnd() {
+  if (g_arrive.in > 0) {
+    ModLog("take stream  : %llu pieces of the take came into the Hand, with a "
+           "tick on %llu frames (world_haptics=%d), frame %llu", g_arrive.in,
+           g_arrive.ticks, HapticsWorldOn(), g_frame);
+  }
+  g_arrive = {};
+}
+
+// Once a frame, in the first call of the rule: the pieces that the game
+// deleted since the last frame came into the Hand. One tick a frame at most.
+void CountArrivals(const uint8_t* collection) {
+  uintptr_t atom[kSeen];
+  float age[kSeen];
+  int count = 0;
+  uint8_t* at = Ptr(collection + kCollectionFirst);
+  for (int n = 0; at != nullptr && n < kMaxPieces && count < kSeen; ++n) {
+    atom[count] = reinterpret_cast<uintptr_t>(at);
+    age[count] = f_Age(at, nullptr);
+    ++count;
+    at = Ptr(at + kAtomNext);
+  }
+  const bool follows = g_arrive.collection == collection &&
+                       g_arrive.frame < g_frame &&
+                       g_arrive.frame + 2 >= g_frame;
+  if (!follows && g_arrive.collection != collection) ArrivalsEnd();
+  const int in = follows ? haptics_math::PiecesIn(g_arrive.atom, g_arrive.age,
+                                                  g_arrive.count, atom, age,
+                                                  count)
+                         : 0;
+  g_arrive.collection = collection;
+  g_arrive.frame = g_frame;
+  g_arrive.count = count;
+  memcpy(g_arrive.atom, atom, sizeof(uintptr_t) * count);
+  memcpy(g_arrive.age, age, sizeof(float) * count);
+  if (in <= 0) return;
+  g_arrive.in += static_cast<uint64_t>(in);
+  ++g_arrive.ticks;
+  HapticsWorld(2, haptics_math::kPiece);
+}
+
 bool __fastcall h_Rule(void* rule, void* unused, void* collection) {
   const bool r = o_Rule(rule, unused, collection);
   if (rule == nullptr || collection == nullptr) return r;
@@ -331,6 +395,7 @@ bool __fastcall h_Rule(void* rule, void* unused, void* collection) {
   if (first) {
     LatchFrame(static_cast<const uint8_t*>(rule),
                static_cast<const uint8_t*>(collection));
+    CountArrivals(static_cast<const uint8_t*>(collection));
   }
   if (!g_stream.runs) return r;
   g_stream.last = g_frame;
@@ -424,6 +489,10 @@ void TakeStreamFrame(uint64_t frame) {
   g_frame = frame;
   if (!g_hooked) return;
   PollKey();
+  // The game deletes the particle system at the end of a take.
+  if (g_arrive.collection != nullptr && frame > g_arrive.frame + kQuietFrames) {
+    ArrivalsEnd();
+  }
   if (!g_stream.runs) return;
   // The game deletes the particle system at the end of a take, so its rule
   // does not run again.
