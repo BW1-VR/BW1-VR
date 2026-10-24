@@ -175,6 +175,24 @@ void HapticsPulse(int kind, float strength) {
   HapticsPulseHands(2, kind, strength);
 }
 
+int HapticsPulseHandsClear(int hands, int kind, float strength) {
+  const double now = Now();
+  int clear = hands & 3;
+  if ((clear & 1) != 0 && !WorldClear(now, g_control_at[0])) clear &= ~1;
+  if ((clear & 2) != 0 && !WorldClear(now, g_control_at[1])) clear &= ~2;
+  if (clear != (hands & 3)) {
+    ++g_held_back;
+    if (g_held_back_logs < kMaxKindLogs) {
+      ++g_held_back_logs;
+      ModLog("haptics      : %s held back on %s: a pulse of a control went "
+             "there less than 80 ms ago, frame %llu", kNames[kind],
+             HandsName((hands & 3) & ~clear), ControllersFrameCount());
+    }
+  }
+  if (clear != 0) HapticsPulseHands(clear, kind, strength);
+  return clear;
+}
+
 void HapticsWorld(int hands, int kind, float strength) {
   if (!IsWorld(kind) || HapticsWorldOn() == 0) return;
   // THE CONTROLS STAY CLEAR: no pulse of the world on a hand that had a

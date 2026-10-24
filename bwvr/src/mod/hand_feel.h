@@ -26,13 +26,23 @@ struct HandFeelHand {
   float dt;        // seconds since the last frame
 };
 
+// What hand feel gives a hand of the mesh beside the curls
+// (hand_model::FingerPose): the outer bend and the spread of each finger,
+// and the turn of the thumb. 0 in each is the pose of the curls only.
+struct HandFeelShape {
+  float outer[overlay_math::kFingers];
+  float spread[overlay_math::kFingers];
+  float thumb_turn;
+};
+
 // overlay.cpp, once a frame before the hands are built: the test keys.
 void HandFeelFrame();
 
 // overlay.cpp, for each hand, after the curls of the pose are known: the
-// curls with what the world adds. With hand_feel=0 the curls do not change.
+// curls with what the world adds, and the shape. With hand_feel=0 the curls
+// do not change and the shape is 0.
 void HandFeelCurls(const HandFeelHand& hand,
-                   float curls[overlay_math::kFingers]);
+                   float curls[overlay_math::kFingers], HandFeelShape* shape);
 
 // overlay.cpp, while the game's Hand holds an object: the hold pose from the
 // game's own rule and the contact of each finger with the body in the hand.
@@ -50,8 +60,12 @@ bool HandFeelHoldRange(int hand, bool mesh, float length, float hold_radius,
 float HandFeelPinch(void* held, uint64_t frame, float body_radius,
                     float hand_length, float units_per_cm, float point[3]);
 
-// overlay.cpp, at the end of the world of the first eye pass: the bodies near
-// each hand, from the objects that the game drew. The next frame uses them.
+// overlay.cpp, at the end of the world of the first eye pass, before the
+// hands draw: the bodies near each hand, from the objects that the game drew
+// in this pass. With hand_feel_bodies_now=1 the fingers of a hand of the mesh
+// bend against them in this frame, and the hand is built again
+// (OverlayRebuildHand). With 0, or with the low poly hands, the next frame
+// uses them.
 void HandFeelSnapshot();
 
 // Once a report window.

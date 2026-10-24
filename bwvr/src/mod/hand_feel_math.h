@@ -88,6 +88,92 @@ inline void ToHandFrame(const float position[3], const float rotation[9],
   if (left) out[0] = -out[0];
 }
 
+// THE GRID OF THE OUTER JOINTS. The points of one finger for each knuckle
+// curl and each outer curl on a grid of kGridSteps, in the hand frame. The
+// knuckle curl bends the first joint of the finger, and the outer curl bends
+// the joints past it (hand_model::FingerPose, `outer`). A point between the
+// rows is the mix of the four points round it. The mesh of the hand model
+// fills it. The low poly hand has one curl for its three joints, so it has
+// no grid.
+const int kGridSteps = 16;
+
+struct FingerGrid {
+  float point[kGridSteps + 1][kGridSteps + 1][kPoints][3];  // [knuckle][outer]
+};
+
+// Fills a grid from the model of the hand: joints(knuckle, outer, out), with
+// both curls from 0 to 1.
+template <typename Joints>
+inline void FillGrid(Joints joints, FingerGrid* out) {
+  for (int i = 0; i <= kGridSteps; ++i) {
+    for (int j = 0; j <= kGridSteps; ++j) {
+      joints(static_cast<float>(i) / kGridSteps,
+             static_cast<float>(j) / kGridSteps, out->point[i][j]);
+    }
+  }
+}
+
+inline void GridAt(const FingerGrid& grid, float knuckle, float outer,
+                   float out[kPoints][3]) {
+  const float a = Clamp01(knuckle) * kGridSteps;
+  const float b = Clamp01(outer) * kGridSteps;
+  int i = static_cast<int>(a), j = static_cast<int>(b);
+  if (i >= kGridSteps) i = kGridSteps - 1;
+  if (j >= kGridSteps) j = kGridSteps - 1;
+  const float u = a - static_cast<float>(i), v = b - static_cast<float>(j);
+  for (int p = 0; p < kPoints; ++p) {
+    for (int k = 0; k < 3; ++k) {
+      const float p00 = grid.point[i][j][p][k];
+      const float p01 = grid.point[i][j + 1][p][k];
+      const float p10 = grid.point[i + 1][j][p][k];
+      const float p11 = grid.point[i + 1][j + 1][p][k];
+      const float low = p00 + v * (p01 - p00);
+      const float high = p10 + v * (p11 - p10);
+      out[p][k] = low + u * (high - low);
+    }
+  }
+}
+
+// THE PATH OF A BEND. The world gives one curl to a finger, and the path says
+// how the joints share it. The knuckle takes the curl. On the even path the
+// outer joints take the curl too. On the outer path a curl past the curl of
+// the pose bends the outer joints more: they take the curl plus as much as
+// the curl past the pose, up to kOuterExtra. So a tip that meets the land or
+// a wall bends most at its outer joints, about 25 degrees more than at the
+// knuckle at most, as a real finger tip on a wall does. A curl below the pose
+// opens each joint the same, so a finger that lies on a wall stays straight.
+//
+// THE FOLD LIMIT. The world never bends the outer joints past `cap`, the fold
+// limit of the skin of the mesh (hand_model::OuterFoldLimit), or past the
+// curl of the pose when the pose bends them more. The knuckle then takes the
+// rest of the curl. Each share changes with no step as the curl changes.
+const int kPathEven = 0;
+const int kPathOuter = 1;
+const float kOuterExtra = 0.30f;
+
+inline void PathCurls(float pose, float curl, int path, float cap,
+                      float* knuckle, float* outer) {
+  pose = Clamp01(pose);
+  curl = Clamp01(curl);
+  *knuckle = *outer = curl;
+  if (!(curl > pose)) return;
+  float q = curl;
+  if (path == kPathOuter) {
+    const float past = curl - pose;
+    q += past < kOuterExtra ? past : kOuterExtra;
+  }
+  const float most = cap > pose ? cap : pose;
+  if (q > most) q = most;
+  *outer = Clamp01(q);
+}
+
+// The path of a finger from the sample that is deepest in the world at the
+// curl of the pose (Samples): the middle of the first bone bends at the
+// knuckle, and each sample past the first joint bends at the outer joints.
+inline int PathFor(int deepest_sample) {
+  return deepest_sample >= 1 ? kPathOuter : kPathEven;
+}
+
 // THE SAMPLES of a finger: the points that the tests use. The middle of each
 // of the three bones, the two joints and the tip. The knuckle does not move
 // with the curl, so it is no sample.
@@ -163,6 +249,27 @@ inline float PatchHeight(const LandPatch& patch, float x, float z) {
   const float b = patch.height[iz + 1][ix] +
                   sx * (patch.height[iz + 1][ix + 1] - patch.height[iz + 1][ix]);
   return a + sz * (b - a);
+}
+
+// THE SEA. LH3DIsland::GetAltitude gives 0 for the sea, and the sea is a
+// plane at 0 that the player sees into. A point of the land patch with a
+// height of 0 or less is sea. With the sea as water (hand_feel_sea=1), such a
+// point has the height kSeaFloor hand lengths under the plane, which no
+// finger reaches, so a finger goes into the water. Between a point of the
+// beach and a point of the sea the land goes down into the water, as the
+// beach of the game does. With the sea as land, such a point keeps its
+// height of 0, and a finger rests on the water as on rock.
+const float kSeaFloor = 2.0f;
+
+inline float SeaHeight(float height, bool sea_is_water, float hand_length) {
+  if (!sea_is_water || height > 0.0f) return height;
+  return -kSeaFloor * hand_length;
+}
+
+// A point is in the water when it is under the plane of the sea and the land
+// there is under it too.
+inline bool InWater(const LandPatch& patch, const float p[3]) {
+  return p[1] < 0.0f && PatchHeight(patch, p[0], p[2]) < 0.0f;
 }
 
 // --- the bodies ---------------------------------------------------------------
@@ -253,17 +360,27 @@ inline float BodyGapAt(const Body& body, const float p[3]) {
   }
 }
 
-// A BODY THAT IS LARGER THAN THE HAND DOES NOT COUNT. A cylinder or a box
-// with a radius of more than kBodyMaxRadius hand lengths is a large building
-// (the Temple, a village center). Its cheap form is far from what the player
-// sees, and a finger must not bend in the air beside it. A house has a
-// radius of 8 to 14 units, and the real hand is 19 units long at 100 units a
-// meter.
+// A BODY THAT IS LARGER THAN THE HAND DOES NOT COUNT. A cylinder with a
+// radius of more than kBodyMaxRadius hand lengths is a large building. Its
+// cheap form is far from what the player sees, and a finger must not bend in
+// the air beside it. The real hand is 19 units long at 100 units a meter.
+//
+// A BOX is the box of the mesh, with the turn of the object, so it is near
+// the walls of a house at each size of the hand. It counts up to a radius of
+// kBoxMaxUnits world units (a house has 4 to 6 units, a field 5.5) at each
+// zoom, and above that only when it is smaller than the hand. The Village
+// Store (15.5 units) and the Temple are round or much larger than their
+// walls, so their box does not count when the hand is smaller than them.
 const float kBodyMaxRadius = 0.80f;
+const float kBoxMaxUnits = 12.0f;
 
 inline bool BodyCounts(const Body& body, float hand_length) {
-  if (body.kind == kCylinder || body.kind == kBox) {
+  if (body.kind == kCylinder) {
     return body.radius <= kBodyMaxRadius * hand_length;
+  }
+  if (body.kind == kBox) {
+    return body.radius <= kBoxMaxUnits ||
+           body.radius <= kBodyMaxRadius * hand_length;
   }
   return true;
 }
@@ -288,9 +405,11 @@ const int kInBody = 2;
 // radius of the sample less the gap. 0 or less means that the finger is free.
 // `what` gets the thing with the largest depth.
 inline float Depth(const World& world, const float samples[kSamples][3],
-                   const float radius[kSamples], int* what) {
+                   const float radius[kSamples], int* what,
+                   int* deepest = nullptr) {
   float most = -1e30f;
   int in = kInNothing;
+  int sample = 0;
   for (int s = 0; s < kSamples; ++s) {
     const float* p = samples[s];
     if (world.land) {
@@ -299,6 +418,7 @@ inline float Depth(const World& world, const float samples[kSamples][3],
       if (depth > most) {
         most = depth;
         in = kInLand;
+        sample = s;
       }
     }
     for (int b = 0; b < world.bodies; ++b) {
@@ -306,10 +426,12 @@ inline float Depth(const World& world, const float samples[kSamples][3],
       if (depth > most) {
         most = depth;
         in = kInBody;
+        sample = s;
       }
     }
   }
   if (what != nullptr) *what = most > 0.0f ? in : kInNothing;
+  if (deepest != nullptr) *deepest = sample;
   return most;
 }
 
@@ -662,29 +784,37 @@ inline float WrapCurl(const FingerTable& table, const float radius[kSamples],
 // The range is that of overlay_math::HoldRange: the grip takes the middle,
 // ring and little fingers from the rest curl to the hold, and the index
 // finger and the thumb stay near the hold when the trigger is open. Each
-// sample has the full radius of the finger here. `touches` gets 1 for the capsule, 2 for the ball and 0 for
-// no contact.
+// sample has the full radius of the finger here. `touches` gets 1 for the
+// capsule, 2 for the ball and 0 for no contact.
+//
+// THE THUMB THAT GOES ROUND. With `thumb`, the table of the thumb with its
+// turn toward the palm (HoldThumbTurn), the thumb closes on the body as each
+// finger does, also from the side, and the cap of hold_side does not hold.
 inline void HoldRange(const FingerTable tables[kFingers],
                       const float finger_radius[kFingers],
                       const HeldBody* axis_body, const HeldBody& ball,
                       const float game[kFingers], bool side,
-                      overlay_math::PoseRange* out, int touches[kFingers]) {
+                      overlay_math::PoseRange* out, int touches[kFingers],
+                      const FingerTable* thumb = nullptr) {
   for (int f = 0; f < kFingers; ++f) {
     float radius[kSamples];
     for (int s = 0; s < kSamples; ++s) radius[s] = finger_radius[f];
+    const FingerTable& table = f == 0 && thumb != nullptr ? *thumb : tables[f];
     bool touch = false;
     int which = 0;
     float wrap = 1.0f;
     if (axis_body != nullptr) {
-      wrap = WrapCurl(tables[f], radius, *axis_body, &touch);
+      wrap = WrapCurl(table, radius, *axis_body, &touch);
       if (touch) which = 1;
     }
     if (!touch && wrap > 0.0f) {
-      wrap = WrapCurl(tables[f], radius, ball, &touch);
+      wrap = WrapCurl(table, radius, ball, &touch);
       if (touch) which = 2;
     }
     float hold = touch ? wrap : (wrap <= 0.0f ? 0.0f : Clamp01(game[f]));
-    if (side && f == 0 && hold > game[0]) hold = Clamp01(game[0]);
+    if (side && f == 0 && thumb == nullptr && hold > game[0]) {
+      hold = Clamp01(game[0]);
+    }
     if (touches != nullptr) touches[f] = which;
     out->hi[f] = hold;
     if (f <= 1) {
@@ -694,6 +824,52 @@ inline void HoldRange(const FingerTable tables[kFingers],
                                                   : overlay_math::kRestCurl;
     }
   }
+}
+
+// --- the spread and the turn of the thumb -------------------------------------
+
+// THE SPREAD OF A FLAT HAND. A finger that the land or a wall opens below the
+// curl of its pose lies on it, and a flat hand on a surface has its fingers a
+// little apart. Each finger turns at its knuckle by kFlatSpread radians (plus
+// toward the thumb) times its open share: 0 at the curl of the pose, and 1
+// when the world opened it by kRestCurl or more. The middle finger stays, and
+// the others fan out from it. The game's hand has no spread in its
+// animations, so the angles are the mod's own: about 4 degrees at the index
+// finger and 9 degrees at the little finger.
+const float kFlatSpread[kFingers] = {0.0f, 0.07f, 0.0f, -0.07f, -0.16f};
+
+inline float OpenShare(float pose, float curl) {
+  if (!(pose > curl)) return 0.0f;
+  return Clamp01((pose - curl) / overlay_math::kRestCurl);
+}
+
+// THE SPREAD ROUND A LARGE OBJECT in the Hand. A hand that holds a large thing
+// (a tree, a boulder) spreads its fingers round it: kHoldSpread radians times
+// the share of the size, 0 for a ball of kSpreadFrom hand lengths and 1 from
+// kSpreadFull on.
+const float kHoldSpread[kFingers] = {0.0f, 0.08f, 0.0f, -0.08f, -0.18f};
+const float kSpreadFrom = 0.10f;
+const float kSpreadFull = 0.30f;
+
+inline float SizeShare(float radius) {
+  return Clamp01((radius - kSpreadFrom) / (kSpreadFull - kSpreadFrom));
+}
+
+// THE TURN OF THE THUMB IN THE HOLD (hand_model::kThumbTurn). The game's
+// hold_side turns the base of the thumb by 10.8 degrees at its frame 0 (a
+// thin object) and by 42.0 degrees at its frame 1 (a large one), and the frame
+// is 1.5 times the hold radius over the length of the Hand ("THE HOLD OF THE
+// GAME" above). The mod takes this turn for each object in the Hand, so the
+// thumb goes round it. A miracle seed keeps the hand of the mouse player.
+const float kThumbTurnThin = 10.8f / 42.04f;
+
+inline float HoldThumbTurn(int type, float hold_radius, float hand_length) {
+  if (type == 2 || type == 3) return 0.0f;
+  const float r = hand_length > 0.0f && hold_radius > 0.0f
+                      ? Clamp01(hold_radius / hand_length)
+                      : 0.0f;
+  const float frame = Clamp01(1.5f * r);
+  return kThumbTurnThin + frame * (1.0f - kThumbTurnThin);
 }
 
 // --- the pulse ----------------------------------------------------------------

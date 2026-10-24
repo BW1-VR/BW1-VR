@@ -327,6 +327,15 @@ struct HandPlace {
   float curls[overlay_math::kFingers];
 };
 HandPlace g_hand_place[kHands];
+// What the mesh of each hand was built from in this frame, so the second
+// step of hand feel can build it again (OverlayRebuildHand).
+struct MeshInput {
+  uint64_t frame = 0;
+  bool have = false;
+  float position[3];
+  float rotation[9];
+};
+MeshInput g_mesh_input[kHands];
 
 bool g_said_first = false;
 bool g_said_owner = false;
@@ -497,6 +506,40 @@ int ChoosePose(int h, bool pointing, float squeeze, bool have_context,
                           : overlay_math::kPoseRelaxed;
 }
 
+// THE MESH OF ONE HAND from its curls and the shape of hand feel. A request
+// of OverlaySetFinger of this frame or the frame before takes its share of
+// the curl of the finger, and gives its spread. False when the hand model
+// does not build it.
+bool BuildMeshHand(int h, float curls[overlay_math::kFingers],
+                   const HandFeelShape& shape) {
+  const MeshInput& input = g_mesh_input[h];
+  if (!input.have || input.frame != g_frame) return false;
+  hand_model::FingerPose fingers;
+  hand_model::OpenPose(&fingers);
+  for (int f = 0; f < overlay_math::kFingers; ++f) {
+    fingers.spread[f] = shape.spread[f];
+    fingers.outer[f] = shape.outer[f];
+    const FingerAsk& ask = g_finger_ask[h][f];
+    if (ask.have && g_frame <= ask.frame + 1) {
+      curls[f] = overlay_math::Clamp01(curls[f] +
+                                       ask.weight * (ask.curl - curls[f]));
+      fingers.spread[f] += ask.weight * (ask.spread - fingers.spread[f]);
+      fingers.outer[f] *= 1.0f - ask.weight;
+    }
+    fingers.curl[f] = curls[f];
+  }
+  fingers.thumb_turn = shape.thumb_turn;
+  const bool left = h == 0;
+  if (!HandModelBuild(h, input.position, input.rotation, g_length, left,
+                      fingers)) {
+    return false;
+  }
+  // The mesh of the hand model stands for the low poly hand. Its own index
+  // tip is the tip for the log.
+  HandModelIndexTip(h, g_index_tip[h]);
+  return true;
+}
+
 // The hands of this frame: a mesh at each grip, lit. False when nothing is
 // to be drawn.
 bool BuildFrame() {
@@ -621,6 +664,8 @@ bool BuildFrame() {
     for (int f = 0; f < overlay_math::kFingers; ++f) place.curls[f] = curls[f];
     // THE FINGERS AND THE WORLD: the land, a target of the grip and the
     // bodies near the hand change the curls of the pose (hand_feel.cpp).
+    HandFeelShape shape;
+    memset(&shape, 0, sizeof(shape));
     if (!g_intro) {
       HandFeelHand feel;
       feel.hand = h;
@@ -640,35 +685,21 @@ bool BuildFrame() {
       feel.trigger = hand.trigger;
       feel.squeeze = hand.squeeze;
       feel.dt = dt;
-      HandFeelCurls(feel, curls);
+      HandFeelCurls(feel, curls, &shape);
     }
-    // THE FINGERS FROM OUTSIDE: a request of this frame or the frame before
-    // takes its share of the curl of the finger, and gives its spread.
-    hand_model::FingerPose fingers;
-    hand_model::OpenPose(&fingers);
-    for (int f = 0; f < overlay_math::kFingers; ++f) {
-      const FingerAsk& ask = g_finger_ask[h][f];
-      if (ask.have && g_frame <= ask.frame + 1) {
-        curls[f] = overlay_math::Clamp01(curls[f] +
-                                         ask.weight * (ask.curl - curls[f]));
-        fingers.spread[f] = ask.weight * ask.spread;
-      }
-      fingers.curl[f] = curls[f];
-    }
-    const float index_curl = curls[1];
+    MeshInput& input = g_mesh_input[h];
+    input.frame = g_frame;
+    input.have = true;
+    for (int k = 0; k < 3; ++k) input.position[k] = hand.position[k];
+    for (int k = 0; k < 9; ++k) input.rotation[k] = hand.rotation[k];
     const bool left = h == 0;
-    float tip[3];
-    overlay_math::FingerTip(1, index_curl, tip);
-    overlay_math::PlacePoint(hand.position, hand.rotation, g_length, left, tip,
-                             g_index_tip[h]);
     HandModelSetOpacity(h, g_intro ? g_intro_opacity[h] : 1.0f);
-    if (mesh && HandModelBuild(h, hand.position, hand.rotation, g_length, left,
-                               fingers)) {
-      // The mesh of the hand model stands for the low poly hand. Its own
-      // index tip is the tip for the log.
+    float mesh_curls[overlay_math::kFingers];
+    memcpy(mesh_curls, curls, sizeof(mesh_curls));
+    if (mesh && BuildMeshHand(h, mesh_curls, shape)) {
       g_mesh_hands = true;
       place.mesh = true;
-      HandModelIndexTip(h, g_index_tip[h]);
+      const float index_curl = mesh_curls[1];
       if (!g_said_tip && h == hands.pointing) {
         g_said_tip = true;
         float rest[3], rest_world[3];
@@ -690,6 +721,19 @@ bool BuildFrame() {
                overlay_math::kRestCurl);
       }
     } else {
+      // THE FINGERS FROM OUTSIDE, for the low poly hand: a request of this
+      // frame or the frame before takes its share of the curl of the finger.
+      for (int f = 0; f < overlay_math::kFingers; ++f) {
+        const FingerAsk& ask = g_finger_ask[h][f];
+        if (ask.have && g_frame <= ask.frame + 1) {
+          curls[f] = overlay_math::Clamp01(curls[f] +
+                                           ask.weight * (ask.curl - curls[f]));
+        }
+      }
+      float tip[3];
+      overlay_math::FingerTip(1, curls[1], tip);
+      overlay_math::PlacePoint(hand.position, hand.rotation, g_length, left,
+                               tip, g_index_tip[h]);
       const int n = overlay_math::BuildHandPose(curls, g_hand_local);
       if (g_count + n > kMaxTriangles) break;
       overlay_math::PlaceTriangles(g_hand_local, n, hand.position,
@@ -1130,6 +1174,19 @@ void OverlaySetFinger(int hand, int finger, float curl, float spread,
   ask.curl = overlay_math::Clamp01(curl);
   ask.spread = spread;
   ask.weight = overlay_math::Clamp01(weight);
+}
+
+// For hand_feel.cpp, in the first eye pass before the hands draw: the mesh of
+// one hand of this frame again, with the curls and the shape that the bodies
+// of this frame gave. False when the hand is no mesh of this frame.
+bool OverlayRebuildHand(int hand, const float curls[overlay_math::kFingers],
+                        const HandFeelShape& shape) {
+  if (hand < 0 || hand >= kHands || !g_hand_valid[hand]) return false;
+  const HandPlace& place = g_hand_place[hand];
+  if (!place.mesh || place.frame != g_frame) return false;
+  float mesh_curls[overlay_math::kFingers];
+  memcpy(mesh_curls, curls, sizeof(mesh_curls));
+  return BuildMeshHand(hand, mesh_curls, shape);
 }
 
 // For hand_feel.cpp, for the pictures of a desktop run: the pixel of the tip

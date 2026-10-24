@@ -178,14 +178,20 @@ the grip, and the hands change with your alignment, as the Hand of
 the game does. Set hand_model=0 in bwvr.ini for plain hands.
 
 The fingers also react to the world. When you put a hand down on the
-land, each finger bends until it rests on it. When your finger tip
-comes to a thing that the grip can take, the hand takes the form of
-the thing: a claw for a villager, an open hand for a tree. In your
-hand the fingers close on the thing, and a tree lies with its trunk
-on your palm. A small thing, for example a rock or a mushroom when you
+land, each finger bends until it rests on it. A finger tip that meets
+the land or a wall bends at its outer joints, and a flat hand on the
+land spreads its fingers a little. The fingers also rest on a house,
+a tree, a rock, a villager, an animal and your Creature, and a
+villager that walks into your hand bends your fingers. Your fingers
+go into the sea. When your finger tip comes to a thing that the grip
+can take, the hand takes the form of the thing: a claw for a
+villager, an open hand for a tree. In your hand the fingers close on
+the thing, the thumb goes round it, and a tree lies with its trunk on
+your palm. A small thing, for example a rock or a mushroom when you
 are zoomed out, is held between your thumb and your index finger. Set
-hand_pinch=0 in bwvr.ini to hold it in your fist. Set hand_feel=0 for
-fingers that follow the trigger and the grip only.
+hand_pinch=0 in bwvr.ini to hold it in your fist. Set
+hand_feel_bodies=0 for fingers that do not react to things, and
+hand_feel=0 for fingers that follow the trigger and the grip only.
 
   Stick up, down      Zoom out or in one step: up makes the world
                       smaller, down makes it larger. "Stick forward"

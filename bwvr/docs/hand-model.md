@@ -288,10 +288,14 @@ finger.
 | `wiggle`, both frames | 0.13 | 0.00 | 0.13 | 0.15 | 0.21 | The hand of the mouse player |
 
 The thumb of frame 0 of `hold_above` and of frames 1 and 2 of `hold_side`
-bends back from its rest pose, and the thumb of `can_pickup` turns at its
-base by up to 32 degrees. The hand model has no such bend, so those thumbs
-are the open thumb. The index finger of `can_pickup` is straight in each
-frame: it points at the thing.
+bends back from its rest pose. The thumb of `hold_side` also turns: its base
+(bone 3) by 10.8 degrees in frame 0 and by 42.0 degrees in frame 1, mostly
+about the long axis of the thumb, and bone 20 by 14.4 and 30.3 degrees. The
+thumb of `can_pickup` frame 2 turns bone 20 by 32.4 degrees about its own y.
+The hand model takes the turn of `hold_side` frame 1 as the turn of the
+thumb toward the palm ("Hands that react to the world", "The shape"). It has
+no bend back, so those thumbs are the open thumb. The index finger of
+`can_pickup` is straight in each frame: it points at the thing.
 
 ### The export (`tools/hand_export`)
 
@@ -456,8 +460,11 @@ key (below). Each case has a log line.
 
 ### The fingers from outside
 
-The hand model takes one curl and one spread for each finger
-(`hand_model::FingerPose`), and `overlay.cpp` has three functions for a
+The hand model takes a curl, a spread and an outer bend for each finger,
+and a turn of the thumb (`hand_model::FingerPose`). The outer bend is the
+bend that the outer joints take on top of the curl. The turn of the thumb is
+the turn of the game's open hold pose, 0 to 1. Hand feel gives the outer
+bend, the spread and the turn. `overlay.cpp` has three functions for a
 caller that wants to bend a finger by what is near it. A caller declares
 them in its own file, as the mod does it for `OverlayHandPoints`. No file of
 the mod calls `OverlaySetFinger` now.
@@ -493,8 +500,11 @@ the mesh shows a spread.
 
 Hand feel ("Hands that react to the world") does not use them. It needs
 the curls of the pose in the same frame, so `overlay.cpp` gives them to
-`HandFeelCurls` and takes the new curls back. A request of
-`OverlaySetFinger` then acts on the curls that hand feel made.
+`HandFeelCurls` and takes the new curls and the shape back. A request of
+`OverlaySetFinger` then acts on the curls that hand feel made: its weight is
+its share of the curl and of the spread, and the outer bend of the finger
+goes down by the same share. `OverlayRebuildHand` builds the mesh of a hand
+again in the same frame, for the second step of hand feel.
 
 ### The hands in the intro
 
@@ -595,7 +605,9 @@ of 255. The overlay costs about 0.1 ms a frame on the CPU for both hands.
   of the mod is a curl for each finger. The poses `hold_side`, `horn` and
   `phile` of the game also turn the wrist and the bones in the palm, and
   the mod does not.
-- The thumb has one curl (its two last bones) and one spread (its base).
+- The thumb has one curl (its two last bones), one spread (its base), an
+  outer bend (its last bone) and the turn of the game's open hold pose. It
+  has no other turn and no bend back.
 
 **Open: only a headset shows it.**
 
@@ -735,11 +747,11 @@ headset.
 
 ## Hands that react to the world
 
-The fingers of the mod's hands react to what is near them: the land, a target
-of the grip, the object in the Hand, and (off by default) the body of an
-object that the hand passes. The code is in `src/mod/hand_feel.cpp` (the
-game side), `src/mod/hand_feel_math.h` (the pure math) and
-`src/mod/overlay.cpp` (the call, after the curls of the pose).
+The fingers of the mod's hands react to what is near them: the land, the sea,
+a target of the grip, the object in the Hand, and the body of an object that
+the hand passes or that comes to the hand. The code is in
+`src/mod/hand_feel.cpp` (the game side), `src/mod/hand_feel_math.h` (the pure
+math) and `src/mod/overlay.cpp` (the call, after the curls of the pose).
 
 ### The design
 
@@ -777,8 +789,21 @@ land").
 ### What the mod does
 
 `overlay.cpp` makes the curl of each finger from the pose of the hand, the
-trigger and the grip. Then `hand_feel.cpp` changes the curls. It has four
-parts, and each one has its own key.
+trigger and the grip. Then `hand_feel.cpp` changes the curls and gives the
+mesh a shape: the outer bend and the spread of each finger, and the turn of
+the thumb (`hand_model::FingerPose`). Each part has its own key.
+
+**Two steps in a frame.** `overlay.cpp` builds the hands before the eye
+passes, and the game draws its objects in the first eye pass. So the first
+step (`HandFeelCurls`, before the eye passes) makes the curls with the land,
+the approach and the hold. The second step (`HandFeelSnapshot`, after the
+world of the first eye pass and before the hands draw) takes the bodies that
+the game drew in this pass, bends the fingers against them, and builds the
+mesh of the hand again. So a villager that walks into the hand bends the
+fingers in the frame in which it touches them, and not one frame later. The
+bend then goes through the filter of 0.05 s, as each bend of the world does.
+The low poly hands, and `hand_feel_bodies_now=0`, take the bodies of the frame
+before in the first step.
 
 **The rules.**
 
@@ -818,8 +843,8 @@ for the nearest curl at which it is not:
 3. When no curl is free, the curl with the least depth, if it is less deep
    than the pose by 10 % or more. If not, the curl of the pose stays.
 
-**The land** (`hand_feel_land`). The land is `LH3DIsland::GetAltitude`, with
-the sea at 0, as the land test of the Hand's point has it. For each hand the
+**The land** (`hand_feel_land`). The land is `LH3DIsland::GetAltitude`. It
+gives 0 for the sea. For each hand the
 mod reads five heights under the hand in each frame. When the lowest point
 that a finger can reach is less than a quarter of a hand length over the
 highest of them, it reads a grid of 8 by 8 heights under the hand (the land
@@ -834,6 +859,86 @@ patch), and each finger test takes its height from that grid.
 - The index finger of the pointing hand bends on the land too. Its tip is
   the Hand's point, and the land test keeps that point 0.5 cm over the
   land, so the glow and the tip of the bent finger are both on the land.
+
+**The sea** (`hand_feel_sea`). A point of the land patch with a height of 0
+is sea. With `hand_feel_sea=1` such a point is two hand lengths under the
+plane of the sea, so a finger goes into the water and does not rest on it.
+Between a point of the beach and a point of the sea the land goes down into
+the water, so a finger at the water line still meets the beach. When a finger
+tip first goes under the plane of the sea, the hand gets the pulse `surface`,
+and the log has one line. With `hand_feel_sea=0` the sea is land at the
+height 0, and the fingers rest on the water as on rock.
+
+The plain game puts its Hand on the point that the pick of the screen gives
+(`fn_00800C30` calls `LH3DTech::Get3DPointFromScreen`), and its land test is
+`GetAltitude`, which gives 0 for the sea. So the game's Hand stays over the
+plane of the sea, and the land test of the Hand's point does the same
+(hand.md, "5. The touch of the land"). Only the fingers go into the water,
+and the other hand, which has no point, can go in as a whole.
+
+**The outer joints** (`hand_feel_joints`). A finger of the mesh has three
+joints: the knuckle and the two outer joints (for the thumb, its base joint
+and its last joint). The world gives one curl to a finger, and a path says
+how the joints share it:
+
+- When the world bends a finger past the curl of its pose, and the deepest
+  part of the finger in the world is past the first joint (the tip, the last
+  bone or the middle bone), the knuckle takes the curl and the outer joints
+  take more: the curl plus as much as the curl past the pose, up to 0.30 of
+  their full bend more than the knuckle (about 25 degrees at the middle
+  joint of the middle finger). So a tip that meets the land or a wall bends
+  most at its outer joints, as a real finger tip on a wall does.
+- When the first bone meets the world, each joint takes the curl.
+- When the world opens a finger below the curl of its pose, each joint opens
+  the same. So a finger that lies on a wall or on the land stays straight.
+- A finger that has no free curl on the outer path takes the rule of a
+  finger with no free curl on the even path: the curl with the least depth,
+  or the curl of its pose.
+- **The fold limit.** The world never bends the outer joints of a finger
+  past the bend at which the skin of the mesh folds, or past the bend of the
+  pose when the pose bends them more. The knuckle then takes the rest of the
+  curl. Each vertex of the mesh goes with its bones, so a triangle that has
+  its corners on two bones of a joint is sheared when the joint bends, and
+  then it folds into a sharp crease. At the load of the mesh the mod bends
+  the outer joints of each finger in steps of 1/32, with the knuckle at the
+  rest curl. The limit is the largest bend at which no triangle of the
+  finger with corners on two of its bones turned more than 45 degrees from
+  its rest normal turned by the bones of its corners
+  (`hand_model::OuterFoldLimit`). The log has the limit of each finger. The
+  player's own grip is not limited: the fist of the game bends the outer
+  joints fully, as the game's own `point` pose does.
+
+The shares change with no step as the curl changes. The path of a finger
+holds while the world bends it, so the joints do not change their shares
+from frame to frame. For each finger the mod keeps the
+points of the finger for each knuckle curl and each outer curl, on a grid of
+17 by 17 in the hand frame, from the mesh (`HandModelFingerJointsPose`). The
+low poly hand has one curl for its three joints, so it bends each joint the
+same.
+
+**The shape** (`hand_feel_shape`). Only the mesh shows it.
+
+- A finger that the world opens below the curl of its pose lies on the
+  surface, and the fingers of a flat hand spread a little: the index finger
+  turns 4 degrees toward the thumb, the ring finger 4 degrees and the little
+  finger 9 degrees the other way, and the middle finger stays. The spread
+  grows with how far the world opened the finger, and it is full when the
+  world opened it by the rest curl (0.12). The game's animations have no
+  spread, so the angles are the mod's own.
+- A hand that holds a large object spreads its fingers round it: up to 5
+  degrees at the index finger and 10 degrees at the little finger, from a
+  ball of 0.10 hand lengths (no spread) to 0.30 (the full spread).
+- The thumb turns toward the palm round the object in the Hand. The turn is
+  the turn of the thumb of the game's own open hold pose (`hold_side`, frame
+  1): 42.0 degrees at the base of the thumb (bone 3), mostly about the long
+  axis of the thumb, and 30.3 degrees at its next bone (bone 20). The game's
+  closed hold pose (frame 0) turns the base by 10.8 degrees. The mod takes the
+  game's rule for the size: the share of the turn goes from 10.8 to 42.0
+  degrees as 1.5 times the hold radius over the hand length goes from 0 to 1.
+  With the turn, the thumb closes on the body as each finger does, also for
+  an object that the game holds from the side, and the cap of `hold_side` on
+  the thumb does not hold. So the thumb goes round a trunk, a villager and a
+  rock. A miracle seed keeps the hand of the mouse player.
 
 **The approach** (`hand_feel_approach`). While the grip has a target at the
 Hand's point (the object with the halo, grab.md, "One target"), and a press
@@ -907,12 +1012,15 @@ the tip of the thumb and the tip of the index finger, and not in the fist.
   of the mesh for each curl and spread of the thumb and each curl of the
   index finger (`pinch_math::Solve`). It takes the triple at which the tips
   are the diameter of the ball apart, the index finger is near 0.45 of a curl,
-  and the point between the tips is in front of the palm. The thumb has one
-  curl and one spread at its base, and it cannot turn toward the palm, so
-  the tips meet where the index finger is curled 0.55 to 0.75, near the base of
-  the palm. The thumb goes to curl 0.4 to 0.6 with a spread of -0.2 to -0.3
-  rad. The middle, ring and little fingers go to 0.35. The game's own pose
-  `can_pickup` has a thumb that turns at its base, and the mod does not.
+  and the point between the tips is in front of the palm. The thumb of the
+  game's mesh is short and starts near the wrist, so the tips meet where the
+  index finger is curled 0.55 to 0.75, near the base of the palm. The thumb
+  goes to curl 0.4 to 0.6 with a spread of -0.2 to -0.3 rad. The middle,
+  ring and little fingers go to 0.35. The pinch gives the thumb no turn
+  toward the palm ("The shape"): with the turns of the thumb of the game's
+  `hold_side` and `can_pickup`, a search of the mesh finds the tips meet at
+  an index curl of 0.78 to 0.85, and with no turn at 0.75. So a turn does
+  not bring the meeting point nearer to the tips of the fingers.
 - The place. The ball of the body goes from the palm to the point between the
   tips (`hand_exact.cpp`, `HoldOrigin`), so the object is seen between the
   tips. The throw starts from there.
@@ -926,30 +1034,45 @@ the tip of the thumb and the tip of the index finger, and not in the fist.
 - With `hand_model=0` (the low poly hand has no thumb turn), `hand_feel=0` and
   `hand_pinch=0` the hold is the fist.
 
-**The bodies** (`hand_feel_bodies`, off). At the end of the world of the first
-eye pass, the mod takes the bodies near each hand from the candidates of the
-pick. The fingers of the next frame use them.
+**The bodies** (`hand_feel_bodies`). At the end of the world of the first eye
+pass, the mod takes the bodies near each hand from the candidates of the
+pick, and the second step of the frame bends the fingers against them
+(`hand_feel_bodies_now`).
 
 | Object | Body |
 | --- | --- |
 | A tree | The trunk, a cylinder of a quarter of the radius to half the height, and the crown, a spheroid in the upper half |
-| A Creature | The capsule of the choice of the grip |
-| An object with a mesh box (a house, a rock) | The box of its mesh, with the turn of the object |
+| A Creature | The box of its mesh through the matrix of its draw, with the turn and the scale of the draw. With no box, the capsule of the choice of the grip |
+| An object with a mesh box (a house, a rock, a villager) | The box of its mesh, with the turn of the object |
 | Each other object | The cylinder of the choice of the grip |
 
+The capsule of the choice stands up from the body bone of the Creature, and
+a desktop run showed a hand at the capsule inside the body of a tiger that
+crouched. The box of its mesh has the size of the Creature (18 by 26 by 22
+cm of the room for the tiger of the profile at 13 units a meter), and a hand
+at the box has its finger tips at the flank of the tiger.
+
 These do not count: the object in the Hand, a scroll (the hand goes into it
-to tap it), a forest (one object with many trees), a cylinder or a box with
-a radius of more than 0.8 hand lengths (the Temple, a store), and a body
-that the palm of the hand is in. While the pointing hand strokes the
+to tap it), a forest (one object with many trees), a cylinder with a radius
+of more than 0.8 hand lengths, a box with a radius of more than 12 units
+when it is also more than 0.8 hand lengths (the Village Store has 15.5
+units, and the Temple more), and a body that the palm of the hand is in. So
+the box of a house (4 to 6 units) counts at each zoom, also when the house
+is larger than the hand. While the pointing hand strokes the
 Creature, it does not bend against a body. The index finger of the pointing
 hand does not bend against a body at any time: its tip is the Hand's point,
 and that point goes into a body to choose it. When the hand is more than 60
 units long (the table), a finger is wider than a house, and no body counts.
 
 **The pulse** (`hand_feel_pulse`). One pulse of the kind `surface` (0.06 for
-8 ms, the faintest of the set) when a finger of a hand is in the land or in
-a body and none was for 0.2 s. Half-Life: Alyx allows one pulse of a hit in
-0.2 s too.
+8 ms, the faintest of the set) when a finger of a hand is in the land and
+none was for 0.2 s. Half-Life: Alyx allows one pulse of a hit in 0.2 s too.
+A body has its own pulse of the same kind: when a finger goes into a body,
+or a body that moves pushes a finger, and no finger was in a body for 0.2 s.
+The water line has one more, when a finger tip goes into the sea. The pulse
+of a body and the pulse of the water line keep the rule of the controls
+that stay clear ("Haptics from the world"): a hand that had a pulse of a
+control in the last 80 ms gets none.
 
 **The idle wave** (`hand_feel_idle`, off). A relaxed hand moves its fingers
 a little: a wave of 4 s that adds 0.05 of curl at most. The game's Hand has
@@ -965,7 +1088,11 @@ make, so it is off.
 | `hand_feel_land` | 1 | The fingers bend on the land |
 | `hand_feel_approach` | 1 | The pointing hand opens toward a target of the grip |
 | `hand_feel_hold` | 1 | The fingers close on the body of the object in the Hand. 0 stops them on the ball at the palm |
-| `hand_feel_bodies` | 0 | The fingers bend against a body near the hand |
+| `hand_feel_bodies` | 1 | The fingers bend against a body near the hand. 0 turns that off |
+| `hand_feel_bodies_now` | 1 | The bodies of this frame bend the fingers of the mesh in this frame. 0 takes the bodies of the frame before |
+| `hand_feel_joints` | 1 | A finger that meets the world past its first joint bends at its outer joints first. 0 bends each joint by the same curl |
+| `hand_feel_shape` | 1 | The thumb turns toward the palm round the object in the Hand, and the fingers spread on a surface and round a large object. 0 gives no turn and no spread, and the thumb of a hold from the side stays out |
+| `hand_feel_sea` | 1 | The fingers go into the sea, with a pulse at the water line. 0 makes the sea land at the height 0 |
 | `hand_feel_pulse` | 1 | A faint pulse when a finger first meets the land or a body |
 | `hand_hold_trunk` | 1 | A tree in the Hand has its trunk at the palm. 0 puts it at the radius of its crown |
 | `hand_pinch` | 1 | A small object in the Hand is held between the thumb and the index finger. 0 holds it in the fist |
@@ -984,23 +1111,32 @@ for on and a short pulse for off.
 The tag `hand feel`.
 
 - At the start: which parts are on.
-- One line when the fingers of a hand go into the land or into a body, and
-  one when they are free again: the curls of the pose, the curls that the
-  world asks for, the height of the hand over the land, the count of bodies
-  near, the trigger and the grip. At most one line for each hand in 45
-  frames, and 60 lines in all.
+- One line when the fingers of a hand go into the land, and one when they
+  are free again: the curls of the pose, the curls that the world asks for,
+  the path of each finger, the height of the hand over the land, the count
+  of bodies near, the trigger and the grip. At most one line for each hand
+  in 45 frames, and 60 lines in all.
+- The same for a body, from the second step: the curls with the land, the
+  curls with the bodies of this frame, the paths and the count of bodies.
+- One line when a finger tip goes into the sea or comes out of it (20 at
+  most).
 - One line when the pointing hand starts to take the form of a target: the
   size of the target, the frame of `can_pickup`, the curls of the form, the
   gap and the weight.
 - One line for each new object in the Hand, and one more when its body
   becomes the capsule: its class, the hold type of the game, the hold
-  radius, the game's own curls, the body in the hand, the hold curls and
-  what each finger stops on.
+  radius, the game's own curls, the body in the hand, the hold curls, what
+  each finger stops on, the turn of the thumb and the share of the spread.
 - Each press of the test key.
 - Once a report window: the frames, how often the land and a body were near
   a hand, the hand frames with a finger in the land and in a body, the
-  frames with no free curl, the frames of the approach, the hold poses, the
-  pulses, the time on the CPU and the land heights read in a frame.
+  frames with no free curl, how often the outer joints took a bend, the hand
+  frames with a tip in the sea, the frames of the approach, the hold poses,
+  the hands built again in the second step, the pulses of the land, of a
+  body and of the water line, the time on the CPU and the land heights read
+  in a frame.
+- With the test key `hand_feel_log`: also the outer bend and the spread of
+  each finger and the turn of the thumb.
 
 ### Tests
 
@@ -1029,6 +1165,36 @@ The math test (`feel_checks.h`) has no game: the hand is the low poly hand,
   at the palm against the contact curl, a trunk across the palm, a trunk
   that no finger can reach, and a finger that is in the body.
 
+The second math test (`feel_shape_checks.h`) has the made up hand of the
+hand model test, with the place of the mesh on the hand:
+
+- The outer bend: the knuckle takes the curl and the outer joints take the
+  curl and the outer bend, never past their full bend, for a finger and for
+  the thumb. The turn of the thumb: 42.04 degrees at its base for a turn of
+  1, half of it for 0.5, no other finger moves, and the bones keep their
+  lengths.
+- The grid: a point on the grid is the joint of the mesh, a point between
+  the rows is within 0.3 % of the hand length, and the same knuckle curl and
+  outer curl is the finger of one curl. The paths: the even path, the outer
+  path at the pose, the extra bend of the outer joints and its top, no step
+  in a share as the curl grows, the fold limit on both paths, a pose past
+  the limit, and a curl below the pose. The fingers down on flat land: the
+  tip is the deepest sample, the finger takes the outer path, the knuckle
+  bends less than on the even path, the outer joints bend more than the
+  knuckle, and the tip rests on the land.
+- The fold limit: a tube of skin round the middle finger with short
+  triangles across the outer joints folds before the full bend, longer
+  triangles fold later, and a skin with no triangle across a joint has no
+  limit.
+- The spread of a flat finger and round a large object, and the turn of the
+  thumb in the hold for a thin and a large object and a miracle seed. With
+  the table of the turned thumb, the thumb closes past the cap of
+  `hold_side`.
+- The sea: a finger under the plane of the sea is free with the sea as water
+  and in the land with the sea as land. A point under the plane is in the
+  water, and a point over it is not. At the beach a finger meets the beach,
+  and past the water line it goes into the sea.
+
 On the desktop, hand feel shows these results (the fake controller, 100
 units a meter):
 
@@ -1050,42 +1216,95 @@ units a meter):
   pinch below 0.16, and the log has one line for each change of the pose.
 - The pulse comes once at the first contact of a finger, and not while a hand
   stays on the land.
-- The cost is under 0.03 ms a frame on the CPU, less than 0.1 % of a frame.
+
+The bodies, the outer joints, the shape and the sea, five zoom steps in (13
+units a meter, so a house is 25 cm high). The test words of `seek_plan` for
+these runs (`hand_direct.cpp`):
+
+- `gofeel`: the God view teleports to 50 cm of the room before the side of
+  the body of the nearest object in the view of the class of the next entry
+  of `seek_feel`.
+- `feel`: the Hand's point goes to the body of the nearest object of that
+  class. An entry of `seek_feel` is `class,height,gap,side`, with entries
+  between bars: the height on the body in percent, the gap from its surface
+  in cm of the room (less than 0 is in the body), and a side of 1 or -1 for a
+  point at the side of the body and not toward the camera. The class `house`
+  is an `Abode` with a radius of less than 5 units.
+- `gosea` and `sea`: the God view teleports to 60 cm of the room before the
+  nearest sea in the view, and the Hand's point goes 2 cm over the nearest
+  sea.
+
+The runs put the Hand's point at the side of the body of a house, a tree, a
+villager and the Creature, at a gap of 0 and 1.5 cm in the body:
+
+- The fold limits of the game's mesh: 0.53, 0.72, 0.66, 0.59 and 0.53 of the
+  full bend of the outer joints, thumb to little finger.
+- At the side of a house the fingers are in the body at the frame in which
+  the hand comes there, with the bodies of the draw of that frame. A hand
+  that lies along the wall has no free curl, and its fingers keep the curls
+  of the pose. With `hand_feel_bodies=0` the fingers keep the curls of the
+  pose too, and they go into the box of the house.
+- At a villager the middle finger bends on the outer path to 0.27 against
+  the body (0.33 with `hand_feel_joints=0`, on the even path), and the outer
+  joints take 0.07 more than the knuckle. With `hand_feel_bodies=0` it keeps
+  0.25, the curl of the approach.
+- At the trunk of a tree the middle finger bends from 0.29 to 0.49 against
+  the trunk.
+- At the Creature the finger tips of the hand stop at the flank of the box of
+  its mesh, and the picture shows them at the flank of the tiger.
+- A hand that lies flat on a body with each finger in it keeps the curls of
+  its pose (the log says "no free curl").
+- A tree in the Hand: with `hand_feel_shape=1` the thumb turns by 0.39 of the
+  turn of `hold_side` and closes on the ball of the tree to 0.64, and the
+  fingers spread by 0.11. With 0 the thumb stays at 0.11. On the capsule of
+  the trunk the thumb is in the trunk when it is open, so it stays open with
+  both values.
+- The sea: with the hand over the water at the beach and its fingers down,
+  `hand_feel_sea=1` gives the line "a finger tip of the right hand goes into
+  the sea" and one pulse, and the index finger and the middle finger stay at
+  0.12 and 0.09 in the water. With 0 they bend to 0.79 and 0.18 on the
+  plane of the sea.
+- The cost is under 0.04 ms a frame on the CPU at the village, and the worst
+  frame is 0.24 ms.
 
 ### Limits
 
 - The hand does not stop at the land or at a body. A hand that the player
   pushes into the land goes into it, with its fingers bent, and the land
   hides it.
-- A body is a cheap form. The box of a house has no roof slope, the crown of
-  a tree is a spheroid, and a Creature is a capsule. A finger can stop a
-  little before the thing that the player sees, or go a little into it.
-- A forest, a scroll, and a building that is larger than the hand (the
-  Temple, a store) do not bend a finger.
+- A body is a cheap form. The box of a house has no roof slope: at a hut
+  with a roof down to the land a finger stops in the air before the slope
+  of the roof. The crown of a tree is a spheroid, and the box of the Creature is the box of its mesh
+  and does not follow its animation: a Creature that crouches is lower than
+  its box. A finger can stop a little before the thing that the player sees,
+  or go a little into it.
+- A forest, a scroll, the Village Store and the Temple do not bend a finger
+  when the hand is smaller than them.
 - The land patch has a point each 3.3 units for a hand of 19 units. The
   land of the game has a point each 10 units, so the patch is fine enough
   at 100 units a meter. On the table the hand is much longer than a land
   cell, and a finger can go through a thin ridge.
-- The bodies are those of the frame before, so a finger is one frame late
-  against a thing that moves.
+- With the mesh, the bodies are those of the draw of the frame, and the bend
+  starts in the frame of the touch. The bend then goes through the filter of
+  0.05 s. The low poly hands and `hand_feel_bodies_now=0` take the bodies of
+  the frame before, one frame late.
 - The pinch needs the mesh of the hand model: the low poly hand has no thumb
   turn, so it keeps the fist.
-- The thumb has one curl. It bends on the land and against a body as a
-  finger does, but it does not go round an object.
+- The low poly hand has no outer joints, no spread and no turn of the thumb.
+- The tests of the land and of a body use the fingers with no spread and the
+  thumb with no turn. A spread moves the tip of the little finger by up to 1
+  cm to the side.
+- The thumb of the mesh turns only as the game's `hold_side` turns it. On the
+  trunk of a tree in the Hand the open thumb is in the trunk, so it stays
+  open.
 
-**Open: `hand_feel_bodies` is off** until a desktop run shows these cases:
-
-1. The Creature. The Creature of the profile is 2 cm across, so no finger
-   beside the index finger is in its capsule. A run needs a grown Creature.
-2. A house. The box of the mesh of a house is not where the point of the
-   object is (3.3 units from the middle of the hand in one run). Nothing
-   shows where the box is against the house that the player sees.
-3. A tree. The crown is a spheroid, and no picture shows one finger at 30
-   percent against it.
-
-Also not shown on the desktop: a real press of the test key, the approach at
-weights between 0 and 1 at a small target (a villager walks away), and what
-the pulse feels like.
+**Open: not shown on the desktop.** A rock as a body (no run put a hand at
+a rock), a finger at the crown of a tree, a villager or an animal that walks
+into a still hand, the Creature that comes to the hand, the spread of a flat
+hand in a picture, a real press of the test key, the approach at weights
+between 0 and 1 at a small target (a villager walks away), and what the
+pulses feel like. The camera of the God view looks down on the hand, so a
+picture shows a contact from above.
 
 **Open: only a headset shows it.**
 
@@ -1106,16 +1325,22 @@ the pulse feels like.
    tree look right (`hand_feel_hold=0`)?
 7. Take a tree with the palm to the side, as a pole. The trunk must lie in
    the hand (`hand_hold_trunk=0`).
-8. With `hand_feel_bodies=1`: does a finger bend in the air beside a house, a
-   tree or the Creature?
-9. With `hand_feel_idle=1`: is the slow wave of the fingers wanted? It is
-   motion that the player did not make.
-10. Take a small rock or mushroom, and zoom out and in with the object in the
+8. Put a hand at the wall of a house, at a trunk, at a villager and at the
+   Creature, and let a villager walk into the hand. Does a finger bend in
+   the air beside the thing, or go into it (`hand_feel_bodies=0` turns it
+   off)? Does the tip bend at its outer joints (`hand_feel_joints=0`)?
+9. Lay a flat hand on the land and on a wall. Does the spread of the fingers
+   look right? Take a villager and a boulder. Does the thumb go round it
+   (`hand_feel_shape=0`)?
+10. Put a hand into the sea. Do the fingers go into the water, and is the
+    pulse at the water line right (`hand_feel_sea=0`)?
+11. With `hand_feel_idle=1`: is the slow wave of the fingers wanted? It is
+    motion that the player did not make.
+12. Take a small rock or mushroom, and zoom out and in with the object in the
     Hand (`hand_pinch=0` and Ctrl, Shift and End give the fist). Is the
-    pinch a pinch, and not a claw? The thumb cannot turn toward the palm, so
-    the tips meet near the base of the palm with the index finger curled
-    0.55 to 0.75. Does the object glide at the change, and is the limit of
-    0.16 to 0.20 hand lengths right?
+    pinch a pinch, and not a claw? The tips meet near the base of the palm
+    with the index finger curled 0.55 to 0.75. Does the object glide at the
+    change, and is the limit of 0.16 to 0.20 hand lengths right?
 
 ## The glow at the Hand's point
 

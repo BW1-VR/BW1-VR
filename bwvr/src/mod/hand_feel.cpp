@@ -7,10 +7,11 @@
 // the game's Hand. This file adds the world near the hand.
 //
 // WHAT. overlay.cpp makes the curl of each finger from the pose. Then this
-// file changes the curls, in four parts, each with its own key:
+// file changes the curls, in these parts, each with its own key:
 //
 //   the land      A finger that is in the land takes the nearest curl at
-//                 which it is not (hand_feel_land).
+//                 which it is not (hand_feel_land). The sea is water
+//                 (hand_feel_sea): a finger goes into it.
 //   the approach  While the grip has a target at the Hand's point, the
 //                 pointing hand takes the form of the target: a share of
 //                 the curls that hold it, and the game's own pose
@@ -20,7 +21,13 @@
 //                 pose for that object (hand_feel_hold).
 //   the bodies    A finger that is in the body of an object near the hand
 //                 takes the nearest curl at which it is not
-//                 (hand_feel_bodies).
+//                 (hand_feel_bodies), with the bodies of this frame
+//                 (hand_feel_bodies_now).
+//   the joints    A finger that meets the world at its outer bones bends at
+//                 its outer joints first (hand_feel_joints).
+//   the shape     The thumb turns toward the palm round the object in the
+//                 Hand, and a flat hand and a hand round a large object
+//                 spread their fingers (hand_feel_shape).
 //
 // The place and the turn of a hand do not change. The index finger of the
 // pointing hand keeps its curl in a body and toward a target: its tip is the
@@ -34,10 +41,18 @@
 //
 // THE DATA. The land is LH3DIsland::GetAltitude on a grid of 8 by 8 points
 // under a hand, read only while the hand is near the land. The bodies are the
-// objects that the game drew in the first eye pass of the frame before
+// objects that the game drew in the first eye pass of this frame
 // (hand_direct.cpp, the candidates of the pick), with the body that the
 // choice of the grip uses. The object in the Hand is at the place where
 // hand_exact.cpp put it in the frame before.
+//
+// TWO STEPS IN A FRAME. overlay.cpp builds the hands before the eye passes,
+// and the game draws its objects in the first eye pass. So HandFeelCurls
+// (before the eye passes) makes the curls with the land, the approach and the
+// hold, and HandFeelSnapshot (after the world of the first eye pass, before
+// the hands draw) adds the bodies of this frame and builds the hand of the
+// mesh again. A villager that walks into the hand bends the fingers in the
+// frame of the touch.
 
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -77,6 +92,9 @@ bool OverlayTipPixel(int hand, float out[2]);
 // overlay.cpp: a request for the curl and the spread of one finger.
 void OverlaySetFinger(int hand, int finger, float curl, float spread,
                       float weight);
+// overlay.cpp: the mesh of one hand again, with new curls and a new shape.
+bool OverlayRebuildHand(int hand, const float curls[overlay_math::kFingers],
+                        const HandFeelShape& shape);
 // tabletop.cpp: the God view or the table owns the view.
 bool TabletopOwnsView();
 // controllers.cpp: a pulse on the pointing hand, and the frame count that the
@@ -95,7 +113,11 @@ struct Settings {
   bool land = true;
   bool approach = true;
   bool hold = true;
-  bool bodies = false;
+  bool bodies = true;
+  bool bodies_now = true;
+  bool joints = true;
+  bool shape = true;
+  bool sea = true;
   bool pulse = true;
   bool idle = false;
   bool pinch = true;
@@ -150,10 +172,15 @@ const float kBodiesMaxLength = 60.0f;
 // the approach is 1 there.
 const float kTouchCm = 1.0f;
 
-// The finger tables of the hand frame, for the hand model in use.
+// The finger tables of the hand frame, for the hand model in use, and the
+// grids of the outer joints for the mesh (hand_feel_joints).
 hf::FingerTable g_table[hf::kFingers];
+hf::FingerGrid g_grid[hf::kFingers];
 bool g_have_table = false;
 bool g_table_mesh = false;
+bool g_have_grid = false;
+// The fold limit of the outer joints of each finger of the mesh.
+float g_cap[hf::kFingers] = {1.0f, 1.0f, 1.0f, 1.0f, 1.0f};
 
 struct HandState {
   // The place of the hand when its curls were made last.
@@ -167,14 +194,33 @@ struct HandState {
   // the side of the free curl of the last frame.
   float add[hf::kFingers] = {0.0f, 0.0f, 0.0f, 0.0f, 0.0f};
   int side[hf::kFingers] = {0, 0, 0, 0, 0};
-  // The bodies near the hand, from the last first eye pass.
+  // The path of the bend of each finger (hand_feel_math.h, THE PATH OF A
+  // BEND). It holds while the world adds to the finger.
+  int path[hf::kFingers] = {0, 0, 0, 0, 0};
+  // The bodies near the hand, from the first eye pass.
   int bodies = 0;
   hf::Body body[hf::kMaxBodies];
   float body_gap[hf::kMaxBodies];
+  // THE SECOND STEP of this frame (HandFeelSnapshot): what the first step
+  // made, so the bodies can change it.
+  bool late = false;
+  uint64_t late_frame = 0;
+  HandFeelHand in;
+  float pose[hf::kFingers];
+  float base[hf::kFingers];   // the curls before the world
+  float want[hf::kFingers];   // the curls with the land
+  float add_before[hf::kFingers];
+  bool land = false;
+  hf::LandPatch patch;
   // For the pulse and the log.
   float quiet = 10.0f;
-  int in = hf::kInNothing;
+  int in_what = hf::kInNothing;
   uint64_t in_frame = 0;
+  float body_quiet = 10.0f;
+  bool body_in = false;
+  uint64_t body_frame = 0;
+  float sea_quiet = 10.0f;
+  bool wet = false;
   bool approach = false;
   float idle_phase = 0.0f;
 };
@@ -198,8 +244,15 @@ struct HoldCache {
   bool capsule = false;
   hf::HeldBody body;
   overlay_math::PoseRange range;
+  // The shape of the hold (hand_feel_shape): the turn of the thumb, and the
+  // share of the spread for the size of the body.
+  float thumb_turn = 0.0f;
+  float spread_share = 0.0f;
+  uint64_t frame = 0;
 };
 HoldCache g_hold;
+// The table of the thumb with the turn of the hold.
+hf::FingerTable g_thumb_table;
 
 // THE PINCH of the object in the Hand (HandFeelPinch). The tips of the thumb
 // and of the index finger for the hand model in use, the pose that brings
@@ -228,6 +281,10 @@ uint64_t g_frame = 0;
 int g_meet_logs = 0;
 const int kMaxMeetLogs = 60;
 const uint64_t kMeetLogGap = 45;
+int g_body_logs = 0;
+const int kMaxBodyLogs = 60;
+int g_sea_logs = 0;
+const int kMaxSeaLogs = 20;
 int g_approach_logs = 0;
 const int kMaxApproachLogs = 30;
 int g_hold_logs = 0;
@@ -239,9 +296,14 @@ uint64_t g_body_near = 0;
 uint64_t g_in_land = 0;
 uint64_t g_in_body = 0;
 uint64_t g_stuck = 0;
+uint64_t g_outer = 0;
 uint64_t g_approach_frames = 0;
 uint64_t g_hold_made = 0;
 uint64_t g_pulses = 0;
+uint64_t g_body_pulses = 0;
+uint64_t g_sea_pulses = 0;
+uint64_t g_rebuilt = 0;
+uint64_t g_wet = 0;
 uint64_t g_land_calls = 0;
 uint64_t g_candidates_seen = 0;
 uint64_t g_view_off = 0;
@@ -295,7 +357,11 @@ void LoadSettings() {
     g_set.land = key("hand_feel_land", 1) != 0;
     g_set.approach = key("hand_feel_approach", 1) != 0;
     g_set.hold = key("hand_feel_hold", 1) != 0;
-    g_set.bodies = key("hand_feel_bodies", 0) != 0;
+    g_set.bodies = key("hand_feel_bodies", 1) != 0;
+    g_set.bodies_now = key("hand_feel_bodies_now", 1) != 0;
+    g_set.joints = key("hand_feel_joints", 1) != 0;
+    g_set.shape = key("hand_feel_shape", 1) != 0;
+    g_set.sea = key("hand_feel_sea", 1) != 0;
     g_set.pulse = key("hand_feel_pulse", 1) != 0;
     g_set.idle = key("hand_feel_idle", 0) != 0;
     g_set.pinch = key("hand_pinch", 1) != 0;
@@ -324,16 +390,27 @@ void LoadSettings() {
            "pose only");
     return;
   }
-  ModLog("hand feel    : on. The fingers bend on the land: %s. The hand takes "
-         "the form of a target of the grip: %s. The fingers close on the "
-         "object in the Hand with the game's hold pose: %s. The fingers bend "
-         "against a body: %s. A pulse when a hand first meets a surface: %s. "
-         "The idle wave: %s. A small object in the Hand is held in a pinch: "
-         "%s. The filter is %.0f ms%s",
+  ModLog("hand feel    : on. The fingers bend on the land: %s. The sea: %s. "
+         "The hand takes the form of a target of the grip: %s. The fingers "
+         "close on the object in the Hand with the game's hold pose: %s. The "
+         "fingers bend against a body: %s. A finger that meets the world at "
+         "its outer bones bends at its outer joints first: %s. The thumb "
+         "turns round the object in the Hand, and the fingers spread on a "
+         "surface and round a large object: %s. A pulse when a hand first "
+         "meets a surface: %s. The idle wave: %s. A small object in the Hand "
+         "is held in a pinch: %s. The filter is %.0f ms%s",
          g_set.land ? "yes" : "no (hand_feel_land=0)",
+         g_set.sea ? "water, the fingers go into it"
+                   : "land at the height 0 (hand_feel_sea=0)",
          g_set.approach ? "yes" : "no (hand_feel_approach=0)",
          g_set.hold ? "yes" : "no (hand_feel_hold=0)",
-         g_set.bodies ? "yes (hand_feel_bodies=1)" : "no",
+         !g_set.bodies ? "no (hand_feel_bodies=0)"
+         : g_set.bodies_now
+             ? "yes, with the bodies of this frame"
+             : "yes, with the bodies of the frame before "
+               "(hand_feel_bodies_now=0)",
+         g_set.joints ? "yes" : "no (hand_feel_joints=0)",
+         g_set.shape ? "yes" : "no (hand_feel_shape=0)",
          g_set.pulse ? "yes" : "no (hand_feel_pulse=0)",
          g_set.idle ? "yes (hand_feel_idle=1)" : "no",
          g_set.pinch ? "yes" : "no (hand_pinch=0)",
@@ -364,6 +441,10 @@ float Ground(float x, float z) {
   return y;
 }
 
+// The grids of the outer joints: only for the mesh, which bends each joint
+// by itself.
+bool UseGrid(bool mesh) { return mesh && g_set.joints && g_have_grid; }
+
 void EnsureTables(bool mesh) {
   if (g_have_table && g_table_mesh == mesh) return;
   for (int f = 0; f < hf::kFingers; ++f) {
@@ -375,6 +456,22 @@ void EnsureTables(bool mesh) {
           }
         },
         &g_table[f]);
+  }
+  g_have_grid = false;
+  if (mesh && g_set.joints) {
+    bool ok = true;
+    for (int f = 0; f < hf::kFingers && ok; ++f) {
+      hf::FillGrid(
+          [&](float knuckle, float outer, float out[hf::kPoints][3]) {
+            if (!HandModelFingerJointsPose(f, knuckle, outer - knuckle, 0.0f,
+                                           0.0f, out)) {
+              ok = false;
+            }
+          },
+          &g_grid[f]);
+    }
+    g_have_grid = ok;
+    for (int f = 0; f < hf::kFingers; ++f) g_cap[f] = HandModelOuterLimit(f);
   }
   g_have_table = true;
   g_table_mesh = mesh;
@@ -508,57 +605,269 @@ void Approach(const HandFeelHand& in, const float values[hf::kFingers],
   state->approach = on;
 }
 
-// THE WORLD of a hand in this frame. False when no land and no body is near.
-bool MakeWorld(const HandFeelHand& in, const HandState& state, bool left,
-               hf::World* world, float* land_under, float* slope) {
+// The land under a hand in this frame, into world->patch. False when the
+// land is not near.
+bool MakeLand(const HandFeelHand& in, bool left, hf::World* world,
+              float* land_under, float* slope) {
   world->land = false;
-  world->bodies = 0;
   float center[3];
   overlay_math::PlacePoint(in.position, in.rotation, in.length, left, kCenter,
                            center);
   const float reach = kReach * in.length;
   *land_under = 0.0f;
   *slope = 0.0f;
-  if (g_set.land) {
-    float highest = Ground(center[0], center[2]);
-    *land_under = center[1] - highest;
-    const float side[4][2] = {{reach, 0.0f}, {-reach, 0.0f}, {0.0f, reach},
-                              {0.0f, -reach}};
-    float at[4];
-    for (int i = 0; i < 4; ++i) {
-      at[i] = Ground(center[0] + side[i][0], center[2] + side[i][1]);
-      if (at[i] > highest) highest = at[i];
-    }
-    // The slope of the land under the hand, for the log: the rise over the
-    // run, across x and across z.
-    const float dx = (at[0] - at[1]) / (2.0f * reach);
-    const float dz = (at[2] - at[3]) / (2.0f * reach);
-    *slope = sqrtf(dx * dx + dz * dz);
-    if (center[1] - reach < highest + kLandSlack * in.length) {
-      hf::FillPatch(center[0], center[2], reach,
-                    [](float x, float z) { return Ground(x, z); },
-                    &world->patch);
-      world->land = true;
-      ++g_land_near;
-    }
+  if (!g_set.land) return false;
+  float highest = Ground(center[0], center[2]);
+  *land_under = center[1] - highest;
+  const float side[4][2] = {{reach, 0.0f}, {-reach, 0.0f}, {0.0f, reach},
+                            {0.0f, -reach}};
+  float at[4];
+  for (int i = 0; i < 4; ++i) {
+    at[i] = Ground(center[0] + side[i][0], center[2] + side[i][1]);
+    if (at[i] > highest) highest = at[i];
   }
+  // The slope of the land under the hand, for the log: the rise over the
+  // run, across x and across z.
+  const float dx = (at[0] - at[1]) / (2.0f * reach);
+  const float dz = (at[2] - at[3]) / (2.0f * reach);
+  *slope = sqrtf(dx * dx + dz * dz);
+  if (!(center[1] - reach < highest + kLandSlack * in.length)) return false;
+  const bool water = g_set.sea;
+  const float length = in.length;
+  hf::FillPatch(center[0], center[2], reach,
+                [&](float x, float z) {
+                  return hf::SeaHeight(Ground(x, z), water, length);
+                },
+                &world->patch);
+  world->land = true;
+  ++g_land_near;
+  return true;
+}
+
+// The bodies near a hand from the list of its bodies, into world->body.
+void AddBodies(const HandFeelHand& in, const HandState& state, bool left,
+               hf::World* world) {
+  world->bodies = 0;
   // The pointing hand strokes the Creature with the flat hand or the index
   // finger, in its body. The fingers do not bend away from it then.
-  if (g_set.bodies && !(in.pointing && in.stroke)) {
-    // A hand with its palm in a body is in that body, and no curl takes its
-    // fingers out. So that body does not count.
-    float palm[3];
-    overlay_math::PlacePoint(in.position, in.rotation, in.length, left, kPalm,
-                             palm);
-    for (int b = 0; b < state.bodies; ++b) {
-      if (hf::BodyGapAt(state.body[b], center) > reach) continue;
-      if (!(hf::BodyGapAt(state.body[b], palm) > 0.0f)) continue;
-      world->body[world->bodies++] = state.body[b];
-    }
-    if (world->bodies > 0) ++g_body_near;
+  if (!g_set.bodies || (in.pointing && in.stroke)) return;
+  float center[3], palm[3];
+  overlay_math::PlacePoint(in.position, in.rotation, in.length, left, kCenter,
+                           center);
+  // A hand with its palm in a body is in that body, and no curl takes its
+  // fingers out. So that body does not count.
+  overlay_math::PlacePoint(in.position, in.rotation, in.length, left, kPalm,
+                           palm);
+  const float reach = kReach * in.length;
+  for (int b = 0; b < state.bodies; ++b) {
+    if (hf::BodyGapAt(state.body[b], center) > reach) continue;
+    if (!(hf::BodyGapAt(state.body[b], palm) > 0.0f)) continue;
+    world->body[world->bodies++] = state.body[b];
   }
-  return world->land || world->bodies > 0;
+  if (world->bodies > 0) ++g_body_near;
 }
+
+// THE TEST OF ONE FINGER in the world of a hand: the depth of the finger at a
+// curl of the world, on the path of the finger. With the grid (the mesh and
+// hand_feel_joints=1) the joints share the curl by the path. Else each joint
+// takes the curl, from the table of the hand placed in the world.
+struct FingerTest {
+  int finger;
+  const HandFeelHand* in;
+  bool left;
+  bool grid;
+  float base;  // the curl of the finger before the world
+  int path;
+  hf::FingerTable placed;
+  float radius[hf::kSamples];
+  const hf::World* world;
+
+  void Prepare(int f, const HandFeelHand& hand, bool is_left,
+               const hf::World& around, float before) {
+    finger = f;
+    in = &hand;
+    left = is_left;
+    world = &around;
+    base = before;
+    path = hf::kPathEven;
+    grid = UseGrid(hand.mesh);
+    if (!grid) {
+      hf::PlaceTable(g_table[f], hand.position, hand.rotation, hand.length,
+                     is_left, &placed);
+    }
+    const float tip = hf::kTipCm * 0.01f * hand.units_per_meter;
+    hf::SampleRadii(overlay_math::kShape[f].radius * hand.length, tip, radius);
+  }
+
+  void Points(float curl, float points[hf::kPoints][3]) const {
+    if (!grid) {
+      hf::TableAt(placed, curl, points);
+      return;
+    }
+    float knuckle, outer, local[hf::kPoints][3];
+    hf::PathCurls(base, curl, path, g_cap[finger], &knuckle, &outer);
+    hf::GridAt(g_grid[finger], knuckle, outer, local);
+    for (int p = 0; p < hf::kPoints; ++p) {
+      overlay_math::PlacePoint(in->position, in->rotation, in->length, left,
+                               local[p], points[p]);
+    }
+  }
+
+  float Depth(float curl, int* what, int* deepest) const {
+    float points[hf::kPoints][3], samples[hf::kSamples][3];
+    Points(curl, points);
+    hf::Samples(points, samples);
+    return hf::Depth(*world, samples, radius, what, deepest);
+  }
+};
+
+// THE FREE CURL of each finger of a hand in a world. `want` has the curls
+// before the world and gets the free ones. `base` has the curls before the
+// world for the path. The index finger of the pointing hand meets only the
+// land. Gives what the hand is in, and whether a finger had no free curl.
+// With nothing near the hand: no side of the last frame, and the even path
+// for a finger that the world no longer bends.
+void ResetFingers(HandState* state) {
+  for (int f = 0; f < hf::kFingers; ++f) {
+    state->side[f] = 0;
+    if (fabsf(state->add[f]) < 0.01f) state->path[f] = hf::kPathEven;
+  }
+}
+
+void SolveFingers(const HandFeelHand& in, HandState* state, bool left,
+                  const hf::World& world, const float values[hf::kFingers],
+                  const float base[hf::kFingers], float want[hf::kFingers],
+                  int* in_what, bool* stuck) {
+  *in_what = hf::kInNothing;
+  *stuck = false;
+  // The tip of the index finger of the pointing hand is the Hand's point,
+  // which goes into a body to choose it. So that finger bends on the land
+  // only.
+  hf::World land_only = world;
+  land_only.bodies = 0;
+  for (int f = 0; f < hf::kFingers; ++f) {
+    const bool point_finger = f == 1 && in.pointing;
+    if (point_finger && !world.land) continue;
+    const hf::World& around = point_finger ? land_only : world;
+    FingerTest test;
+    test.Prepare(f, in, left, around, base[f]);
+    // THE PATH: from the sample that is deepest at the curl before the
+    // world. It holds while the world adds to the finger, so the joints do
+    // not change their shares.
+    if (test.grid) test.path = state->path[f];
+    int what = hf::kInNothing, deepest = 0;
+    const float at_pose = test.Depth(want[f], &what, &deepest);
+    if (test.grid) {
+      const bool holding = fabsf(state->add[f]) > 0.01f || state->side[f] != 0;
+      if (!holding) {
+        state->path[f] = at_pose > 0.0f ? hf::PathFor(deepest)
+                                        : hf::kPathEven;
+      }
+      test.path = state->path[f];
+    } else {
+      state->path[f] = hf::kPathEven;
+    }
+    hf::Free free = hf::FreeCurl(
+        want[f], hf::MayOpen(values[f]), state->side[f],
+        [&](float curl) { return test.Depth(curl, nullptr, nullptr); });
+    // A finger with no free curl on the outer path takes the rule of a
+    // finger with no free curl on the even path: the curl with the least
+    // depth, or the curl of its pose. The outer joints then take no more
+    // than the knuckle.
+    if (!free.free && test.path == hf::kPathOuter) {
+      test.path = hf::kPathEven;
+      state->path[f] = hf::kPathEven;
+      free = hf::FreeCurl(
+          want[f], hf::MayOpen(values[f]), state->side[f],
+          [&](float curl) { return test.Depth(curl, nullptr, nullptr); });
+    }
+    state->side[f] = free.side;
+    if (!free.blocked) continue;
+    if (what > *in_what) *in_what = what;
+    if (!free.free) *stuck = true;
+    want[f] = free.curl;
+  }
+}
+
+// THE CURLS AND THE SHAPE OF A HAND from what the world asks for. The filter
+// goes from the add of the last frame (`add_before`), so the second step of a
+// frame makes the same filter step with its own answer. Then the joints share
+// each curl by the path of the finger, the fingers spread, and the thumb
+// turns in the hold.
+void Finish(const HandFeelHand& in, HandState* state,
+            const float want[hf::kFingers], float curls[hf::kFingers],
+            HandFeelShape* shape) {
+  float uniform[hf::kFingers];
+  for (int f = 0; f < hf::kFingers; ++f) {
+    state->add[f] = hf::FilterStep(state->add_before[f],
+                                   want[f] - state->pose[f], in.dt,
+                                   hf::kFilterSeconds);
+    if (fabsf(state->add[f]) < 1e-4f && want[f] == state->pose[f]) {
+      state->add[f] = 0.0f;
+    }
+    uniform[f] = hf::Clamp01(state->pose[f] + state->add[f]);
+    curls[f] = uniform[f];
+    shape->outer[f] = 0.0f;
+    shape->spread[f] = 0.0f;
+  }
+  shape->thumb_turn = 0.0f;
+  if (in.mesh && UseGrid(in.mesh)) {
+    for (int f = 0; f < hf::kFingers; ++f) {
+      float knuckle, outer;
+      hf::PathCurls(state->base[f], uniform[f], state->path[f], g_cap[f],
+                    &knuckle, &outer);
+      curls[f] = knuckle;
+      shape->outer[f] = outer - knuckle;
+      if (shape->outer[f] > 0.01f) ++g_outer;
+    }
+  }
+  if (in.mesh && g_set.shape) {
+    // A finger that the world opens lies on the surface, and spreads.
+    for (int f = 0; f < hf::kFingers; ++f) {
+      shape->spread[f] =
+          hf::kFlatSpread[f] * hf::OpenShare(state->pose[f], uniform[f]);
+    }
+    // The hold: the thumb turns round the object, and the fingers spread
+    // round a large one.
+    if (in.holding && g_hold.have && g_frame <= g_hold.frame + 1) {
+      shape->thumb_turn = g_hold.thumb_turn;
+      for (int f = 0; f < hf::kFingers; ++f) {
+        shape->spread[f] += hf::kHoldSpread[f] * g_hold.spread_share;
+      }
+    }
+  }
+  // THE PINCH. The thumb and the index finger go to the curls at which their
+  // tips meet at the object, and the thumb turns at its base.
+  if (in.holding && in.mesh) {
+    float weight, thumb_curl, thumb_spread, index_curl;
+    if (PinchNow(&weight, &thumb_curl, &thumb_spread, &index_curl)) {
+      curls[0] = pinch_math::Mix(curls[0], thumb_curl, weight);
+      curls[1] = pinch_math::Mix(curls[1], index_curl, weight);
+      shape->outer[0] *= 1.0f - weight;
+      shape->outer[1] *= 1.0f - weight;
+      shape->thumb_turn *= 1.0f - weight;
+      OverlaySetFinger(in.hand, 0, curls[0], thumb_spread * weight, 1.0f);
+    }
+  }
+}
+
+// THE WATER LINE (hand_feel_sea=1): whether a finger tip is in the sea, at
+// the curls of this frame.
+bool InSea(const HandFeelHand& in, bool left, const hf::World& world,
+           const float curls[hf::kFingers]) {
+  if (!g_set.sea || !world.land) return false;
+  for (int f = 0; f < hf::kFingers; ++f) {
+    float points[hf::kPoints][3], tip[3];
+    hf::TableAt(g_table[f], curls[f], points);
+    overlay_math::PlacePoint(in.position, in.rotation, in.length, left,
+                             points[hf::kPoints - 1], tip);
+    if (hf::InWater(world.patch, tip)) return true;
+  }
+  return false;
+}
+
+// The mask of a hand for haptics.h: bit 1 the pointing hand, bit 0 the other.
+int HandMask(const HandFeelHand& in) { return in.pointing ? 2 : 1; }
 
 }  // namespace
 
@@ -630,8 +939,9 @@ void HandFeelFrame() {
 }
 
 void HandFeelCurls(const HandFeelHand& in,
-                   float curls[overlay_math::kFingers]) {
+                   float curls[overlay_math::kFingers], HandFeelShape* shape) {
   LoadSettings();
+  memset(shape, 0, sizeof(*shape));
   if (in.hand < 0 || in.hand >= kHands) return;
   HandState& state = g_hand[in.hand];
   const bool left = in.hand == 0;
@@ -640,17 +950,24 @@ void HandFeelCurls(const HandFeelHand& in,
   state.frame = g_frame;
   state.length = in.length;
   state.left = left;
+  state.late = false;
   memcpy(state.position, in.position, sizeof(state.position));
   memcpy(state.rotation, in.rotation, sizeof(state.rotation));
   if (!g_set.on) return;
   const int64_t start = Now();
-  float pose[hf::kFingers], want[hf::kFingers], values[hf::kFingers];
-  for (int f = 0; f < hf::kFingers; ++f) pose[f] = want[f] = curls[f];
+  float want[hf::kFingers], values[hf::kFingers];
+  for (int f = 0; f < hf::kFingers; ++f) state.pose[f] = want[f] = curls[f];
   overlay_math::FingerValues(in.trigger, in.squeeze, values);
   const bool view = TabletopOwnsView();
   int in_what = hf::kInNothing;
   bool stuck = false;
   float land_under = 0.0f, slope = 0.0f;
+  static hf::World world;
+  memset(&world, 0, sizeof(world));
+  // The bodies of this frame come in the second step, for a hand of the
+  // mesh. The low poly hands and hand_feel_bodies_now=0 take the bodies of
+  // the frame before here.
+  const bool late = g_set.bodies && g_set.bodies_now && in.mesh;
   if (g_live && view && in.length > 0.0f) {
     EnsureTables(in.mesh);
     if (g_set.approach && in.pointing && in.placed && !in.holding &&
@@ -667,91 +984,83 @@ void HandFeelCurls(const HandFeelHand& in,
                    hf::IdleCurl(state.idle_phase, f);
       }
     }
-    hf::World world;
-    if (MakeWorld(in, state, left, &world, &land_under, &slope)) {
-      const float tip = hf::kTipCm * 0.01f * in.units_per_meter;
-      // The tip of the index finger of the pointing hand is the Hand's point,
-      // which goes into a body to choose it. So that finger bends on the
-      // land only.
-      hf::World land_only = world;
-      land_only.bodies = 0;
-      for (int f = 0; f < hf::kFingers; ++f) {
-        const bool point_finger = f == 1 && in.pointing;
-        if (point_finger && !world.land) continue;
-        const hf::World& around = point_finger ? land_only : world;
-        hf::FingerTable table;
-        hf::PlaceTable(g_table[f], in.position, in.rotation, in.length, left,
-                       &table);
-        float radius[hf::kSamples];
-        hf::SampleRadii(overlay_math::kShape[f].radius * in.length, tip,
-                        radius);
-        const auto depth_at = [&](float curl, int* what) {
-          float points[hf::kPoints][3], samples[hf::kSamples][3];
-          hf::TableAt(table, curl, points);
-          hf::Samples(points, samples);
-          return hf::Depth(around, samples, radius, what);
-        };
-        const hf::Free free = hf::FreeCurl(
-            want[f], hf::MayOpen(values[f]), state.side[f],
-            [&](float curl) { return depth_at(curl, nullptr); });
-        state.side[f] = free.side;
-        if (!free.blocked) continue;
-        int what = hf::kInNothing;
-        depth_at(want[f], &what);
-        if (what > in_what) in_what = what;
-        if (!free.free) stuck = true;
-        want[f] = free.curl;
-      }
-    } else {
-      for (int f = 0; f < hf::kFingers; ++f) state.side[f] = 0;
+    for (int f = 0; f < hf::kFingers; ++f) state.base[f] = want[f];
+    MakeLand(in, left, &world, &land_under, &slope);
+    if (!late) AddBodies(in, state, left, &world);
+    if (world.land || world.bodies > 0) {
+      SolveFingers(in, &state, left, world, values, state.base, want,
+                   &in_what, &stuck);
+    } else if (!late) {
+      ResetFingers(&state);
     }
+    state.late = late;
   } else {
     state.approach = false;
+    for (int f = 0; f < hf::kFingers; ++f) state.base[f] = want[f];
     if (g_live && !view) ++g_view_off;
   }
-  // THE FILTER, on what the world adds to the curl of the pose.
+  // What the second step needs.
+  state.in = in;
+  state.late_frame = g_frame;
+  state.land = world.land;
+  if (world.land) state.patch = world.patch;
   for (int f = 0; f < hf::kFingers; ++f) {
-    state.add[f] = hf::FilterStep(state.add[f], want[f] - pose[f], in.dt,
-                                  hf::kFilterSeconds);
-    if (fabsf(state.add[f]) < 1e-4f && want[f] == pose[f]) state.add[f] = 0.0f;
-    curls[f] = hf::Clamp01(pose[f] + state.add[f]);
+    state.want[f] = want[f];
+    state.add_before[f] = state.add[f];
   }
-  // THE PINCH. The thumb and the index finger go to the curls at which their
-  // tips meet at the object, and the thumb turns at its base.
-  if (in.holding && in.mesh) {
-    float weight, thumb_curl, thumb_spread, index_curl;
-    if (PinchNow(&weight, &thumb_curl, &thumb_spread, &index_curl)) {
-      curls[0] = pinch_math::Mix(curls[0], thumb_curl, weight);
-      curls[1] = pinch_math::Mix(curls[1], index_curl, weight);
-      OverlaySetFinger(in.hand, 0, curls[0], thumb_spread * weight, 1.0f);
-    }
-  }
+  Finish(in, &state, want, curls, shape);
   if (in_what == hf::kInLand) ++g_in_land;
   if (in_what == hf::kInBody) ++g_in_body;
   if (stuck) ++g_stuck;
-  // THE PULSE, when a finger first meets the land or a body.
+  // THE PULSE, when a finger first meets the land (or a body, when the
+  // bodies come in this step).
+  bool pulsed = false;
   if (hf::MeetPulse(in_what != hf::kInNothing, in.dt, &state.quiet) &&
       g_set.pulse) {
     ++g_pulses;
-    HapticsPulseHands(in.pointing ? 2 : 1, haptics_math::kSurface);
+    pulsed = true;
+    HapticsPulseHands(HandMask(in), haptics_math::kSurface);
+  }
+  // THE WATER LINE: one pulse when a finger tip goes into the sea.
+  const bool wet = InSea(in, left, world, curls);
+  if (wet) ++g_wet;
+  if (wet != state.wet) {
+    if (g_sea_logs < kMaxSeaLogs) {
+      ++g_sea_logs;
+      ModLog("hand feel    : a finger tip of the %s hand %s the sea, frame "
+             "%llu. The middle of the hand is %.1f cm of the room over the "
+             "plane of the sea",
+             left ? "left" : "right", wet ? "goes into" : "comes out of",
+             g_frame,
+             in.units_per_meter > 0.0f ? land_under / in.units_per_meter * 100.0f
+                                       : 0.0f);
+    }
+    state.wet = wet;
+  }
+  // One pulse in a frame: a hand that meets the land and the water at once
+  // gets the pulse of the land.
+  if (hf::MeetPulse(wet, in.dt, &state.sea_quiet) && g_set.pulse && !pulsed) {
+    ++g_sea_pulses;
+    HapticsPulseHandsClear(HandMask(in), haptics_math::kSurface);
   }
   // One line for each change of what the hand is in.
-  if (in_what != state.in) {
+  if (in_what != state.in_what) {
     const bool due = g_frame >= state.in_frame + kMeetLogGap;
     if (due && g_meet_logs < kMaxMeetLogs) {
       ++g_meet_logs;
       state.in_frame = g_frame;
       char from[40], to[40];
-      LogCurls(pose, from, sizeof(from));
+      LogCurls(state.pose, from, sizeof(from));
       LogCurls(want, to, sizeof(to));
       const float cm = in.units_per_meter > 0.0f
                            ? in.units_per_meter * 0.01f
                            : 1.0f;
       ModLog("hand feel    : the fingers of the %s hand %s, frame %llu. The "
              "curls of the pose are %s and the fingers go to %s (percent, "
-             "thumb to little finger)%s. The middle of the hand is %.1f cm of "
-             "the room over the land, and %d bodies are near. Trigger %.2f, "
-             "grip %.2f",
+             "thumb to little finger)%s. The paths are %d %d %d %d %d (1 the "
+             "outer joints first). The middle of the hand is %.1f cm of the "
+             "room over the land, and %d bodies are near. Trigger %.2f, grip "
+             "%.2f",
              left ? "left" : "right",
              in_what == hf::kInLand
                  ? "are in the land"
@@ -760,13 +1069,15 @@ void HandFeelCurls(const HandFeelHand& in,
              stuck ? ". A finger has no free curl, so it takes the curl with "
                      "the least depth"
                    : "",
-             land_under / cm, state.bodies, in.trigger, in.squeeze);
+             state.path[0], state.path[1], state.path[2], state.path[3],
+             state.path[4], land_under / cm, state.bodies, in.trigger,
+             in.squeeze);
     }
-    state.in = in_what;
+    state.in_what = in_what;
   }
   if (g_set.log_every > 0 && g_frame % g_set.log_every == 0) {
     char from[40], to[40], now[40];
-    LogCurls(pose, from, sizeof(from));
+    LogCurls(state.pose, from, sizeof(from));
     LogCurls(want, to, sizeof(to));
     LogCurls(curls, now, sizeof(now));
     const float cm = in.units_per_meter > 0.0f ? in.units_per_meter * 0.01f
@@ -795,14 +1106,19 @@ void HandFeelCurls(const HandFeelHand& in,
       }
     }
     ModLog("hand feel    : test log, frame %llu, the %s hand%s. Pose %s, the "
-           "world asks for %s, drawn %s. The middle of the hand is at %.1f "
-           "%.1f %.1f, %.1f cm over the land, which has a slope of %.2f. %d "
-           "bodies near, the nearest %.1f cm from the middle. In %d, the "
-           "approach %s, the view %s. The index tip was at the pixel %.0f "
-           "%.0f of the left eye. Bodies:%s",
+           "world asks for %s, drawn %s, outer %.2f %.2f %.2f %.2f %.2f, "
+           "spread %.2f %.2f %.2f %.2f %.2f, thumb turn %.2f. The middle of "
+           "the hand is at %.1f %.1f %.1f, %.1f cm over the land, which has a "
+           "slope of %.2f. %d bodies near, the nearest %.1f cm from the "
+           "middle. In %d, the approach %s, the view %s. The index tip was "
+           "at the pixel %.0f %.0f of the left eye. Bodies:%s",
            g_frame, left ? "left" : "right", in.pointing ? " (pointing)" : "",
-           from, to, now, center[0], center[1], center[2], land_under / cm,
-           slope, state.bodies, state.bodies > 0 ? nearest / cm : 0.0f, in_what,
+           from, to, now, shape->outer[0], shape->outer[1], shape->outer[2],
+           shape->outer[3], shape->outer[4], shape->spread[0],
+           shape->spread[1], shape->spread[2], shape->spread[3],
+           shape->spread[4], shape->thumb_turn, center[0], center[1],
+           center[2], land_under / cm, slope, state.bodies,
+           state.bodies > 0 ? nearest / cm : 0.0f, in_what,
            state.approach ? "is on" : "is off", view ? "is ours" : "is not ours",
            pixel[0], pixel[1], list);
   }
@@ -864,9 +1180,16 @@ bool HandFeelHoldRange(int hand, bool mesh, float length, float hold_radius,
     hf::MakeHeldBody(a, b, game_radius / length, &body);
     capsule = true;
   }
+  // THE SHAPE OF THE HOLD (hand_feel_shape): the thumb turns round the body
+  // by the game's own rule for its size, and the fingers spread round a
+  // large body. Only the mesh turns the thumb.
+  const bool turn = g_set.shape && mesh;
+  const float thumb_turn =
+      turn ? hf::HoldThumbTurn(type, game_radius, length) : 0.0f;
   // The same body as in the last frame: the same pose.
   bool same = g_hold.have && g_hold.object == held && g_hold.mesh == mesh &&
-              fabsf(g_hold.body.radius - body.radius) < 0.002f;
+              fabsf(g_hold.body.radius - body.radius) < 0.002f &&
+              fabsf(g_hold.thumb_turn - thumb_turn) < 0.01f;
   for (int k = 0; same && k < 3; ++k) {
     same = fabsf(g_hold.body.a[k] - body.a[k]) < 0.004f &&
            fabsf(g_hold.body.b[k] - body.b[k]) < 0.004f;
@@ -877,9 +1200,23 @@ bool HandFeelHoldRange(int hand, bool mesh, float length, float hold_radius,
     for (int f = 0; f < hf::kFingers; ++f) {
       finger_radius[f] = overlay_math::kShape[f].radius;
     }
+    const hf::FingerTable* thumb = nullptr;
+    if (turn && thumb_turn > 0.0f) {
+      bool ok = true;
+      hf::FillTable(
+          0,
+          [&](int, float curl, float joints[hf::kPoints][3]) {
+            if (!HandModelFingerJointsPose(0, curl, 0.0f, 0.0f, thumb_turn,
+                                           joints)) {
+              ok = false;
+            }
+          },
+          &g_thumb_table);
+      if (ok) thumb = &g_thumb_table;
+    }
     int touches[hf::kFingers];
     hf::HoldRange(g_table, finger_radius, capsule ? &body : nullptr, ball_body,
-                  game, hf::HoldFromSide(type), &g_hold.range, touches);
+                  game, hf::HoldFromSide(type), &g_hold.range, touches, thumb);
     ++g_hold_made;
     // One line for a new object, and one more when its body becomes the
     // capsule: hand_exact.cpp puts the object in the palm some frames after
@@ -898,20 +1235,26 @@ bool HandFeelHoldRange(int hand, bool mesh, float length, float hold_radius,
              "hand frame, and the ball at the palm has a radius of %.3f. The "
              "hold curls are %s (percent, thumb to little finger). What each "
              "finger stops on, thumb to little finger (1 the capsule, 2 the "
-             "ball, 0 the game's curl): %d %d %d %d %d",
+             "ball, 0 the game's curl): %d %d %d %d %d. The thumb turns "
+             "toward the palm by %.2f, and the fingers spread by %.2f",
              HandDirectClass(held), held, g_frame, type, HoldName(type),
              game_radius, height, length, game_text,
              capsule ? "a capsule on the axis of the object" : "the ball",
              body.radius, body.a[0], body.a[1], body.a[2], body.b[0],
              body.b[1], body.b[2], ball_body.radius, hold_text, touches[0],
-             touches[1], touches[2], touches[3], touches[4]);
+             touches[1], touches[2], touches[3], touches[4],
+             thumb != nullptr ? thumb_turn : 0.0f,
+             g_set.shape ? hf::SizeShare(ball_radius) : 0.0f);
     }
     g_hold.have = true;
     g_hold.object = held;
     g_hold.mesh = mesh;
     g_hold.capsule = capsule;
     g_hold.body = body;
+    g_hold.thumb_turn = thumb != nullptr ? thumb_turn : 0.0f;
   }
+  g_hold.spread_share = g_set.shape && mesh ? hf::SizeShare(ball_radius) : 0.0f;
+  g_hold.frame = g_frame;
   *out = g_hold.range;
   // The pinch takes the thumb and the index finger to the curls at which the
   // tips meet, and the other three fingers curl a little.
@@ -1049,7 +1392,9 @@ void HandFeelSnapshot() {
     any = true;
     overlay_math::PlacePoint(state.position, state.rotation, state.length,
                              state.left, kCenter, center[h]);
-    // A hand moves between two frames, so the reach has some slack.
+    // A hand that moves between two frames needs some slack when the next
+    // frame uses the bodies. The second step of this frame uses them at the
+    // place of this frame.
     reach[h] = (kReach + kBodySlack) * state.length;
   }
   if (any) {
@@ -1099,6 +1444,73 @@ void HandFeelSnapshot() {
       }
     }
   }
+  // THE SECOND STEP: the bodies of this frame bend the fingers of a hand of
+  // the mesh, and the hand is built again.
+  for (int h = 0; h < kHands; ++h) {
+    HandState& state = g_hand[h];
+    if (!state.late || state.late_frame != g_frame || !use[h]) continue;
+    const HandFeelHand& in = state.in;
+    const bool left = h == 0;
+    static hf::World world;
+    memset(&world, 0, sizeof(world));
+    world.land = state.land;
+    if (state.land) world.patch = state.patch;
+    AddBodies(in, state, left, &world);
+    float want[hf::kFingers], values[hf::kFingers];
+    overlay_math::FingerValues(in.trigger, in.squeeze, values);
+    for (int f = 0; f < hf::kFingers; ++f) want[f] = state.want[f];
+    int in_what = hf::kInNothing;
+    bool stuck = false;
+    if (world.bodies > 0) {
+      SolveFingers(in, &state, left, world, values, state.base, want,
+                   &in_what, &stuck);
+    } else if (!world.land) {
+      ResetFingers(&state);
+    }
+    const bool in_body = in_what == hf::kInBody;
+    if (in_body) ++g_in_body;
+    bool changed = false;
+    for (int f = 0; f < hf::kFingers; ++f) {
+      if (want[f] != state.want[f]) changed = true;
+    }
+    if (changed) {
+      float curls[hf::kFingers];
+      HandFeelShape shape;
+      Finish(in, &state, want, curls, &shape);
+      if (OverlayRebuildHand(h, curls, shape)) ++g_rebuilt;
+    }
+    // THE PULSE OF A TOUCH: a body that pushes a finger, or a finger that
+    // goes into a body. A hand that had a pulse of a control in the last 80
+    // ms gets none (world_haptics).
+    if (hf::MeetPulse(in_body, in.dt, &state.body_quiet) && g_set.pulse) {
+      ++g_body_pulses;
+      HapticsPulseHandsClear(HandMask(in), haptics_math::kSurface);
+    }
+    if (in_body != state.body_in) {
+      const bool due = g_frame >= state.body_frame + kMeetLogGap;
+      if (due && g_body_logs < kMaxBodyLogs) {
+        ++g_body_logs;
+        state.body_frame = g_frame;
+        char from[40], to[40];
+        LogCurls(state.want, from, sizeof(from));
+        LogCurls(want, to, sizeof(to));
+        ModLog("hand feel    : the fingers of the %s hand %s, frame %llu, "
+               "with the bodies of the draw of this frame. The curls with "
+               "the land are %s and the fingers go to %s (percent, thumb to "
+               "little finger)%s. The paths are %d %d %d %d %d (1 the outer "
+               "joints first). %d bodies are near",
+               left ? "left" : "right",
+               in_body ? "are in a body" : "are free of the bodies again",
+               g_frame, from, to,
+               stuck ? ". A finger has no free curl, so it takes the curl "
+                       "with the least depth"
+                     : "",
+               state.path[0], state.path[1], state.path[2], state.path[3],
+               state.path[4], world.bodies);
+      }
+      state.body_in = in_body;
+    }
+  }
   CountTicks(Now() - start);
 }
 
@@ -1108,18 +1520,23 @@ void HandFeelReport() {
   const double frames = static_cast<double>(g_frames);
   ModLog("hand feel    : %llu frames, %s. The land was near a hand %llu times "
          "and a body %llu times. A finger was in the land in %llu hand frames "
-         "and in a body in %llu, and %llu had a finger with no free curl. The "
-         "pointing hand opened toward a target in %llu frames. %llu hold "
-         "poses made, %llu pulses. %llu hand frames had no view of the God "
-         "view or the table. %.4f ms a frame on the CPU (the worst frame "
-         "%.3f ms), %.1f land heights and %.0f candidates a frame",
+         "and in a body in %llu, and %llu had a finger with no free curl. "
+         "The outer joints took a bend %llu times. A finger tip was in the "
+         "sea in %llu hand frames. The pointing hand opened toward a target "
+         "in %llu frames. %llu hold poses made, %llu hands built again with "
+         "the bodies of their frame, %llu pulses of the land, %llu of a "
+         "body and %llu of the water line. %llu hand frames had no view of "
+         "the God view or the table. %.4f ms a frame on the CPU (the worst "
+         "frame %.3f ms), %.1f land heights and %.0f candidates a frame",
          g_frames, g_live ? "on" : "off by the test key", g_land_near,
-         g_body_near, g_in_land, g_in_body, g_stuck, g_approach_frames,
-         g_hold_made, g_pulses, g_view_off, Ms(g_ticks) / frames,
-         Ms(g_worst_ticks), static_cast<double>(g_land_calls) / frames,
+         g_body_near, g_in_land, g_in_body, g_stuck, g_outer, g_wet,
+         g_approach_frames, g_hold_made, g_rebuilt, g_pulses, g_body_pulses,
+         g_sea_pulses, g_view_off, Ms(g_ticks) / frames, Ms(g_worst_ticks),
+         static_cast<double>(g_land_calls) / frames,
          static_cast<double>(g_candidates_seen) / frames);
   g_frames = g_land_near = g_body_near = g_in_land = g_in_body = 0;
   g_stuck = g_approach_frames = g_hold_made = g_pulses = g_land_calls = 0;
+  g_outer = g_wet = g_rebuilt = g_body_pulses = g_sea_pulses = 0;
   g_candidates_seen = g_view_off = 0;
   g_ticks = g_worst_ticks = g_frame_ticks = 0;
 }

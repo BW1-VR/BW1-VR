@@ -136,6 +136,7 @@
 #include "fight_math.h"
 #include "take_stream.h"
 #include "forest_take.h"
+#include "hand_feel_math.h"
 #include "haptics.h"
 #include "miracle.h"
 #include "village.h"
@@ -9392,6 +9393,38 @@ bool HandDirectIsTree(void* object) {
   return object != nullptr && IsTreeObject(object);
 }
 
+// The box of the mesh of a candidate in the world, through the matrix of the
+// draw as it is: the rows hold the turn and the scale, as for a scroll
+// (BoxBall). The middle, the three axes of length 1 in rows, and half the
+// size along each. False with no box.
+bool MeshBox(const Candidate& c, float middle[3], float axis[9],
+             float half[3]) {
+  if (c.model == nullptr) return false;
+  void** table = *reinterpret_cast<void** const*>(c.model);
+  const uint8_t* box =
+      reinterpret_cast<MeshBoxFn>(table[kMeshBox / 4])(c.model, nullptr);
+  if (box == nullptr) return false;
+  const float* mid = reinterpret_cast<const float*>(box + kBoxMiddle);
+  const float* size = reinterpret_cast<const float*>(box + kBoxHalf);
+  const float* rows = reinterpret_cast<const float*>(c.model + kMeshRows);
+  for (int k = 0; k < 3; ++k) middle[k] = c.position[k];
+  for (int j = 0; j < 3; ++j) {
+    const float* row = rows + j * 3;
+    const float length =
+        sqrtf(row[0] * row[0] + row[1] * row[1] + row[2] * row[2]);
+    if (!(length > 1e-4f && length < 1e4f) || !(mid[j] == mid[j]) ||
+        !(size[j] > 0.0f && size[j] < 1e5f)) {
+      return false;
+    }
+    for (int k = 0; k < 3; ++k) {
+      axis[j * 3 + k] = row[k] / length;
+      middle[k] += mid[j] * row[k];
+    }
+    half[j] = size[j] * length;
+  }
+  return true;
+}
+
 // For hand_feel.cpp (docs/hand-model.md, "Hands that react to the world"): the
 // body of a candidate of the last first eye pass, as the choice measures it.
 // kind 0 is an upright cylinder from the point of the object, 1 a tree (the
@@ -9415,6 +9448,35 @@ bool HandDirectFeelBody(int index, void** object, float base[3], float* radius,
     *radius = capsule.radius;
     *height = capsule.height;
     *kind = 2;
+    // THE BOX OF THE MESH OF A CREATURE. The capsule of the choice stands
+    // up from the body bone, and a Creature on four legs is longer than it
+    // is wide. The box of its mesh, through the matrix of the draw with the
+    // scale in its rows, has the length of the body. So a finger meets the
+    // flank and the back that the player sees. With no box the capsule
+    // stays.
+    float middle[3], box_axis[9], box_half[3];
+    if (MeshBox(c, middle, box_axis, box_half)) {
+      static int said = 0;
+      if (said < 3) {
+        ++said;
+        ModLog("hand feel    : the Creature %p has the box of its mesh as its "
+               "body for the fingers: the middle %.2f %.2f %.2f, half sizes "
+               "%.2f %.2f %.2f. Its capsule has a radius of %.2f and a height "
+               "of %.2f from %.2f %.2f %.2f",
+               c.object, middle[0], middle[1], middle[2], box_half[0],
+               box_half[1], box_half[2], capsule.radius, capsule.height,
+               capsule.base[0], capsule.base[1], capsule.base[2]);
+      }
+      for (int i = 0; i < 3; ++i) {
+        base[i] = middle[i];
+        half[i] = box_half[i];
+      }
+      for (int i = 0; i < 9; ++i) axis[i] = box_axis[i];
+      float most = box_half[0] > box_half[2] ? box_half[0] : box_half[2];
+      *radius = most;
+      *height = 2.0f * box_half[1];
+      *kind = 4;
+    }
     return true;
   }
   if (IsScrollObject(c.object)) {
@@ -9518,6 +9580,28 @@ namespace {
 //   hold    The Hand's point goes to the nearest object that the Hand can
 //           hold, within 2 m of the room. The test key seek_class has a
 //           class for each word "hold" in its turn ("Rock,Villager").
+//   feel    The Hand's point goes beside the body that hand feel gives the
+//           nearest object of a class, within 2 m of the room
+//           (docs/hand-model.md, "Hands that react to the world"). The test
+//           key seek_feel has one entry for each word "feel" in its turn:
+//           "Class,height,gap|Class,height,gap", with the height on the body
+//           in percent from its bottom and the gap from its surface in cm of
+//           the room (less than 0 is inside). The point is on the level line
+//           from the body to the camera. "any" takes each class, and
+//           "house" an Abode with a radius of less than 5 units (a field
+//           and a store are larger). A fourth
+//           number of 1 or -1 puts the point at one side of the body or at
+//           the other, across the line to the camera.
+//   gofeel  The God view teleports: the head goes over the land 50 cm of
+//           the room before the side of the body of the nearest object of
+//           the class of the next entry of seek_feel, within 30 m of the
+//           room, in the view. The hand does not move.
+//   gosea   The God view teleports: the head goes over the land 60 cm of the
+//           room before the nearest point of the sea in the view, within 30
+//           m of the room. The hand does not move.
+//   sea     The Hand's point goes 2 cm of the room over the nearest point of
+//           the sea, within 2 m of the room (seek_sea_cm gives a different
+//           height).
 enum {
   kPlanNone = 0, kPlanScroll, kPlanAir, kPlanCrown, kPlanPalm, kPlanCreature,
   kPlanCreaturePalm, kPlanGo, kPlanPicture, kPlanScrolls, kPlanGoSite,
@@ -9527,13 +9611,16 @@ enum {
   kPlanDoor, kPlanPost,
   kPlanHold,
   // The Workshop and the base of a tree (village.cpp).
-  kPlanGoShop, kPlanShop, kPlanTreeBase
+  kPlanGoShop, kPlanShop, kPlanTreeBase,
+  // The bodies of hand feel and the sea (hand_feel.cpp).
+  kPlanFeel, kPlanGoSea, kPlanSea, kPlanGoFeel
 };
 int g_plan[16];
 int g_plan_count = -1;
 int g_plan_used = 0;
 int g_plan_go_used = 0;
 int g_plan_picture_used = 0;
+int g_plan_feel_used = 0;
 
 // The numbers of one group of a test key such as "a,b;c,d": the group at
 // index, count numbers with commas between them. False with no such group.
@@ -9613,6 +9700,10 @@ int PlanCount() {
                      : n == 4 && strncmp(at, "shop", 4) == 0   ? kPlanShop
                      : n == 2 && strncmp(at, "up", 2) == 0     ? kPlanUp
                      : n == 4 && strncmp(at, "hold", 4) == 0   ? kPlanHold
+                     : n == 4 && strncmp(at, "feel", 4) == 0   ? kPlanFeel
+                     : n == 6 && strncmp(at, "gofeel", 6) == 0 ? kPlanGoFeel
+                     : n == 5 && strncmp(at, "gosea", 5) == 0  ? kPlanGoSea
+                     : n == 3 && strncmp(at, "sea", 3) == 0    ? kPlanSea
                      : n == 4 && strncmp(at, "down", 4) == 0   ? kPlanDown
                                                                 : kPlanNone;
     if (word != kPlanNone) g_plan[g_plan_count++] = word;
@@ -9676,6 +9767,83 @@ void PlanCensus(const float point[3], void* status, float units) {
            units > 0.0f ? old.gap / units * 100.0f : 0.0f, c.position[0],
            c.position[1], c.position[2], body.radius, body.height);
   }
+}
+
+// THE SEA for the words gosea and sea: the land height at a point, with 0 for
+// the sea, as hand_feel.cpp reads it.
+bool IsSea(float x, float z) {
+  if (!(x > 0.0f && x < 5119.0f && z > 0.0f && z < 5119.0f)) return false;
+  const int32_t coords[3] = {static_cast<int32_t>(x * kMapScale),
+                             static_cast<int32_t>(z * kMapScale), 0};
+  const float y = reinterpret_cast<GetAltitudeFn>(kGetAltitude)(coords);
+  return !(y > 0.0f);
+}
+
+// The nearest point of the sea from a point, on rings of 32 points each
+// `step` units, out to `limit` units. With `back` > 0 the point that is
+// `back` units before it toward the camera must be land.
+bool NearestSea(const float from[3], float step, float limit, float back,
+                float out[3]) {
+  const float* camera = Camera();
+  for (float r = step; r <= limit; r += step) {
+    for (int a = 0; a < 32; ++a) {
+      const float angle = 6.2831853f * static_cast<float>(a) / 32.0f;
+      const float x = from[0] + r * cosf(angle);
+      const float z = from[2] + r * sinf(angle);
+      if (!IsSea(x, z)) continue;
+      if (back > 0.0f) {
+        const float d[2] = {x - camera[0], z - camera[2]};
+        const float flat = sqrtf(d[0] * d[0] + d[1] * d[1]);
+        if (!(flat > 0.01f)) continue;
+        const float bx = x - d[0] / flat * back, bz = z - d[1] / flat * back;
+        if (IsSea(bx, bz)) continue;
+        // In the view: the sea point is in front of the camera.
+        const float view[2] = {g_target[0] - camera[0], g_target[2] - camera[2]};
+        if (d[0] * view[0] + d[1] * view[1] <= 0.0f) continue;
+      }
+      out[0] = x;
+      out[1] = 0.0f;
+      out[2] = z;
+      return true;
+    }
+  }
+  return false;
+}
+
+// THE WORD feel: the entry of the test key seek_feel for this word.
+bool FeelEntry(int index, char* cls, size_t size, float* height_pct,
+               float* gap_cm, int* side = nullptr) {
+  char path[MAX_PATH], text[400] = "";
+  const DWORD length = GetModuleFileNameA(nullptr, path, MAX_PATH);
+  char* slash = length > 0 && length < MAX_PATH ? strrchr(path, '\\') : nullptr;
+  if (slash == nullptr || (slash - path) + 10 >= MAX_PATH) return false;
+  slash[1] = 0;
+  strcat_s(path, "bwvr.ini");
+  GetPrivateProfileStringA("bwvr", "seek_feel", "", text, sizeof(text), path);
+  const char* at = text;
+  for (int i = 0; i < index; ++i) {
+    at = strchr(at, '|');
+    if (at == nullptr) return false;
+    ++at;
+  }
+  const char* comma = strchr(at, ',');
+  if (comma == nullptr) return false;
+  size_t n = static_cast<size_t>(comma - at);
+  if (n >= size) n = size - 1;
+  memcpy(cls, at, n);
+  cls[n] = 0;
+  char* end = nullptr;
+  *height_pct = static_cast<float>(strtod(comma + 1, &end));
+  if (end == comma + 1 || *end != ',') return false;
+  char* after = nullptr;
+  *gap_cm = static_cast<float>(strtod(end + 1, &after));
+  if (side != nullptr) {
+    *side = 0;
+    if (after != nullptr && *after == ',') {
+      *side = static_cast<int>(strtol(after + 1, nullptr, 10));
+    }
+  }
+  return true;
 }
 
 // One place of the plan. False when the candidates have no such place.
@@ -9804,6 +9972,209 @@ bool PlanPoint(int word, float out[3]) {
            units > 0.0f ? Distance(out, g_target) / units * 100.0f : 0.0f,
            g_frame);
     PlanCensus(out, status, units);
+    return true;
+  }
+  if (word == kPlanGoFeel) {
+    char cls[48] = "";
+    float height_pct = 0.0f, gap_cm = 0.0f;
+    const int entry = g_plan_feel_used++;
+    if (!FeelEntry(entry, cls, sizeof(cls), &height_pct, &gap_cm)) {
+      ModLog("hand pick    : seek plan: gofeel. The test key seek_feel has no "
+             "entry %d, frame %llu", entry, g_frame);
+      return false;
+    }
+    const bool any = strcmp(cls, "any") == 0;
+    const bool house = strcmp(cls, "house") == 0;
+    const float* camera = Camera();
+    const float view[2] = {g_target[0] - camera[0], g_target[2] - camera[2]};
+    int found = -1;
+    float best = 30.0f * units;
+    for (int i = 0; i < g_candidate_count; ++i) {
+      const Candidate& c = g_candidates[i];
+      if (!any && strcmp(ClassName(c.object), house ? "Abode" : cls) != 0) {
+        continue;
+      }
+      if (house) {
+        void* object = nullptr;
+        hand_feel::Body b;
+        if (!HandDirectFeelBody(i, &object, b.base, &b.radius, &b.height,
+                                &b.kind, b.axis, b.half) ||
+            b.kind != hand_feel::kBox || !(b.radius < 5.0f)) {
+          continue;
+        }
+      }
+      const float d[2] = {c.position[0] - camera[0], c.position[2] - camera[2]};
+      if (d[0] * view[0] + d[1] * view[1] <= 0.0f) continue;
+      const float span = sqrtf(d[0] * d[0] + d[1] * d[1]);
+      if (span < best) {
+        best = span;
+        found = i;
+      }
+    }
+    if (found < 0) {
+      ModLog("hand pick    : seek plan: gofeel %s. No such object in the view "
+             "within 30 m of the room (%d candidates), frame %llu", cls,
+             g_candidate_count, g_frame);
+      return false;
+    }
+    const float* at = g_candidates[found].position;
+    const float d[2] = {at[0] - camera[0], at[2] - camera[2]};
+    const float flat = sqrtf(d[0] * d[0] + d[1] * d[1]);
+    // 50 cm of the room before the side of its body, so the head is not in
+    // a house that is larger than the room at a zoom in.
+    float back = 0.5f * units;
+    {
+      void* object = nullptr;
+      hand_feel::Body b;
+      if (HandDirectFeelBody(found, &object, b.base, &b.radius, &b.height,
+                             &b.kind, b.axis, b.half)) {
+        back += b.radius;
+      }
+    }
+    const float target[3] = {at[0] - d[0] / flat * back, 0.0f,
+                             at[2] - d[1] / flat * back};
+    const bool went = TabletopGodTeleport(target);
+    ModLog("hand pick    : seek plan: gofeel %s. The nearest one in the view "
+           "is %p at %.1f %.1f %.1f, %.1f m of the room from the camera. %s "
+           "%.1f %.1f, frame %llu", cls, g_candidates[found].object, at[0],
+           at[1], at[2], units > 0.0f ? best / units : 0.0f,
+           went ? "The God view teleports: the head goes over the land at"
+                : "The God view does not own the view, so no teleport to",
+           target[0], target[2], g_frame);
+    return false;
+  }
+  if (word == kPlanFeel) {
+    char cls[48] = "";
+    float height_pct = 50.0f, gap_cm = 1.0f;
+    int side = 0;
+    const int entry = g_plan_feel_used++;
+    if (!FeelEntry(entry, cls, sizeof(cls), &height_pct, &gap_cm, &side)) {
+      ModLog("hand pick    : seek plan: feel. The test key seek_feel has no "
+             "entry %d, frame %llu", entry, g_frame);
+      return false;
+    }
+    const bool any = strcmp(cls, "any") == 0;
+    // "house": an Abode with a radius of less than 5 units. A field and a
+    // store are larger.
+    const bool house = strcmp(cls, "house") == 0;
+    int found = -1;
+    float best = limit;
+    hand_feel::Body body;
+    for (int i = 0; i < g_candidate_count; ++i) {
+      const Candidate& c = g_candidates[i];
+      const char* name = ClassName(c.object);
+      if (!any && strcmp(name, house ? "Abode" : cls) != 0) continue;
+      const float d = Distance(c.position, g_target);
+      if (!(d < best)) continue;
+      void* object = nullptr;
+      hand_feel::Body b;
+      if (!HandDirectFeelBody(i, &object, b.base, &b.radius, &b.height,
+                              &b.kind, b.axis, b.half) ||
+          b.kind == hand_feel::kBall) {
+        continue;
+      }
+      if (house && !(b.kind == hand_feel::kBox && b.radius < 5.0f)) {
+        continue;
+      }
+      best = d;
+      found = i;
+      body = b;
+    }
+    if (found < 0) {
+      ModLog("hand pick    : seek plan: feel %s. No such object with a body "
+             "within 2 m of the room of the Hand (%d candidates), frame %llu",
+             cls, g_candidate_count, g_frame);
+      return false;
+    }
+    // The bottom and the top of the body, and its middle on the land.
+    float bottom = body.base[1], top = body.base[1] + body.height;
+    if (body.kind == hand_feel::kBox) {
+      float extent = 0.0f;
+      for (int j = 0; j < 3; ++j) {
+        extent += fabsf(body.axis[j * 3 + 1]) * body.half[j];
+      }
+      bottom = body.base[1] - extent;
+      top = body.base[1] + extent;
+    }
+    const float y = bottom + 0.01f * height_pct * (top - bottom);
+    const float* camera = Camera();
+    float dir[2] = {camera[0] - body.base[0], camera[2] - body.base[2]};
+    const float flat = sqrtf(dir[0] * dir[0] + dir[1] * dir[1]);
+    if (!(flat > 0.01f)) return false;
+    dir[0] /= flat;
+    dir[1] /= flat;
+    // A side of 1 or -1 puts the point at one side of the body or at the
+    // other, across the line to the camera, so a picture shows the contact
+    // from the side.
+    if (side != 0) {
+      const float turned[2] = {dir[1] * side, -dir[0] * side};
+      dir[0] = turned[0];
+      dir[1] = turned[1];
+    }
+    // The surface: the first point of the line out of the body.
+    const auto at = [&](float t, float p[3]) {
+      p[0] = body.base[0] + dir[0] * t;
+      p[1] = y;
+      p[2] = body.base[2] + dir[1] * t;
+    };
+    float inside = 0.0f, outside = 4.0f * (body.radius + body.height) + 10.0f;
+    for (int k = 0; k < 40; ++k) {
+      const float middle = 0.5f * (inside + outside);
+      float p[3];
+      at(middle, p);
+      if (hand_feel::BodyGapAt(body, p) > 1e-3f) {
+        outside = middle;
+      } else {
+        inside = middle;
+      }
+    }
+    at(outside + gap_cm * 0.01f * units, out);
+    ModLog("hand pick    : seek plan: feel %s. The Hand's point goes %.1f cm "
+           "of the room %s the body of %p (%s, kind %d: radius %.2f, height "
+           "%.2f, half %.2f %.2f %.2f, at %.2f %.2f %.2f), at %.0f percent of "
+           "its height, to %.2f %.2f %.2f. The surface is %.2f units from "
+           "the middle, frame %llu",
+           cls, fabsf(gap_cm), gap_cm < 0.0f ? "inside" : "outside",
+           g_candidates[found].object, ClassName(g_candidates[found].object),
+           body.kind, body.radius, body.height, body.half[0], body.half[1],
+           body.half[2], body.base[0], body.base[1], body.base[2], height_pct,
+           out[0], out[1], out[2], outside, g_frame);
+    return true;
+  }
+  if (word == kPlanGoSea || word == kPlanSea) {
+    float sea[3];
+    const bool go = word == kPlanGoSea;
+    const float back = go ? 0.6f * units : 0.0f;
+    if (!NearestSea(g_target, go ? 0.1f * units : 0.02f * units,
+                    go ? 30.0f * units : limit, back, sea)) {
+      ModLog("hand pick    : seek plan: %s. No sea within %.0f m of the room "
+             "of the Hand, frame %llu", go ? "gosea" : "sea", go ? 30.0 : 2.0,
+             g_frame);
+      return false;
+    }
+    if (go) {
+      const float* camera = Camera();
+      const float d[2] = {sea[0] - camera[0], sea[2] - camera[2]};
+      const float flat = sqrtf(d[0] * d[0] + d[1] * d[1]);
+      const float target[3] = {sea[0] - d[0] / flat * back, 0.0f,
+                               sea[2] - d[1] / flat * back};
+      const bool went = TabletopGodTeleport(target);
+      ModLog("hand pick    : seek plan: gosea. The nearest sea in the view is "
+             "at %.1f %.1f. %s %.1f %.1f, frame %llu", sea[0], sea[2],
+             went ? "The God view teleports: the head goes over the land at"
+                  : "The God view does not own the view, so no teleport to",
+             target[0], target[2], g_frame);
+      return false;
+    }
+    static const int sea_cm = TestKey("seek_sea_cm");
+    out[0] = sea[0];
+    out[1] = (sea_cm > 0 ? sea_cm : 2) * 0.01f * units;
+    out[2] = sea[2];
+    ModLog("hand pick    : seek plan: sea. The Hand's point goes to %.2f %.2f "
+           "%.2f over the sea, %.1f cm of the room from where it is, frame "
+           "%llu", out[0], out[1], out[2],
+           units > 0.0f ? Distance(out, g_target) / units * 100.0f : 0.0f,
+           g_frame);
     return true;
   }
   if (word == kPlanUp || word == kPlanDown) {

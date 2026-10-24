@@ -823,9 +823,13 @@ that moves while the Hand takes it.
     one state"). With one walk, each of its 1580 to 2610 state calls in a
     frame changes a value. The texture filter of the mod adds about 4 calls
     in a frame.
-- **N2. The hands that react.** The part for bodies that the hand passes
-  is built and off (`hand_feel_bodies`): no picture proves it. Not shown: a
-  tree taken with the palm to the side. The idle wave is off
+- **N2. The hands that react.** Not shown on the desktop: a rock and the
+  crown of a tree as a body, a villager that walks into a still hand, and a
+  tree taken with the palm to the side, and a picture from the side of a
+  finger tip that bends at a wall. The box of the Creature does not follow
+  its animation, and the box of a hut with its roof down to the land stops a
+  finger in the air before the roof. The thumb does not go round the trunk of a tree in
+  the Hand: the open thumb is in the trunk. The idle wave is off
   (`hand_feel_idle`).
 - **N3. The hand model.** The game's finger animations are not played (a
   pose is a curl for each finger). The shadow of the Hand on the land has

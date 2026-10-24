@@ -310,9 +310,20 @@ inline void FeelChecks() {
     Near("and a point 6.5 units along the house is 2.5 units from its end",
          hf::BodyGapAt(box, at_end), 2.5, 1e-5);
     Near("a point in the box has no gap", hf::BoxGap(box, inside), 0.0, 1e-6);
-    Check(hf::BodyCounts(box, 19.0f) && !hf::BodyCounts(box, 5.0f),
-          "a house of 4.5 units counts for a hand of 19 units, and not for a "
-          "hand of 5 units", hf::BodyCounts(box, 19.0f), 1);
+    Check(hf::BodyCounts(box, 19.0f) && hf::BodyCounts(box, 2.5f),
+          "the box of a house of 4.5 units counts for a hand of 19 units, and "
+          "for a hand of 2.5 units at a zoom in", hf::BodyCounts(box, 2.5f),
+          1);
+    hf::Body store = box;
+    store.radius = 15.5f;
+    Check(!hf::BodyCounts(store, 2.5f) && hf::BodyCounts(store, 20.0f),
+          "the box of the Village Store counts only for a hand that is larger "
+          "than it", hf::BodyCounts(store, 2.5f), 0);
+    hf::Body round = box;
+    round.kind = hf::kCylinder;
+    Check(!hf::BodyCounts(round, 5.0f),
+          "a cylinder of 4.5 units does not count for a hand of 5 units",
+          hf::BodyCounts(round, 5.0f), 0);
     const hf::Body temple = {hf::kCylinder, {0.0f, 0.0f, 0.0f}, 30.0f, 35.0f};
     Check(!hf::BodyCounts(temple, 19.0f) && hf::BodyCounts(creature, 2.0f),
           "the Temple is larger than the hand, so it does not count. A "

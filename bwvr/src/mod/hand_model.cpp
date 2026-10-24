@@ -1387,6 +1387,37 @@ bool HandModelFingerJoints(int finger, float curl, float spread,
   return true;
 }
 
+// THE FOLD LIMIT of the outer joints of each finger of the mesh in use
+// (hand_model_math.h, OuterFoldLimit), made again when the mesh changes.
+float HandModelOuterLimit(int finger) {
+  static const float* made_for = nullptr;
+  static float limit[hm::kFingers] = {1.0f, 1.0f, 1.0f, 1.0f, 1.0f};
+  if (finger < 0 || finger >= hm::kFingers || !HandModelActive()) return 1.0f;
+  if (made_for != g_mesh.base) {
+    made_for = g_mesh.base;
+    for (int f = 0; f < hm::kFingers; ++f) {
+      limit[f] = hm::OuterFoldLimit(g_skeleton, f, g_mesh.vertices,
+                                    g_mesh.base, g_mesh.bone, g_mesh.weight,
+                                    g_mesh.triangles, g_mesh.index);
+    }
+    ModLog("hand model   : the outer joints of the mesh bend with no fold of "
+           "the skin (no triangle of a joint turned more than %.0f degrees) "
+           "up to %.2f %.2f %.2f %.2f %.2f of their full bend, thumb to "
+           "little finger", hm::kFoldDeg, limit[0], limit[1], limit[2],
+           limit[3], limit[4]);
+  }
+  return limit[finger];
+}
+
+bool HandModelFingerJointsPose(int finger, float curl, float outer,
+                               float spread, float thumb_turn,
+                               float joints[overlay_math::kJoints + 1][3]) {
+  if (finger < 0 || finger >= hm::kFingers || !HandModelActive()) return false;
+  hm::MeshFingerJointsPose(g_skeleton, g_place, finger, curl, outer, spread,
+                           thumb_turn, joints);
+  return true;
+}
+
 bool HandModelIndexTip(int hand, float out[3]) {
   if (hand < 0 || hand > 1 || !g_built[hand].valid) return false;
   memcpy(out, g_built[hand].tip, sizeof(g_built[hand].tip));

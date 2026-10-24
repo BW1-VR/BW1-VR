@@ -87,19 +87,75 @@ inline bool PrepareSkeleton(Skeleton* s) {
 }
 
 // THE FINGER POSE: all that the hand model needs to draw a hand. Each finger
-// has one curl and one spread, and a caller can set each one by itself.
+// has one curl, one spread and one outer bend, and a caller can set each one
+// by itself. The thumb also has a turn.
 //
 //   curl    0 is the rest pose of the mesh, an open hand. 1 is a fist. The
 //           curl scales the bend of each bone of the finger (kFullBendDeg).
 //   spread  radians about the palm normal at the knuckle, plus toward the
 //           thumb side. 0 is the rest pose. For the thumb it turns the base.
+//   outer   the bend that the outer joints take on top of the curl, as a
+//           share of their full bend. The outer joints are the two joints
+//           past the knuckle of a finger, and the last joint of the thumb.
+//           So a curl of 0.2 with an outer bend of 0.5 bends the knuckle by
+//           0.2 and the outer joints by 0.7 of their full bend. 0 bends each
+//           joint by the curl.
+//   thumb_turn  0 to 1. The turn of the thumb toward the palm at its base
+//           (kThumbTurn): 1 is the thumb of the game's own open hold pose.
 struct FingerPose {
   float curl[kFingers];
   float spread[kFingers];
+  float outer[kFingers];
+  float thumb_turn;
 };
 
 inline void OpenPose(FingerPose* pose) {
-  for (int f = 0; f < kFingers; ++f) pose->curl[f] = pose->spread[f] = 0.0f;
+  for (int f = 0; f < kFingers; ++f) {
+    pose->curl[f] = pose->spread[f] = pose->outer[f] = 0.0f;
+  }
+  pose->thumb_turn = 0.0f;
+}
+
+// The first joint of a finger chain that is an outer joint: the joints past
+// the knuckle of a finger (chain 2 and 3), and the last joint of the thumb
+// (chain 2, bone 21).
+const int kFirstOuter = 2;
+
+// THE TURN OF THE THUMB TOWARD THE PALM. The game's own open hold pose
+// (hold_side, frame 1, "The hold pose of the game" in docs/hand-model.md)
+// turns the base of the thumb (bone 3) and its next bone (bone 20) as well as
+// bending it. These are those two turns, measured in hh.HBN: an axis in the
+// frame of the bone and an angle, with the bend of the bone left out. The
+// turn of bone 3 is mostly about the long axis of the thumb, so it turns the
+// pad of the thumb toward the fingers, and the tip of the open thumb goes out
+// in front of the palm. The game's closed hold pose (hold_side, frame 0) has
+// 10.8 degrees of the first turn. The game's animations turn the thumb so,
+// and the mesh shows these turns with no gap.
+struct ThumbTurn {
+  int bone;
+  float axis[3];
+  float degrees;
+};
+const ThumbTurn kThumbTurn[2] = {{3, {-0.1184f, 0.3288f, 0.9370f}, 42.04f},
+                                 {20, {-0.3056f, 0.9209f, -0.2421f}, 30.28f}};
+
+// A turn about an axis, as a game matrix (a point is a row), in
+// the sense of the turns that the game's animations give a bone.
+inline void AxisTurn(const float axis[3], float radians, float out[12]) {
+  const float c = cosf(radians), s = sinf(radians), t = 1.0f - c;
+  const float n = sqrtf(axis[0] * axis[0] + axis[1] * axis[1] +
+                        axis[2] * axis[2]);
+  const float inv = n > 1e-6f ? 1.0f / n : 0.0f;
+  const float x = axis[0] * inv, y = axis[1] * inv, z = axis[2] * inv;
+  // The turn of a column vector. The rows of the game matrix are its
+  // columns.
+  const float col[9] = {t * x * x + c,     t * x * y - s * z, t * x * z + s * y,
+                        t * x * y + s * z, t * y * y + c,     t * y * z - s * x,
+                        t * x * z - s * y, t * y * z + s * x, t * z * z + c};
+  for (int r = 0; r < 3; ++r) {
+    for (int k = 0; k < 3; ++k) out[r * 3 + k] = col[k * 3 + r];
+  }
+  out[9] = out[10] = out[11] = 0.0f;
 }
 
 // The turn of a bone in its own frame, as a game matrix: a bend toward the
@@ -125,18 +181,34 @@ inline void PoseBones(const Skeleton& s, const FingerPose& pose,
   const float k = 3.14159265f / 180.0f;
   for (int f = 0; f < kFingers; ++f) {
     const float curl = overlay_math::Clamp01(pose.curl[f]);
+    const float outer = overlay_math::Clamp01(pose.curl[f] + pose.outer[f]);
     for (int j = 0; j < kChain; ++j) {
       const int b = kFingerBones[f][j];
       if (b < 0) continue;
-      bend[b] = curl * kFullBendDeg[f][j] * k;
+      bend[b] = (j >= kFirstOuter ? outer : curl) * kFullBendDeg[f][j] * k;
       if (j == SpreadLink(f)) spread[b] = pose.spread[f];
     }
   }
+  const float thumb_turn = overlay_math::Clamp01(pose.thumb_turn);
   for (int b = 0; b < kBones; ++b) {
     float local[12];
-    if (bend[b] != 0.0f || spread[b] != 0.0f) {
+    const ThumbTurn* extra = nullptr;
+    if (thumb_turn > 0.0f) {
+      for (int t = 0; t < 2; ++t) {
+        if (kThumbTurn[t].bone == b) extra = &kThumbTurn[t];
+      }
+    }
+    if (bend[b] != 0.0f || spread[b] != 0.0f || extra != nullptr) {
       float turn[12];
       BoneTurn(bend[b], spread[b], turn);
+      if (extra != nullptr) {
+        // The bend and the spread, then the turn of the thumb, in the frame
+        // of the bone.
+        float more[12], both[12];
+        AxisTurn(extra->axis, thumb_turn * extra->degrees * k, more);
+        hx::MultiplyGame(turn, more, both);
+        for (int i = 0; i < 12; ++i) turn[i] = both[i];
+      }
       hx::MultiplyGame(turn, s.local[b], local);
     } else {
       for (int i = 0; i < 12; ++i) local[i] = s.local[b][i];
@@ -167,6 +239,118 @@ inline void SkinVector(const float skin[12], const float v[3], float out[3]) {
   for (int i = 0; i < 3; ++i) {
     out[i] = v[0] * skin[0 + i] + v[1] * skin[3 + i] + v[2] * skin[6 + i];
   }
+}
+
+// THE FOLD LIMIT OF THE OUTER JOINTS of one finger, from the mesh. Each
+// vertex of the mesh goes with its bones, and a joint has no skin that
+// stretches. So a triangle that has its corners on two bones of a joint is
+// sheared when the joint bends, and past some bend it folds over and makes a
+// sharp crease. For each triangle of the finger with its corners on more
+// than one bone, the mod compares its normal in the pose with its normal at
+// rest turned by the bones of its corners. The limit is the largest outer
+// curl, on a grid of kFoldSteps with the knuckle at the rest curl, at which
+// no such triangle turned more than kFoldDeg from that normal. The vertices
+// are those of the rest mesh, with up to 4 bones and weights each.
+const float kFoldDeg = 45.0f;
+const int kFoldSteps = 32;
+
+inline float OuterFoldLimit(const Skeleton& s, int finger, int vertices,
+                            const float* rest, const uint8_t* bones,
+                            const float* weights, int triangles,
+                            const uint32_t* index) {
+  if (finger < 0 || finger >= kFingers || vertices <= 0 || triangles <= 0) {
+    return 1.0f;
+  }
+  // The bone of a vertex with the most weight, and whether it is a bone of
+  // the finger.
+  const auto main_bone = [&](int v) {
+    int best = bones[v * 4];
+    float most = weights[v * 4];
+    for (int k = 1; k < 4; ++k) {
+      if (weights[v * 4 + k] > most) {
+        most = weights[v * 4 + k];
+        best = bones[v * 4 + k];
+      }
+    }
+    return best;
+  };
+  const auto in_finger = [&](int b) {
+    for (int j = 0; j < kChain; ++j) {
+      if (kFingerBones[finger][j] == b) return true;
+    }
+    return false;
+  };
+  const float cos_limit = cosf(kFoldDeg * 3.14159265f / 180.0f);
+  float limit = 1.0f;
+  for (int step = 1; step <= kFoldSteps; ++step) {
+    const float outer = static_cast<float>(step) / kFoldSteps;
+    FingerPose pose;
+    OpenPose(&pose);
+    pose.curl[finger] = overlay_math::kRestCurl;
+    pose.outer[finger] = outer - overlay_math::kRestCurl;
+    float world[kBones][12], skin[kBones][12];
+    PoseBones(s, pose, world);
+    SkinMatrices(s, world, skin);
+    bool folded = false;
+    for (int t = 0; t < triangles && !folded; ++t) {
+      const uint32_t* tri = index + t * 3;
+      int corner_bone[3];
+      bool all = true, two = false;
+      for (int c = 0; c < 3; ++c) {
+        if (tri[c] >= static_cast<uint32_t>(vertices)) {
+          all = false;
+          break;
+        }
+        corner_bone[c] = main_bone(static_cast<int>(tri[c]));
+        if (!in_finger(corner_bone[c])) all = false;
+        if (c > 0 && corner_bone[c] != corner_bone[0]) two = true;
+      }
+      if (!all || !two) continue;
+      float p[3][3], q[3][3];
+      for (int c = 0; c < 3; ++c) {
+        const int v = static_cast<int>(tri[c]);
+        for (int k = 0; k < 3; ++k) {
+          p[c][k] = rest[v * 3 + k];
+          q[c][k] = 0.0f;
+        }
+        for (int k = 0; k < 4; ++k) {
+          const float w = weights[v * 4 + k];
+          if (!(w > 0.0f)) continue;
+          float moved[3];
+          SkinPoint(skin[bones[v * 4 + k]], p[c], moved);
+          for (int i = 0; i < 3; ++i) q[c][i] += w * moved[i];
+        }
+      }
+      float e1[3], e2[3], rest_n[3], pose_n[3];
+      for (int k = 0; k < 3; ++k) {
+        e1[k] = p[1][k] - p[0][k];
+        e2[k] = p[2][k] - p[0][k];
+      }
+      hx::Cross(e1, e2, rest_n);
+      if (!hx::Normalize(rest_n)) continue;
+      for (int k = 0; k < 3; ++k) {
+        e1[k] = q[1][k] - q[0][k];
+        e2[k] = q[2][k] - q[0][k];
+      }
+      hx::Cross(e1, e2, pose_n);
+      if (!hx::Normalize(pose_n)) {
+        folded = true;
+        break;
+      }
+      // The rest normal turned by the bone of each corner, summed.
+      float want[3] = {0.0f, 0.0f, 0.0f};
+      for (int c = 0; c < 3; ++c) {
+        float turned[3];
+        SkinVector(skin[corner_bone[c]], rest_n, turned);
+        for (int k = 0; k < 3; ++k) want[k] += turned[k];
+      }
+      if (!hx::Normalize(want)) continue;
+      if (hx::Dot(pose_n, want) < cos_limit) folded = true;
+    }
+    if (folded) break;
+    limit = outer;
+  }
+  return limit;
 }
 
 // THE PLACE OF THE MESH in the hand frame of the right hand:
@@ -279,13 +463,19 @@ inline void WorldMaps(const Placement& place, const float position[3],
 // spread: the knuckle, the two middle joints and the tip. The thumb gives its
 // base, its two joints and its tip. The same form as
 // overlay_math::FingerJoints.
-inline void MeshFingerJointsSpread(const Skeleton& s, const Placement& place,
-                                   int finger, float curl, float spread,
-                                   float joints[overlay_math::kJoints + 1][3]) {
+// With an outer bend and a turn of the thumb (FingerPose): the knuckle takes
+// the curl, the outer joints take the curl and the outer bend, and the thumb
+// takes the turn.
+inline void MeshFingerJointsPose(const Skeleton& s, const Placement& place,
+                                 int finger, float curl, float outer,
+                                 float spread, float thumb_turn,
+                                 float joints[overlay_math::kJoints + 1][3]) {
   FingerPose pose;
   OpenPose(&pose);
   pose.curl[finger] = curl;
+  pose.outer[finger] = outer;
   pose.spread[finger] = spread;
+  if (finger == 0) pose.thumb_turn = thumb_turn;
   float world[kBones][12];
   PoseBones(s, pose, world);
   const int first = finger == 0 ? 0 : 1;
@@ -300,6 +490,12 @@ inline void MeshFingerJointsSpread(const Skeleton& s, const Placement& place,
   float tip_mesh[3];
   hx::ModelToWorld(world[last], end, tip_mesh);
   MeshToHand(place, tip_mesh, joints[overlay_math::kJoints]);
+}
+
+inline void MeshFingerJointsSpread(const Skeleton& s, const Placement& place,
+                                   int finger, float curl, float spread,
+                                   float joints[overlay_math::kJoints + 1][3]) {
+  MeshFingerJointsPose(s, place, finger, curl, 0.0f, spread, 0.0f, joints);
 }
 
 inline void MeshFingerJoints(const Skeleton& s, const Placement& place,

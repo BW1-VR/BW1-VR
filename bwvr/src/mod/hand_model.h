@@ -60,6 +60,16 @@ bool HandModelBuild(int hand, const float position[3], const float rotation[9],
 bool HandModelFingerJoints(int finger, float curl, float spread,
                            float joints[overlay_math::kJoints + 1][3]);
 
+// The largest bend of the outer joints of one finger of the mesh in use, as
+// a share of their full bend, at which the skin of the joints does not fold
+// (hand_model::OuterFoldLimit). 1 when the model is not in use.
+float HandModelOuterLimit(int finger);
+
+// The same with an outer bend and a turn of the thumb (hand_model::FingerPose).
+bool HandModelFingerJointsPose(int finger, float curl, float outer,
+                               float spread, float thumb_turn,
+                               float joints[overlay_math::kJoints + 1][3]);
+
 // The tip of the index finger of the mesh of a hand in the world, as it was
 // built in this frame. False when the hand was not built.
 bool HandModelIndexTip(int hand, float out[3]);
